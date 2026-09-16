@@ -108,23 +108,27 @@ public sealed record RaidAdjustedLootThresholds
             throw new ArgumentOutOfRangeException(nameof(risk));
         }
 
-        var riskBand = risk switch
-        {
-            RecommendationRaidRisk.Low => Normal,
-            RecommendationRaidRisk.Elevated => ElevatedRisk,
-            RecommendationRaidRisk.High => HighRisk,
-            RecommendationRaidRisk.Critical => CriticalRisk,
-            _ => throw new ArgumentOutOfRangeException(nameof(risk)),
-        };
-        var phaseBand = phase switch
-        {
-            RecommendationRaidPhase.Early or RecommendationRaidPhase.Middle => Normal,
-            RecommendationRaidPhase.Late => LateRaid,
-            RecommendationRaidPhase.Extracting => Extracting,
-            _ => throw new ArgumentOutOfRangeException(nameof(phase)),
-        };
+        var riskBand = RequiredBand(risk);
+        var phaseBand = RequiredBand(phase);
         return (int)riskBand >= (int)phaseBand ? riskBand : phaseBand;
     }
+
+    public EconomicValueBand RequiredBand(RecommendationRaidPhase phase) => phase switch
+    {
+        RecommendationRaidPhase.Early or RecommendationRaidPhase.Middle => Normal,
+        RecommendationRaidPhase.Late => LateRaid,
+        RecommendationRaidPhase.Extracting => Extracting,
+        _ => throw new ArgumentOutOfRangeException(nameof(phase)),
+    };
+
+    public EconomicValueBand RequiredBand(RecommendationRaidRisk risk) => risk switch
+    {
+        RecommendationRaidRisk.Low => Normal,
+        RecommendationRaidRisk.Elevated => ElevatedRisk,
+        RecommendationRaidRisk.High => HighRisk,
+        RecommendationRaidRisk.Critical => CriticalRisk,
+        _ => throw new ArgumentOutOfRangeException(nameof(risk)),
+    };
 
     private static EconomicValueBand Defined(EconomicValueBand value, string parameterName) =>
         Enum.IsDefined(value) ? value : throw new ArgumentOutOfRangeException(parameterName);

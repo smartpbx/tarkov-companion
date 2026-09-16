@@ -17,6 +17,8 @@ namespace TarkovCompanion.Application.Services.Recommendations;
 public sealed class ExplainableRecommendationEngine(
     ExplainableRecommendationPolicy? policy = null)
 {
+    private const int MaximumEvidenceEntries = 32;
+
     private readonly ExplainableRecommendationPolicy _policy = policy ?? ExplainableRecommendationPolicy.Default;
 
     public V2RecommendationResult Evaluate(ExplainableRecommendationRequest request)
@@ -27,19 +29,31 @@ public sealed class ExplainableRecommendationEngine(
         var reasons = new List<ReasonDraft>();
         var sensitivities = new List<RecommendationSensitivity>();
         var evidenceIssues = new SortedDictionary<string, EvidenceIssue>(StringComparer.Ordinal);
+        var decisionInputs = new List<EvidenceProvenance>();
         var profile = request.Profile;
 
-        if (profile.Status.Completeness != ResultCompleteness.Complete ||
-            profile.Status.Freshness != FreshnessState.Current)
+        var profileAssessment = AssessEvidence(
+            profile.Status,
+            profile.Provenance,
+            request.EvaluatedUtc,
+            _policy.MaximumInventoryAge,
+            allowPartial: false);
+        if (!profileAssessment.IsReliable)
         {
             AddIssue(
                 evidenceIssues,
                 "profile.incomplete",
                 "Profile progress is incomplete or stale; recheck progression before discarding the item.",
-                profile.Provenance);
+                profileAssessment);
         }
 
-        var explicitAction = CurrentValue(profile.ExplicitAction);
+        var explicitEvidence = InspectOptionalProfileField(
+            profile.ExplicitAction,
+            request,
+            evidenceIssues,
+            "profile.override-untrusted",
+            "The explicit item rule is ambiguous, stale, incomplete, or below the confidence threshold.");
+        var explicitAction = explicitEvidence?.Value;
         if (explicitAction is { } overridden)
         {
             reasons.Add(new(
@@ -47,11 +61,17 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.ExplicitOverride,
                 "override.explicit",
                 $"Your explicit item rule says {ActionText(overridden)}.",
-                profile.ExplicitAction.Provenance));
+                explicitEvidence!.Provenance));
             sensitivities.Add(new("override-removed", "Removing the explicit item rule may change this recommendation.", null));
         }
 
-        var eventState = CurrentValue(profile.EventState);
+        var eventEvidence = InspectRequiredProfileField(
+            profile.EventState,
+            request,
+            evidenceIssues,
+            "profile.event-state-untrusted",
+            "Event-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
+        var eventState = eventEvidence?.Value;
         if (eventState == EventItemState.Allergic)
         {
             reasons.Add(new(
@@ -59,14 +79,20 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.Safety,
                 "event.allergic",
                 "A prior result marked this event item allergic; do not consume it.",
-                profile.EventState.Provenance));
+                eventEvidence!.Provenance));
             sensitivities.Add(new(
                 "event-state-corrected",
                 "A reviewed correction to the recorded event result would change the safety advice.",
                 V2RecommendationAction.Review));
         }
 
-        var isProtected = CurrentValue(profile.ProtectedItem) == true;
+        var protectedEvidence = InspectRequiredProfileField(
+            profile.ProtectedItem,
+            request,
+            evidenceIssues,
+            "profile.protection-untrusted",
+            "Item protection is ambiguous, stale, incomplete, or below the confidence threshold.");
+        var isProtected = protectedEvidence?.Value == true;
         if (isProtected)
         {
             reasons.Add(new(
@@ -74,14 +100,15 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.Safety,
                 "item.protected",
                 "This item is protected from discard or sale recommendations.",
-                profile.ProtectedItem.Provenance));
+                protectedEvidence!.Provenance));
             sensitivities.Add(new("protection-removed", "Removing protection may expose economic actions.", null));
         }
 
-        var inventory = profile.Needs.Any(IsInHorizon)
+        var trustedNeeds = InspectNeeds(request, evidenceIssues);
+        var inventory = trustedNeeds.Count > 0
             ? InspectInventory(request, evidenceIssues)
             : InventoryInspection.Unknown;
-        var applicableNeeds = AllocateNeeds(request, inventory, evidenceIssues);
+        var applicableNeeds = AllocateNeeds(request, trustedNeeds, inventory, evidenceIssues);
         foreach (var need in applicableNeeds)
         {
             var rule = RuleFor(need.Need);
@@ -91,12 +118,15 @@ public sealed class ExplainableRecommendationEngine(
             var holdings = need.Allocated > 0
                 ? $" after {need.Allocated} compatible observed holding(s)"
                 : string.Empty;
-            var provenance = need.Allocated > 0 && inventory.CountProvenance is { } countProvenance
-                ? CombineProvenance(
+            var needInputs = new[] { need.Provenance }
+                .Concat(need.SupportingProvenance)
+                .ToArray();
+            var provenance = needInputs.Length == 1
+                ? needInputs[0]
+                : CombineProvenance(
                     $"recommendation.need.{need.Need.NeedId}",
                     request.EvaluatedUtc,
-                    [need.Need.Provenance, countProvenance])
-                : need.Need.Provenance;
+                    needInputs);
             reasons.Add(new(
                 rule,
                 category,
@@ -109,7 +139,13 @@ public sealed class ExplainableRecommendationEngine(
                 null));
         }
 
-        var isPinned = CurrentValue(profile.Pinned) == true;
+        var pinnedEvidence = InspectRequiredProfileField(
+            profile.Pinned,
+            request,
+            evidenceIssues,
+            "profile.pinned-untrusted",
+            "Pinned-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
+        var isPinned = pinnedEvidence?.Value == true;
         if (isPinned)
         {
             reasons.Add(new(
@@ -117,11 +153,17 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.PinOrWishlist,
                 "profile.pinned",
                 "You pinned this item.",
-                profile.Pinned.Provenance));
+                pinnedEvidence!.Provenance));
             sensitivities.Add(new("pin-removed", "Unpinning the item may expose its economic recommendation.", null));
         }
 
-        var isWishlisted = CurrentValue(profile.Wishlist) == true;
+        var wishlistEvidence = InspectRequiredProfileField(
+            profile.Wishlist,
+            request,
+            evidenceIssues,
+            "profile.wishlist-untrusted",
+            "Wishlist state is ambiguous, stale, incomplete, or below the confidence threshold.");
+        var isWishlisted = wishlistEvidence?.Value == true;
         if (isWishlisted)
         {
             reasons.Add(new(
@@ -129,7 +171,7 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.PinOrWishlist,
                 "profile.wishlist",
                 "This item is on your wishlist.",
-                profile.Wishlist.Provenance));
+                wishlistEvidence!.Provenance));
             sensitivities.Add(new("wishlist-removed", "Removing the item from the wishlist may change the answer.", null));
         }
 
@@ -140,7 +182,7 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.Safety,
                 "event.untested",
                 "This event item is untested; review it before consuming.",
-                profile.EventState.Provenance));
+                eventEvidence!.Provenance));
             sensitivities.Add(new("event-tested", "Recording the tested result will replace the review advice.", null));
         }
         else if (eventState == EventItemState.Safe)
@@ -150,10 +192,14 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.Safety,
                 "event.safe",
                 "A prior result marked this event item safe to consume.",
-                profile.EventState.Provenance));
+                eventEvidence!.Provenance));
         }
 
         var scarcity = InspectScarcity(request, evidenceIssues);
+        if (scarcity.Provenance is { } reliableScarcity)
+        {
+            decisionInputs.Add(reliableScarcity);
+        }
         if (scarcity.ShouldKeep && scarcity.Band is { } scarcityBand && scarcity.Provenance is { } scarcityProvenance)
         {
             reasons.Add(new(
@@ -165,6 +211,7 @@ public sealed class ExplainableRecommendationEngine(
         }
 
         var raidContext = InspectRaidContext(request, evidenceIssues);
+        decisionInputs.AddRange(raidContext.DecisionInputs);
         if (raidContext.IsAvailable)
         {
             AddRaidContextReasons(raidContext, reasons);
@@ -177,7 +224,7 @@ public sealed class ExplainableRecommendationEngine(
                 ExplainableRecommendationRule.Economics,
                 RecommendationReasonCategory.Economics,
                 $"economics.{economic.SourceCode}.{economic.Band.ToString().ToLowerInvariant()}",
-                EconomicExplanation(request.Economics, economic),
+                EconomicExplanation(economic),
                 economic.CalculationProvenance));
             sensitivities.Add(new(
                 "price-or-footprint-updated",
@@ -249,10 +296,13 @@ public sealed class ExplainableRecommendationEngine(
             isWishlisted,
             scarcity,
             raidContext,
-            economics);
-        var orderedReasons = reasons
+            economics,
+            evidenceIssues.Count > 0);
+        var orderedDrafts = reasons
             .OrderByDescending(reason => _policy.PriorityOf(reason.Rule))
             .ThenBy(reason => reason.Code, StringComparer.Ordinal)
+            .ToArray();
+        var orderedReasons = orderedDrafts
             .Select(reason => new V2RecommendationReason(
                 reason.Category,
                 reason.Code,
@@ -260,6 +310,9 @@ public sealed class ExplainableRecommendationEngine(
                 _policy.PriorityOf(reason.Rule),
                 reason.Provenance))
             .ToArray();
+        var summaryReason = dominantRule is { } rule
+            ? orderedDrafts.FirstOrDefault(reason => reason.Rule == rule) ?? orderedDrafts[0]
+            : orderedDrafts[0];
 
         var (opportunityCost, opportunityLineage) = CreateOpportunityCost(
             request,
@@ -267,7 +320,7 @@ public sealed class ExplainableRecommendationEngine(
             dominantRule == ExplainableRecommendationRule.Economics);
         var decision = new RecommendationDecision(
             action,
-            Summary(action, orderedReasons[0].Explanation),
+            Summary(action, summaryReason.Explanation),
             orderedReasons,
             opportunityCost,
             opportunityLineage,
@@ -278,13 +331,14 @@ public sealed class ExplainableRecommendationEngine(
         var decisionProvenance = CombineProvenance(
             "recommendation.decision",
             request.EvaluatedUtc,
-            orderedReasons.Select(reason => reason.Provenance).ToArray());
+            orderedReasons
+                .Select(reason => reason.Provenance)
+                .Concat(decisionInputs)
+                .ToArray());
         var completeness = evidenceIssues.Count == 0
             ? ResultCompleteness.Complete
             : ResultCompleteness.Partial;
-        var freshness = HasStaleContext(request)
-            ? FreshnessState.Stale
-            : FreshnessState.Current;
+        var freshness = DecisionFreshness(evidenceIssues.Values);
         var decisionEvidence = new EvidencedValue<RecommendationDecision>(
             "recommendation.decision",
             decision,
@@ -307,21 +361,42 @@ public sealed class ExplainableRecommendationEngine(
         var snapshot = request.Inventory;
         if (snapshot is null)
         {
-            AddIssue(issues, "inventory.missing", "No inventory snapshot was available for holdings subtraction.", request.Profile.Provenance);
+            AddIssue(
+                issues,
+                "inventory.missing",
+                "No inventory snapshot was available for holdings subtraction.",
+                request.Profile.Provenance,
+                FreshnessState.Unknown);
             return InventoryInspection.Unknown;
         }
 
         if (snapshot.Scope != request.ProfileScope ||
             !string.Equals(snapshot.DataSnapshotId, request.DataSnapshotId, StringComparison.Ordinal))
         {
-            AddIssue(issues, "inventory.incompatible", "The inventory snapshot belongs to a different profile or data snapshot and was not subtracted.", snapshot.Provenance);
+            AddIssue(
+                issues,
+                "inventory.incompatible",
+                "The inventory snapshot belongs to a different profile or data snapshot and was not subtracted.",
+                snapshot.Provenance,
+                snapshot.Status.Freshness);
             return InventoryInspection.Unknown;
         }
 
-        if (!IsFresh(snapshot.Status, snapshot.Provenance, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
-            !MeetsConfidence(snapshot.Provenance))
+        var snapshotAssessment = AssessEvidence(
+            snapshot.Status,
+            snapshot.Provenance,
+            request.EvaluatedUtc,
+            _policy.MaximumInventoryAge,
+            allowPartial: true);
+        if (!snapshotAssessment.IsReliable)
         {
-            AddIssue(issues, "inventory.stale", "The inventory snapshot is stale or below the confidence threshold and was not subtracted.", snapshot.Provenance);
+            AddIssue(
+                issues,
+                snapshotAssessment.Failure == EvidenceFailure.Stale
+                    ? "inventory.stale"
+                    : "inventory.untrusted",
+                "The inventory snapshot is incomplete, stale, or below the confidence threshold and was not subtracted.",
+                snapshotAssessment);
             return InventoryInspection.Unknown;
         }
 
@@ -329,78 +404,156 @@ public sealed class ExplainableRecommendationEngine(
         if (observed is null)
         {
             var provesZero = snapshot.Status.Completeness == ResultCompleteness.Complete &&
-                             snapshot.Coverage.Fraction == 1;
+                             snapshot.Coverage.Fraction == 1 &&
+                             snapshot.UnresolvedCells == 0;
             if (!provesZero)
             {
-                AddIssue(issues, "inventory.partial", "The scanned inventory does not cover enough space to treat an unseen item as zero held.", snapshot.Provenance);
-                return new InventoryInspection(null, null, false, true, snapshot.Provenance, null);
+                AddIssue(
+                    issues,
+                    "inventory.partial",
+                    "The scanned inventory does not cover enough space to treat an unseen item as zero held.",
+                    snapshot.Provenance,
+                    snapshot.Status.Freshness);
+                return new InventoryInspection(null, null);
             }
 
-            return new InventoryInspection(0, 0, true, false, snapshot.Provenance, snapshot.Provenance);
+            var zero = new TrustedValue<int>(0, snapshot.Provenance);
+            return new InventoryInspection(zero, zero);
         }
 
-        var total = ReliableCount(observed.TotalQuantity, request.EvaluatedUtc);
-        var foundInRaid = ReliableCount(observed.FoundInRaidQuantity, request.EvaluatedUtc);
-        if (total is null || foundInRaid is null)
+        var total = InspectEvidence(
+            observed.TotalQuantity,
+            request.EvaluatedUtc,
+            _policy.MaximumInventoryAge,
+            allowPartial: false);
+        var foundInRaid = InspectEvidence(
+            observed.FoundInRaidQuantity,
+            request.EvaluatedUtc,
+            _policy.MaximumInventoryAge,
+            allowPartial: false);
+        if (!total.IsReliable)
         {
-            AddIssue(issues, "inventory.count-partial", "One or more observed holding counts are unknown; only positive compatible counts were subtracted.", snapshot.Provenance);
+            AddIssue(
+                issues,
+                "inventory.total-untrusted",
+                "The observed total holding count is unknown, ambiguous, stale, or below the confidence threshold.",
+                total.Assessment);
         }
 
-        if (snapshot.Status.Completeness != ResultCompleteness.Complete || snapshot.Coverage.Fraction != 1 || snapshot.UnresolvedCells > 0)
+        if (!foundInRaid.IsReliable)
         {
-            AddIssue(issues, "inventory.partial", "Holdings subtraction uses positive observations only because inventory coverage is partial.", snapshot.Provenance);
+            AddIssue(
+                issues,
+                "inventory.fir-untrusted",
+                "The observed found-in-raid holding count is unknown, ambiguous, stale, or below the confidence threshold.",
+                foundInRaid.Assessment);
+        }
+
+        var partial = snapshot.Status.Completeness != ResultCompleteness.Complete ||
+                      snapshot.Coverage.Fraction != 1 ||
+                      snapshot.UnresolvedCells != 0;
+        if (partial)
+        {
+            AddIssue(
+                issues,
+                "inventory.partial",
+                "Holdings subtraction uses positive observations only because inventory coverage is partial.",
+                snapshot.Provenance,
+                snapshot.Status.Freshness);
         }
 
         return new InventoryInspection(
-            total,
-            foundInRaid,
-            total is not null,
-            snapshot.Status.Completeness != ResultCompleteness.Complete || snapshot.Coverage.Fraction != 1,
-            snapshot.Provenance,
-            observed.TotalQuantity.Provenance);
+            total.Trusted,
+            foundInRaid.Trusted);
+    }
+
+    private IReadOnlyList<TrustedNeed> InspectNeeds(
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues)
+    {
+        var trusted = new List<TrustedNeed>();
+        foreach (var need in request.Profile.Needs.Where(IsInHorizon))
+        {
+            var assessment = AssessEvidence(
+                need.Status,
+                need.Provenance,
+                request.EvaluatedUtc,
+                _policy.MaximumInventoryAge,
+                allowPartial: false);
+            if (!assessment.IsReliable)
+            {
+                AddIssue(
+                    issues,
+                    $"need.untrusted.{need.NeedId}",
+                    $"{need.DisplayName} is incomplete, stale, or below the confidence threshold and was not used.",
+                    assessment);
+                continue;
+            }
+
+            trusted.Add(new TrustedNeed(need, assessment.Provenance));
+        }
+
+        return trusted;
     }
 
     private IReadOnlyList<AllocatedNeed> AllocateNeeds(
         ExplainableRecommendationRequest request,
+        IReadOnlyList<TrustedNeed> trustedNeeds,
         InventoryInspection inventory,
         IDictionary<string, EvidenceIssue> issues)
     {
-        var candidateFir = CurrentValue(request.CandidateFoundInRaid);
-        var needs = request.Profile.Needs
-            .Where(need => IsInHorizon(need))
-            .Where(need => need.Status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial)
-            .OrderByDescending(need => _policy.PriorityOf(RuleFor(need)))
-            .ThenBy(need => need.StepsAhead)
-            .ThenBy(need => need.NeedId, StringComparer.Ordinal)
-            .ToArray();
-
-        if (request.Profile.Needs.Any(need => need.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable))
+        var hasFirNeed = trustedNeeds.Any(need => need.Need.RequiresFoundInRaid);
+        var candidateFir = hasFirNeed
+            ? InspectEvidence(
+                request.CandidateFoundInRaid,
+                request.EvaluatedUtc,
+                _policy.MaximumInventoryAge,
+                allowPartial: false)
+            : EvidenceInspection<bool>.NotRequired(request.CandidateFoundInRaid.Provenance);
+        if (hasFirNeed && !candidateFir.IsReliable)
         {
-            AddIssue(issues, "needs.incomplete", "Some progression requirements are unavailable and cannot be evaluated.", request.Profile.Provenance);
+            AddIssue(
+                issues,
+                "candidate.fir-untrusted",
+                "Found-in-raid status is unknown, ambiguous, stale, or below the confidence threshold.",
+                candidateFir.Assessment);
         }
 
-        var total = inventory.Total;
-        var fir = inventory.FoundInRaid;
+        var needs = trustedNeeds
+            .OrderByDescending(need => _policy.PriorityOf(RuleFor(need.Need)))
+            .ThenBy(need => need.Need.StepsAhead)
+            .ThenBy(need => need.Need.NeedId, StringComparer.Ordinal)
+            .ToArray();
+
+        var total = inventory.Total?.Value;
+        var fir = inventory.FoundInRaid?.Value;
         var nonFir = total is { } knownTotal && fir is { } knownFir
             ? Math.Max(0, knownTotal - knownFir)
             : total;
+        EvidenceProvenance? nonFirProvenance = null;
         var result = new List<AllocatedNeed>();
-        foreach (var need in needs)
+        foreach (var trustedNeed in needs)
         {
-            if (need.RequiresFoundInRaid && candidateFir != true)
+            var need = trustedNeed.Need;
+            var supporting = new List<EvidenceProvenance>();
+            if (need.RequiresFoundInRaid && candidateFir.Trusted?.Value != true)
             {
-                if (candidateFir is null)
-                {
-                    AddIssue(issues, "candidate.fir-unknown", "Found-in-raid status is unknown, so the item cannot be claimed to satisfy a FIR objective.", request.CandidateFoundInRaid.Provenance);
-                }
-
                 continue;
+            }
+
+            if (need.RequiresFoundInRaid)
+            {
+                supporting.Add(candidateFir.Trusted!.Provenance);
             }
 
             var allocated = 0;
             if (need.RequiresFoundInRaid && fir is { } firAvailable)
             {
                 allocated = Math.Min(need.RequiredQuantity, firAvailable);
+                if (allocated > 0)
+                {
+                    supporting.Add(inventory.FoundInRaid!.Provenance);
+                }
                 fir = firAvailable - allocated;
                 if (total is { } totalAvailable)
                 {
@@ -413,6 +566,19 @@ public sealed class ExplainableRecommendationEngine(
                 {
                     var fromNonFir = Math.Min(need.RequiredQuantity, nonFirAvailable);
                     allocated += fromNonFir;
+                    if (fromNonFir > 0)
+                    {
+                        nonFirProvenance ??= total is not null && fir is not null
+                            ? CombineProvenance(
+                                "recommendation.inventory.non-fir",
+                                request.EvaluatedUtc,
+                                [inventory.Total!.Provenance, inventory.FoundInRaid!.Provenance])
+                            : inventory.Total?.Provenance;
+                        if (nonFirProvenance is { } source)
+                        {
+                            supporting.Add(source);
+                        }
+                    }
                     nonFir = nonFirAvailable - fromNonFir;
                     if (total is { } totalAvailable)
                     {
@@ -425,6 +591,10 @@ public sealed class ExplainableRecommendationEngine(
                 {
                     var fromFir = Math.Min(remaining, remainingFir);
                     allocated += fromFir;
+                    if (fromFir > 0)
+                    {
+                        supporting.Add(inventory.FoundInRaid!.Provenance);
+                    }
                     fir = remainingFir - fromFir;
                     if (total is { } totalAvailable)
                     {
@@ -435,6 +605,10 @@ public sealed class ExplainableRecommendationEngine(
                 {
                     var fromTotal = Math.Min(remaining, totalAvailable);
                     allocated += fromTotal;
+                    if (fromTotal > 0)
+                    {
+                        supporting.Add(inventory.Total!.Provenance);
+                    }
                     total = totalAvailable - fromTotal;
                 }
             }
@@ -442,7 +616,12 @@ public sealed class ExplainableRecommendationEngine(
             var outstanding = need.RequiredQuantity - allocated;
             if (outstanding > 0)
             {
-                result.Add(new(need, outstanding, allocated));
+                result.Add(new(
+                    need,
+                    trustedNeed.Provenance,
+                    outstanding,
+                    allocated,
+                    supporting.Distinct().ToArray()));
             }
         }
 
@@ -454,8 +633,12 @@ public sealed class ExplainableRecommendationEngine(
         IDictionary<string, EvidenceIssue> issues)
     {
         var field = request.Scarcity.Obtainability;
-        var band = ReliableContextValue(field, request.EvaluatedUtc, _policy.MaximumScarcityAge);
-        if (band is null)
+        var band = InspectEvidence(
+            field,
+            request.EvaluatedUtc,
+            _policy.MaximumScarcityAge,
+            allowPartial: false);
+        if (!band.IsReliable)
         {
             var code = field.Value is null
                 ? "scarcity.unknown"
@@ -463,14 +646,15 @@ public sealed class ExplainableRecommendationEngine(
             var explanation = field.Value is null
                 ? "Obtainability is unknown; the item was not assumed to be common."
                 : "Obtainability is partial, stale, ambiguous, or below the confidence threshold and was not used.";
-            AddIssue(issues, code, explanation, field.Provenance);
+            AddIssue(issues, code, explanation, band.Assessment);
             return ScarcityInspection.Unknown;
         }
 
+        var trustedBand = band.Trusted!;
         return new(
-            band,
-            (int)band >= (int)_policy.MinimumScarcityToKeep,
-            field.Provenance);
+            trustedBand.Value,
+            (int)trustedBand.Value >= (int)_policy.MinimumScarcityToKeep,
+            trustedBand.Provenance);
     }
 
     private RaidContextInspection InspectRaidContext(
@@ -488,67 +672,84 @@ public sealed class ExplainableRecommendationEngine(
                 issues,
                 "raid-context.missing",
                 "Raid phase and risk were not supplied; economic loot advice remains review-only.",
-                request.Profile.Provenance);
+                request.Profile.Provenance,
+                FreshnessState.Unknown);
             return RaidContextInspection.Unavailable(_policy.LootThresholds.Normal);
         }
 
-        var phase = ReliableContextValue(context.Phase, request.EvaluatedUtc, _policy.MaximumRaidContextAge);
-        var risk = ReliableContextValue(context.Risk, request.EvaluatedUtc, _policy.MaximumRaidContextAge);
-        if (phase is null)
+        var phase = InspectEvidence(
+            context.Phase,
+            request.EvaluatedUtc,
+            _policy.MaximumRaidContextAge,
+            allowPartial: false);
+        var risk = InspectEvidence(
+            context.Risk,
+            request.EvaluatedUtc,
+            _policy.MaximumRaidContextAge,
+            allowPartial: false);
+        if (!phase.IsReliable)
         {
             AddIssue(
                 issues,
                 context.Phase.Value is null ? "raid-context.phase-unknown" : "raid-context.phase-untrusted",
                 "Raid phase is unknown, stale, ambiguous, or below the confidence threshold.",
-                context.Phase.Provenance);
+                phase.Assessment);
         }
 
-        if (risk is null)
+        if (!risk.IsReliable)
         {
             AddIssue(
                 issues,
                 context.Risk.Value is null ? "raid-context.risk-unknown" : "raid-context.risk-untrusted",
                 "Raid risk is unknown, stale, ambiguous, or below the confidence threshold.",
-                context.Risk.Provenance);
+                risk.Assessment);
         }
 
-        if (phase is null || risk is null)
+        if (!phase.IsReliable || !risk.IsReliable)
         {
             return RaidContextInspection.Unavailable(_policy.LootThresholds.Normal);
         }
 
+        var trustedPhase = phase.Trusted!;
+        var trustedRisk = risk.Trusted!;
+        var phaseValue = trustedPhase.Value;
+        var riskValue = trustedRisk.Value;
         return new(
             true,
-            phase,
-            risk,
-            _policy.LootThresholds.RequiredBand(phase.Value, risk.Value),
-            context.Phase.Provenance,
-            context.Risk.Provenance);
+            phaseValue,
+            riskValue,
+            _policy.LootThresholds.RequiredBand(phaseValue, riskValue),
+            _policy.LootThresholds.RequiredBand(phaseValue),
+            _policy.LootThresholds.RequiredBand(riskValue),
+            trustedPhase.Provenance,
+            trustedRisk.Provenance);
     }
 
     private void AddRaidContextReasons(
         RaidContextInspection context,
         ICollection<ReasonDraft> reasons)
     {
-        if ((context.Phase is RecommendationRaidPhase.Late or RecommendationRaidPhase.Extracting) &&
+        if ((int)context.PhaseRequiredBand > (int)_policy.LootThresholds.Normal &&
+            context.Phase is { } phase &&
             context.PhaseProvenance is { } phaseProvenance)
         {
             reasons.Add(new(
                 ExplainableRecommendationRule.RaidContext,
                 RecommendationReasonCategory.Safety,
-                $"raid.phase.{context.Phase.Value.ToString().ToLowerInvariant()}",
-                $"The raid is {context.Phase.Value.ToString().ToLowerInvariant()}, so ordinary economic loot needs a higher value band.",
+                $"raid.phase.{phase.ToString().ToLowerInvariant()}",
+                $"The {phase.ToString().ToLowerInvariant()} raid phase sets the ordinary-loot minimum to the {context.PhaseRequiredBand.ToString().ToLowerInvariant()} value band.",
                 phaseProvenance));
         }
 
-        if ((context.Risk is RecommendationRaidRisk.Elevated or RecommendationRaidRisk.High or RecommendationRaidRisk.Critical) &&
+        if ((int)context.RiskRequiredBand > (int)_policy.LootThresholds.Normal &&
+            context.Risk is { } risk &&
             context.RiskProvenance is { } riskProvenance)
         {
             reasons.Add(new(
                 ExplainableRecommendationRule.RaidContext,
                 RecommendationReasonCategory.Safety,
-                $"raid.risk.{context.Risk.Value.ToString().ToLowerInvariant()}",
-                $"Raid risk is {context.Risk.Value.ToString().ToLowerInvariant()}, raising the minimum economic loot band to {context.RequiredBand.ToString().ToLowerInvariant()}.",
+                $"raid.risk.{risk.ToString().ToLowerInvariant()}",
+                $"The {risk.ToString().ToLowerInvariant()} raid-risk setting sets the ordinary-loot minimum to the {context.RiskRequiredBand.ToString().ToLowerInvariant()} value band.",
                 riskProvenance));
         }
     }
@@ -604,6 +805,7 @@ public sealed class ExplainableRecommendationEngine(
             var lowerRisk = context with
             {
                 Risk = RecommendationRaidRisk.Low,
+                RiskRequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidRisk.Low),
                 RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Low),
             };
             var lowerRiskAction = selectAlternative(scarcity.ShouldKeep, lowerRisk);
@@ -617,6 +819,7 @@ public sealed class ExplainableRecommendationEngine(
             var higherRisk = context with
             {
                 Risk = RecommendationRaidRisk.Critical,
+                RiskRequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidRisk.Critical),
                 RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Critical),
             };
             var higherRiskAction = selectAlternative(scarcity.ShouldKeep, higherRisk);
@@ -631,6 +834,7 @@ public sealed class ExplainableRecommendationEngine(
             var earlierPhase = context with
             {
                 Phase = RecommendationRaidPhase.Middle,
+                PhaseRequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Middle),
                 RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Middle, risk),
             };
             var earlierPhaseAction = selectAlternative(scarcity.ShouldKeep, earlierPhase);
@@ -644,6 +848,7 @@ public sealed class ExplainableRecommendationEngine(
             var laterPhase = context with
             {
                 Phase = RecommendationRaidPhase.Extracting,
+                PhaseRequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Extracting),
                 RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Extracting, risk),
             };
             var laterPhaseAction = selectAlternative(scarcity.ShouldKeep, laterPhase);
@@ -659,52 +864,111 @@ public sealed class ExplainableRecommendationEngine(
         IDictionary<string, EvidenceIssue> issues)
     {
         var economics = request.Economics;
-        var footprint = ReliableValue(economics.OccupiedSquares, request.EvaluatedUtc, _policy.MaximumPriceAge);
-        var flea = ReliableValue(economics.FleaNetRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge);
-        var trader = ReliableValue(economics.TraderRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge);
+        var footprint = InspectEvidence(
+            economics.OccupiedSquares,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        var flea = InspectEvidence(
+            economics.FleaNetRoubles,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        var trader = InspectEvidence(
+            economics.TraderRoubles,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        var gross = InspectEvidence(
+            economics.FleaGrossRoubles,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        var fee = InspectEvidence(
+            economics.FleaFeeRoubles,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        var condition = InspectEvidence(
+            economics.ConditionFraction,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
 
-        if (footprint is null)
+        if (!footprint.IsReliable)
         {
-            AddIssue(issues, "economics.footprint-missing", "Occupied squares are missing, stale, or uncertain; value per square was not invented.", economics.OccupiedSquares.Provenance);
+            AddIssue(
+                issues,
+                "economics.footprint-missing",
+                "Occupied squares are missing, stale, ambiguous, or below the confidence threshold; value per square was not invented.",
+                footprint.Assessment);
         }
 
-        if (flea is null && trader is null)
+        if (!flea.IsReliable && HasClaim(economics.FleaNetRoubles))
         {
-            var provenance = economics.FleaNetRoubles.Provenance.EvidenceThroughUtc >= economics.TraderRoubles.Provenance.EvidenceThroughUtc
-                ? economics.FleaNetRoubles.Provenance
-                : economics.TraderRoubles.Provenance;
-            AddIssue(issues, "economics.price-missing", "No current trustworthy flea net or trader value is available; gross value is not treated as net.", provenance);
+            AddIssue(
+                issues,
+                "economics.flea-net-untrusted",
+                "The flea-net value is stale, ambiguous, incomplete, or below the confidence threshold.",
+                flea.Assessment);
+        }
+
+        if (!trader.IsReliable && HasClaim(economics.TraderRoubles))
+        {
+            AddIssue(
+                issues,
+                "economics.trader-untrusted",
+                "The trader value is stale, ambiguous, incomplete, or below the confidence threshold.",
+                trader.Assessment);
+        }
+
+        if (!flea.IsReliable && !trader.IsReliable)
+        {
+            var assessment = NewerAssessment(flea.Assessment, trader.Assessment);
+            AddIssue(
+                issues,
+                "economics.price-missing",
+                "No current trustworthy flea net or trader value is available; gross value is not treated as net.",
+                assessment);
             return null;
         }
 
-        if (footprint is null)
+        if (!footprint.IsReliable)
         {
             return null;
         }
 
-        var useFlea = flea is not null && (trader is null || flea >= trader);
-        var value = useFlea ? flea!.Value : trader!.Value;
-        var priceEvidence = useFlea ? economics.FleaNetRoubles : economics.TraderRoubles;
-        var valuePerSquare = value / footprint.Value;
+        var useFlea = flea.IsReliable &&
+                      (!trader.IsReliable || flea.Trusted!.Value >= trader.Trusted!.Value);
+        var price = useFlea ? flea.Trusted! : trader.Trusted!;
+        var value = price.Value;
+        var trustedFootprint = footprint.Trusted!;
+        var footprintValue = trustedFootprint.Value;
+        var valuePerSquare = value / footprintValue;
         var priceRole = CombineProvenance(
             $"recommendation.economic-price.{(useFlea ? "flea-net" : "trader")}",
             request.EvaluatedUtc,
-            [priceEvidence.Provenance]);
+            [price.Provenance]);
         var footprintRole = CombineProvenance(
             "recommendation.economic-footprint",
             request.EvaluatedUtc,
-            [economics.OccupiedSquares.Provenance]);
+            [trustedFootprint.Provenance]);
         var calculation = CombineProvenance(
             "recommendation.value-per-square",
             request.EvaluatedUtc,
             [priceRole, footprintRole]);
         return new(
             value,
-            footprint.Value,
+            footprintValue,
             valuePerSquare,
             _policy.ValueBands.Classify(valuePerSquare),
             useFlea ? "flea-net" : "trader",
             useFlea ? V2RecommendationAction.SellOnFlea : V2RecommendationAction.SellToTrader,
+            gross.Trusted?.Value,
+            fee.Trusted?.Value,
+            flea.Trusted?.Value,
+            trader.Trusted?.Value,
+            condition.Trusted?.Value,
             priceRole,
             footprintRole,
             calculation);
@@ -806,7 +1070,8 @@ public sealed class ExplainableRecommendationEngine(
         bool isWishlisted,
         ScarcityInspection scarcity,
         RaidContextInspection raidContext,
-        EconomicInspection? economics)
+        EconomicInspection? economics,
+        bool hasEvidenceIssues)
     {
         if (eventState == EventItemState.Allergic) return ExplainableRecommendationRule.EventAllergy;
         if (explicitAction is not null) return ExplainableRecommendationRule.ExplicitOverride;
@@ -817,6 +1082,7 @@ public sealed class ExplainableRecommendationEngine(
         if (eventState == EventItemState.Untested) return ExplainableRecommendationRule.EventUntested;
         if (eventState == EventItemState.Safe) return ExplainableRecommendationRule.EventSafe;
         if (scarcity.ShouldKeep) return ExplainableRecommendationRule.Scarcity;
+        if (hasEvidenceIssues) return ExplainableRecommendationRule.EvidenceQuality;
         if (economics is { } economic && raidContext.ChangesEconomicAction(economic.Band, _policy.LootThresholds.Normal))
         {
             return ExplainableRecommendationRule.RaidContext;
@@ -875,69 +1141,198 @@ public sealed class ExplainableRecommendationEngine(
     private static string Summary(V2RecommendationAction action, string topReason) =>
         $"{action}: {topReason}";
 
-    private static string EconomicExplanation(RecommendationEconomics inputs, EconomicInspection economics)
+    private static string EconomicExplanation(EconomicInspection economics)
     {
         var details = new List<string>();
-        if (inputs.FleaGrossRoubles.Value is { } gross) details.Add($"flea gross {gross.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (inputs.FleaFeeRoubles.Value is { } fee) details.Add($"fee {fee.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (inputs.FleaNetRoubles.Value is { } net) details.Add($"flea net {net.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (inputs.TraderRoubles.Value is { } trader) details.Add($"trader {trader.ToString("N0", CultureInfo.InvariantCulture)}");
-        if (inputs.ConditionFraction.Value is { } condition) details.Add($"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}");
+        if (economics.FleaGrossRoubles is { } gross) details.Add($"flea gross {gross.ToString("N0", CultureInfo.InvariantCulture)}");
+        if (economics.FleaFeeRoubles is { } fee) details.Add($"fee {fee.ToString("N0", CultureInfo.InvariantCulture)}");
+        if (economics.FleaNetRoubles is { } net) details.Add($"flea net {net.ToString("N0", CultureInfo.InvariantCulture)}");
+        if (economics.TraderRoubles is { } trader) details.Add($"trader {trader.ToString("N0", CultureInfo.InvariantCulture)}");
+        if (economics.ConditionFraction is { } condition) details.Add($"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}");
         var suffix = details.Count == 0 ? string.Empty : $" ({string.Join(", ", details)})";
         return $"{economics.TotalValue.ToString("N0", CultureInfo.InvariantCulture)} roubles across {economics.Footprint} square(s) is {economics.ValuePerSquare.ToString("N0", CultureInfo.InvariantCulture)} per square, in the {economics.Band.ToString().ToLowerInvariant()} band{suffix}.";
     }
 
-    private static T? CurrentValue<T>(EvidencedValue<T?> field)
-        where T : struct =>
-        field.Status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial &&
-        field.Status.Freshness == FreshnessState.Current
-            ? field.Value
-            : null;
+    private TrustedValue<T>? InspectOptionalProfileField<T>(
+        EvidencedValue<T?> field,
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues,
+        string issueCode,
+        string issueExplanation)
+        where T : struct
+    {
+        if (!HasClaim(field))
+        {
+            return null;
+        }
 
-    private int? ReliableCount(EvidencedValue<int?> field, DateTimeOffset evaluatedUtc) =>
-        ReliableValue(field, evaluatedUtc, _policy.MaximumInventoryAge);
+        return InspectRequiredProfileField(field, request, issues, issueCode, issueExplanation);
+    }
 
-    private T? ReliableValue<T>(EvidencedValue<T?> field, DateTimeOffset evaluatedUtc, TimeSpan maximumAge)
-        where T : struct =>
-        field.Value is { } value &&
-        IsFresh(field.Status, field.Provenance, evaluatedUtc, maximumAge) &&
-        MeetsConfidence(field.Provenance)
-            ? value
-            : null;
+    private TrustedValue<T>? InspectRequiredProfileField<T>(
+        EvidencedValue<T?> field,
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues,
+        string issueCode,
+        string issueExplanation)
+        where T : struct
+    {
+        var inspection = InspectEvidence(
+            field,
+            request.EvaluatedUtc,
+            _policy.MaximumInventoryAge,
+            allowPartial: false);
+        if (!inspection.IsReliable)
+        {
+            AddIssue(issues, issueCode, issueExplanation, inspection.Assessment);
+        }
 
-    private T? ReliableContextValue<T>(
+        return inspection.Trusted;
+    }
+
+    private EvidenceInspection<T> InspectEvidence<T>(
         EvidencedValue<T?> field,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge)
+        TimeSpan maximumAge,
+        bool allowPartial)
+        where T : struct
+    {
+        var provenance = EffectiveProvenance(field);
+        var assessment = AssessEvidence(
+            field.Status,
+            provenance,
+            evaluatedUtc,
+            maximumAge,
+            allowPartial);
+        if (!assessment.IsReliable)
+        {
+            return new EvidenceInspection<T>(null, assessment);
+        }
+
+        if (field.Value is not { } value)
+        {
+            return new EvidenceInspection<T>(
+                null,
+                assessment with { IsReliable = false, Failure = EvidenceFailure.Missing });
+        }
+
+        // Candidates describe the original ambiguity. An append-only correction selects the
+        // current value without erasing that history; without a correction the ambiguity remains.
+        if ((field.Candidates.Count > 0 && field.Corrections.Count == 0) ||
+            field.Candidates.Count > MaximumEvidenceEntries ||
+            field.Corrections.Count > MaximumEvidenceEntries)
+        {
+            return new EvidenceInspection<T>(
+                null,
+                assessment with { IsReliable = false, Failure = EvidenceFailure.Ambiguous });
+        }
+
+        return new EvidenceInspection<T>(new TrustedValue<T>(value, provenance), assessment);
+    }
+
+    private ReliabilityAssessment AssessEvidence(
+        ResultStatus status,
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge,
+        bool allowPartial)
+    {
+        var completeEnough = status.Completeness == ResultCompleteness.Complete ||
+                             (allowPartial && status.Completeness == ResultCompleteness.Partial);
+        if (!completeEnough)
+        {
+            return new(false, EvidenceFailure.Incomplete, status.Freshness, provenance);
+        }
+
+        if (status.Freshness == FreshnessState.Stale)
+        {
+            return new(false, EvidenceFailure.Stale, FreshnessState.Stale, provenance);
+        }
+
+        if (status.Freshness == FreshnessState.Unknown)
+        {
+            return new(false, EvidenceFailure.UnknownFreshness, FreshnessState.Unknown, provenance);
+        }
+
+        if (provenance.EvidenceThroughUtc > evaluatedUtc)
+        {
+            return new(false, EvidenceFailure.Future, FreshnessState.Unknown, provenance);
+        }
+
+        if (evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge)
+        {
+            return new(false, EvidenceFailure.Stale, FreshnessState.Stale, provenance);
+        }
+
+        if (!MeetsConfidence(provenance))
+        {
+            return new(false, EvidenceFailure.LowConfidence, FreshnessState.Current, provenance);
+        }
+
+        return new(true, EvidenceFailure.None, FreshnessState.Current, provenance);
+    }
+
+    private static EvidenceProvenance EffectiveProvenance<T>(EvidencedValue<T?> field)
+        where T : struct
+    {
+        if (field.Corrections.Count == 0)
+        {
+            return field.Provenance;
+        }
+
+        var correction = field.Corrections[^1];
+        var sourceClass = correction.OriginClass == CorrectionOriginClass.PairedDevice
+            ? EvidenceSourceClass.PairedDeviceAction
+            : EvidenceSourceClass.UserEntered;
+        return new EvidenceProvenance(
+            sourceClass,
+            $"correction:{field.FieldId}:{correction.OriginClass}:{correction.OriginIdentifier}:{correction.Sequence.ToString(CultureInfo.InvariantCulture)}",
+            correction.CorrectedUtc,
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("Tarkov Companion evidence correction", "2"),
+            reference: field.Provenance.SourceIdentifier);
+    }
+
+    private static bool HasClaim<T>(EvidencedValue<T?> field)
         where T : struct =>
-        field.Value is { } value &&
-        field.Status.Completeness == ResultCompleteness.Complete &&
-        field.Candidates.Count == 0 &&
-        IsFresh(field.Status, field.Provenance, evaluatedUtc, maximumAge) &&
-        MeetsConfidence(field.Provenance)
-            ? value
-            : null;
+        field.Value is not null || field.Candidates.Count > 0 || field.Corrections.Count > 0;
 
     private bool MeetsConfidence(EvidenceProvenance provenance) =>
         provenance.Confidence.Score is { } score && score >= _policy.MinimumEvidenceConfidence;
 
-    private static bool IsFresh(
-        ResultStatus status,
-        EvidenceProvenance provenance,
-        DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge) =>
-        status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial &&
-        status.Freshness == FreshnessState.Current &&
-        provenance.EvidenceThroughUtc <= evaluatedUtc &&
-        evaluatedUtc - provenance.EvidenceThroughUtc <= maximumAge;
+    private static ReliabilityAssessment NewerAssessment(
+        ReliabilityAssessment left,
+        ReliabilityAssessment right) =>
+        left.Provenance.EvidenceThroughUtc >= right.Provenance.EvidenceThroughUtc ? left : right;
+
+    private static FreshnessState DecisionFreshness(IEnumerable<EvidenceIssue> issues)
+    {
+        var freshness = issues.Select(issue => issue.Freshness).ToArray();
+        if (freshness.Contains(FreshnessState.Stale))
+        {
+            return FreshnessState.Stale;
+        }
+
+        return freshness.Contains(FreshnessState.Unknown)
+            ? FreshnessState.Unknown
+            : FreshnessState.Current;
+    }
 
     private static void AddIssue(
         IDictionary<string, EvidenceIssue> issues,
         string code,
         string explanation,
-        EvidenceProvenance provenance)
+        ReliabilityAssessment assessment) =>
+        AddIssue(issues, code, explanation, assessment.Provenance, assessment.Freshness);
+
+    private static void AddIssue(
+        IDictionary<string, EvidenceIssue> issues,
+        string code,
+        string explanation,
+        EvidenceProvenance provenance,
+        FreshnessState freshness = FreshnessState.Current)
     {
-        issues.TryAdd(code, new(code, explanation, provenance));
+        issues.TryAdd(code, new(code, explanation, provenance, freshness));
     }
 
     private static EvidenceProvenance CombineProvenance(
@@ -945,18 +1340,28 @@ public sealed class ExplainableRecommendationEngine(
         DateTimeOffset evaluatedUtc,
         IReadOnlyList<EvidenceProvenance> inputs)
     {
-        if (inputs.Count == 0)
+        var distinctInputs = inputs.Distinct().ToArray();
+        if (distinctInputs.Length == 0)
         {
             throw new ArgumentException("A recommendation calculation must name its inputs.", nameof(inputs));
         }
 
-        if (inputs.Any(input => input.EvidenceThroughUtc > evaluatedUtc))
+        if (distinctInputs.Any(input => input.EvidenceThroughUtc > evaluatedUtc))
         {
             throw new ArgumentException("Recommendation evidence cannot be newer than its evaluation time.", nameof(inputs));
         }
 
-        var containsModel = inputs.Any(ContainsModelledEstimate);
-        var scores = inputs.Select(input => input.Confidence.Score).ToArray();
+        var depth = 1 + distinctInputs.Max(ProvenanceDepth);
+        var count = distinctInputs.Sum(input => 1 + ProvenanceInputCount(input));
+        if (depth > EvidenceProvenance.MaxInputDepth || count > EvidenceProvenance.MaxInputCount)
+        {
+            throw new ArgumentException(
+                "Recommendation evidence cannot be represented within the provenance depth/count contract; the decision was rejected.",
+                nameof(inputs));
+        }
+
+        var containsModel = distinctInputs.Any(ContainsModelledEstimate);
+        var scores = distinctInputs.Select(input => input.Confidence.Score).ToArray();
         var confidence = containsModel
             ? new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min(score => score ?? 0))
             : scores.All(score => score is not null)
@@ -969,8 +1374,8 @@ public sealed class ExplainableRecommendationEngine(
 
         if (containsModel)
         {
-            var evidenceThrough = inputs.Max(input => input.EvidenceThroughUtc);
-            var fractions = inputs.Select(input => input.Coverage?.Fraction).ToArray();
+            var evidenceThrough = distinctInputs.Max(input => input.EvidenceThroughUtc);
+            var fractions = distinctInputs.Select(input => input.Coverage?.Fraction).ToArray();
             var coverage = new EvidenceCoverage(
                 fraction: fractions.All(fraction => fraction is not null) ? fractions.Min() : null,
                 description: "Coverage propagated from recommendation inputs.");
@@ -983,7 +1388,7 @@ public sealed class ExplainableRecommendationEngine(
                 dataThroughUtc: evidenceThrough,
                 generatedUtc: evaluatedUtc,
                 coverage: coverage,
-                inputs: inputs);
+                inputs: distinctInputs);
         }
 
         return new EvidenceProvenance(
@@ -993,70 +1398,86 @@ public sealed class ExplainableRecommendationEngine(
             confidence,
             producer,
             generatedUtc: evaluatedUtc,
-            inputs: inputs);
+            inputs: distinctInputs);
     }
 
     private static bool ContainsModelledEstimate(EvidenceProvenance provenance) =>
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
 
-    private bool HasStaleContext(ExplainableRecommendationRequest request) =>
-        request.Profile.Status.Freshness == FreshnessState.Stale ||
-        request.Scarcity.Obtainability.Status.Freshness == FreshnessState.Stale ||
-        IsPolicyExpired(
-            request.Scarcity.Obtainability.Provenance,
-            request.EvaluatedUtc,
-            _policy.MaximumScarcityAge) ||
-        (request.UseCase == RecommendationUseCase.Loot &&
-         request.RaidContext is { } raid &&
-         (raid.Phase.Status.Freshness == FreshnessState.Stale ||
-          raid.Risk.Status.Freshness == FreshnessState.Stale ||
-          IsPolicyExpired(raid.Phase.Provenance, request.EvaluatedUtc, _policy.MaximumRaidContextAge) ||
-          IsPolicyExpired(raid.Risk.Provenance, request.EvaluatedUtc, _policy.MaximumRaidContextAge)));
+    private static int ProvenanceDepth(EvidenceProvenance provenance) =>
+        1 + (provenance.Inputs.Count == 0 ? 0 : provenance.Inputs.Max(ProvenanceDepth));
 
-    private static bool IsPolicyExpired(
-        EvidenceProvenance provenance,
-        DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge) =>
-        provenance.EvidenceThroughUtc <= evaluatedUtc &&
-        evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge;
+    private static int ProvenanceInputCount(EvidenceProvenance provenance) =>
+        provenance.Inputs.Count + provenance.Inputs.Sum(ProvenanceInputCount);
 
     private static void ValidateEvidenceTimes(ExplainableRecommendationRequest request)
     {
         var provenances = new List<EvidenceProvenance>
         {
             request.Profile.Provenance,
-            request.Profile.ExplicitAction.Provenance,
-            request.Profile.ProtectedItem.Provenance,
-            request.Profile.Pinned.Provenance,
-            request.Profile.Wishlist.Provenance,
-            request.Profile.EventState.Provenance,
-            request.CandidateFoundInRaid.Provenance,
-            request.Economics.FleaGrossRoubles.Provenance,
-            request.Economics.FleaFeeRoubles.Provenance,
-            request.Economics.FleaNetRoubles.Provenance,
-            request.Economics.TraderRoubles.Provenance,
-            request.Economics.OccupiedSquares.Provenance,
-            request.Economics.ConditionFraction.Provenance,
-            request.Scarcity.Obtainability.Provenance,
         };
+        var correctionTimes = new List<DateTimeOffset>();
+        AddEvidenceTimes(request.Profile.ExplicitAction, provenances, correctionTimes);
+        AddEvidenceTimes(request.Profile.ProtectedItem, provenances, correctionTimes);
+        AddEvidenceTimes(request.Profile.Pinned, provenances, correctionTimes);
+        AddEvidenceTimes(request.Profile.Wishlist, provenances, correctionTimes);
+        AddEvidenceTimes(request.Profile.EventState, provenances, correctionTimes);
+        AddEvidenceTimes(request.CandidateFoundInRaid, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.FleaGrossRoubles, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.FleaFeeRoubles, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.FleaNetRoubles, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.TraderRoubles, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.OccupiedSquares, provenances, correctionTimes);
+        AddEvidenceTimes(request.Economics.ConditionFraction, provenances, correctionTimes);
+        AddEvidenceTimes(request.Scarcity.Obtainability, provenances, correctionTimes);
         provenances.AddRange(request.Profile.Needs.Select(need => need.Provenance));
         if (request.Inventory is { } inventory)
         {
             provenances.Add(inventory.Provenance);
-            provenances.AddRange(inventory.Items.SelectMany(item =>
-                new[] { item.TotalQuantity.Provenance, item.FoundInRaidQuantity.Provenance }));
+            foreach (var item in inventory.Items)
+            {
+                AddEvidenceTimes(item.TotalQuantity, provenances, correctionTimes);
+                AddEvidenceTimes(item.FoundInRaidQuantity, provenances, correctionTimes);
+            }
         }
 
         if (request.RaidContext is { } raidContext)
         {
-            provenances.Add(raidContext.Phase.Provenance);
-            provenances.Add(raidContext.Risk.Provenance);
+            AddEvidenceTimes(raidContext.Phase, provenances, correctionTimes);
+            AddEvidenceTimes(raidContext.Risk, provenances, correctionTimes);
         }
 
-        if (provenances.Any(provenance => provenance.EvidenceThroughUtc > request.EvaluatedUtc))
+        if (provenances.Any(provenance => provenance.EvidenceThroughUtc > request.EvaluatedUtc) ||
+            correctionTimes.Any(correctedUtc => correctedUtc > request.EvaluatedUtc))
         {
             throw new ArgumentException("Recommendation evidence cannot be newer than the evaluation time.", nameof(request));
+        }
+    }
+
+    private static void AddEvidenceTimes<T>(
+        EvidencedValue<T?> field,
+        ICollection<EvidenceProvenance> provenances,
+        ICollection<DateTimeOffset> correctionTimes)
+        where T : struct
+    {
+        if (field.Candidates.Count > MaximumEvidenceEntries ||
+            field.Corrections.Count > MaximumEvidenceEntries)
+        {
+            throw new ArgumentException(
+                $"Recommendation evidence cannot exceed {MaximumEvidenceEntries} candidates or corrections per field.",
+                nameof(field));
+        }
+
+        provenances.Add(field.Provenance);
+        foreach (var candidate in field.Candidates)
+        {
+            provenances.Add(candidate.Provenance);
+        }
+
+        foreach (var correction in field.Corrections)
+        {
+            correctionTimes.Add(correction.CorrectedUtc);
         }
     }
 
@@ -1067,20 +1488,60 @@ public sealed class ExplainableRecommendationEngine(
         string Explanation,
         EvidenceProvenance Provenance);
 
-    private sealed record EvidenceIssue(string Code, string Explanation, EvidenceProvenance Provenance);
+    private sealed record EvidenceIssue(
+        string Code,
+        string Explanation,
+        EvidenceProvenance Provenance,
+        FreshnessState Freshness);
 
-    private sealed record InventoryInspection(
-        int? Total,
-        int? FoundInRaid,
-        bool CountKnown,
-        bool Partial,
-        EvidenceProvenance? SnapshotProvenance,
-        EvidenceProvenance? CountProvenance)
+    private enum EvidenceFailure
     {
-        public static InventoryInspection Unknown { get; } = new(null, null, false, true, null, null);
+        None = 0,
+        Missing,
+        Incomplete,
+        Ambiguous,
+        Stale,
+        UnknownFreshness,
+        LowConfidence,
+        Future,
     }
 
-    private sealed record AllocatedNeed(RecommendationNeed Need, int Outstanding, int Allocated);
+    private sealed record ReliabilityAssessment(
+        bool IsReliable,
+        EvidenceFailure Failure,
+        FreshnessState Freshness,
+        EvidenceProvenance Provenance);
+
+    private sealed record TrustedValue<T>(T Value, EvidenceProvenance Provenance)
+        where T : struct;
+
+    private sealed record EvidenceInspection<T>(
+        TrustedValue<T>? Trusted,
+        ReliabilityAssessment Assessment)
+        where T : struct
+    {
+        public bool IsReliable => Assessment.IsReliable;
+
+        public static EvidenceInspection<T> NotRequired(EvidenceProvenance provenance) => new(
+            null,
+            new ReliabilityAssessment(true, EvidenceFailure.None, FreshnessState.Current, provenance));
+    }
+
+    private sealed record InventoryInspection(
+        TrustedValue<int>? Total,
+        TrustedValue<int>? FoundInRaid)
+    {
+        public static InventoryInspection Unknown { get; } = new(null, null);
+    }
+
+    private sealed record TrustedNeed(RecommendationNeed Need, EvidenceProvenance Provenance);
+
+    private sealed record AllocatedNeed(
+        RecommendationNeed Need,
+        EvidenceProvenance Provenance,
+        int Outstanding,
+        int Allocated,
+        IReadOnlyList<EvidenceProvenance> SupportingProvenance);
 
     private sealed record ScarcityInspection(
         RecommendationObtainabilityBand? Band,
@@ -1095,14 +1556,22 @@ public sealed class ExplainableRecommendationEngine(
         RecommendationRaidPhase? Phase,
         RecommendationRaidRisk? Risk,
         EconomicValueBand RequiredBand,
+        EconomicValueBand PhaseRequiredBand,
+        EconomicValueBand RiskRequiredBand,
         EvidenceProvenance? PhaseProvenance,
         EvidenceProvenance? RiskProvenance)
     {
         public static RaidContextInspection NotApplicable(EconomicValueBand requiredBand) =>
-            new(false, null, null, requiredBand, null, null);
+            new(false, null, null, requiredBand, requiredBand, requiredBand, null, null);
 
         public static RaidContextInspection Unavailable(EconomicValueBand requiredBand) =>
-            new(false, null, null, requiredBand, null, null);
+            new(false, null, null, requiredBand, requiredBand, requiredBand, null, null);
+
+        public IReadOnlyList<EvidenceProvenance> DecisionInputs =>
+            new[] { PhaseProvenance, RiskProvenance }
+                .OfType<EvidenceProvenance>()
+                .Distinct()
+                .ToArray();
 
         public bool ChangesEconomicAction(EconomicValueBand actual, EconomicValueBand normal) =>
             (int)RequiredBand > (int)normal &&
@@ -1117,6 +1586,11 @@ public sealed class ExplainableRecommendationEngine(
         EconomicValueBand Band,
         string SourceCode,
         V2RecommendationAction SaleAction,
+        long? FleaGrossRoubles,
+        long? FleaFeeRoubles,
+        long? FleaNetRoubles,
+        long? TraderRoubles,
+        double? ConditionFraction,
         EvidenceProvenance PriceRole,
         EvidenceProvenance FootprintRole,
         EvidenceProvenance CalculationProvenance);
