@@ -1,8 +1,10 @@
 # System and trust boundaries
 
 Most current-behavior claims below were checked against source at baseline commit `76b506f`.
-The release/update portions were refreshed against issue #280's source; desktop composition still
-owned by #294/#270 is explicitly labelled uncomposed rather than presented as deployed behavior.
+The release/update portions were refreshed against issue #280's source. The paired-relay
+authorization-core note was refreshed against merged issue #278 source at `07c53ae`; desktop and
+relay composition still owned by #294/#270 is explicitly labelled uncomposed rather than
+presented as deployed behavior.
 
 ## Current system and data flow
 
@@ -245,6 +247,35 @@ It can read room state and create, complete, remove, or clear marks. There is no
 revocation; rotation changes the credential for all members.
 `/catalog`, `/landmarks`, and `/search` require no key because they serve public game data.
 
+#### Implemented but uncomposed: paired-relay authorization core
+
+Issue #278 added a separate, name-free authorization core for the future paired path through TB-4
+and TB-7. `RelayDeviceRegistry` binds a cryptographic device key, role, closed capability set,
+session, relay channel, key epoch, expiry, per-direction sender sequence, rotating session-secret
+digest, and rotating CSRF digest. Revocation and replacement are per device. The bounded registry
+is written atomically with a checksummed same-generation backup; missing, corrupt, divergent, or
+changed-after-load authority fails closed rather than enabling an open mode. Its audit records
+machine-readable outcomes and identifiers, not display names, credentials, addresses, payloads,
+or exception text.
+
+`RelayPairingInvitations` exposes only bounded, expiring, single-use offer lookup with keyed
+per-source rate partitions. `OpaqueRelayFrameHub` routes bounded ciphertext frames by authenticated
+principal and channel, persists replay fences through the registry, isolates recipient queues, and
+requires reconnect after a gap or overflow. HTTP helpers define an HTTPS/trusted-forwarder policy,
+host-only Secure/HttpOnly/SameSite=Strict session cookies, exact-origin and Fetch Metadata CSRF
+checks, bounded strict protocol JSON, concurrency and rate limits, non-cacheable CSP-protected
+responses, and redacted public errors.
+
+This is not a reachable runtime path yet: `Program.cs` constructs none of those services and maps
+none of their routes. Current v1 group-key, state, tablet, and admin behavior above therefore remains
+the deployed boundary and its risks remain open. During #294 composition, a completed
+`PairingAttempt` or `SessionResumeAttempt` must enter this core only from #277's verified in-process
+handshake boundary. Raw HTTP must not be allowed to assert a completed aggregate. The request
+boundary must also derive each rate-limit source hash from the trusted immediate peer after the
+forwarded-header policy; callers must never supply that hash. Owner-recovery grant creation is an
+operator ceremony, not a public recovery endpoint. These composition obligations are tracked by
+RISK-PAIRED-AUTH-COMPOSITION.
+
 ### TB-8: Relay operator ↔ Relay
 
 `TARKOV_RELAY_ADMIN_KEY` is separate from group keys and is compared with
@@ -329,6 +360,7 @@ the durable locator if later edits move them.
 | Desktop update adapter and authenticated-plan handoff (issue #280 source; composition pending) | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs`; `src/TarkovCompanion.Application/Services/Updates/`; `src/TarkovCompanion.Infrastructure/Updates/` |
 | Release producer/policy (issue #280 source) | `.github/workflows/windows-verify.yml`; `.github/workflows/publish.yml`; `scripts/release/`; `docs/RELEASES.md`; ADR 0011 |
 | Relay update status versus signed updater (issue #280 source) | `src/TarkovCompanion.GroupServer/RelayUpdate.cs`; `deploy/group-server/tarkov-group-update.sh` |
+| Paired-relay authorization core and uncomposed runtime boundary (issue #278 source) | `src/TarkovCompanion.GroupServer/Pairing/RelayPairingInvitations.cs`; `src/TarkovCompanion.GroupServer/Security/`; `src/TarkovCompanion.GroupServer/StateSync/OpaqueRelayFrameHub.cs`; `src/TarkovCompanion.GroupServer/Storage/`; absence of those symbols from `src/TarkovCompanion.GroupServer/Program.cs`; `tests/TarkovCompanion.UnitTests/RelayDeviceSecurity/` |
 | Data-root selection | `src/TarkovCompanion.App/Services/AppDataPaths.cs:12-27`; `src/TarkovCompanion.App/Services/AppComposition.cs:50-72` |
 | Closed desktop report plus preview/relay-ingress/rate/storage gaps | `src/TarkovCompanion.App/Services/Diagnostics/SupportBundle.cs`; `tests/TarkovCompanion.UnitTests/SupportBundleTests.cs`; `src/TarkovCompanion.App/ViewModels/MainWindowViewModel.cs`; `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193`; `.github/workflows/relay-watch.yml` |
 | Relay member expiry | `src/TarkovCompanion.GroupServer/GroupRooms.cs:29,130-205`; `src/TarkovCompanion.GroupServer/Program.cs:132-148` |
