@@ -581,7 +581,7 @@ public sealed record TrafficFeedbackHistory
 
             if (current.Value is { } value &&
                 (!string.Equals(value.SourceId, Events[0].Value!.SourceId, StringComparison.Ordinal) ||
-                 value.Consent.ConsentId != Events[0].Value.Consent.ConsentId))
+                 value.Consent.ConsentId != Events[0].Value!.Consent.ConsentId))
             {
                 throw new ArgumentException("A correction cannot switch its source or consent grant.", nameof(events));
             }
