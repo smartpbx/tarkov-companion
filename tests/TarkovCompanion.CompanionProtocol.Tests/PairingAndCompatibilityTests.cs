@@ -93,13 +93,15 @@ public sealed class PairingAndCompatibilityTests
                 new ProtocolVersionRange(new CompanionProtocolVersion(2, 0), new CompanionProtocolVersion(2, 3)),
                 "tablet-a",
                 []),
-            new ProtocolVersionRange(new CompanionProtocolVersion(2, 0), new CompanionProtocolVersion(2, 1)));
+            new ProtocolVersionRange(new CompanionProtocolVersion(2, 0), new CompanionProtocolVersion(2, 1)),
+            ProtocolTestData.Now);
         var incompatible = ProtocolCompatibility.Negotiate(
             new ClientHello(
                 new ProtocolVersionRange(new CompanionProtocolVersion(1, 0), new CompanionProtocolVersion(1, 9)),
                 "old-tablet",
                 []),
-            ProtocolVersionRange.Current);
+            ProtocolVersionRange.Current,
+            ProtocolTestData.Now);
 
         Assert.Equal(new CompanionProtocolVersion(2, 1), shared.NegotiatedVersion);
         Assert.Equal(CompatibilityDisposition.NoSharedMajor, incompatible.Disposition);
@@ -119,6 +121,7 @@ public sealed class PairingAndCompatibilityTests
             DeviceLifecycleStatus.Active,
             ProtocolTestData.Now,
             ProtocolTestData.Now,
+            1,
             ProtocolTestData.Now.AddDays(30),
             ProtocolTestData.Now);
         var revoked = DeviceLifecycle.Revoke(device, ProtocolTestData.Now.AddMinutes(1), "user-revoked");

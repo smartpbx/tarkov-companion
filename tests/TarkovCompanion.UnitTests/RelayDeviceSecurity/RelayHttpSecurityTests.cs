@@ -48,7 +48,7 @@ public sealed class RelayHttpSecurityTests
         Assert.Equal("text/html; charset=utf-8", context.Response.ContentType);
         Assert.Equal("DENY", context.Response.Headers.XFrameOptions.ToString());
         Assert.Equal("nosniff", context.Response.Headers.XContentTypeOptions.ToString());
-        Assert.Equal("no-referrer", context.Response.Headers.ReferrerPolicy.ToString());
+        Assert.Equal("no-referrer", context.Response.Headers["Referrer-Policy"].ToString());
         Assert.Contains("no-store", context.Response.Headers.CacheControl.ToString());
         Assert.Contains("camera=()", context.Response.Headers["Permissions-Policy"].ToString());
         Assert.Contains("max-age=31536000", context.Response.Headers.StrictTransportSecurity.ToString());
