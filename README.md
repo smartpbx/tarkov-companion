@@ -100,12 +100,22 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
   on your own, with nobody else sharing anything.
 - **Waypoints** stay until somebody clears them and tick themselves off when you get there.
   **Pings** say "look here" and fade. Right-click to mark, hold shift to ping.
-- One key is both which group you are in and proof you belong. The server holds no secrets and
-  never sees the key, only a hash of it.
+- One reusable key is both which group you are in and proof you belong. The relay receives that
+  key before hashing it for room storage, so transport hardening and scoped credentials remain
+  open v2 work in [#304](https://github.com/smartpbx/tarkov-companion/issues/304) and
+  [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
+- While it is on, your companion also sends the kit, level, side and scav timer your game logged
+  for the rest of your in-game party, whatever their own switches say, and the relay passes the
+  entries naming people in the room to everyone holding the room key, not only to the person
+  each entry describes. That is how a group shows you the kit your own game never
+  tells you, and it is an open conflict with
+  [`docs/SAFETY.md`](docs/SAFETY.md) owned by
+  [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
 - Nothing is sent while it is off, and a member is forgotten three minutes after they stop
-  publishing. Positions are held in memory and never written down. What the relay does keep on
-  disk is the waypoints a group placed and the list of rooms its operator registered — both so
-  they survive the relay updating itself, which it does every half hour.
+  publishing. Live positions are held in memory only. On disk the relay keeps the group's
+  waypoints (with who placed and reached each), the rooms its operator registered, problem
+  reports as sent, and its updater's status, so they survive the relay updating itself every
+  half hour.
 
 ### The second screen
 
@@ -120,8 +130,9 @@ own, and somebody playing alone needs none of it. What it should and should not 
 
 ### Running the relay
 
-One container, one unit, no configuration: since the group key became the room, there is
-nothing to set. It updates itself from the published build every half hour, verifies the
+One container and one unit. An open relay needs no per-room setup, because the group key picks
+the room; keeping state across restarts needs a state directory, and the operator page needs an
+admin key. It updates itself from the published build every half hour, verifies the
 checksum before unpacking, and rolls back if the new build does not answer.
 
 Its operator gets a page at `/admin`, behind a key of its own that is not any group's key. It
@@ -132,8 +143,13 @@ room closes it to every other one.
 
 The relay also takes problem reports: **Report a problem** on Settings sends what the companion
 knows about itself, the relay keeps it, and an hourly workflow opens an issue naming it. The
-report never carries game logs, group keys, screenshots or coordinates, and the relay holds no
-GitHub credential — the workflow files the issue with the token Actions already gives it.
+desktop now builds a closed, bounded report that excludes free-form details, logs, paths,
+screenshot names and pixels, coordinates, identities, credentials, OCR text, and exception
+bodies. **Copy diagnostics** exposes the exact text. Explicit send confirmation and relay-side
+schema enforcement, retention, and lifecycle remain release-blocking work in
+[#281](https://github.com/smartpbx/tarkov-companion/issues/281) and
+[#310](https://github.com/smartpbx/tarkov-companion/issues/310). The relay holds no GitHub
+credential — the workflow files the issue with the token Actions already gives it.
 
 Anything that can make an HTTPS request can join: the protocol is written out in full in
 [docs/GROUP_RELAY.md](docs/GROUP_RELAY.md), and running one is

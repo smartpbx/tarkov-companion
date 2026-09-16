@@ -163,8 +163,9 @@ public sealed class GroupSessionService : IAsyncDisposable
     {
         // A 401 from this server means the key failed GroupKey.IsAcceptable, which is a
         // length test: under eight characters or over 128. It cannot mean "wrong key" — the
-        // key *is* the room, so a different key is a different room, which answers 200 with
-        // nobody in it. Saying "wrong group key" sent people to compare keys that were fine.
+        // key *is* the room, so on an open relay a different key is a different room, which
+        // answers 200 with nobody in it, and a closed relay answers 403 below. Saying "wrong
+        // group key" sent people to compare keys that were fine.
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
             $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
         // A 403 is the relay's operator saying this room is not one they registered, which is a
@@ -375,9 +376,10 @@ public sealed class GroupSessionService : IAsyncDisposable
             ? await _quests.GetAsync(cancellationToken).ConfigureAwait(false)
             : SharedQuests.None;
         // What this game has said about the others, which is the one thing each of them cannot
-        // read about themselves. Sent whenever sharing is on, because it is about the people
-        // who asked to be in this group and it is the only route any of them has to their own
-        // kit. The loadout switch governs what is said about the sender, not about others.
+        // read about themselves. Sent whenever sharing is on, because it is the only route any
+        // of them has to their own kit. It is the whole in-game party, strangers from
+        // matchmaking included; the relay drops anybody not in the room only after it arrives.
+        // The loadout switch governs what is said about the sender, not about others.
         var observed = _kits is null
             ? []
             : await _kits.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -485,10 +487,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// is worth keeping on screen, and until now nothing ever decided that anybody had. The
     /// group's own plan was a list that only ever grew.
     ///
-    /// Decided here rather than on the server, because the server is never told where anybody
-    /// is except as the two coordinates a member publishes, and it has no business measuring
-    /// distances between people and places. The client knows its own screenshot position and
-    /// says so once.
+    /// Decided here rather than on the server. The server holds every member's published
+    /// position and trail, but it has no business measuring distances between people and
+    /// places. The client knows its own screenshot position and says so once, and that report is
+    /// itself a record of where somebody was: the relay keeps who reached the waypoint and when,
+    /// in marks.json once it has a state directory.
     ///
     /// The state that comes back is a moment old, so the same waypoint can be reported twice
     /// before the next exchange catches up. The server refuses the second, which is why that
@@ -547,8 +550,15 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// <remarks>
     /// Deliberately one method and deliberately explicit. Somebody asking "what does this send
     /// about me" deserves an answer they can read, and the answer is this and nothing else.
-    /// Loadout and quests are each behind their own switch, so agreeing to share a position is
-    /// not agreeing to share a kit.
+    /// The player's own loadout and quests are each behind their own switch, so agreeing to share
+    /// a position is not agreeing to share a kit.
+    ///
+    /// Observed is behind no switch. What this game logged about the rest of the in-game party
+    /// (kit, level, side, scav timer) goes to the relay whenever sharing is on, whatever the
+    /// people it describes chose. The relay returns every entry naming somebody in the room to
+    /// every holder of the room key, and Fill below shows the observed kit as other members'
+    /// loadouts, so it is not handed only to the person it is about. docs/SAFETY.md does not
+    /// allow that yet; it is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
     /// </remarks>
     private static MemberStateDto Describe(
         ApplicationRuntimeSnapshot snapshot,
@@ -843,8 +853,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// knows the relay's address and holds the key, and a second thing that did would be a
     /// second thing to keep in step.
     ///
-    /// The report is redacted before it gets here and nothing is added to it. What comes back
-    /// is a sentence for the player and, when GitHub was reachable, a link.
+    /// Nothing is added to the report here and nothing is removed. The ordinary desktop caller
+    /// supplies SupportBundle's closed projection, but this transport still accepts a raw string
+    /// and the relay keeps it as sent. #310 owns server-side schema enforcement; until then an
+    /// alternate caller remains part of RISK-REPORT-REDACTION. What comes back is a sentence for
+    /// the player and, when GitHub was reachable, a link.
     ///
     /// Every failure ends by pointing at Copy diagnostics, because the whole point is that the
     /// person with the problem can get the report out — and a relay they cannot reach is one

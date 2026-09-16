@@ -76,9 +76,10 @@ public sealed class GroupRooms(TimeProvider timeProvider)
 
         // Observations are pruned on the way in as well as on the way out. A five-man filled
         // from LFG describes the random's nickname and kit to the client, and nothing stopped
-        // that reaching the room, where anyone with the key could read it. SAFETY.md says
-        // other players' log data is never transmitted; the exception it records covers the
-        // people who are in the room, and nobody else.
+        // that reaching the room, where anyone with the key could read it. Pruning narrows who
+        // receives it; it does not make sending it allowed. SAFETY.md says other players' log
+        // data is never transmitted and records no exception for the room, so the field itself
+        // is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
         members[memberKey] = new(PruneObserved(state, members.Keys, memberKey), timeProvider.GetUtcNow());
     }
 

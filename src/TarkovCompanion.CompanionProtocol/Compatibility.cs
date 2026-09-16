@@ -78,19 +78,39 @@ public enum CompatibilityRecoveryAction
     RePairAfterUpdate,
 }
 
-public sealed record ProtocolDeprecationNotice(
-    CompanionProtocolVersion DeprecatedVersion,
-    DateTimeOffset SunsetUtc,
-    CompanionProtocolVersion MinimumReplacement,
-    CompatibilityRecoveryAction RecoveryAction,
-    string Explanation)
+public sealed record ProtocolDeprecationNotice
 {
-    public DateTimeOffset SunsetUtc { get; } = ProtocolGuard.Utc(SunsetUtc, nameof(SunsetUtc));
+    public ProtocolDeprecationNotice(
+        CompanionProtocolVersion deprecatedVersion,
+        DateTimeOffset sunsetUtc,
+        CompanionProtocolVersion minimumReplacement,
+        CompatibilityRecoveryAction recoveryAction,
+        string explanation)
+    {
+        DeprecatedVersion = ProtocolGuard.Version(deprecatedVersion, nameof(deprecatedVersion));
+        MinimumReplacement = ProtocolGuard.Version(minimumReplacement, nameof(minimumReplacement));
+        if (MinimumReplacement.Major != DeprecatedVersion.Major || MinimumReplacement.Minor <= DeprecatedVersion.Minor)
+        {
+            throw new ArgumentException(
+                "A deprecation names a later replacement minor in the same major; a new major is a new protocol.",
+                nameof(minimumReplacement));
+        }
 
-    public CompatibilityRecoveryAction RecoveryAction { get; } =
-        ProtocolGuard.Defined(RecoveryAction, nameof(RecoveryAction));
+        SunsetUtc = ProtocolGuard.Utc(sunsetUtc, nameof(sunsetUtc));
+        RecoveryAction = ProtocolGuard.Defined(recoveryAction, nameof(recoveryAction));
+        Explanation = ProtocolGuard.Required(explanation, nameof(explanation));
+    }
 
-    public string Explanation { get; } = ProtocolGuard.Required(Explanation, nameof(Explanation));
+    /// <summary>Every minor up to and including this one is deprecated.</summary>
+    public CompanionProtocolVersion DeprecatedVersion { get; }
+
+    public DateTimeOffset SunsetUtc { get; }
+
+    public CompanionProtocolVersion MinimumReplacement { get; }
+
+    public CompatibilityRecoveryAction RecoveryAction { get; }
+
+    public string Explanation { get; }
 }
 
 public sealed record ClientHello(
@@ -129,14 +149,21 @@ public sealed record ServerHello
             ? ProtocolGuard.Defined(action, nameof(recoveryAction))
             : null;
 
-        if ((disposition == CompatibilityDisposition.Compatible) != (negotiatedVersion is not null))
+        var compatible = disposition == CompatibilityDisposition.Compatible;
+        if (compatible != (negotiatedVersion is not null) || compatible == (recoveryAction is not null))
         {
-            throw new ArgumentException("Only a compatible handshake carries a negotiated version.", nameof(negotiatedVersion));
+            throw new ArgumentException(
+                "A compatible handshake carries only a negotiated version; an incompatible one carries only a recovery action.",
+                nameof(negotiatedVersion));
         }
 
-        if (disposition != CompatibilityDisposition.Compatible && recoveryAction is null)
+        if (negotiatedVersion is { } negotiated &&
+            (!negotiated.IsDefined ||
+             negotiated.Major != desktopVersions.Maximum.Major ||
+             negotiated.Minor < desktopVersions.Minimum.Minor ||
+             negotiated.Minor > desktopVersions.Maximum.Minor))
         {
-            throw new ArgumentException("An incompatible handshake must give a recovery action.", nameof(recoveryAction));
+            throw new ArgumentException("The negotiated version lies inside the desktop compatibility window.", nameof(negotiatedVersion));
         }
 
         NegotiatedVersion = negotiatedVersion;
@@ -155,13 +182,23 @@ public sealed record ServerHello
 
 public static class ProtocolCompatibility
 {
+    /// <summary>
+    /// Selects the highest shared minor. After a deprecation sunset every minor below its
+    /// replacement is unsupported rather than silently reinterpreted.
+    /// </summary>
     public static ServerHello Negotiate(
         ClientHello client,
         ProtocolVersionRange desktop,
+        DateTimeOffset nowUtc,
         ProtocolDeprecationNotice? deprecation = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(desktop);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        if (deprecation is not null && deprecation.DeprecatedVersion.Major != desktop.Maximum.Major)
+        {
+            throw new ArgumentException("A deprecation applies to the desktop's own major.", nameof(deprecation));
+        }
 
         if (client.SupportedVersions.Minimum.Major != desktop.Minimum.Major)
         {
@@ -176,11 +213,20 @@ public static class ProtocolCompatibility
                     : CompatibilityRecoveryAction.UpdateDesktop);
         }
 
-        var lower = Math.Max(client.SupportedVersions.Minimum.Minor, desktop.Minimum.Minor);
+        var desktopMinimum = desktop.Minimum.Minor;
+        if (deprecation is not null && now >= deprecation.SunsetUtc)
+        {
+            desktopMinimum = Math.Max(desktopMinimum, deprecation.MinimumReplacement.Minor);
+        }
+
+        var lower = Math.Max(client.SupportedVersions.Minimum.Minor, desktopMinimum);
         var upper = Math.Min(client.SupportedVersions.Maximum.Minor, desktop.Maximum.Minor);
         if (lower > upper)
         {
-            var clientBehind = client.SupportedVersions.Maximum.Minor < desktop.Minimum.Minor;
+            // A desktop whose whole window is past sunset must update itself; otherwise the side
+            // whose newest minor is below the other's usable minimum updates.
+            var clientBehind = desktopMinimum <= desktop.Maximum.Minor &&
+                               client.SupportedVersions.Maximum.Minor < desktopMinimum;
             return new ServerHello(
                 clientBehind ? CompatibilityDisposition.UpgradeClient : CompatibilityDisposition.UpgradeDesktop,
                 null,
@@ -191,11 +237,13 @@ public static class ProtocolCompatibility
                     : CompatibilityRecoveryAction.UpdateDesktop);
         }
 
+        var negotiated = new CompanionProtocolVersion(desktop.Maximum.Major, upper);
+        var affected = deprecation is not null && negotiated.Minor <= deprecation.DeprecatedVersion.Minor;
         return new ServerHello(
             CompatibilityDisposition.Compatible,
-            new CompanionProtocolVersion(desktop.Maximum.Major, upper),
+            negotiated,
             desktop,
-            deprecation,
+            affected ? deprecation : null,
             null);
     }
 }

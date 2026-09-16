@@ -1,0 +1,87 @@
+# Diagnostics, errors, and privacy review
+
+Review lane for [#317](https://github.com/smartpbx/tarkov-companion/issues/317), performed as a
+read-only source review on 2026-09-14. This is a V1-baseline finding record, not a claim that
+the V2 designs in #281, #309, or #310 already exist. Every source/control statement is
+**Reviewed**. A named existing test records coverage located in source only; because no test or
+build was run or observed for this review, none is **Tested (automated)** evidence.
+
+## Scope and method
+
+Read `AGENTS.md`, `README.md`, `docs/SAFETY.md`, `docs/RECOGNITION.md`,
+`docs/OPERATIONS.md`, `docs/GROUP_RELAY.md`, the security register and methodology, relevant
+App/Application/Infrastructure/GroupServer sources, and the focused diagnostics, retention,
+recognition, group, and relay tests. The data path reviewed was:
+
+```text
+game screenshot/log or local failure
+  -> App runtime state + startup.log
+  -> SupportBundle.Describe (clipboard or Report a problem)
+  -> POST /report (group key) -> relay reports/*.md -> hourly issue reference
+```
+
+The report is text, not an attachment archive: source does not assemble or upload screenshots,
+game logs, OCR crops, or database files. The relay writes the received Markdown body unchanged;
+therefore client minimisation and redaction must be complete before transport. This review
+reconciles rather than duplicates the register's **RISK-REPORT-REDACTION**,
+**RISK-REPORT-RATE-LIMIT**, and **RISK-SCREENSHOT-RETENTION-DEFAULT** rows. DIAG-03, DIAG-04,
+DIAG-08, DIAG-09, and DIAG-10 add distinct canonical risks. The complete ID crosswalk, owner
+issues, and exact verification are in [`../CONTROLS_AND_RESIDUAL_RISK.md`](../CONTROLS_AND_RESIDUAL_RISK.md);
+their V2 owners are #281, #310, #309, and #271 as recorded there.
+
+## 2026-09-16 remediation reconciliation
+
+The findings table below preserves the reviewed 2026-09-14 baseline. The #281 client checkpoint
+has since replaced `SupportBundle`'s denylist/log-tail design with a closed, bounded projection
+and a complete hostile-payload fixture. It never opens the log input or renders free-form runtime
+fields, paths, coordinates, screenshot names, identities, credentials, OCR/pixels, exception
+bodies, or injected Markdown. That repairs DIAG-01's ordinary desktop source path and removes the
+support-report half of DIAG-02; unsafe local log presentation remains a separate DIAG-02 concern.
+DIAG-06 remains open because **Report a problem** still sends without an explicit confirmation
+preview and the relay still accepts and persists arbitrary bodies. The canonical risk therefore
+stays High until #281/#310 provide byte-exact preview/send/ingress/persistence evidence and CI
+passes the new fixture.
+
+## Findings
+
+| ID | Concrete adversarial scenario | Severity | Current control and evidence | Residual risk / disposition | Owner issue | Exact test |
+| --- | --- | --- | --- | --- | --- | --- |
+| DIAG-01 — complete report redaction | A game-folder discovery failure contains `C:\\Users\\Avery\\...`; `RaidObservationService` places `exception.Message` in `Observation.Detail`. `SupportBundle.Describe` inserts that field verbatim and appends the application-log tail, where watcher logging includes full roots and X/Y/Z coordinates. The user presses **Report a problem** and the relay persists the text unchanged. | **High** | `SupportBundle` omits game logs/screenshots and digit-masks selected screenshot names; it redacts only Windows `C:\\Users\\<segment>` and two group-key spellings in log-tail lines. Reviewed: `SupportBundle.cs`, `RaidObservationService.cs`, `ProblemReports.cs`. Existing unit coverage is narrow. | Violates the current Safety contract's no-coordinates/no-user-paths report rule. **Mitigate; release-blocking.** This is the concrete source trace behind existing **RISK-REPORT-REDACTION**, not a new parallel risk. | #281 client allowlist/preview; #310 relay schema/allowlist | Current: `SupportBundleTests.AUserFolderIsReplaced`, `AGroupKeyIsRedacted`. Required: build a hostile runtime snapshot and log tail, assert the exact transmitted and persisted body contains no path, coordinate, key, game-log, or screenshot value. |
+| DIAG-02 — unsafe diagnostic logging and injection | A relay or file error includes a secret/path/newline in its exception message, or a user-controlled diagnostic value reaches an `ILogger`. `FileLoggerProvider` serialises formatter output and `exception.ToString()` directly into `startup.log`; `SupportBundle` copies up to 120 lines inside a Markdown code fence. Newlines or fence delimiters can forge apparent records or escape the fence. | **High** for secret/path disclosure; **Low** for Markdown/log injection | `CrashLog` bounds the active log to 2 MiB and one rollover, collapses exact repeats, and never throws into its caller. It has no structured field allowlist, newline escaping, token/path/coordinate scrubber, or log-retention policy. Reviewed: `CrashLog.cs`, `FileLoggerProvider.cs`, `SupportBundle.cs`. | A sanitized report cannot be built reliably from a raw diagnostic sink. Local log readers can also be misled by forged line structure. **Mitigate** under the same #281 diagnostic-event/redaction work; do not add another generic redactor that competes with RISK-REPORT-REDACTION. | #281 | Current: `CrashLogTests.RepeatsAreCollapsedIntoOneLineWithACount`, `SupportBundleTests.AnOrdinaryLineIsUntouched`. Required: hostile `\r\n`, triple-backtick, path, coordinates, authorization header, JSON and query-token corpus; assert one structured safe event and no secret/path/coordinate in copy/send output. |
+| DIAG-03 — raw exception disclosure in UI and console | An attacker controls a malformed path, server body, or upstream error whose exception message contains a local root, token, or endpoint. Catch handlers publish `exception.Message` to observation/settings UI or console (`Could not copy/send`, startup failure, relay refusal response). | **Medium** | Failures generally remain visible and scan/offline states are explicit; broad dispatcher exceptions are logged. Reviewed: `Program.cs`, `MainWindowViewModel.cs`, `RaidObservationService.cs`, `GroupSessionService.cs`. | The player is shown technical detail but it is not classified or redacted; copied diagnostics can then export it via DIAG-01. **Mitigate** with central error mapping and technical diagnostics separated from safe UI copy. | #281 | Required: an error-boundary test with a path/key-bearing exception, asserting actionable UI status without the sensitive fragment and a separately redacted diagnostic event. |
+| DIAG-04 — exception handling hides inconsistent state | A UI callback throws after partially changing view-model state. `Dispatcher.UIThread.UnhandledException` logs it and sets `Handled = true`, so the process continues with an unknown UI invariant. Separately, best-effort group withdrawal swallows every non-OOM error, and `App.StopAsync` suppresses cancellation/timeout. | **Medium** | Shutdown has 5/15-second bounds; watcher loops restart; withdrawal is deliberately non-blocking to avoid a stale close. Reviewed: `Program.cs`, `App.axaml.cs`, `GroupSessionService.cs`. | Diagnostics record some errors but provide neither a durable degraded state nor a reliable user/operator signal; stale relay presence and silently broken UI remain possible. **Mitigate**—central supervised UI task/error boundary, explicit degraded/abandoned-work state, and observable withdrawal failure. | #281 | Current: `CrashLogTests.WritingWhileTheLogIsDetachedIsNotAnError`; `GroupSelfDiagnosisTests` covers honest missing-position copy. Required: dispatcher-partial-state, failed withdrawal, and shutdown-timeout tests asserting visible degraded state and sanitized evidence. |
+| DIAG-05 — report lifecycle is bounded per request, not as stored sensitive data | An actor submits three 31 KiB bodies using each of many keys to an open relay. `ProblemReports.IsRateLimited` creates an unexpiring dictionary bucket per derived room; successful bodies are retained in `reports/*.md` with no TTL, global byte/count quota, disk-pressure check, processing/deleted state, or atomic write. | **Medium** | Kestrel currently limits request bodies to 32 KiB; code additionally checks 64 KiB and rate-limits three reports per room/hour. Admin listing exposes references/sizes, bodies require the admin key. Reviewed: `Program.cs`, `ProblemReports.cs`, `docs/OPERATIONS.md`. | 64 KiB contract disagrees with 32 KiB runtime limit; rotating keys bypasses the per-room quota and can exhaust disk/memory. Stored reports are recoverable only by manual operator access and have indefinite privacy retention. **Mitigate**; this is existing **RISK-REPORT-RATE-LIMIT** and #310's lifecycle acceptance criteria. | #310 | Required: integration tests for 32/64 KiB contract agreement, global/per-IP/per-room quota, disk pressure, restart/partial write, TTL deletion, and duplicate/processed lifecycle. |
+| DIAG-06 — report consent/redaction ordering | Clicking **Report a problem** immediately calls `SupportBundle.Describe` and `SendReport`; the same text is copied and sent, but no preview, per-purpose consent, attachment inventory, or final outbound allowlist exists. Redaction occurs only as individual fields are assembled, not as a final preflight over the payload. | **High** | Sending requires usable group settings and has a 30-second cancellation budget; failures recommend local copy. It does not require consent beyond the action nor prove output safety. Reviewed: `MainWindowViewModel.cs`, `GroupSessionService.cs`, `SupportBundle.cs`. | A user cannot inspect or revoke the exact payload before it reaches an independently operated relay. If a new field is later added unsafely, the relay cannot repair it. **Mitigate; release-blocking** as part of the existing RISK-REPORT-REDACTION disposition. | #281/#310 | Required: UI/view-model test proves preview and explicit send; contract test snapshots the byte-for-byte outbound body after final allowlist/redaction, then relay persistence test proves identical safe content. |
+| DIAG-07 — retention is enabled by corrupted/missing settings | A first run, corrupt `screenshots.json`, or inaccessible settings file returns `ScreenshotRetentionSettings.Default`; the hourly sweep moves game-created screenshots older than 24 hours to the recycle bin without first-run consent. It retains newest, skips cloud-only files, and uses reversible shell recycle behavior. | **Low** | Eligibility is filename-limited, cloud placeholders are skipped, newest remains, retention hours are clamped, and Windows uses `FOF_ALLOWUNDO`. Named tests contain default, unavailable-recycle-bin, cloud-attribute, and filename cases; no run was observed. | Cleanup is recoverable in normal conditions but is still a privacy/destructive preference enabled by default; no preview, ledger, exact-folder display, or restore verification exists. **Mitigate**—this is existing **RISK-SCREENSHOT-RETENTION-DEFAULT**, not a duplicate. | #309 | Current source names: `ScreenshotRetentionServiceTests.TidiesNothingWhenTurnedOff`, `NeverTidiesTheNewestScreenshotHoweverOldItIs`, `LeavesCloudPlaceholdersWhereTheyAre`; Windows interop layout test. Required: default-off migration, preview/ledger, wrong root/reparse/race/permission/interrupted-recycle/restore suite. |
+| DIAG-08 — decoded pixels have no deterministic zero/dispose lifetime | `SkiaScreenshotImageLoader` reads the complete file into `byte[]`, decodes a bitmap, obtains `bitmap.Bytes`, and returns a `CapturedImage` backed by managed memory. Scan persistence stores metadata rather than pixels, but `CapturedImage` has no disposal/zeroing ownership contract; exception/cancellation paths rely on GC after a scan. | **Medium** | Recognition documentation says frames stay only for scan duration; `scan_history` has no pixel column; 40-million-pixel cap limits allocation. Reviewed: `SkiaScreenshotImageLoader.cs`, `CapturedImagePixels.cs`, `ScanUseCase.cs`, migration `0003_recognition_scan_metadata.sql`. | No evidence proves all decoded/cropped buffers are promptly released, zeroed where appropriate, or excluded from future debug paths. **Mitigate** with explicit capture-session ownership and bounded decision-pause retention; do not claim secure erasure from managed GC. | #309 (with #271 capture lifecycle) | Current: `RecognitionPersistenceTests.CanonicalCatalogAndScanMetadataRoundTripWithoutCapturedPixels`. Required: cancellation/error disposal instrumentation proving no retained pixel reference and no persistence; Debug Capture expiry/quota/delete/revoke tests. |
+| DIAG-09 — developer diagnostic channel is opt-in but file-based and unbounded | A local process that knows the explicit 32+ character environment token writes many command files in the chosen developer channel. The channel polls every 100 ms, creates responses, and leaves response files indefinitely; malformed input receives a response but is not quarantined/rate-limited. | **Medium** (developer-only local boundary) | It is disabled unless both developer mode and a path are supplied; token length, safe identifier, two command kinds, atomic response rename, and no arbitrary process/path command are enforced. Reviewed: `DiagnosticCommandChannel.cs`, `docs/TESTING.md`. | A compromised same-user developer environment can consume channel storage or read the token from environment; production default is safe. **Defer** to the diagnostic design—token rotation/expiry and verbosity controls are already explicit #281 acceptance additions. | #281 | Current: `DiagnosticChannelTests.ChannelIsUnavailableOutsideExplicitDeveloperMode`, `ProcessorSanitizesUntrustedIdentifiersBeforeAuthorization`, and `DiagnosticSafetyTests.InvalidScenarioPayloadCannotEscapeIdentifierGrammar`. Required: file-count/byte quota, expiry/rotation, ownership/ACL, cleanup, and malformed-file flood tests. |
+| DIAG-10 — telemetry/outbound inventory and offline truth | No analytics SDK or background telemetry client was found. Outbound traffic is nonetheless possible for catalog/update/TarkovTracker features and, when sharing is configured, group state and reports; self-test forces offline composition and diagnostic channel defaults disabled. | **Low** today, **Medium** if a future collector is added without consent | `AppComposition` chooses an offline handler when offline; group sharing is explicitly composed; `docs/SAFETY.md` prohibits telemetry/screenshot-upload SDKs. Existing self-test asserts diagnostic channel disabled offline. | There is no user-facing inspectable outbound inventory, telemetry toggle, correlation-id policy, or durable degraded-state record. Do not describe current operation as "no outbound data"—it is opt-in/feature-dependent, not universally offline. **Mitigate before central telemetry.** | #281 | Current: `SelfTestIntegrationTests.ProducesCompositionBackedReportWithoutNetworkContact`; `RuntimeCompositionTests.NormalOfflineCompositionShowsHonestUnavailableState` and `OfflineRestartLoadsNormalizedCacheWithoutNetwork`. Required: network allowlist test per mode, explicit telemetry-disabled default and revocation/export/delete tests, and no-unsolicited-request regression test. |
+
+## Error and truth-handling conclusions
+
+The code usually favors availability: watcher/scan errors are logged and the map continues,
+retention errors retry later, and relay-report failure falls back to local copy. That is the
+right direction, but `exception.Message` and raw app-log content are treated as both diagnostic
+evidence and user-safe presentation, which defeats the separation. A V2 error boundary should
+produce (1) a stable, actionable, non-sensitive user status and (2) a typed, allowlisted local
+event; a separately previewed report may contain only an allowlisted projection of that event.
+
+Offline/degraded claims are relatively honest in the reviewed paths: `AppComposition` swaps in
+an offline HTTP handler, unavailable OCR becomes an unavailable scan rather than a fabricated
+result, and support text reports availability/state. The missing part is persistence and
+presentation of *why* a prior operation failed, how old last-known-good data is, and whether an
+abandoned background operation completed; #281 owns that readiness/degraded-state work.
+
+## Required acceptance evidence before V2 release
+
+1. A single end-to-end test builds a hostile local state/log, previews the final report, sends it
+   to a test relay, and reads persisted bytes: no raw game log, screenshot/crop, coordinate,
+   profile/name, key/token, path segment, or injected Markdown structure may survive.
+2. Report lifecycle tests prove byte/count/time quotas at desktop and relay boundaries, atomic
+   persistence, disk-pressure failure, TTL/deletion, retry/idempotency, and a visible safe
+   outcome. Exact request-body limits must be one contract, not the present 32/64 KiB mismatch.
+3. Screenshot cleanup and Debug Capture tests prove separate default-off consent, preview,
+   bounded retention, recoverability, cancellation/error disposal, and deletion/revocation.
+4. CI must execute the named tests plus `scripts/audit-safety.sh`; this review's source reading
+   is not integration evidence. No High finding above is acceptable for V2 release until its
+   named owner closes it with that evidence.

@@ -21,26 +21,23 @@ on:
       - main
     tags:
       - 'v*'
-  # Branch work is verified before it reaches the trunk, not after. The publishing steps
-  # below are gated on the ref, so a pull request gets the whole gauntlet - build, test,
-  # launch, photograph every page - and publishes nothing.
+  # Branch work is verified before it reaches the trunk, not after. A pull request gets the
+  # whole gauntlet - build, test, launch, photograph every page - and this workflow has no
+  # release-writing job or permission at all.
   pull_request:
     branches:
       - main
 
 # One publish at a time per ref. Two main runs started four seconds apart once and
-# finished out of order, leaving the rolling `dev` release on the older build. An
-# older run is cancelled rather than queued: it is about to be superseded, and since
-# the publish no longer deletes anything and writes the feed files last, a cancelled
-# one leaves the previous build whole.
+# finished out of order, leaving the old rolling `dev` release on the older build. An
+# older verification run is cancelled rather than queued: only a completed push-to-main
+# run can be offered to the separate signed publisher.
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
-# Read by default, so a run that is not publishing cannot. The write is on the publish job
-# alone, and that job does not run for a pull request at all — which is the whole of the
-# scoped-down Ambitious 6: publishing moves out of the PR-triggered path so a PR run has no
-# step that could publish and no token that could.
+# Read-only throughout. Publishing lives in publish.yml, so a pull-request run has no step
+# that could publish and no token that could.
 #
 # The exposure was never a stranger: smartpbx is the only collaborator with push, fork PRs get
 # a read-only token with no secrets, and there is no pull_request_target anywhere. This is the
@@ -56,8 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -83,7 +80,7 @@ jobs:
             -p:PublishSingleFile=false \
             -p:InformationalVersion="1.0.${{ github.run_number }}+${{ github.sha }}" \
             --output artifacts/group-server
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: TarkovCompanion-GroupServer-linux-x64
           path: artifacts/group-server/**
@@ -123,7 +120,7 @@ jobs:
             -cf - . | gzip -n > dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
           ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
           cat dist/GROUPSERVER-SHA256SUMS.txt
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: group-server-release
           path: |
@@ -131,7 +128,7 @@ jobs:
             dist/GROUPSERVER-SHA256SUMS.txt
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
         with:
           name: linux-test-results
@@ -158,9 +155,9 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -176,16 +173,44 @@ jobs:
             $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
             $Geometry = "$($Bounds.Width)x$($Bounds.Height)"
           } catch {
-            $Geometry = "error: $($_.Exception.Message)"
+            $Geometry = "unavailable"
           }
           $Facts = [ordered]@{
             os = [System.Environment]::OSVersion.VersionString
             userInteractive = [System.Environment]::UserInteractive
-            userName = [System.Environment]::UserName
             virtualScreen = $Geometry
           }
           $Facts | ConvertTo-Json | Set-Content -LiteralPath "verification/runner-session.json" -Encoding utf8
           $Facts | ConvertTo-Json
+
+      - name: Parse Windows verification scripts
+        shell: powershell
+        run: |
+          # Keep syntax errors out of the expensive package/desktop stages. This is
+          # deliberately parse-only: the hosted desktop probe remains the authority for
+          # behavioral verification and is not replaced by a local or headless imitation.
+          $Scripts = @(
+            "scripts/windows-launch-probe.ps1",
+            "scripts/windows-page-gallery.ps1",
+            "scripts/windows-smoke.ps1",
+            "scripts/windows-verification-evidence.ps1",
+            "scripts/verify-windows-verification-static.ps1",
+            "scripts/release/install-vpk.ps1",
+            "scripts/release/install-offline.ps1"
+          )
+          foreach ($Script in $Scripts) {
+            $ResolvedScript = (Resolve-Path -LiteralPath $Script).Path
+            $Tokens = $null
+            $ParseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $ResolvedScript,
+              [ref] $Tokens,
+              [ref] $ParseErrors) | Out-Null
+            if (@($ParseErrors).Count -gt 0) {
+              throw ("PowerShell parse errors in {0}: {1}" -f $Script, (@($ParseErrors | ForEach-Object Message) -join "; "))
+            }
+          }
+          ./scripts/verify-windows-verification-static.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE
 
       - name: Restore
         run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
@@ -194,6 +219,20 @@ jobs:
         run: |
           dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
           dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+
+      # The developer smoke reads durable rows through the native SQLite library the package
+      # ships, because Windows PowerShell 5.1 cannot load the net10.0 Microsoft.Data.Sqlite
+      # assembly. That reader is exercised here, under the same PowerShell, against a fixture
+      # database and the restored copy of the same library, rather than found broken twenty
+      # minutes into the job.
+      - name: Check the smoke's SQLite reader against a fixture database
+        shell: powershell
+        run: |
+          $Candidates = @(Get-ChildItem -Path (Join-Path $env:NUGET_PACKAGES "sqlitepclraw.lib.e_sqlite3\*\runtimes\win-x64\native\e_sqlite3.dll"))
+          if ($Candidates.Count -ne 1) {
+            throw "Expected exactly one restored win-x64 e_sqlite3.dll, found $($Candidates.Count)."
+          }
+          ./scripts/verify-windows-verification-static.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE -SqliteLibraryPath $Candidates[0].FullName
 
       - name: Package self-contained win-x64
         id: package
@@ -214,18 +253,30 @@ jobs:
           Expand-Archive -LiteralPath "dist/TarkovCompanion-v1.0.0-win-x64.zip" -DestinationPath $Target -Force
           "TC_APP=$(Join-Path $Target 'TarkovCompanion.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TC_SIMULATOR=$(Join-Path $Target 'TarkovCompanion.EftSimulator.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")
+          $BuildInfo = @{}
+          foreach ($Line in Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")) {
+            if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $BuildInfo[$Matches.key] = $Matches.value }
+          }
+          if ($BuildInfo.version -cne "1.0.${{ github.run_number }}" -or $BuildInfo.commit -cne "${{ github.sha }}") {
+            throw "Extracted package metadata does not match the expected GitHub version and commit."
+          }
+          "Extracted package metadata matches the expected GitHub version and commit."
 
       # Packed here rather than after the gate, because the installer is now something the
       # gate tests rather than something it produces once everything else has passed. Same
       # bits either way: this packs artifacts/win-x64, which is exactly what the zip the
       # probes launch was made from.
+      - name: Install Velopack CLI by content
+        shell: powershell
+        run: |
+          $Vpk = ./scripts/release/install-vpk.ps1 `
+            -Destination (Join-Path $env:RUNNER_TEMP "vpk-tools")
+          "VPK_PATH=$Vpk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Pack the installer and the update feed
         shell: bash
         run: |
           set -euo pipefail
-          dotnet tool install --global vpk
-          export PATH="$PATH:$HOME/.dotnet/tools"
           # Must match the version the packaging script stamped into BUILD_INFO.txt, or the
           # file inside the install and the installer that delivered it name different builds.
           VERSION="1.0.${{ github.run_number }}"
@@ -239,7 +290,7 @@ jobs:
           # player's data aside to make room for the program. It did that for real, to a
           # 114 MB database, and only a failed install left the rename target behind to
           # recover from. A successful one would have been worse.
-          vpk pack \
+          "$VPK_PATH" pack \
             --packId TarkovCompanionDesktop \
             --packVersion "$VERSION" \
             --packDir artifacts/win-x64 \
@@ -253,8 +304,16 @@ jobs:
           # Every published file gets a checksum, not just the legacy zip. A corrupt
           # download is otherwise discovered halfway through an install, with the data
           # directory already renamed aside; that is exactly how this was found.
-          ( cd dist/velopack && sha256sum * > ../VELOPACK-SHA256SUMS.txt )
+          ( cd dist/velopack && sha256sum -- * > ../VELOPACK-SHA256SUMS.txt )
           cat dist/VELOPACK-SHA256SUMS.txt
+
+      - name: Build the versioned data and model components
+        shell: powershell
+        run: |
+          python scripts/release/build_components.py `
+            --source . --output dist --update dist/update.json
+          if ($LASTEXITCODE -ne 0) { throw "Building release components failed." }
+          Get-Content -LiteralPath dist/COMPONENT-SHA256SUMS.txt
 
       - name: Headless self-test on a clean machine
         id: self-test-cold
@@ -267,8 +326,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-cold.out.txt" `
             -RedirectStandardError "verification/self-test-cold.err.txt"
-          Get-Content -LiteralPath "verification/self-test-cold.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Cold self-test success: $($SelfTest.success)"
+          }
           exit $Process.ExitCode
 
       - name: Headless demo raid replay
@@ -281,8 +342,11 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/demo-replay.out.txt" `
             -RedirectStandardError "verification/demo-replay.err.txt"
-          Get-Content -LiteralPath "verification/demo-replay.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          # DemoRaidReplayReport has no success field; complete is the one its exit code follows.
+          if (Test-Path -LiteralPath $Report) {
+            $DemoReplay = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Demo replay complete: $($DemoReplay.complete)"
+          }
           exit $Process.ExitCode
 
       - name: Reset local application data
@@ -293,7 +357,7 @@ jobs:
           # actually needs proving.
           $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
           if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
-          "Local application data reset: $Root"
+          "Local application data reset."
 
       - name: First-run desktop launch probe
         id: launch-probe
@@ -303,20 +367,18 @@ jobs:
         run: |
           ./scripts/windows-launch-probe.ps1 `
             -AppPath $env:TC_APP `
+            -ExpectedVersion "1.0.${{ github.run_number }}" `
+            -ExpectedCommit "${{ github.sha }}" `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
-      # Opens every destination in turn, photographs it, and now checks what it got.
-      #
-      # Presenting a window was the only thing ever asserted, which is how a ragged sidebar
-      # shipped: the picture was taken and nobody looked. The toolkit's own warnings are now
-      # captured per page and a fault fails the step - a value that will not convert, a
-      # resource that is not there, a path that cannot be resolved. Binding through a null
-      # object is counted and reported instead, because every optional panel does it. How
-      # much each page drew is measured and reported alongside them.
-      # The map now gets three shots of its own on top of the fourteen pages: stacked,
-      # a named floor, and a second map. Seventeen launches rather than fourteen, hence
-      # the longer bound.
+      # Fails a launch that shows no responsive, visually varied window, whose toolkit reported
+      # an interface fault, whose warning capture was never armed, or whose required packaged-shell
+      # UI Automation interaction failed. Legacy, V2 A and V2 B are launched and captured; both V2
+      # variants are also exercised at narrow width. V2 additionally traverses every retained route
+      # and asserts selected focus, dialog, title and deep-link behavior. It does not prove full
+      # usability/accessibility or map tile/data readiness: those #279 criteria stay open and depend
+      # on the application readiness signal owned by #281, which this workflow does not duplicate.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
@@ -339,8 +401,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-warm.out.txt" `
             -RedirectStandardError "verification/self-test-warm.err.txt"
-          Get-Content -LiteralPath "verification/self-test-warm.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Warm self-test success: $($SelfTest.success)"
+          }
           exit $Process.ExitCode
 
       # The installer has never been run by anything but Clayton.
@@ -366,7 +430,7 @@ jobs:
           $Marker = Join-Path $Root "install-marker.txt"
           "the data a user already had" | Set-Content -LiteralPath $Marker -Encoding utf8
           "TC_MARKER=$Marker" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "Seeded $Marker"
+          "Seeded install-preservation marker."
 
       - name: Install the way a user would
         id: install
@@ -376,7 +440,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $Setup = Get-ChildItem -LiteralPath "dist/velopack" -Filter "*Setup.exe" | Select-Object -First 1
           if (-not $Setup) { throw "No Setup.exe was packed." }
-          "Installing $($Setup.Name)"
+          "Running the packaged installer."
 
           # --silent so nothing waits for a window that a runner has nobody to close. The exit
           # code is the installer's own verdict and is not swallowed.
@@ -385,16 +449,24 @@ jobs:
 
           $Installed = Join-Path $env:LOCALAPPDATA "TarkovCompanionDesktop/current/TarkovCompanion.exe"
           if (-not (Test-Path -LiteralPath $Installed)) {
-            throw "The installer reported success and there is no application at $Installed."
+            throw "The installer reported success but the application was not installed."
           }
 
           # The regression. A pack id that collides with the data directory renames it aside.
           if (-not (Test-Path -LiteralPath $env:TC_MARKER)) {
-            throw "Installing destroyed the data directory: $($env:TC_MARKER) is gone."
+            throw "Installing destroyed the existing application data marker."
+          }
+
+          $InstalledBuildInfo = @{}
+          foreach ($Line in Get-Content -LiteralPath (Join-Path (Split-Path -Parent $Installed) "BUILD_INFO.txt")) {
+            if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $InstalledBuildInfo[$Matches.key] = $Matches.value }
+          }
+          if ($InstalledBuildInfo.version -cne "1.0.${{ github.run_number }}" -or $InstalledBuildInfo.commit -cne "${{ github.sha }}") {
+            throw "Installed package metadata does not match the expected GitHub version and commit."
           }
 
           "TC_INSTALLED=$Installed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-Content -LiteralPath $env:TC_MARKER
+          "Installed package metadata and data preservation marker both match."
 
       # What was installed, rather than what was packed. A self-test here is the first thing in
       # this workflow that exercises the bytes a user will actually run, laid out the way the
@@ -410,38 +482,11 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-installed.out.txt" `
             -RedirectStandardError "verification/self-test-installed.err.txt"
-          Get-Content -LiteralPath "verification/self-test-installed.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
-          exit $Process.ExitCode
-
-      - name: Inventory local application data
-        if: always()
-        continue-on-error: true
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Path "verification" -Force | Out-Null
-          $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
-          if (Test-Path -LiteralPath $Root) {
-            Get-ChildItem -LiteralPath $Root -Recurse -File |
-              Select-Object @{ n = "path"; e = { $_.FullName.Substring($Root.Length + 1) } }, Length |
-              Sort-Object path |
-              ConvertTo-Json -Depth 4 |
-              Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
-            Get-Content -LiteralPath "verification/local-appdata.json" -Raw
-
-            $StartupLog = Join-Path $Root "Logs\startup.log"
-            if (Test-Path -LiteralPath $StartupLog) {
-              Copy-Item -LiteralPath $StartupLog -Destination "verification/startup.log" -Force
-              Get-Content -LiteralPath $StartupLog -Raw
-            }
-
-            $Database = Join-Path $Root "Database\tarkov-companion.db"
-            if (Test-Path -LiteralPath $Database) {
-              Copy-Item -LiteralPath $Database -Destination "verification/tarkov-companion.db" -Force
-            }
-          } else {
-            "The application never created $Root." | Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Installed self-test success: $($SelfTest.success)"
           }
+          exit $Process.ExitCode
 
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
@@ -454,13 +499,25 @@ jobs:
             -SimulatorPath $env:TC_SIMULATOR `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/windows-smoke.json")
 
-      - name: Publish verification evidence
+      - name: Create sanitized verification evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        shell: powershell
+        run: |
+          ./scripts/windows-verification-evidence.ps1 `
+            -VerificationDirectory (Join-Path $env:GITHUB_WORKSPACE "verification") `
+            -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/evidence") `
+            -LocalDataRoot (Join-Path $env:LOCALAPPDATA "TarkovCompanion")
+
+      - name: Publish sanitized verification evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: windows-verification
-          path: verification/**
-          if-no-files-found: warn
+          path: |
+            verification/evidence/windows-verification-summary.json
+            verification/evidence/windows-verification-failures.txt
+          if-no-files-found: error
+          retention-days: 7
 
       # The gate, and deliberately ahead of every publish step.
       #
@@ -488,6 +545,34 @@ jobs:
           foreach ($Name in $Steps.Keys) {
             $Lines += "| $Name | $($Steps[$Name]) |"
           }
+          $Lines += ""
+
+          # Written from the sanitized evidence rather than the raw reports, so this says only what
+          # the published artifact holds. It used to promise a page gallery and a cropped launch
+          # probe, which were never in it, called a window-handle timing "time to interactive",
+          # and called diagnostic-channel assertions "simulator state assertions".
+          $Lines += "Evidence: the windows-verification artifact on [this run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) holds a sanitized summary and bounded failure excerpts only. Screenshots, raw logs and databases stay on the runner."
+          $EvidencePath = Join-Path $env:GITHUB_WORKSPACE "verification/evidence/windows-verification-summary.json"
+          if (Test-Path -LiteralPath $EvidencePath) {
+            $Evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
+            if ($null -ne $Evidence.launch) {
+              # The release time is only observed when the handle goes before the process does; a
+              # process that exits first leaves it null, and that is said rather than printed blank.
+              $Released = if ($null -ne $Evidence.launch.windowReleasedAfterCloseSeconds) { "window released $($Evidence.launch.windowReleasedAfterCloseSeconds)s after the close request" } else { "process exited before a separate window release was observed" }
+              $Lines += "Launch probe: main window handle after $($Evidence.launch.mainWindowAfterSeconds)s; $Released; exit code $($Evidence.launch.exitCode). Window presence and process health, not semantic interactivity."
+            }
+            if ($null -ne $Evidence.gallery) {
+              $Clean = $Evidence.gallery.launchCount - $Evidence.gallery.failedCount
+              $Lines += "Page gallery: $Clean of $($Evidence.gallery.launchCount) launches responsive, visually varied, and gracefully shut down; $($Evidence.gallery.interactionPassedLaunchCount) of $($Evidence.gallery.interactionRequiredLaunchCount) required packaged-shell UI Automation interactions passed, with armed warning capture and no interface faults. Full usability and data/tile readiness are not proven (open #279 criterion; readiness signal owned by #281)."
+            }
+            if ($null -ne $Evidence.smoke) {
+              $Persistence = $Evidence.smoke.persistence
+              $Lines += "Developer diagnostic smoke: $($Evidence.smoke.passedAssertionCount) of $($Evidence.smoke.assertionCount) recorded assertions passed (it stops at the first failure); durable scan rows $($Persistence.scanEventCountBefore) to $($Persistence.scanEventCountAfter), expected +$($Persistence.expectedScanEventDelta). Demo fixture scans sent through the authenticated diagnostic channel; the packaged app does not yet ingest simulator files."
+            }
+          }
+          else {
+            $Lines += "No sanitized evidence summary was produced."
+          }
           ($Lines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
           $Failed = @($Steps.Keys | Where-Object { $Steps[$_] -ne "success" })
@@ -499,7 +584,7 @@ jobs:
           Write-Host "Every Windows verification step passed."
       - name: Publish the verified package
         if: success()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: TarkovCompanion-win-x64
           path: |
@@ -515,7 +600,7 @@ jobs:
       # a release.
       - name: Hand the release payload to the publish job
         if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: windows-release-payload
           path: |
@@ -523,145 +608,8 @@ jobs:
             dist/VELOPACK-SHA256SUMS.txt
             dist/SHA256SUMS.txt
             dist/update.json
+            dist/COMPONENT-SHA256SUMS.txt
+            dist/TarkovCompanion-data-*.json
+            dist/TarkovCompanion-model-eng-*.traineddata
             dist/TarkovCompanion-v1.0.0-win-x64.zip
           if-no-files-found: error
-
-
-  # Publishing, and nothing else. It needs the write token, so it is the only job that has one
-  # and it does not run for a pull request — a PR run therefore has no step that could publish
-  # and no token that could, which is what "structurally cannot" means here.
-  #
-  # On ubuntu rather than windows because every step below is bash, gh and git; the Windows
-  # runner's only job is producing the payload and saying it passed.
-  #
-  # A failure here leaves the previous dev release whole. Nothing is deleted before the new
-  # assets are uploaded and the two feed files are written last, so the worst case is that dev
-  # does not advance — visible, and fixed by re-running.
-  publish:
-    needs: windows-verify
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      # Velopack turns the verified publish directory into an installer plus a delta feed.
-      #
-      # This replaced a hand-written swap script that never once completed on a real machine.
-      # The application was unpacked from a zip onto a OneDrive-synced Desktop, where the sync
-      # client holds handles on the folder continuously, so a directory rename could not
-      # succeed and mirroring file by file only moved the failure to whichever file was locked
-      # when it arrived. Velopack installs per user under LocalAppData, which nothing syncs,
-      # and it owns the restart, so the process is gone before its files are touched.
-      #
-      # The version carries the run number so every verified build is strictly newer than the
-      # last one. Velopack compares versions and will not offer a build it considers older.
-      - uses: actions/checkout@v5
-
-      - name: Collect the verified Windows payload
-        uses: actions/download-artifact@v5
-        with:
-          name: windows-release-payload
-          path: dist
-
-      - name: Collect the group server build
-        uses: actions/download-artifact@v5
-        with:
-          name: group-server-release
-          path: dist
-
-      # A tag cuts a release that stays. The rolling pre-release below is what the group
-      # actually runs and is replaced constantly; a tagged release is a build somebody
-      # decided to keep, and it is never deleted or moved.
-      - name: Publish a tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          gh release create "$TAG"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "$TAG"             --notes "Verified on Windows: built, tested, launched, and every page photographed. Install with TarkovCompanionDesktop-win-Setup.exe."             --verify-tag             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/SHA256SUMS.txt
-
-      # One rolling pre-release, replaced on every verified build, so the application has a
-      # fixed place to look for a newer version of itself. Only reached when every check above
-      # passed, so nothing that failed verification is ever offered as an update.
-      - name: Publish the verified build for in-app update
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          REPO="${{ github.repository }}"
-          # The manifest is written by the packaging script, from the same values it stamped
-          # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
-          test -s dist/update.json
-          VERSION="$(jq -r .version dist/update.json)"
-
-          # Refuse to go backwards. Two main runs started four seconds apart once and the
-          # older commit finished last, so `dev` ended up on the older build — and the relay,
-          # which follows the feed by checksum alone, would have followed it backwards too.
-          # The concurrency group above makes that unlikely; this makes it harmless.
-          PUBLISHED=""
-          if gh release download dev --repo "$REPO" --pattern update.json --dir /tmp/feed --clobber 2>/dev/null; then
-            PUBLISHED="$(jq -r .version /tmp/feed/update.json 2>/dev/null || echo "")"
-          fi
-          if [ -n "$PUBLISHED" ] && [ "$PUBLISHED" != "$VERSION" ] \
-             && [ "$(printf '%s\n%s\n' "$PUBLISHED" "$VERSION" | sort -V | tail -1)" = "$PUBLISHED" ]; then
-            echo "Refusing to publish $VERSION over the newer $PUBLISHED already on dev." >&2
-            exit 1
-          fi
-
-          # Created if absent, never deleted. Delete-then-create left the install link, the
-          # update feed and the relay updater all pointing at nothing when the create failed
-          # after the delete had succeeded — which happened twice — and it zeroed the download
-          # counts on every single build.
-          if ! gh release view dev --repo "$REPO" >/dev/null 2>&1; then
-            git tag -f dev "${{ github.sha }}"
-            git push -f origin dev
-            gh release create dev \
-              --repo "$REPO" \
-              --title "Latest verified build" \
-              --notes "placeholder" \
-              --prerelease
-          fi
-
-          # Packages first, the two feed files last. Anything reading the feed mid-publish sees
-          # the previous build, whole, rather than a half-written one; and a run cancelled
-          # partway leaves the old feed pointing at assets that are all still present.
-          gh release upload dev --repo "$REPO" --clobber \
-            dist/velopack/* \
-            dist/TarkovCompanion-GroupServer-linux-x64.tar.gz \
-            dist/GROUPSERVER-SHA256SUMS.txt \
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
-          gh release upload dev --repo "$REPO" --clobber \
-            dist/VELOPACK-SHA256SUMS.txt \
-            dist/SHA256SUMS.txt \
-            dist/update.json
-
-          # Stale packages last, once nothing points at them any more.
-          #
-          # --clobber only replaces an asset of the same name, and a Velopack package carries
-          # its version in its filename, so not deleting left every build's nupkg on the
-          # release for ever: ~70 MB a build, twice an hour. Deleting them before the upload
-          # would have been worse — it is the delete-then-create hole in a smaller shape — so
-          # they go after the feed has been repointed and they are genuinely unreferenced.
-          gh release view dev --repo "$REPO" --json assets \
-            --jq '.assets[].name | select(endswith(".nupkg"))' \
-          | while read -r asset; do
-              case "$asset" in
-                *"-${VERSION}-"*) ;;
-                *) echo "removing superseded $asset"
-                   gh release delete-asset dev "$asset" --repo "$REPO" --yes || true ;;
-              esac
-            done
-
-          # The tag follows the build rather than being recreated with it.
-          git tag -f dev "${{ github.sha }}"
-          git push -f origin dev
-          gh release edit dev \
-            --repo "$REPO" \
-            --title "Latest verified build" \
-            --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanionDesktop-win-Setup.exe; after that the application updates itself." \
-            --prerelease

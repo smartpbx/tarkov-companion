@@ -33,6 +33,11 @@
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The OCR probe's atomic report write is proven by interrupting a write partway through,
+         which needs its internal writer seam. -->
+    <InternalsVisibleTo Include="TarkovCompanion.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Fonts.Inter" />

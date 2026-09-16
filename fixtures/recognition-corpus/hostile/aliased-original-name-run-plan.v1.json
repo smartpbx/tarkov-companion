@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "run-plan.v1",
+  "runId": "run-hostile-alias-000001",
+  "producer": {
+    "id": "producer-hostile-0003",
+    "version": "1.0"
+  },
+  "policyVersion": "recognition-scorer-policy.v1",
+  "corpusId": "corpus-hostile-000001",
+  "nearDuplicateGraphVersion": "phash-graph.v1",
+  "planLock": "0000000000000000000000000000000000000000000000000000000000000000",
+  "samples": [],
+  "futureExtension": {
+    "original_filename": "invented-original-capture",
+    "source_file_name": "invented-source-capture"
+  }
+}

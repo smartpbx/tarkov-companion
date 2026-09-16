@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services;
@@ -8,16 +9,34 @@ using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
+internal delegate Task DataRefreshCommitAction(
+    SqliteConnection connection,
+    SqliteTransaction transaction,
+    CancellationToken cancellationToken);
+
+public enum PriceHistoryRefreshOutcome
+{
+    Updated,
+    ItemNotInCatalog,
+}
+
 public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connectionFactory)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task RefreshItemsAsync(
+    public Task RefreshItemsAsync(
         TarkovDevItemsData data,
         DateTimeOffset observedUtc,
+        CancellationToken cancellationToken) =>
+        RefreshItemsWithCommitAsync(data, observedUtc, null, cancellationToken);
+
+    internal async Task RefreshItemsWithCommitAsync(
+        TarkovDevItemsData data,
+        DateTimeOffset observedUtc,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
-        ValidateItems(data);
+        TarkovDevDatasetValidator.Validate(data, "items");
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
@@ -140,6 +159,14 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
             foreach (var offer in item.SellToTrader)
             {
+                var value = offer.PriceRub is > 0 ? offer.PriceRub : offer.Price;
+                if (value is not > 0)
+                {
+                    // An absent upstream price is unknown, not a zero-valued offer. The full
+                    // offer remains in items.raw_json for a later importer that understands it.
+                    continue;
+                }
+
                 await ExecuteAsync(
                     connection,
                     transaction,
@@ -151,7 +178,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     ("$itemId", item.Id),
                     ("$vendorId", offer.Trader),
                     ("$vendorName", offer.Trader),
-                    ("$value", offer.PriceRub == 0 ? offer.Price : offer.PriceRub),
+                    ("$value", value.Value),
                     ("$currency", offer.Currency),
                     ("$updatedUtc", FormatTimestamp(item.Updated ?? observedUtc))).ConfigureAwait(false);
             }
@@ -178,15 +205,48 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 ("$timestampUtc", FormatTimestamp(item.Updated ?? observedUtc)),
                 ("$fleaPrice", item.LastLowPrice),
                 ("$traderValue", BestTraderValue(item.SellToTrader))).ConfigureAwait(false);
+
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO item_metrics_v2(
+                    item_id, weight_kg, flea_price_roubles, trader_value_roubles, measured_utc, source)
+                VALUES ($itemId, $weight, $fleaPrice, $traderValue, $measuredUtc, 'json.tarkov.dev/items')
+                ON CONFLICT(item_id) DO UPDATE SET
+                    weight_kg = excluded.weight_kg,
+                    flea_price_roubles = excluded.flea_price_roubles,
+                    trader_value_roubles = excluded.trader_value_roubles,
+                    measured_utc = excluded.measured_utc,
+                    source = excluded.source;
+                """,
+                cancellationToken,
+                ("$itemId", item.Id),
+                ("$weight", item.Weight ?? GetFiniteDouble(item.Properties, "weight")),
+                ("$fleaPrice", item.LastLowPrice),
+                ("$traderValue", BestTraderValue(item.SellToTrader)),
+                ("$measuredUtc", item.Updated is { } measured ? FormatTimestamp(measured) : null)).ConfigureAwait(false);
+        }
+
+        if (commitAction is not null)
+        {
+            await commitAction(connection, transaction, cancellationToken).ConfigureAwait(false);
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task RefreshMapsAsync(
+    public Task RefreshMapsAsync(
         TarkovDevMapsData data,
+        CancellationToken cancellationToken) =>
+        RefreshMapsWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshMapsWithCommitAsync(
+        TarkovDevMapsData data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "maps");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -243,7 +303,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             VALUES ($id, $mapId, $name, $x, $y, $z, $conditions, $sourceJson);
                             """,
                             cancellationToken,
-                            ("$id", $"{map.Id}:{extractOrdinal}:{extract.Id}"),
+                            ("$id", CompositeIdentity(map.Id, extractOrdinal.ToString(CultureInfo.InvariantCulture), extract.Id)),
                             ("$mapId", map.Id),
                             ("$name", Named(extract.Name, extract.Id)),
                             ("$x", extract.Position?.X),
@@ -260,7 +320,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             transaction,
                             "INSERT INTO map_locks(id, map_id, key_item_id, source_json) VALUES ($id, $mapId, $keyItemId, $sourceJson);",
                             cancellationToken,
-                            ("$id", $"{map.Id}:{mapLock.Id}"),
+                            ("$id", CompositeIdentity(map.Id, mapLock.Id)),
                             ("$mapId", map.Id),
                             ("$keyItemId", mapLock.Key),
                             ("$sourceJson", JsonSerializer.Serialize(mapLock, SerializerOptions))).ConfigureAwait(false);
@@ -268,11 +328,18 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshTasksAsync(
+    public Task RefreshTasksAsync(
         QuestCatalogSnapshot catalog,
+        CancellationToken cancellationToken) =>
+        RefreshTasksWithCommitAsync(catalog, null, cancellationToken);
+
+    internal async Task RefreshTasksWithCommitAsync(
+        QuestCatalogSnapshot catalog,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -441,7 +508,8 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 // page answers the same question live, off the profile and the catalog that is
                 // actually loaded, and covers item holdings and pins as well. 0010 drops it.
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
     private static async Task PersistObjectiveAsync(
@@ -642,10 +710,17 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         }
     }
 
-    public async Task RefreshHideoutAsync(
+    public Task RefreshHideoutAsync(
         IReadOnlyDictionary<string, TarkovDevHideoutStation> data,
+        CancellationToken cancellationToken) =>
+        RefreshHideoutWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshHideoutWithCommitAsync(
+        IReadOnlyDictionary<string, TarkovDevHideoutStation> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "hideout");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -732,13 +807,21 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     }
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshTradersAsync(
+    public Task RefreshTradersAsync(
         IReadOnlyDictionary<string, TarkovDevTrader> data,
+        CancellationToken cancellationToken) =>
+        RefreshTradersWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshTradersWithCommitAsync(
+        IReadOnlyDictionary<string, TarkovDevTrader> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "traders");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -781,13 +864,21 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     """,
                     cancellationToken).ConfigureAwait(false);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshCraftsAsync(
+    public Task RefreshCraftsAsync(
         IReadOnlyList<TarkovDevCraft> data,
+        CancellationToken cancellationToken) =>
+        RefreshCraftsWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshCraftsWithCommitAsync(
+        IReadOnlyList<TarkovDevCraft> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "crafts");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -831,13 +922,21 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$sourceJson", JsonSerializer.Serialize(craft.ProductItem, SerializerOptions))).ConfigureAwait(false);
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshBartersAsync(
+    public Task RefreshBartersAsync(
         IReadOnlyList<TarkovDevBarter> data,
+        CancellationToken cancellationToken) =>
+        RefreshBartersWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshBartersWithCommitAsync(
+        IReadOnlyList<TarkovDevBarter> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "barters");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -880,43 +979,96 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$sourceJson", JsonSerializer.Serialize(barter.OfferedItem, SerializerOptions))).ConfigureAwait(false);
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshPriceHistoryAsync(
+    public async Task<PriceHistoryRefreshOutcome> RefreshPriceHistoryAsync(
         string itemId,
         IReadOnlyList<TarkovDevPricePoint> points,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
-        await InTransactionAsync(
-            async (connection, transaction) =>
+        TarkovDevDatasetValidator.Validate(points, $"prices/{itemId}");
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // This no-op update is deliberately the first database statement. It promotes the
+        // deferred transaction to SQLite's single writer before it also checks existence, so a
+        // concurrent catalog deletion either wins first (and produces the classified outcome
+        // below) or waits until every history row is committed. A read-then-write sequence could
+        // otherwise lose the item between those steps and surface SQLITE_BUSY or a foreign-key
+        // exception instead of a stable result.
+        var catalogMatches = await ExecuteAsync(
+            connection,
+            transaction,
+            "UPDATE items SET id = id WHERE id = $itemId;",
+            cancellationToken,
+            ("$itemId", itemId)).ConfigureAwait(false);
+        if (catalogMatches == 0)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return PriceHistoryRefreshOutcome.ItemNotInCatalog;
+        }
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            "DELETE FROM price_history_unresolved_time WHERE item_id = $itemId AND source = 'json.tarkov.dev/prices';",
+            cancellationToken,
+            ("$itemId", itemId)).ConfigureAwait(false);
+
+        foreach (var (point, ordinal) in points.Select((value, index) => (value, index)))
+        {
+            if (point.Timestamp is not { } timestamp)
             {
-                foreach (var point in points)
-                {
-                    await ExecuteAsync(
-                        connection,
-                        transaction,
-                        """
-                        INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source)
-                        VALUES ($itemId, $timestampUtc, $fleaPrice, NULL, 'json.tarkov.dev/prices');
-                        """,
-                        cancellationToken,
-                        ("$itemId", itemId),
-                        ("$timestampUtc", FormatTimestamp(DateTimeOffset.FromUnixTimeMilliseconds(point.Timestamp))),
-                        ("$fleaPrice", point.Price ?? point.PriceMin)).ConfigureAwait(false);
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(
+                    connection,
+                    transaction,
+                    """
+                    INSERT INTO price_history_unresolved_time(
+                        item_id, source_ordinal, flea_price, trader_value, source, raw_json)
+                    VALUES ($itemId, $ordinal, $fleaPrice, NULL, 'json.tarkov.dev/prices', $rawJson);
+                    """,
+                    cancellationToken,
+                    ("$itemId", itemId),
+                    ("$ordinal", ordinal),
+                    ("$fleaPrice", point.Price ?? point.PriceMin),
+                    ("$rawJson", JsonSerializer.Serialize(point, SerializerOptions))).ConfigureAwait(false);
+                continue;
+            }
+
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source)
+                VALUES ($itemId, $timestampUtc, $fleaPrice, NULL, 'json.tarkov.dev/prices');
+                """,
+                cancellationToken,
+                ("$itemId", itemId),
+                ("$timestampUtc", FormatTimestamp(DateTimeOffset.FromUnixTimeMilliseconds(timestamp))),
+                ("$fleaPrice", point.Price ?? point.PriceMin)).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return PriceHistoryRefreshOutcome.Updated;
     }
 
     private async Task InTransactionAsync(
         Func<SqliteConnection, SqliteTransaction, Task> action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DataRefreshCommitAction? commitAction = null)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await action(connection, transaction).ConfigureAwait(false);
+        if (commitAction is not null)
+        {
+            await commitAction(connection, transaction, cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1024,23 +1176,17 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
     private static string Named(string? name, string id) =>
         string.IsNullOrWhiteSpace(name) ? id : name;
 
-    private static void ValidateItems(TarkovDevItemsData data)
-    {
-        foreach (var pair in data.Items)
-        {
-            var item = pair.Value;
-            if (!string.Equals(pair.Key, item.Id, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException($"Item dictionary key '{pair.Key}' does not match item id '{item.Id}'.");
-            }
-
-            if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Name) ||
-                item.Width <= 0 || item.Height <= 0)
-            {
-                throw new InvalidDataException($"Item '{pair.Key}' is missing required normalized persistence fields.");
-            }
-        }
-    }
+    /// <summary>Builds an injective opaque key from untrusted upstream identity components.</summary>
+    /// <remarks>
+    /// Delimiter concatenation is ambiguous because upstream ids may contain that delimiter:
+    /// <c>("a", "b:c")</c> and <c>("a:b", "c")</c> used to produce the same map-lock key and
+    /// poison the already-published HTTP cache when normalized persistence rolled back. Prefixing
+    /// every component with its UTF-8 byte length preserves the complete tuple without restricting
+    /// otherwise valid upstream ids.
+    /// </remarks>
+    private static string CompositeIdentity(params string[] components) => string.Concat(
+        components.Select(component => FormattableString.Invariant(
+            $"{Encoding.UTF8.GetByteCount(component)}:{component}")));
 
     /// <summary>
     /// Returns the short name to persist, falling back to the full name when it is blank.
@@ -1059,6 +1205,23 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         property.ValueKind == JsonValueKind.String
             ? property.GetString()
             : null;
+
+    private static double? GetFiniteDouble(JsonElement? element, string propertyName)
+    {
+        if (element is not { ValueKind: JsonValueKind.Object } value ||
+            !value.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (!property.TryGetDouble(out var result) || !double.IsFinite(result) || result < 0)
+        {
+            throw new InvalidDataException($"Item property '{propertyName}' must be a finite non-negative number when present.");
+        }
+
+        return result;
+    }
 
     private static string FormatTimestamp(DateTimeOffset timestamp) =>
         timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
@@ -1099,7 +1262,9 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
     }
 
     private static long? BestTraderValue(IReadOnlyList<TarkovDevTraderPrice> offers) =>
-        offers.Count == 0
-            ? null
-            : offers.Max(offer => offer.PriceRub == 0 ? offer.Price : offer.PriceRub);
+        offers
+            .Select(offer => offer.PriceRub is > 0 ? offer.PriceRub : offer.Price)
+            .OfType<long>()
+            .DefaultIfEmpty()
+            .Max() is var value && value > 0 ? value : null;
 }

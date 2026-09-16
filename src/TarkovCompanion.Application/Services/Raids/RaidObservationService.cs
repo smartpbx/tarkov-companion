@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -26,6 +27,9 @@ public sealed class RaidObservationService : IAsyncDisposable
 {
     private static readonly TimeSpan RediscoveryDelay = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan SourceRediscoveryDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan ScreenshotScanDrainTimeout = TimeSpan.FromSeconds(5);
+    private const int MaximumPendingScreenshotScans = 16;
 
     private readonly IEftPathLocator _pathLocator;
     private readonly IEftLogWatcher _logWatcher;
@@ -33,6 +37,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotFilenameParser _filenameParser;
     private readonly IScreenshotImageLoader? _imageLoader;
     private readonly IScanUseCase? _scanUseCase;
+    private readonly ICaptureSessionService? _captureSessions;
     private readonly ScreenshotRetentionService? _retention;
     private readonly IScreenshotRetentionStore? _retentionSettings;
     private readonly RaidActivityCoordinator _coordinator;
@@ -41,10 +46,18 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly ILogger<RaidObservationService> _logger;
+    private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _stopping = new();
+    private readonly object _screenshotScanGate = new();
+    private readonly HashSet<Task> _screenshotScans = [];
+    private readonly object _screenshotPublicationGate = new();
     private Task? _worker;
     private EftPaths? _watching;
     private long _eventsSeen;
+    private long _nextScreenshotSourceGeneration;
+    private long _activeScreenshotSourceGeneration;
+    private long _nextScreenshotScanOrdinal;
+    private long _lastPublishedScreenshotScanOrdinal;
 
     /// <summary>Whether an unparsable screenshot name has already been reported this session.</summary>
     private int _unreadableNameReported;
@@ -67,7 +80,9 @@ public sealed class RaidObservationService : IAsyncDisposable
         IScreenshotImageLoader? imageLoader = null,
         IScanUseCase? scanUseCase = null,
         ScreenshotRetentionService? retention = null,
-        IScreenshotRetentionStore? retentionSettings = null)
+        IScreenshotRetentionStore? retentionSettings = null,
+        ICaptureSessionService? captureSessions = null,
+        TimeProvider? timeProvider = null)
     {
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
@@ -76,6 +91,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _coordinator = coordinator;
         _imageLoader = imageLoader;
         _scanUseCase = scanUseCase;
+        _captureSessions = captureSessions;
         _retention = retention;
         _retentionSettings = retentionSettings;
         _squad = squad;
@@ -83,6 +99,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>Begins watching in the background. Safe to call once.</summary>
@@ -213,22 +230,35 @@ public sealed class RaidObservationService : IAsyncDisposable
             // round to ask where the folders are, and somebody who had just typed one would
             // see nothing happen.
             _ = Interlocked.Exchange(ref _session, session);
-            var watchers = new List<Task>(3);
+            var sourceWatchers = new List<Task>(2);
+            var sessionTasks = new List<Task>(4);
             if (paths.LogRoot is not null)
             {
-                watchers.Add(WatchLogsAsync(paths.LogRoot, session.Token));
-                watchers.Add(PublishObservationsAsync(session.Token));
+                var logWatcher = WatchLogsAsync(paths.LogRoot, session.Token);
+                sourceWatchers.Add(logWatcher);
+                sessionTasks.Add(logWatcher);
+                sessionTasks.Add(PublishObservationsAsync(session.Token));
             }
 
             if (paths.ScreenshotRoot is not null)
             {
-                watchers.Add(WatchScreenshotsAsync(paths.ScreenshotRoot, session.Token));
-                watchers.Add(TidyScreenshotsAsync(paths.ScreenshotRoot, session.Token));
+                var screenshotWatcher = WatchScreenshotsAsync(paths.ScreenshotRoot, session.Token);
+                sourceWatchers.Add(screenshotWatcher);
+                sessionTasks.Add(screenshotWatcher);
+                sessionTasks.Add(TidyScreenshotsAsync(session.Token));
             }
 
             try
             {
-                await Task.WhenAll(watchers).ConfigureAwait(false);
+                // Watchers are intended to live for the session. Waiting for all of them before
+                // cancellation meant one failed source could sit beside an infinite healthy
+                // sibling forever, leaving readiness green after intake had stopped.
+                var completed = await Task.WhenAny(sourceWatchers).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested && !session.IsCancellationRequested)
+                {
+                    await completed.ConfigureAwait(false);
+                    throw new InvalidOperationException("An observation source ended unexpectedly.");
+                }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -237,6 +267,25 @@ public sealed class RaidObservationService : IAsyncDisposable
             finally
             {
                 await session.CancelAsync().ConfigureAwait(false);
+                try
+                {
+                    await Task.WhenAll(sessionTasks).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception exception)
+                {
+                    // The source that ended the session was reported above. Observe any sibling
+                    // fault as well so no background task exception is left unowned.
+                    _logger.LogDebug(exception, "An observation source also faulted during restart.");
+                }
+
+                // Screenshot work is allowed to outlive filename handling, but not the watching
+                // session that owns it. Cancel first, then drain, so a disappearing source cannot
+                // remain green while a queued decoder is still waiting on the old folder.
+                await DrainScreenshotScansAsync().ConfigureAwait(false);
+
                 Interlocked.CompareExchange(ref _session, null, session);
             }
 
@@ -351,72 +400,146 @@ public sealed class RaidObservationService : IAsyncDisposable
     {
         // The game writes the player's own position and heading into the screenshot filename.
         // That file is created by the game at the player's request; nothing is captured here.
-        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTimeOffset.UtcNow);
-        try
+        var offset = TimeZoneInfo.Local.GetUtcOffset(_timeProvider.GetUtcNow());
+        var currentRoot = screenshotRoot;
+        while (!cancellationToken.IsCancellationRequested)
         {
-            await foreach (var path in _screenshotWatcher.WatchAsync(screenshotRoot, cancellationToken)
-                               .ConfigureAwait(false))
+            var sourceGeneration = BeginScreenshotSourceGeneration();
+            using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            try
             {
-                // The position is in the filename and costs a regex; the picture costs a
-                // decode and an OCR pass. Reading the picture first meant the marker waited
-                // seconds for a number that was already in hand, and because this loop is
-                // sequential the next screenshot's marker queued behind the previous scan
-                // as well — which is what "the marks take a second to show up" was.
-                //
-                // Remembered whether or not it parses, because the ones that do not are
-                // exactly the ones somebody needs to see.
-                RememberScreenshotName(Path.GetFileName(path));
+                await foreach (var path in _screenshotWatcher.WatchAsync(currentRoot, source.Token)
+                                   .ConfigureAwait(false))
+                {
+                    // The position is in the filename and costs a regex; the picture costs a
+                    // decode and an OCR pass. Reading the picture first meant the marker waited
+                    // seconds for a number that was already in hand, and because this loop is
+                    // sequential the next screenshot's marker queued behind the previous scan
+                    // as well — which is what "the marks take a second to show up" was.
+                    //
+                    // Remembered whether or not it parses, because the ones that do not are
+                    // exactly the ones somebody needs to see.
+                    RememberScreenshotName(Path.GetFileName(path));
 
-                // So: place the player, then read the picture.
-                if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
-                {
-                    _logger.LogInformation(
-                        "Read a position from {Filename}: X {X:F1}, Y {Y:F1}, Z {Z:F1} at {Taken:O}.",
-                        position.Filename,
-                        position.Position.X,
-                        position.Position.Y,
-                        position.Position.Z,
-                        position.Timestamp);
-                    await _coordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    // Said once per raid, with the name.
-                    //
-                    // This was silent on the grounds that menu and hideout screenshots carry
-                    // no coordinates and a warning every time somebody photographs their stash
-                    // is noise. True — and it also made the one case that matters invisible: a
-                    // player whose game writes a filename this parser does not recognise takes
-                    // screenshots all raid, sees the game confirm every one, and never appears
-                    // on anybody's map, with nothing anywhere saying why.
-                    //
-                    // The name is the whole diagnosis. Once per raid is often enough to be
-                    // found and rare enough not to bury the log.
-                    if (Interlocked.Exchange(ref _unreadableNameReported, 1) == 0)
+                    // So: place the player, then read the picture.
+                    if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                     {
                         _logger.LogInformation(
-                            "No position in the name of {Filename}. Ordinary for a menu or stash screenshot. " +
-                            "If this was taken in a raid, the name is not in the shape this build expects " +
-                            "and is worth reporting.",
-                            Path.GetFileName(path));
+                            "Read a filename position from a settled screenshot at {Taken:O}; exact coordinates are not logged.",
+                            position.Timestamp);
+                        await _coordinator.ApplyPositionAsync(position, source.Token).ConfigureAwait(false);
                     }
+                    else
+                    {
+                        // Said once per raid, with the name.
+                        //
+                        // This was silent on the grounds that menu and hideout screenshots carry
+                        // no coordinates and a warning every time somebody photographs their stash
+                        // is noise. True — and it also made the one case that matters invisible: a
+                        // player whose game writes a filename this parser does not recognise takes
+                        // screenshots all raid, sees the game confirm every one, and never appears
+                        // on anybody's map, with nothing anywhere saying why.
+                        //
+                        // The name is the whole diagnosis. Once per raid is often enough to be
+                        // found and rare enough not to bury the log.
+                        if (Interlocked.Exchange(ref _unreadableNameReported, 1) == 0)
+                        {
+                            _logger.LogInformation(
+                                "No position in the name of {Filename}. Ordinary for a menu or stash screenshot. " +
+                                "If this was taken in a raid, the name is not in the shape this build expects " +
+                                "and is worth reporting.",
+                                MaskScreenshotName(Path.GetFileName(path)));
+                        }
+                    }
+
+                    // Read whether or not the name carried coordinates: a screenshot of an item or
+                    // an extract list is worth reading wherever it was taken. Menu and hideout
+                    // shots simply have no position, which is ordinary and not worth a warning
+                    // every time the player photographs their stash. This is what makes the game's
+                    // own screenshot key do the whole job: one press gives the position when there
+                    // is one, and whatever the picture shows either way, with no second shortcut
+                    // and no window needing focus.
+                    await QueueScreenshotScanAsync(path, sourceGeneration, source.Token).ConfigureAwait(false);
                 }
 
-                // Read whether or not the name carried coordinates: a screenshot of an item or
-                // an extract list is worth reading wherever it was taken. Menu and hideout
-                // shots simply have no position, which is ordinary and not worth a warning
-                // every time the player photographs their stash. This is what makes the game's
-                // own screenshot key do the whole job: one press gives the position when there
-                // is one, and whatever the picture shows either way, with no second shortcut
-                // and no window needing focus.
-                await ScanScreenshotAsync(path, cancellationToken).ConfigureAwait(false);
+                if (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new InvalidOperationException("The screenshot source ended unexpectedly.");
+                }
+
+                return;
+            }
+            catch (CaptureSourceUnavailableException)
+            {
+                // Scans belong to one concrete folder generation. Keeping the log watcher alive
+                // must not also let an OCR read against a vanished generation run indefinitely.
+                InvalidateScreenshotSourceGeneration(sourceGeneration);
+                await source.CancelAsync().ConfigureAwait(false);
+                if (_watching is { } unavailable)
+                {
+                    _watching = unavailable with { ScreenshotRoot = null };
+                    PublishWatching();
+                }
+
+                _logger.LogWarning(
+                    "The configured screenshot source became unavailable and will be rediscovered.");
+                await DrainScreenshotScansAsync().ConfigureAwait(false);
+                var recovered = await RediscoverScreenshotSourceAsync(cancellationToken).ConfigureAwait(false);
+                if (recovered?.ScreenshotRoot is not { } recoveredRoot)
+                {
+                    return;
+                }
+
+                currentRoot = recoveredRoot;
+                if (_watching is { } current)
+                {
+                    _watching = new(
+                        recovered.InstallRoot ?? current.InstallRoot,
+                        current.LogRoot,
+                        recoveredRoot,
+                        recovered.Confidence);
+                    PublishWatching();
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                InvalidateScreenshotSourceGeneration(sourceGeneration);
+                await source.CancelAsync().ConfigureAwait(false);
+                _logger.LogWarning(exception, "The Escape from Tarkov screenshot watcher stopped.");
+                throw;
+            }
+            finally
+            {
+                InvalidateScreenshotSourceGeneration(sourceGeneration);
             }
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+    }
+
+    private async Task<EftPaths?> RediscoverScreenshotSourceAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(exception, "The Escape from Tarkov screenshot watcher stopped.");
-            throw;
+            await DelayAsync(SourceRediscoveryDelay, cancellationToken).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
+
+            try
+            {
+                var paths = await _pathLocator.FindAsync(cancellationToken).ConfigureAwait(false);
+                if (paths.ScreenshotRoot is not null)
+                {
+                    return paths;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(exception, "Could not rediscover the screenshot source.");
+            }
         }
+
+        return null;
     }
 
     /// <summary>How often the screenshot folder is swept.</summary>
@@ -444,6 +567,9 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// </remarks>
     private void RememberScreenshotName(string name)
     {
+        // The punctuation and letter shape diagnose a parser mismatch; coordinates and the
+        // timestamp do not. Mask them before the name reaches runtime state or support text.
+        name = MaskScreenshotName(name);
         _stateStore.Update(current =>
         {
             var names = new List<string>(4) { name };
@@ -453,7 +579,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         });
     }
 
-    private async Task TidyScreenshotsAsync(string screenshotRoot, CancellationToken cancellationToken)
+    private async Task TidyScreenshotsAsync(CancellationToken cancellationToken)
     {
         if (_retention is null || _retentionSettings is null)
         {
@@ -471,14 +597,20 @@ public sealed class RaidObservationService : IAsyncDisposable
             try
             {
                 var settings = await _retentionSettings.GetAsync(cancellationToken).ConfigureAwait(false);
-                var tidied = _retention.Tidy(screenshotRoot, settings);
+                var activeRoot = _watching?.ScreenshotRoot;
+                if (activeRoot is null)
+                {
+                    continue;
+                }
+
+                var tidied = _retention.Tidy(activeRoot, settings);
                 if (tidied > 0)
                 {
                     _logger.LogInformation(
                         "Moved {Count} screenshot(s) older than {Hours}h to the recycle bin from {Folder}.",
                         tidied,
                         settings.SafeRetentionHours,
-                        screenshotRoot);
+                        activeRoot);
                 }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -498,9 +630,74 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// recogniser that fails on it, must not stop the companion following the raid; losing a
     /// scan is a much smaller thing than losing the map.
     /// </remarks>
-    private async Task ScanScreenshotAsync(string path, CancellationToken cancellationToken)
+    private async Task ScanScreenshotAsync(
+        string path,
+        long sourceGeneration,
+        long scanOrdinal,
+        CancellationToken cancellationToken)
     {
-        if (_imageLoader is null || _scanUseCase is null)
+        if (_imageLoader is null)
+        {
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested
+            || !IsScreenshotSourceGenerationActive(sourceGeneration))
+        {
+            return;
+        }
+
+        if (_captureSessions is not null)
+        {
+            try
+            {
+                var current = _stateStore.Current;
+                var context = new CaptureContextMetadata(
+                    activeWorkspace: null,
+                    // The legacy runtime profile is not a canonical v2 ProfileContext. The
+                    // composition owner must supply that contract when capture sessions are
+                    // registered; do not mislabel this intake with the legacy identifier.
+                    activeProfile: null,
+                    activeMap: current.Raid.MapId,
+                    activePlan: null,
+                    selectedEntity: null,
+                    priorScan: null,
+                    initiatingDevice: "desktop");
+                var receipt = await _captureSessions.EnqueueAsync(
+                        new(
+                            CaptureDeliveryKind.WatchedFile,
+                            new ScreenshotFileCaptureSource(path, _imageLoader),
+                            context,
+                            _timeProvider.GetUtcNow(),
+                            CaptureCorrelationId.New()),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (receipt.Disposition != CaptureQueueDisposition.Accepted)
+                {
+                    _logger.LogWarning(
+                        "A settled screenshot was not admitted to capture intake: {Code}.",
+                        receipt.Code);
+                }
+
+                if (cancellationToken.IsCancellationRequested
+                    || !IsScreenshotSourceGenerationActive(sourceGeneration))
+                {
+                    return;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Capture sessions are additive until the composition owner connects the
+                // reviewed result consumer. They must never remove the established scan/HUD
+                // route merely because their own intake is unavailable.
+                _logger.LogWarning(
+                    exception,
+                    "Could not enqueue the screenshot {Filename} for capture review.",
+                    MaskScreenshotName(Path.GetFileName(path)));
+            }
+        }
+
+        if (_scanUseCase is null)
         {
             return;
         }
@@ -510,41 +707,39 @@ public sealed class RaidObservationService : IAsyncDisposable
             var image = await _imageLoader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
             if (image is null)
             {
-                _logger.LogInformation("The screenshot {Filename} could not be read as a picture.", Path.GetFileName(path));
+                _logger.LogInformation(
+                    "The screenshot {Filename} could not be read as a picture.",
+                    MaskScreenshotName(Path.GetFileName(path)));
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested
+                || !IsScreenshotSourceGenerationActive(sourceGeneration))
+            {
                 return;
             }
 
             var outcome = await _scanUseCase.ScanImageAsync(image, cancellationToken).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested
+                || !IsScreenshotSourceGenerationActive(sourceGeneration))
+            {
+                return;
+            }
+
             _logger.LogInformation(
                 "Read {Filename} as {Context} with status {Status}.",
-                Path.GetFileName(path),
+                MaskScreenshotName(Path.GetFileName(path)),
                 outcome.Context,
                 outcome.Status);
 
-            // The result used to stop here. It was logged and dropped, so pressing the game's
-            // own screenshot key ran the whole recogniser and told nobody, and the separate
-            // scan shortcut survived because it was the only door that led to the interface.
-            //
-            // Filtered, because the screenshot key fires on everything somebody photographs
-            // and most of that is a wall. Replacing a good reading of an item with "Unknown
-            // scan finished with Partial" moments later is worse than staying quiet: the
-            // useful answer is the one that disappears.
-            var result = ScanExecutionResult.FromOutcome(outcome, "game screenshot");
-            if (result.IsWorthReporting)
-            {
-                _stateStore.Update(current => current with { Scan = result });
-            }
-
-            // Separately from the scan result, and deliberately. IsWorthReporting discards an
-            // in-raid frame that found no item, which is most of them — and those frames still
-            // carry the game's own display, which is the thing this reads. Tying the two
-            // together is why the reading was computed on every screenshot and never once
-            // shown.
-            RecordHud(outcome);
+            PublishScreenshotOutcome(sourceGeneration, scanOrdinal, outcome);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(exception, "Could not scan the screenshot {Filename}.", Path.GetFileName(path));
+            _logger.LogWarning(
+                exception,
+                "Could not scan the screenshot {Filename}.",
+                MaskScreenshotName(Path.GetFileName(path)));
         }
     }
 
@@ -562,40 +757,66 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// from "the bar was empty" — showing the second when the first is true is how a companion
     /// tells somebody they are dying when they are not.
     /// </remarks>
-    private void RecordHud(ScanOutcome outcome)
+    private void PublishScreenshotOutcome(long sourceGeneration, long scanOrdinal, ScanOutcome outcome)
     {
-        if (outcome.Recognition.Hud is not { } hud)
+        var result = ScanExecutionResult.FromOutcome(outcome, "game screenshot");
+        var publishesScan = result.IsWorthReporting;
+        var hud = outcome.Recognition.Hud;
+        if (!publishesScan && hud is null)
         {
             return;
         }
 
-        _stateStore.Update(current =>
+        // Decodes deliberately run concurrently so a slow OCR pass does not hold every later
+        // screenshot behind it. Publication cannot be concurrent: without this generation and
+        // ordinal fence, an older pass that finishes last replaces a newer item/HUD reading, and
+        // a dependency that ignores cancellation can publish after its screenshot folder has
+        // disappeared. The state write stays inside the gate so checking and publishing are one
+        // ordered operation rather than a check-then-act race.
+        lock (_screenshotPublicationGate)
         {
-            // Keyed to the raid rather than reset by a guess. A new raid id means the lengths
-            // remembered describe a body the previous raid is over for.
-            if (_longestRaidId != current.Raid.RaidId)
+            if (_activeScreenshotSourceGeneration != sourceGeneration
+                || scanOrdinal <= _lastPublishedScreenshotScanOrdinal)
             {
-                _longestRaidId = current.Raid.RaidId;
-                _longestBars.Clear();
+                return;
             }
 
-            var bars = new List<RaidHudBar>(hud.Bars.Count);
-            foreach (var bar in hud.Bars)
+            _stateStore.Update(current =>
             {
-                var kind = bar.Kind.ToString();
-                var longest = Math.Max(_longestBars.GetValueOrDefault(kind), bar.Length);
-                _longestBars[kind] = longest;
-                bars.Add(new(kind, bar.Length, longest));
-            }
-
-            return current with
-            {
-                Raid = current.Raid with
+                var updated = publishesScan ? current with { Scan = result } : current;
+                if (hud is null)
                 {
-                    Hud = new(hud.IsPresent, hud.Detail, outcome.ObservedUtc, bars),
-                },
-            };
-        });
+                    return updated;
+                }
+
+                // Keyed to the raid rather than reset by a guess. A new raid id means the
+                // lengths remembered describe a body the previous raid is over for.
+                if (_longestRaidId != current.Raid.RaidId)
+                {
+                    _longestRaidId = current.Raid.RaidId;
+                    _longestBars.Clear();
+                }
+
+                var bars = new List<RaidHudBar>(hud.Bars.Count);
+                foreach (var bar in hud.Bars)
+                {
+                    var kind = bar.Kind.ToString();
+                    var longest = Math.Max(_longestBars.GetValueOrDefault(kind), bar.Length);
+                    _longestBars[kind] = longest;
+                    bars.Add(new(kind, bar.Length, longest));
+                }
+
+                return updated with
+                {
+                    Raid = updated.Raid with
+                    {
+                        Hud = new(hud.IsPresent, hud.Detail, outcome.ObservedUtc, bars),
+                    },
+                };
+            });
+
+            _lastPublishedScreenshotScanOrdinal = scanOrdinal;
+        }
     }
 
     /// <summary>The longest each bar has been drawn this raid, by colour.</summary>
@@ -643,7 +864,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     {
         try
         {
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -655,4 +876,108 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             Observation = observation with { IsSupported = OperatingSystem.IsWindows() },
         });
+
+    private static string MaskScreenshotName(string name) =>
+        string.Concat(name.Select(character => char.IsAsciiDigit(character) ? '#' : character));
+
+    private long BeginScreenshotSourceGeneration()
+    {
+        var generation = Interlocked.Increment(ref _nextScreenshotSourceGeneration);
+        lock (_screenshotPublicationGate)
+        {
+            _activeScreenshotSourceGeneration = generation;
+            _lastPublishedScreenshotScanOrdinal = 0;
+        }
+
+        return generation;
+    }
+
+    private void InvalidateScreenshotSourceGeneration(long generation)
+    {
+        lock (_screenshotPublicationGate)
+        {
+            if (_activeScreenshotSourceGeneration == generation)
+            {
+                _activeScreenshotSourceGeneration = 0;
+            }
+        }
+    }
+
+    private bool IsScreenshotSourceGenerationActive(long generation)
+    {
+        lock (_screenshotPublicationGate)
+        {
+            return _activeScreenshotSourceGeneration == generation;
+        }
+    }
+
+    private Task QueueScreenshotScanAsync(
+        string path,
+        long sourceGeneration,
+        CancellationToken cancellationToken)
+    {
+        lock (_screenshotScanGate)
+        {
+            if (_screenshotScans.Count >= MaximumPendingScreenshotScans)
+            {
+                // Filename evidence has already been applied. Refuse this expensive scan
+                // explicitly instead of blocking enumeration and delaying every later position
+                // behind the OCR backlog.
+                _logger.LogWarning(
+                    "The bounded screenshot scan queue is full; {Filename} was not scanned.",
+                    MaskScreenshotName(Path.GetFileName(path)));
+                return Task.CompletedTask;
+            }
+        }
+
+        var scanOrdinal = Interlocked.Increment(ref _nextScreenshotScanOrdinal);
+        var scan = ScanScreenshotAsync(path, sourceGeneration, scanOrdinal, cancellationToken);
+        lock (_screenshotScanGate)
+        {
+            _screenshotScans.Add(scan);
+        }
+
+        _ = scan.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                lock (_screenshotScanGate)
+                {
+                    _screenshotScans.Remove(completed);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return Task.CompletedTask;
+    }
+
+    private async Task DrainScreenshotScansAsync()
+    {
+        Task[] scans;
+        lock (_screenshotScanGate)
+        {
+            scans = [.. _screenshotScans];
+        }
+
+        var drain = Task.WhenAll(scans);
+        try
+        {
+            await drain.WaitAsync(ScreenshotScanDrainTimeout, _timeProvider).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning(
+                "{Count} screenshot scan(s) did not stop within the bounded drain window; rediscovery will continue.",
+                scans.Count(task => !task.IsCompleted));
+            _ = drain.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+                TaskScheduler.Default);
+        }
+    }
 }

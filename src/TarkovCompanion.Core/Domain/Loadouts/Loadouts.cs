@@ -13,7 +13,7 @@ public sealed record LoadoutSelection(
     IReadOnlyList<string> MedicalItemIds);
 
 public sealed record LoadoutEvaluation(
-    long ApproximateCostRoubles,
+    long? ApproximateCostRoubles,
     double? ApproximateWeightKg,
     bool IsCompatible,
     IReadOnlyList<string> CompatibilityIssues,

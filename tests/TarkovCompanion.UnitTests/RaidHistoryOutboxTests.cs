@@ -1,5 +1,6 @@
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -25,7 +26,7 @@ public sealed class RaidHistoryOutboxTests
         var inner = new BlockingHistory();
         await using var outbox = new RaidHistoryOutbox(inner);
 
-        await outbox.RecordEventAsync(Guid.NewGuid(), "position", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+        await outbox.AcceptAsync([RaidHistoryCommand.RecordPosition(Guid.NewGuid(), Position())], CancellationToken.None);
 
         Assert.Equal(0, inner.Written);
         inner.Release();
@@ -41,7 +42,7 @@ public sealed class RaidHistoryOutboxTests
         {
             for (var index = 0; index < 20; index++)
             {
-                await outbox.RecordEventAsync(raidId, "position", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+                await outbox.AcceptAsync([RaidHistoryCommand.RecordPosition(raidId, Position(index))], CancellationToken.None);
             }
 
             inner.Release();
@@ -60,13 +61,13 @@ public sealed class RaidHistoryOutboxTests
 
         await using (var outbox = new RaidHistoryOutbox(inner))
         {
-            await outbox.RecordEventAsync(raidId, "first", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
-            await outbox.RecordEventAsync(raidId, "second", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+            await outbox.AcceptAsync([RaidHistoryCommand.RecordState(raidId, State())], CancellationToken.None);
+            await outbox.AcceptAsync([RaidHistoryCommand.RecordExtracts(raidId, DateTimeOffset.UnixEpoch, [])], CancellationToken.None);
             await outbox.EndAsync(raidId, DateTimeOffset.UnixEpoch, null, null, CancellationToken.None);
             inner.Release();
         }
 
-        Assert.Equal(["first", "second", "end"], inner.Order);
+        Assert.Equal(["state", "extracts", "end"], inner.Order);
     }
 
     [Fact]
@@ -100,36 +101,37 @@ public sealed class RaidHistoryOutboxTests
     }
 
     [Fact]
-    public async Task A_write_that_keeps_failing_does_not_stall_the_ones_behind_it()
+    public async Task A_write_that_keeps_failing_blocks_later_writes_in_its_aggregate()
     {
-        // The queue holds a raid's whole record. Stalling all of it on one row would turn one
-        // lost event into every lost event.
-        var inner = new BlockingHistory { FailType = "poison" };
+        // Aggregate order is a data invariant: delivering a later raid event after its
+        // predecessor was rejected would claim a history gap was complete. Other raids remain
+        // independent and are covered by the runtime outbox contract tests.
+        var inner = new BlockingHistory { FailType = "state" };
         var raidId = Guid.NewGuid();
 
         await using (var outbox = new RaidHistoryOutbox(inner))
         {
-            await outbox.RecordEventAsync(raidId, "poison", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
-            await outbox.RecordEventAsync(raidId, "good", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+            await outbox.AcceptAsync([RaidHistoryCommand.RecordState(raidId, State())], CancellationToken.None);
+            await outbox.AcceptAsync([RaidHistoryCommand.RecordExtracts(raidId, DateTimeOffset.UnixEpoch, [])], CancellationToken.None);
             inner.Release();
         }
 
-        Assert.Contains("good", inner.Order);
+        Assert.DoesNotContain("extracts", inner.Order);
     }
 
     [Fact]
     public async Task A_write_that_fails_once_is_retried_rather_than_lost()
     {
-        var inner = new BlockingHistory { FailType = "flaky", FailTimes = 1 };
+        var inner = new BlockingHistory { FailType = "state", FailTimes = 1 };
         var raidId = Guid.NewGuid();
 
         await using (var outbox = new RaidHistoryOutbox(inner))
         {
-            await outbox.RecordEventAsync(raidId, "flaky", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+            await outbox.AcceptAsync([RaidHistoryCommand.RecordState(raidId, State())], CancellationToken.None);
             inner.Release();
         }
 
-        Assert.Contains("flaky", inner.Order);
+        Assert.Contains("state", inner.Order);
     }
 
     [Fact]
@@ -139,7 +141,7 @@ public sealed class RaidHistoryOutboxTests
         // the database a question and got it back after the panel had been drawn.
         var inner = new BlockingHistory();
         await using var outbox = new RaidHistoryOutbox(inner);
-        await outbox.RecordEventAsync(Guid.NewGuid(), "position", DateTimeOffset.UnixEpoch, "{}", CancellationToken.None);
+        await outbox.AcceptAsync([RaidHistoryCommand.RecordPosition(Guid.NewGuid(), Position())], CancellationToken.None);
 
         Assert.Empty(await outbox.ListAsync(CancellationToken.None));
 
@@ -155,6 +157,23 @@ public sealed class RaidHistoryOutboxTests
         null,
         null,
         null);
+
+    private static RaidEvidence State() => new(
+        RaidEvidenceKind.LogLine,
+        DateTimeOffset.UnixEpoch,
+        "bigmap",
+        RaidLifecycleState.InRaid,
+        Confidence.Certain,
+        "fixture raid state");
+
+    private static ScreenshotPosition Position(int index = 0) => new(
+        DateTimeOffset.UnixEpoch.AddSeconds(index),
+        new(index, 0, index),
+        new(0, 0, 0, 1),
+        0,
+        null,
+        index,
+        $"fixture-{index}.png");
 
     /// <summary>An inner service that holds every write until it is told to let them through.</summary>
     /// <remarks>

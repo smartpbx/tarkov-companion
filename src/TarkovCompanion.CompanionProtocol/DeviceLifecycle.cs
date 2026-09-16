@@ -21,6 +21,7 @@ public enum DeviceCapability
     ManageDevices,
     ResolveControlRequests,
     ReportCaptureProgress,
+    ManageProfilePreferences,
 }
 
 public enum DeviceLifecycleStatus
@@ -66,6 +67,7 @@ public sealed record PairedDevice
         DeviceLifecycleStatus status,
         DateTimeOffset createdUtc,
         DateTimeOffset lastUsedUtc,
+        long lastKeyEpoch,
         DateTimeOffset expiresUtc,
         DateTimeOffset statusChangedUtc,
         CompanionDeviceId? replacedByDeviceId = null,
@@ -84,6 +86,7 @@ public sealed record PairedDevice
         Status = ProtocolGuard.Defined(status, nameof(status));
         CreatedUtc = ProtocolGuard.Utc(createdUtc, nameof(createdUtc));
         LastUsedUtc = ProtocolGuard.Utc(lastUsedUtc, nameof(lastUsedUtc));
+        LastKeyEpoch = ProtocolGuard.KeyEpoch(lastKeyEpoch, nameof(lastKeyEpoch));
         ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         StatusChangedUtc = ProtocolGuard.Utc(statusChangedUtc, nameof(statusChangedUtc));
         ReplacedByDeviceId = replacedByDeviceId;
@@ -131,6 +134,12 @@ public sealed record PairedDevice
 
     public DateTimeOffset LastUsedUtc { get; }
 
+    /// <summary>
+    /// The key epoch of the device's most recently established session. A pairing or resume
+    /// challenge must assign a greater epoch, so a captured proof can never re-establish a session.
+    /// </summary>
+    public long LastKeyEpoch { get; }
+
     public DateTimeOffset ExpiresUtc { get; }
 
     public DateTimeOffset StatusChangedUtc { get; }
@@ -143,28 +152,16 @@ public sealed record PairedDevice
 public sealed record DeviceSession
 {
     public DeviceSession(
-        DeviceSessionId sessionId,
-        CompanionDeviceId deviceId,
-        DeviceKeyId deviceKeyId,
+        SessionEstablished establishment,
         DeviceSessionStatus status,
         CompanionTransportKind transport,
         CompanionSurfaceKind surface,
         IReadOnlyList<DeviceCapability> capabilities,
-        DateTimeOffset createdUtc,
         DateTimeOffset lastUsedUtc,
-        DateTimeOffset expiresUtc,
         DateTimeOffset? endedUtc = null,
         string? lifecycleReason = null)
     {
-        SessionId = sessionId.Value == Guid.Empty
-            ? throw new ArgumentException("A session id is required.", nameof(sessionId))
-            : sessionId;
-        DeviceId = deviceId.Value == Guid.Empty
-            ? throw new ArgumentException("A device id is required.", nameof(deviceId))
-            : deviceId;
-        DeviceKeyId = string.IsNullOrWhiteSpace(deviceKeyId.Value)
-            ? throw new ArgumentException("A device key id is required.", nameof(deviceKeyId))
-            : deviceKeyId;
+        Establishment = ProtocolGuard.NotNull(establishment, nameof(establishment));
         Status = ProtocolGuard.Defined(status, nameof(status));
         Transport = ProtocolGuard.Defined(transport, nameof(transport));
         Surface = ProtocolGuard.Defined(surface, nameof(surface));
@@ -172,13 +169,11 @@ public sealed record DeviceSession
             ProtocolGuard.List(capabilities, nameof(capabilities), 32).Distinct(),
             nameof(capabilities),
             32);
-        CreatedUtc = ProtocolGuard.Utc(createdUtc, nameof(createdUtc));
         LastUsedUtc = ProtocolGuard.Utc(lastUsedUtc, nameof(lastUsedUtc));
-        ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         EndedUtc = ProtocolGuard.UtcOptional(endedUtc, nameof(endedUtc));
         LifecycleReason = ProtocolGuard.Optional(lifecycleReason, nameof(lifecycleReason));
 
-        if (LastUsedUtc < CreatedUtc || ExpiresUtc <= CreatedUtc ||
+        if (LastUsedUtc < CreatedUtc || LastUsedUtc > ExpiresUtc ||
             (EndedUtc is { } ended && ended < LastUsedUtc))
         {
             throw new ArgumentException("Session timestamps are not monotonic.");
@@ -190,11 +185,24 @@ public sealed record DeviceSession
         }
     }
 
-    public DeviceSessionId SessionId { get; }
+    /// <summary>The verified pairing or resume handshake that created this session.</summary>
+    public SessionEstablished Establishment { get; }
 
-    public CompanionDeviceId DeviceId { get; }
+    public DeviceSessionId SessionId => Establishment.Assignment.SessionId;
 
-    public DeviceKeyId DeviceKeyId { get; }
+    public CompanionDeviceId DeviceId => Establishment.Assignment.DeviceId;
+
+    public DeviceKeyId DeviceKeyId => Establishment.DeviceKeyId;
+
+    public CompanionProtocolVersion ProtocolVersion => Establishment.Assignment.ProtocolVersion;
+
+    public RelayChannelId RelayChannelId => Establishment.Assignment.RelayChannelId;
+
+    public long KeyEpoch => Establishment.Assignment.KeyEpoch;
+
+    public RelayCipherSuite CipherSuite => Establishment.Assignment.CipherSuite;
+
+    public string TranscriptHashBase64Url => Establishment.TranscriptHashBase64Url;
 
     public DeviceSessionStatus Status { get; }
 
@@ -204,11 +212,11 @@ public sealed record DeviceSession
 
     public IReadOnlyList<DeviceCapability> Capabilities { get; }
 
-    public DateTimeOffset CreatedUtc { get; }
+    public DateTimeOffset CreatedUtc => Establishment.EstablishedUtc;
 
     public DateTimeOffset LastUsedUtc { get; }
 
-    public DateTimeOffset ExpiresUtc { get; }
+    public DateTimeOffset ExpiresUtc => Establishment.Assignment.SessionExpiresUtc;
 
     public DateTimeOffset? EndedUtc { get; }
 
@@ -217,6 +225,116 @@ public sealed record DeviceSession
 
 public static class DeviceLifecycle
 {
+    /// <summary>
+    /// A device can authenticate at this instant: it is active, before its absolute expiry, and
+    /// used within the absence window. Maintenance treats every other device as terminated.
+    /// </summary>
+    public static bool IsLive(PairedDevice device, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        return device.Status == DeviceLifecycleStatus.Active &&
+               now < device.ExpiresUtc &&
+               now - device.LastUsedUtc < ProtocolBounds.DeviceInactivityExpiry;
+    }
+
+    /// <summary>A session is live when it is active, unexpired, and its device is live.</summary>
+    public static bool IsLive(DeviceSession session, PairedDevice device, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(device);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        return session.Status == DeviceSessionStatus.Active &&
+               now < session.ExpiresUtc &&
+               session.DeviceId == device.DeviceId &&
+               session.DeviceKeyId == device.DeviceKey.KeyId &&
+               IsLive(device, now);
+    }
+
+    /// <summary>
+    /// Creates the paired-device record from a completed pairing. The device key, id, first key
+    /// epoch, and creation time all come from the verified establishment; the display name is the
+    /// one the user approved after <see cref="PairingCryptography.OpenDeviceName"/>.
+    /// </summary>
+    public static PairedDevice Pair(
+        PairingAttempt completed,
+        string approvedDisplayName,
+        DeviceAuthorizationRole role,
+        IReadOnlyList<DeviceCapability> capabilities,
+        DateTimeOffset expiresUtc)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        if (completed.Stage != PairingAttemptStage.Completed || completed.Establishment is not { } establishment)
+        {
+            throw new InvalidOperationException("Only a completed pairing creates a paired device.");
+        }
+
+        var established = establishment.EstablishedUtc;
+        return new PairedDevice(
+            establishment.Assignment.DeviceId,
+            PairingCryptography.ValidateDeviceName(approvedDisplayName),
+            completed.Request!.DeviceKey,
+            role,
+            capabilities,
+            DeviceLifecycleStatus.Active,
+            established,
+            established,
+            establishment.Assignment.KeyEpoch,
+            expiresUtc,
+            established);
+    }
+
+    /// <summary>
+    /// Records a newly established resume session: its key epoch must exceed every epoch
+    /// the device has used, and the establishment counts as authenticated use.
+    /// </summary>
+    public static PairedDevice RecordSession(PairedDevice device, SessionEstablished establishment)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(establishment);
+        if (establishment.Assignment.DeviceId != device.DeviceId || establishment.DeviceKeyId != device.DeviceKey.KeyId)
+        {
+            throw new UnauthorizedAccessException("The session was not established by this device's bound key.");
+        }
+
+        if (establishment.Purpose != HandshakePurpose.SessionResume || establishment.Assignment.KeyEpoch <= device.LastKeyEpoch)
+        {
+            throw new InvalidOperationException("Only a resume with a fresh key epoch records a new session for a paired device.");
+        }
+
+        if (!IsLive(device, establishment.EstablishedUtc))
+        {
+            throw new UnauthorizedAccessException("A device that is not live cannot record a session.");
+        }
+
+        return WithUse(device, Later(device.LastUsedUtc, establishment.EstablishedUtc), establishment.Assignment.KeyEpoch);
+    }
+
+    /// <summary>
+    /// Records an authenticated frame from a live session. Without it, a device that stays connected
+    /// would still reach the inactivity expiry; with it, only real absence ends the device.
+    /// </summary>
+    public static (PairedDevice Device, DeviceSession Session) RecordUse(
+        PairedDevice device,
+        DeviceSession session,
+        DateTimeOffset nowUtc)
+    {
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        if (!IsLive(session, device, now))
+        {
+            throw new UnauthorizedAccessException("Only a live session of a live device records use.");
+        }
+
+        var updatedSession = new DeviceSession(
+            session.Establishment,
+            session.Status,
+            session.Transport,
+            session.Surface,
+            session.Capabilities,
+            Later(session.LastUsedUtc, now));
+        return (WithUse(device, Later(device.LastUsedUtc, now), device.LastKeyEpoch), updatedSession);
+    }
+
     public static PairedDevice Revoke(PairedDevice device, DateTimeOffset nowUtc, string reason) =>
         Transition(device, DeviceLifecycleStatus.Revoked, nowUtc, reason);
 
@@ -252,16 +370,12 @@ public static class DeviceLifecycle
 
         var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
         return new DeviceSession(
-            session.SessionId,
-            session.DeviceId,
-            session.DeviceKeyId,
+            session.Establishment,
             status,
             session.Transport,
             session.Surface,
             session.Capabilities,
-            session.CreatedUtc,
             session.LastUsedUtc,
-            session.ExpiresUtc,
             now,
             reason);
     }
@@ -289,9 +403,29 @@ public static class DeviceLifecycle
             status,
             device.CreatedUtc,
             device.LastUsedUtc,
+            device.LastKeyEpoch,
             device.ExpiresUtc,
             now,
             replacement,
             reason);
     }
+
+    private static PairedDevice WithUse(PairedDevice device, DateTimeOffset lastUsedUtc, long lastKeyEpoch) =>
+        new(
+            device.DeviceId,
+            device.DisplayName,
+            device.DeviceKey,
+            device.Role,
+            device.Capabilities,
+            device.Status,
+            device.CreatedUtc,
+            lastUsedUtc,
+            lastKeyEpoch,
+            device.ExpiresUtc,
+            device.StatusChangedUtc,
+            device.ReplacedByDeviceId,
+            device.LifecycleReason);
+
+    private static DateTimeOffset Later(DateTimeOffset current, DateTimeOffset candidate) =>
+        candidate > current ? candidate : current;
 }

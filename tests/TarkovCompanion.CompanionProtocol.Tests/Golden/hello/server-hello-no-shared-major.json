@@ -1,0 +1,16 @@
+{
+  "disposition": "NoSharedMajor",
+  "negotiatedVersion": null,
+  "desktopVersions": {
+    "minimum": {
+      "major": 2,
+      "minor": 0
+    },
+    "maximum": {
+      "major": 2,
+      "minor": 0
+    }
+  },
+  "deprecation": null,
+  "recoveryAction": "UpdateTablet"
+}

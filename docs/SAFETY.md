@@ -69,7 +69,7 @@ visible rather than being deferred to details.
 - Platform interfaces expose capture and observation, never process handles for memory operations or input sending.
 - Dependency/source audits search for known injection, hooking, packet-capture, automation, and memory-access packages/APIs.
 - Deterministic tests assert that strategy inputs have no live-enemy concept.
-- Captures are never retained by default. Any future shareable support-bundle feature must redact tokens and user path segments before it is enabled; current self-test output is local diagnostic data and may contain local paths.
+- Captures are never retained by default. The shareable desktop support bundle is a closed projection that excludes tokens, paths, names, coordinates, screenshots/OCR, logs, and free-form details; the relay must independently enforce that schema before the end-to-end report risk can close. Self-test output is local diagnostic data and may contain local paths.
 - No telemetry or screenshot upload SDK is included.
 - The optional TarkovTracker adapter exposes only canonical HTTPS `GET /token`
   and `GET /progress`; redirects, team access, HTTP mutation, uploads, and

@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
@@ -26,6 +27,11 @@ public sealed class SqliteMapDefinitionCache(
     SqliteConnectionFactory connectionFactory,
     TimeProvider? timeProvider = null) : IMapDefinitionCache
 {
+    internal const string MapCatalogSql =
+        "SELECT id, name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json FROM maps;";
+    internal const string MapExtractsSql =
+        "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, MapDefinition?> _byMap = new(StringComparer.OrdinalIgnoreCase);
@@ -78,13 +84,13 @@ public sealed class SqliteMapDefinitionCache(
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         string? storedId = null;
         var name = mapId;
+        var catalogMapId = mapId;
         int? pmcSeconds = null;
         int? scavSeconds = null;
 
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText =
-                "SELECT id, name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json FROM maps;";
+            command.CommandText = MapCatalogSql;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -102,6 +108,7 @@ public sealed class SqliteMapDefinitionCache(
 
                 storedId = id;
                 name = reader.IsDBNull(1) ? mapId : reader.GetString(1);
+                catalogMapId = reader.IsDBNull(4) ? mapId : ReadSlug(reader.GetString(4)) ?? mapId;
                 pmcSeconds = reader.IsDBNull(2) ? null : reader.GetInt32(2);
                 scavSeconds = reader.IsDBNull(3) ? null : reader.GetInt32(3);
                 break;
@@ -114,8 +121,9 @@ public sealed class SqliteMapDefinitionCache(
         }
 
         var provenance = new DataProvenance("tarkov.dev", _timeProvider.GetUtcNow(), Reference: storedId);
-        var extracts = await LoadExtractsAsync(connection, storedId, mapId, provenance, cancellationToken)
+        var primaryExtracts = await LoadExtractsAsync(connection, storedId, mapId, provenance, cancellationToken)
             .ConfigureAwait(false);
+        var extracts = ReviewedExtractCatalog.MergeDefinitions(catalogMapId, mapId, primaryExtracts);
         return new(
             mapId,
             name,
@@ -137,7 +145,7 @@ public sealed class SqliteMapDefinitionCache(
         var rows = new List<(string Id, string Name, MapPoint? Position, string? Payload)>();
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+            command.CommandText = MapExtractsSql;
             command.Parameters.AddWithValue("$mapId", storedId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -172,19 +180,23 @@ public sealed class SqliteMapDefinitionCache(
     }
 
     private static bool Matches(string sourceJson, string mapId)
+        => string.Equals(ReadSlug(sourceJson), mapId, StringComparison.OrdinalIgnoreCase);
+
+    private static string? ReadSlug(string sourceJson)
     {
         try
         {
             using var document = JsonDocument.Parse(sourceJson);
             return document.RootElement.ValueKind == JsonValueKind.Object &&
                 document.RootElement.TryGetProperty("normalizedName", out var slug) &&
-                slug.ValueKind == JsonValueKind.String &&
-                string.Equals(slug.GetString(), mapId, StringComparison.OrdinalIgnoreCase);
+                slug.ValueKind == JsonValueKind.String
+                    ? slug.GetString()
+                    : null;
         }
         catch (JsonException)
         {
             // A reshaped payload costs one map rather than the whole catalog.
-            return false;
+            return null;
         }
     }
 

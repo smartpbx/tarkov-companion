@@ -1,0 +1,42 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:02:00+00:00",
+  "command": {
+    "type": "resetProfilePreferences",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000062"
+    },
+    "requestedRevision": {
+      "value": 3
+    },
+    "issuedUtc": "2026-09-14T20:02:00+00:00",
+    "expiresUtc": "2026-09-14T20:03:00+00:00",
+    "offlineQueuePreview": null,
+    "context": {
+      "profileId": {
+        "value": "81000000-0000-4000-8000-000000000001"
+      },
+      "generation": "wipe-generation-1",
+      "mode": "Pvp",
+      "wipeSeason": "2026-09",
+      "language": "en-US",
+      "region": "US",
+      "timeZone": "Etc/UTC",
+      "dataSnapshotId": "catalog-2026-09-14",
+      "dataSnapshotPublishedUtc": "2026-09-13T20:00:00+00:00"
+    },
+    "schemaVersion": {
+      "major": 1,
+      "minor": 0
+    }
+  }
+}

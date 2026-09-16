@@ -1,0 +1,223 @@
+{
+  "manifest": "tarkov-companion.v2.semantic-ui",
+  "version": "1.1.0",
+  "purpose": "Platform-neutral meaning and accessibility contract. Platform adapters supply pixels, controls, and operating-system integration.",
+  "platformBoundary": {
+    "shared": ["semantic roles", "state wording", "redundant cues", "provenance requirements", "automation-name template keys", "responsive intent"],
+    "excluded": ["Avalonia classes", "CSS", "breakpoints", "focus-ring pixels", "screenshots", "game interaction"]
+  },
+  "tokens": {
+    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
+    "chart": ["series1", "series2", "series3", "series4"],
+    "map": ["historical", "modelled", "manual", "unavailable"],
+    "type": ["heading1", "heading2", "heading3", "body", "label"],
+    "space": ["xs", "sm", "md", "lg", "xl"],
+    "shape": ["control", "card"],
+    "elevation": ["flat", "raised", "dialog"],
+    "focus": ["indicator"],
+    "motion": ["full", "reduced"],
+    "density": ["compact", "standard", "comfortable"],
+    "target": ["desktop", "touch"]
+  },
+  "variants": {
+    "appearance": ["system", "light", "dark", "highContrast"],
+    "colorVision": ["standard", "redGreenSafe", "blueYellowSafe", "monochrome"],
+    "motion": ["system", "reduced", "full"],
+    "density": ["compact", "standard", "comfortable"]
+  },
+  "status": {
+    "axes": {
+      "availability": {
+        "default": null,
+        "values": [
+          { "id": "ready", "wordingKey": "V2.String.Availability.Ready", "glyph": "check", "border": "solid" },
+          { "id": "loading", "wordingKey": "V2.String.Availability.Loading", "glyph": "quarterCircle", "border": "dashDot" },
+          { "id": "unknown", "wordingKey": "V2.String.Availability.Unknown", "glyph": "question", "border": "dotted" },
+          { "id": "unavailable", "wordingKey": "V2.String.Availability.Unavailable", "glyph": "minus", "border": "dashed" },
+          { "id": "offline", "wordingKey": "V2.String.Availability.Offline", "glyph": "slashedCircle", "border": "dashed" },
+          { "id": "denied", "wordingKey": "V2.String.Availability.Denied", "glyph": "circledMinus", "border": "solid" },
+          { "id": "failed", "wordingKey": "V2.String.Availability.Failed", "glyph": "cross", "border": "solid" }
+        ]
+      },
+      "completeness": {
+        "default": "complete",
+        "values": [
+          { "id": "complete", "wordingKey": "V2.String.Completeness.Complete", "glyph": "filledSquare" },
+          { "id": "partial", "wordingKey": "V2.String.Completeness.Partial", "glyph": "halfSquare" },
+          { "id": "unknown", "wordingKey": "V2.String.Completeness.Unknown", "glyph": "emptySquare" }
+        ]
+      },
+      "freshness": {
+        "default": "current",
+        "values": [
+          { "id": "current", "wordingKey": "V2.String.Freshness.Current", "glyph": "filledDiamond" },
+          { "id": "stale", "wordingKey": "V2.String.Freshness.Stale", "glyph": "emptyDiamond" },
+          { "id": "unknown", "wordingKey": "V2.String.Freshness.Unknown", "glyph": "insetDiamond" }
+        ]
+      }
+    },
+    "composition": {
+      "order": ["availability", "completeness", "freshness"],
+      "rule": "Every status names one availability value. Completeness and freshness are independent axes: a result can be partial and stale at once, and each shows its own word and glyph. A default may be left unstated only when the feature has evidence for it; without evidence, show that axis's unknown value.",
+      "automationTemplate": "statusName"
+    }
+  },
+  "banner": {
+    "rule": "A banner escalates material risk or uncertainty. Its tone is a word, a glyph, and an outline pattern as well as a role colour, so no tone depends on colour alone.",
+    "tones": [
+      { "id": "info", "wordingKey": "V2.String.Tone.Info", "glyph": "circledInfo", "pattern": "solid" },
+      { "id": "warning", "wordingKey": "V2.String.Tone.Warning", "glyph": "warningSign", "pattern": "dashed" },
+      { "id": "danger", "wordingKey": "V2.String.Tone.Critical", "glyph": "doubleExclamation", "pattern": "dashDot" }
+    ]
+  },
+  "evidence": {
+    "classes": ["observed", "inferred", "manual", "estimated", "historical", "modelled", "potential"],
+    "requiredWhenMaterial": ["source", "observedOrDataThroughUtc", "generatedUtc", "coverage", "confidence", "modelVersion"],
+    "disclosure": "Show compact identity and decision-changing freshness or confidence inline. Put complete evidence in Why/details; never imply a live detection.",
+    "presentation": {
+      "classes": [
+        { "id": "observed", "wordingKey": "V2.String.Evidence.Observed", "glyph": "check", "pattern": "solid" },
+        { "id": "inferred", "wordingKey": "V2.String.Evidence.Inferred", "glyph": "insetDiamond", "pattern": "dashed" },
+        { "id": "manual", "wordingKey": "V2.String.Map.Manual", "glyph": "filledSquare", "pattern": "solid" },
+        { "id": "estimated", "wordingKey": "V2.String.Evidence.Estimated", "glyph": "question", "pattern": "dotted" },
+        { "id": "historical", "wordingKey": "V2.String.Map.Historical", "glyph": "emptyDiamond", "pattern": "dashed" },
+        { "id": "modelled", "wordingKey": "V2.String.Map.Modelled", "glyph": "halfSquare", "pattern": "dotted" },
+        { "id": "potential", "wordingKey": "V2.String.Evidence.Potential", "glyph": "quarterCircle", "pattern": "dashDot" }
+      ],
+      "compactIdentities": ["potential", "historical", "freshness", "confidence", "coverage", "degraded", "sharing"],
+      "compactFacts": [
+        { "id": "freshness", "source": "status.freshness" },
+        { "id": "confidence", "wordingKey": "V2.String.Evidence.Confidence.Moderate", "glyph": "question", "pattern": "dotted" },
+        { "id": "coverage", "source": "status.completeness" },
+        { "id": "degraded", "source": "status.availability" },
+        { "id": "sharing", "source": "operations.pairedDevice.sharingScopes" }
+      ],
+      "escalation": {
+        "compact": ["routineProvenance", "routineFreshness", "routineConfidence", "routineCoverage"],
+        "inline": ["decisionChangingUncertainty", "degradedResult", "recoverableBlock", "currentSharing"],
+        "banner": ["activeConsent", "destructiveAction", "securityFailure", "unrecoverableFailure"]
+      },
+      "detailsFields": ["source", "observedOrDataThroughUtc", "generatedUtc", "coverage", "confidence", "modelVersion", "history"]
+    }
+  },
+  "mapEvidence": [
+    { "id": "historical", "wordingKey": "V2.String.Map.Historical", "pattern": "dashed" },
+    { "id": "modelled", "wordingKey": "V2.String.Map.Modelled", "pattern": "dotted" },
+    { "id": "manual", "wordingKey": "V2.String.Map.Manual", "pattern": "solid" },
+    { "id": "unavailable", "wordingKey": "V2.String.Map.Unavailable", "pattern": "dashDot" }
+  ],
+  "chartSeries": [
+    { "id": "series1", "pattern": "solid" },
+    { "id": "series2", "pattern": "dashed" },
+    { "id": "series3", "pattern": "dotted" },
+    { "id": "series4", "pattern": "dashDot" }
+  ],
+  "operations": {
+    "captureStages": ["armed", "queued", "processing", "review", "corrected", "failed"],
+    "pairedDeviceStates": ["follow", "control", "independent", "leasePending", "offline", "reconnecting", "acknowledgementLag", "conflict"],
+    "capture": {
+      "rule": "Present ordered user-created captures and their purpose. Corrected is a review outcome, not a pipeline phase. Never trigger a capture or generate game input.",
+      "source": "v2.capture-session-stage",
+      "intentSource": "v2.scan-intent",
+      "intentIds": ["auto", "loot", "stash", "ammo", "keys", "questItems", "extractsAndMap", "healthAndCharacter", "flea"],
+      "intentUnavailableOnPairedDevice": ["flea"],
+      "intents": [
+        { "id": "auto", "wordingKey": "V2.String.Capture.Intent.Auto", "pairedRequest": true },
+        { "id": "loot", "wordingKey": "V2.String.Capture.Intent.Loot", "pairedRequest": true },
+        { "id": "stash", "wordingKey": "V2.String.Capture.Intent.Stash", "pairedRequest": true },
+        { "id": "ammo", "wordingKey": "V2.String.Capture.Intent.Ammo", "pairedRequest": true },
+        { "id": "keys", "wordingKey": "V2.String.Capture.Intent.Keys", "pairedRequest": true },
+        { "id": "questItems", "wordingKey": "V2.String.Capture.Intent.QuestItems", "pairedRequest": true },
+        { "id": "extractsAndMap", "wordingKey": "V2.String.Capture.Intent.ExtractsAndMap", "pairedRequest": true },
+        { "id": "healthAndCharacter", "wordingKey": "V2.String.Capture.Intent.HealthAndCharacter", "pairedRequest": true },
+        { "id": "flea", "wordingKey": "V2.String.Capture.Intent.Flea", "pairedRequest": false }
+      ],
+      "stages": [
+        { "id": "armed", "legacyState": "armed", "wordingKey": "V2.String.Capture.Stage.Armed", "glyph": "filledDiamond", "pattern": "solid", "sourceStages": ["Armed", "AwaitingCapture"] },
+        { "id": "queued", "legacyState": "queued", "wordingKey": "V2.String.Capture.Stage.Queued", "glyph": "quarterCircle", "pattern": "dotted", "sourceStages": ["Settling"] },
+        { "id": "processing", "legacyState": "processing", "wordingKey": "V2.String.Capture.Stage.Processing", "glyph": "insetDiamond", "pattern": "dashDot", "sourceStages": ["Decoding", "DetectingContext", "DetectingRegions", "Matching", "EnrichingProfile", "Recommending"] },
+        { "id": "review", "legacyState": "review", "wordingKey": "V2.String.Capture.Stage.Review", "glyph": "question", "pattern": "dashed", "sourceStages": ["AwaitingReview"] },
+        { "id": "complete", "wordingKey": "V2.String.Completeness.Complete", "glyph": "check", "pattern": "solid", "sourceStages": ["Complete"] },
+        { "id": "cancelled", "wordingKey": "V2.String.Capture.Stage.Cancelled", "glyph": "minus", "pattern": "dashed", "sourceStages": ["Cancelled"] },
+        { "id": "failed", "legacyState": "failed", "wordingKey": "V2.String.Availability.Failed", "glyph": "cross", "pattern": "solid", "sourceStages": ["Failed"] }
+      ],
+      "outcomes": [
+        { "id": "corrected", "legacyState": "corrected", "wordingKey": "V2.String.Capture.Outcome.Corrected", "glyph": "check", "pattern": "dotted" }
+      ],
+      "requiredFacts": ["intent", "purpose", "ordinal", "total", "initiatingContext"],
+      "actions": [
+        { "id": "correct", "wordingKey": "V2.String.Capture.Action.Correct" },
+        { "id": "retry", "wordingKey": "V2.String.Action.Retry" },
+        { "id": "openInitiatingContext", "wordingKey": "V2.String.Capture.Action.OpenContext" }
+      ],
+      "automationTemplate": "captureProgressName",
+      "announcements": { "progress": "polite", "failure": "assertive" }
+    },
+    "pairedDevice": {
+      "rule": "Expose current authority, mode, sharing, delivery state, and recovery. The desktop remains canonical authority; Control means a paired device has a bounded lease.",
+      "source": "paired-device-protocol.v2.interaction-mode",
+      "modes": [
+        { "id": "follow", "legacyState": "follow", "wordingKey": "V2.String.Device.Mode.Follow", "glyph": "filledDiamond", "pattern": "solid", "protocolModes": ["Follow"] },
+        { "id": "controlPending", "legacyState": "leasePending", "wordingKey": "V2.String.Device.Mode.ControlPending", "glyph": "quarterCircle", "pattern": "dashDot", "protocolModes": ["ControlPending"] },
+        { "id": "control", "legacyState": "control", "wordingKey": "V2.String.Device.Mode.Control", "glyph": "check", "pattern": "solid", "protocolModes": ["Control"] },
+        { "id": "independent", "legacyState": "independent", "wordingKey": "V2.String.Device.Mode.Independent", "glyph": "filledSquare", "pattern": "solid", "protocolModes": ["Independent"] }
+      ],
+      "control": [
+        { "id": "desktop", "wordingKey": "V2.String.Device.Control.Desktop", "glyph": "filledSquare", "pattern": "solid" },
+        { "id": "pendingApproval", "wordingKey": "V2.String.Device.Control.Pending", "glyph": "quarterCircle", "pattern": "dashDot" },
+        { "id": "pairedDeviceLease", "wordingKey": "V2.String.Device.Control.PairedDevice", "glyph": "halfSquare", "pattern": "dashed" }
+      ],
+      "connectivity": [
+        { "id": "connected", "wordingKey": "V2.String.Device.Connectivity.Connected", "glyph": "check", "pattern": "solid" },
+        { "id": "offline", "legacyState": "offline", "wordingKey": "V2.String.Availability.Offline", "glyph": "slashedCircle", "pattern": "dashed" },
+        { "id": "reconnecting", "legacyState": "reconnecting", "wordingKey": "V2.String.Device.Connectivity.Reconnecting", "glyph": "quarterCircle", "pattern": "dotted" }
+      ],
+      "acknowledgement": [
+        { "id": "current", "wordingKey": "V2.String.Device.Acknowledgement.Current", "glyph": "filledDiamond", "pattern": "solid" },
+        { "id": "lagging", "legacyState": "acknowledgementLag", "wordingKey": "V2.String.Device.Acknowledgement.Lagging", "glyph": "insetDiamond", "pattern": "dashed" },
+        { "id": "conflict", "legacyState": "conflict", "wordingKey": "V2.String.Device.Acknowledgement.Conflict", "glyph": "doubleExclamation", "pattern": "dashDot" }
+      ],
+      "sharingScopes": [
+        { "id": "private", "wordingKey": "V2.String.Device.Sharing.Private", "glyph": "filledDiamond", "pattern": "solid" },
+        { "id": "pairedDevices", "wordingKey": "V2.String.Device.Sharing.PairedDevices", "glyph": "halfSquare", "pattern": "dashed" },
+        { "id": "team", "wordingKey": "V2.String.Device.Sharing.Team", "glyph": "filledSquare", "pattern": "solid" }
+      ],
+      "recoveryActions": [
+        { "id": "reconnect", "wordingKey": "V2.String.Device.Action.Reconnect" },
+        { "id": "retry", "wordingKey": "V2.String.Action.Retry" },
+        { "id": "sync", "wordingKey": "V2.String.Device.Action.Sync" },
+        { "id": "resolveConflict", "wordingKey": "V2.String.Device.Action.ResolveConflict" }
+      ],
+      "automationTemplate": "pairedDeviceName",
+      "announcements": { "background": "polite", "conflict": "assertive" }
+    }
+  },
+  "primitives": [
+    "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary", "credibilityChip", "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable", "chartLegend", "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "sharingState", "recoveryAction", "captureQueue", "captureProgress", "correctionAction", "initiatingContextLink"
+  ],
+  "accessibility": {
+    "landmarks": ["banner", "navigation", "main", "complementary", "search"],
+    "focus": "Navigation focuses the page heading; dialogs focus their title then restore their invoker or the page heading; background work never moves focus.",
+    "liveRegions": { "background": "polite", "refusalFailureConflict": "assertive" },
+    "tables": "A table exposes its caption and header-to-cell relationships to assistive technology; where the platform cannot, each row is also exposed as one complete, localized sentence.",
+    "colorAlone": false,
+    "mapAlternative": "Every map or chart has an ordered data alternative."
+  },
+  "adaptation": {
+    "effectiveContentWidths": ["narrow", "compact", "standard", "expanded"],
+    "textScales": ["100", "125", "150", "200"],
+    "rule": "Select layout by effective content width after text scaling, not by device label; tables alone may scroll horizontally."
+  },
+  "localization": {
+    "strings": "resource-backed",
+    "pseudoLocale": "qps-ploc",
+    "rtl": "defer RTL/bidirectional-layout validation to #279; use logical start/end alignment and no direction-sensitive icons as the native adapter rule",
+    "formatting": "The culture shapes digits and dates only. A currency amount carries an explicit ISO 4217 code from the data, and a displayed time carries its UTC offset. Fill whole localized message templates with named placeholders; never concatenate localized fragments.",
+    "templates": [
+      { "id": "statusName", "wordingKey": "V2.String.Template.StatusName", "placeholders": ["availability", "completeness", "freshness", "detail"] },
+      { "id": "zonedDateTime", "wordingKey": "V2.String.Template.ZonedDateTime", "placeholders": ["dateTime", "zone"] },
+      { "id": "pairedDeviceName", "wordingKey": "V2.String.Template.PairedDeviceName", "placeholders": ["mode", "control", "connectivity", "acknowledgement", "sharing"] },
+      { "id": "captureProgressName", "wordingKey": "V2.String.Template.CaptureProgressName", "placeholders": ["ordinal", "total", "stage", "detail"] }
+    ]
+  }
+}

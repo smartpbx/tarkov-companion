@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/aggregate-results.v1.schema.json",
+  "title": "Privacy-safe recognition benchmark aggregates",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "producer", "corpusId", "planLock", "policyVersion", "evidenceClass", "scoredUtc", "privacy", "slices"],
+  "properties": {
+    "schemaVersion": { "const": "aggregate-results.v1" },
+    "runId": { "$ref": "#/$defs/opaqueId" },
+    "producer": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": true
+    },
+    "corpusId": { "$ref": "#/$defs/opaqueId" },
+    "planLock": { "$ref": "#/$defs/sha256" },
+    "policyVersion": { "const": "recognition-scorer-policy.v1" },
+    "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+    "scoredUtc": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "privacy": {
+      "type": "object",
+      "required": ["safeToPublish", "minimumIndependentSplitUnits", "containsPerSampleResults"],
+      "properties": {
+        "safeToPublish": { "type": "boolean" },
+        "minimumIndependentSplitUnits": { "type": "integer", "const": 5 },
+        "containsPerSampleResults": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "slices": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/slice" }
+    }
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "intent": {
+      "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"]
+    },
+    "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] },
+    "rate": { "type": "number", "minimum": 0, "maximum": 1 },
+    "count": { "type": "integer", "minimum": 0 },
+    "slice": {
+      "type": "object",
+      "required": [
+        "intent",
+        "evidenceClass",
+        "status",
+        "numerator",
+        "denominator",
+        "excludedUnknowns",
+        "excludedPredictionClaims",
+        "independentSplitUnits",
+        "attemptedKnownClaims",
+        "truePositives",
+        "falsePositives",
+        "falseNegatives",
+        "abstentions",
+        "confidentWrong",
+        "expectedFrames",
+        "observedFrames",
+        "missingFrames",
+        "reorderedFrames",
+        "overlapDeduplicationErrors",
+        "accuracyNumerator",
+        "accuracyDenominator",
+        "recallNumerator",
+        "recallDenominator",
+        "falsePositiveNumerator",
+        "falsePositiveDenominator",
+        "coverage",
+        "accuracy",
+        "recall",
+        "falsePositiveRate",
+        "f1",
+        "abstentionRate",
+        "confidentWrongRate",
+        "sequenceCompleteness",
+        "confidenceIntervalLower",
+        "confidenceIntervalUpper",
+        "performanceSampleCount",
+        "meanElapsedMilliseconds",
+        "maximumElapsedMilliseconds"
+      ],
+      "properties": {
+        "intent": { "$ref": "#/$defs/intent" },
+        "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "status": { "enum": ["pass", "fail", "insufficient-data"] },
+        "numerator": { "$ref": "#/$defs/count" },
+        "denominator": { "$ref": "#/$defs/count" },
+        "excludedUnknowns": { "$ref": "#/$defs/count" },
+        "excludedPredictionClaims": { "$ref": "#/$defs/count" },
+        "independentSplitUnits": { "$ref": "#/$defs/count" },
+        "attemptedKnownClaims": { "$ref": "#/$defs/count" },
+        "truePositives": { "$ref": "#/$defs/count" },
+        "falsePositives": { "$ref": "#/$defs/count" },
+        "falseNegatives": { "$ref": "#/$defs/count" },
+        "abstentions": { "$ref": "#/$defs/count" },
+        "confidentWrong": { "$ref": "#/$defs/count" },
+        "expectedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Planned frames in the slice; the sequence-completeness denominator."
+        },
+        "observedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Planned frames with at least one result of any status; the sequence-completeness numerator."
+        },
+        "missingFrames": {
+          "$ref": "#/$defs/count",
+          "description": "expectedFrames minus observedFrames."
+        },
+        "reorderedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Observed frames that would have to move to restore frame order within their sequences."
+        },
+        "overlapDeduplicationErrors": { "$ref": "#/$defs/count" },
+        "accuracyNumerator": { "$ref": "#/$defs/count" },
+        "accuracyDenominator": { "$ref": "#/$defs/count" },
+        "recallNumerator": { "$ref": "#/$defs/count" },
+        "recallDenominator": { "$ref": "#/$defs/count" },
+        "falsePositiveNumerator": { "$ref": "#/$defs/count" },
+        "falsePositiveDenominator": { "$ref": "#/$defs/count" },
+        "coverage": { "$ref": "#/$defs/rate" },
+        "accuracy": { "$ref": "#/$defs/rate" },
+        "recall": { "$ref": "#/$defs/rate" },
+        "falsePositiveRate": { "$ref": "#/$defs/rate" },
+        "f1": { "$ref": "#/$defs/rate" },
+        "abstentionRate": { "$ref": "#/$defs/rate" },
+        "confidentWrongRate": { "$ref": "#/$defs/rate" },
+        "sequenceCompleteness": {
+          "$ref": "#/$defs/rate",
+          "description": "observedFrames / expectedFrames, or 0 when no frame is expected."
+        },
+        "confidenceIntervalLower": { "$ref": "#/$defs/rate" },
+        "confidenceIntervalUpper": { "$ref": "#/$defs/rate" },
+        "performanceSampleCount": { "$ref": "#/$defs/count" },
+        "meanElapsedMilliseconds": { "type": ["number", "null"], "minimum": 0, "maximum": 120000 },
+        "maximumElapsedMilliseconds": { "type": ["number", "null"], "minimum": 0, "maximum": 120000 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "enum": ["pass", "fail"] } }, "required": ["status"] },
+          "then": { "properties": { "independentSplitUnits": { "minimum": 5 }, "denominator": { "minimum": 30 } } }
+        }
+      ],
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

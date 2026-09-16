@@ -15,6 +15,7 @@ using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class RuntimeCompositionTests
 {
     [Fact]
@@ -271,6 +272,61 @@ public sealed class RuntimeCompositionTests
         }
         finally
         {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task EnvironmentReconnectRunsAndPublishesTheFullProductionSyncWithoutRestart()
+    {
+        const string variable = AppComposition.OfflineEnvironmentVariable;
+        var original = Environment.GetEnvironmentVariable(variable);
+        var root = TemporaryRoot();
+        try
+        {
+            Environment.SetEnvironmentVariable(variable, "1");
+            var handler = new FixtureApiHandler();
+            await using (var services = AppComposition.Build(
+                CommandLine(demo: false),
+                new(DataRoot: root, HttpMessageHandler: handler)))
+            {
+                var startup = services.GetRequiredService<ApplicationStartupCoordinator>();
+                var state = services.GetRequiredService<IRuntimeStateStore>();
+                await startup.InitializeAsync(CancellationToken.None);
+                startup.BeginBackgroundRefresh();
+
+                Assert.True(state.Current.IsOffline);
+                Assert.Equal(DataAvailability.Unavailable, state.Current.Data.Availability);
+                Assert.Equal(0, handler.Count("regular/items"));
+                Assert.Null(startup.BackgroundRefresh);
+
+                Environment.SetEnvironmentVariable(variable, "0");
+                for (var attempt = 0; attempt < 400 &&
+                     (state.Current.IsOffline || state.Current.Data.ItemCount != 2 ||
+                      state.Current.Data.Availability != DataAvailability.Current);
+                     attempt++)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(25));
+                }
+
+                var hit = Assert.Single(await services.GetRequiredService<IItemSearchService>()
+                    .SearchAsync("Salewa", 5, CancellationToken.None));
+                Assert.False(state.Current.IsOffline);
+                Assert.Equal(DataAvailability.Current, state.Current.Data.Availability);
+                Assert.Equal(2, state.Current.Data.ItemCount);
+                Assert.Equal("item-001", hit.Item.Id);
+                Assert.Equal(1, handler.Count("regular/items"));
+                Assert.Equal(1, handler.Count("regular/maps"));
+                Assert.Equal(1, handler.Count("regular/tasks"));
+                Assert.Equal(1, handler.Count("regular/hideout"));
+                Assert.Equal(1, handler.Count("regular/traders"));
+                Assert.Equal(1, handler.Count("regular/crafts"));
+                Assert.Equal(1, handler.Count("regular/barters"));
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, original);
             Cleanup(root);
         }
     }

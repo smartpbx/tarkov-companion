@@ -1,4 +1,4 @@
-using System.Text.Json;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Application.Services.Raids;
@@ -6,25 +6,6 @@ using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
-/// <summary>
-/// Applies what was observed to the raid state, shows it, and then records it.
-/// </summary>
-/// <remarks>
-/// Show first, record second. Every one of these used to await the database before publishing,
-/// so each marker waited behind its own write even when nothing was wrong — and when something
-/// was wrong (a full disk, an antivirus lock, or the catalog refresh holding SQLite's write
-/// lock past the five-second busy timeout on the evening's first launch) the write threw, the
-/// watcher rethrew, and observation was torn down: the squad list cleared and "events read"
-/// reset, because a row could not be inserted.
-///
-/// Publishing is in-memory and cannot fail, and the snapshot is complete before any of this
-/// runs, so nothing shown is waiting on the disk to confirm it. What a failure still costs is
-/// the recording; the queue that stops it costing the watcher as well is a separate change.
-///
-/// <see cref="EnsureStartedAsync"/> still runs before any event is recorded: raid_events.raid_id
-/// is NOT NULL REFERENCES raids(id), so the raid row has to exist first. That ordering is a
-/// database constraint and is not what moved.
-/// </remarks>
 /// <summary>
 /// What a scan is allowed to do to the raid record: read it, and add to it.
 /// </summary>
@@ -56,6 +37,29 @@ public interface IRaidActivityRecorder
     Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Applies what was observed to raid state and records it without making durable acceptance
+/// optional.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Direct v1 stores retain their show-first behavior. The at-least-once adapter instead works a
+/// transition out on a private copy of the raid state, has its bounded store accept every command
+/// the transition produces as one batch, and only then makes that copy current and publishes it.
+/// It does not wait for SQLite delivery, but a full or failed outbox can no longer be mistaken for
+/// accepted state — and, unlike applying first, a refused transition leaves the live raid exactly
+/// as it was, so the next observation does not build on a raid the record never heard of.
+/// </para>
+/// <para>
+/// Staged transitions are serialized: two observations staged against the same raid would each
+/// commit over the other.
+/// </para>
+/// <para>
+/// A raid start is still recorded before any event against it: raid_events.raid_id is NOT NULL
+/// REFERENCES raids(id), so the raid row has to exist first. That ordering is a database
+/// constraint and is not what moved.
+/// </para>
+/// </remarks>
 public sealed class RaidActivityCoordinator(
     IRaidStateService raidStateService,
     IRaidHistoryService raidHistoryService,
@@ -68,32 +72,78 @@ public sealed class RaidActivityCoordinator(
     TimeProvider? timeProvider = null) : IRaidActivityRecorder
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly SemaphoreSlim _transitionGate = new(1, 1);
+
+    /// <summary>Raised when durable raid-history delivery health changes.</summary>
+    public event EventHandler? OutboxChanged
+    {
+        add
+        {
+            if (raidHistoryService is IAtLeastOnceRaidHistoryService outbox)
+            {
+                outbox.Changed += value;
+            }
+        }
+        remove
+        {
+            if (raidHistoryService is IAtLeastOnceRaidHistoryService outbox)
+            {
+                outbox.Changed -= value;
+            }
+        }
+    }
+
+    /// <summary>Raid-history delivery health, or empty for a direct store.</summary>
+    public OutboxSnapshot OutboxSnapshot =>
+        raidHistoryService is IAtLeastOnceRaidHistoryService outbox
+            ? outbox.Snapshot
+            : OutboxSnapshot.Empty;
+
+    /// <summary>Manual recovery: wakes or restarts paused raid-history delivery.</summary>
+    public bool RequestOutboxRecovery() =>
+        raidHistoryService is IAtLeastOnceRaidHistoryService outbox && outbox.RequestPumpRecovery();
+
+    /// <summary>Manual recovery: returns one dead-lettered raid-history command to delivery.</summary>
+    public Task<bool> RetryOutboxDeadLetterAsync(
+        OperationId operationId,
+        CancellationToken cancellationToken) =>
+        raidHistoryService is IAtLeastOnceRaidHistoryService outbox
+            ? outbox.RetryDeadLetterAsync(operationId, cancellationToken)
+            : Task.FromResult(false);
 
     /// <inheritdoc />
     public RaidSnapshot Current => raidStateService.Current;
 
-    public async Task<RaidSnapshot> ApplyEvidenceAsync(RaidEvidence evidence, CancellationToken cancellationToken)
+    public Task<RaidSnapshot> ApplyEvidenceAsync(RaidEvidence evidence, CancellationToken cancellationToken)
     {
-        var previous = raidStateService.Current;
-        var current = raidStateService.Apply(evidence);
-        // Before anything is published or written. The whole point is that the raid keeps the
-        // identity it already had, so publishing the new one first would put a raid on screen
-        // under an id that is about to change and record a state event against it.
+        ArgumentNullException.ThrowIfNull(evidence);
         var adopted = false;
-        if (evidence.ResumesSession)
-        {
-            // A raid that is still loading has no id yet and is a new raid by definition, so
-            // there is nothing to take over — but the rows a previous run left open are still
-            // there, and this is still the moment to close them.
-            var canAdopt = current.State == RaidLifecycleState.InRaid
-                && current.RaidId is not null
-                && previous.RaidId != current.RaidId;
-            (current, adopted) = await ResumeAsync(current, canAdopt, cancellationToken).ConfigureAwait(false);
-        }
+        return TransitionAsync(
+            async state =>
+            {
+                var previous = state.Current;
+                var current = state.Apply(evidence);
+                // Before anything is published or written. The whole point is that the raid
+                // keeps the identity it already had, so publishing the new one first would put a
+                // raid on screen under an id that is about to change and record a state event
+                // against it.
+                if (evidence.ResumesSession)
+                {
+                    // A raid that is still loading has no id yet and is a new raid by definition,
+                    // so there is nothing to take over — but the rows a previous run left open
+                    // are still there, and this is still the moment to close them.
+                    var canAdopt = current.State == RaidLifecycleState.InRaid
+                        && current.RaidId is not null
+                        && previous.RaidId != current.RaidId;
+                    (current, adopted) = await ResumeAsync(state, current, canAdopt, cancellationToken)
+                        .ConfigureAwait(false);
+                }
 
-        Publish(current);
-        await PersistTransitionAsync(previous, current, evidence, adopted, cancellationToken).ConfigureAwait(false);
-        return current;
+                return current;
+            },
+            (previous, current, commands) =>
+                AddTransitionCommandsAsync(commands, previous, current, evidence, adopted, cancellationToken),
+            cancellationToken);
     }
 
     /// <summary>
@@ -119,8 +169,10 @@ public sealed class RaidActivityCoordinator(
     /// existed.
     /// </para>
     /// </remarks>
+    /// <param name="state">The raid state the transition is being applied to.</param>
     /// <returns>The raid as it now stands, and whether its row already exists.</returns>
     private async Task<(RaidSnapshot Raid, bool Adopted)> ResumeAsync(
+        IRaidStateService state,
         RaidSnapshot current,
         bool canAdopt,
         CancellationToken cancellationToken)
@@ -156,7 +208,7 @@ public sealed class RaidActivityCoordinator(
             var trail = await raidHistoryService
                 .ListPositionsAsync(adopted.Id, cancellationToken)
                 .ConfigureAwait(false);
-            return (raidStateService.Adopt(adopted.Id, adopted.StartedUtc, trail), true);
+            return (state.Adopt(adopted.Id, adopted.StartedUtc, trail), true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -179,27 +231,23 @@ public sealed class RaidActivityCoordinator(
     /// question: anything recent enough for the resume to adopt is left alone.
     /// </para>
     /// <para>
-    /// Silent on failure, like the resume. Tidying the record is not worth failing startup for.
+    /// A failure is allowed to reach the lifecycle coordinator. Observation treats repair as an
+    /// optional dependency, so play remains usable while runtime health truthfully shows that the
+    /// historical record was not repaired.
     /// </para>
     /// </remarks>
     public async Task CloseAbandonedAsync(CancellationToken cancellationToken)
     {
-        try
+        var now = _timeProvider.GetUtcNow();
+        var history = await raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var abandoned in RaidResume.Abandoned(history, now))
         {
-            var now = _timeProvider.GetUtcNow();
-            var history = await raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var abandoned in RaidResume.Abandoned(history, now))
-            {
-                await raidHistoryService.EndAsync(
-                    abandoned,
-                    now,
-                    "Closed on restart",
-                    "The companion was not running when this raid ended.",
-                    cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
+            await raidHistoryService.EndAsync(
+                abandoned,
+                now,
+                "Closed on restart",
+                "The companion was not running when this raid ended.",
+                cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -222,23 +270,21 @@ public sealed class RaidActivityCoordinator(
         return RaidTimer.LengthFor(side, map?.PmcRaidDuration, map?.ScavRaidDuration);
     }
 
-    public async Task<RaidSnapshot> ApplyPositionAsync(ScreenshotPosition position, CancellationToken cancellationToken)
+    public Task<RaidSnapshot> ApplyPositionAsync(ScreenshotPosition position, CancellationToken cancellationToken)
     {
-        var previous = raidStateService.Current;
-        var current = raidStateService.ApplyPosition(position);
-        Publish(current);
-        await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
-        if (current.RaidId is { } raidId)
-        {
-            await raidHistoryService.RecordEventAsync(
-                raidId,
-                "position",
-                position.Timestamp,
-                JsonSerializer.Serialize(position),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        return current;
+        ArgumentNullException.ThrowIfNull(position);
+        return TransitionAsync(
+            state => Task.FromResult(state.ApplyPosition(position)),
+            async (previous, current, commands) =>
+            {
+                await AddStartIfNewAsync(commands, previous, current, alreadyRecorded: false, cancellationToken)
+                    .ConfigureAwait(false);
+                if (current.RaidId is { } raidId)
+                {
+                    commands.Add(RaidHistoryCommand.RecordPosition(raidId, position));
+                }
+            },
+            cancellationToken);
     }
 
     /// <param name="raidClock">The remaining time the same screen printed, where it was read.</param>
@@ -250,7 +296,7 @@ public sealed class RaidActivityCoordinator(
     /// <c>IRaidStateService.ApplyExtracts</c> itself, which carried them. Routing the scan
     /// through here without them would have been a regression dressed as a refactor.
     /// </remarks>
-    public async Task<RaidSnapshot> ApplyExtractsAsync(
+    public Task<RaidSnapshot> ApplyExtractsAsync(
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
         CancellationToken cancellationToken,
@@ -258,34 +304,25 @@ public sealed class RaidActivityCoordinator(
         IReadOnlyList<string>? linesNotMatched = null,
         IReadOnlyList<string>? transits = null)
     {
-        var previous = raidStateService.Current;
-        var current = raidStateService.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits);
-        Publish(current);
-        await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
-        if (current.RaidId is { } raidId)
-        {
-            await raidHistoryService.RecordEventAsync(
-                raidId,
-                "extracts",
-                observedUtc,
-                JsonSerializer.Serialize(extracts),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        return current;
+        ArgumentNullException.ThrowIfNull(extracts);
+        return TransitionAsync(
+            state => Task.FromResult(state.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits)),
+            async (previous, current, commands) =>
+            {
+                await AddStartIfNewAsync(commands, previous, current, alreadyRecorded: false, cancellationToken)
+                    .ConfigureAwait(false);
+                if (current.RaidId is { } raidId)
+                {
+                    commands.Add(RaidHistoryCommand.RecordExtracts(raidId, observedUtc, extracts));
+                }
+            },
+            cancellationToken);
     }
 
     public Task RecordScanAsync(ScanExecutionResult result, CancellationToken cancellationToken)
     {
-        var raidId = raidStateService.Current.RaidId;
-        return raidId is null
-            ? Task.CompletedTask
-            : raidHistoryService.RecordEventAsync(
-                raidId.Value,
-                "scan",
-                result.ObservedUtc,
-                JsonSerializer.Serialize(result),
-                cancellationToken);
+        ArgumentNullException.ThrowIfNull(result);
+        return RecordForOpenRaidAsync(raidId => RaidHistoryCommand.RecordScan(raidId, result), cancellationToken);
     }
 
     /// <summary>
@@ -303,14 +340,7 @@ public sealed class RaidActivityCoordinator(
     public Task RecordSaleAsync(FleaSaleObservation sale, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(sale);
-        return raidStateService.Current.RaidId is not { } raidId
-            ? Task.CompletedTask
-            : raidHistoryService.RecordEventAsync(
-                raidId,
-                "sale",
-                sale.ObservedUtc,
-                JsonSerializer.Serialize(sale),
-                cancellationToken);
+        return RecordForOpenRaidAsync(raidId => RaidHistoryCommand.RecordSale(raidId, sale), cancellationToken);
     }
 
     /// <summary>
@@ -324,40 +354,111 @@ public sealed class RaidActivityCoordinator(
     public Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(quest);
-        return raidStateService.Current.RaidId is not { } raidId
-            ? Task.CompletedTask
-            : raidHistoryService.RecordEventAsync(
-                raidId,
-                "quest",
-                quest.ObservedUtc,
-                JsonSerializer.Serialize(quest),
-                cancellationToken);
+        return RecordForOpenRaidAsync(raidId => RaidHistoryCommand.RecordQuest(raidId, quest), cancellationToken);
     }
 
-    private async Task PersistTransitionAsync(
+    /// <summary>Applies one transition and records it, in the order the history store requires.</summary>
+    /// <param name="apply">Applies the observation to the given raid state and returns the result.</param>
+    /// <param name="describe">Adds the commands that record the move from the first snapshot to the second.</param>
+    private async Task<RaidSnapshot> TransitionAsync(
+        Func<IRaidStateService, Task<RaidSnapshot>> apply,
+        Func<RaidSnapshot, RaidSnapshot, List<RaidHistoryCommand>, Task> describe,
+        CancellationToken cancellationToken)
+    {
+        var commands = new List<RaidHistoryCommand>();
+        if (raidHistoryService is IAtLeastOnceRaidHistoryService outbox)
+        {
+            var staged = raidStateService as IStagedRaidStateService
+                ?? throw new InvalidOperationException(
+                    "Durable raid history needs a raid state that can stage a transition before it is accepted.");
+            await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var stage = staged.Stage();
+                var previous = stage.Current;
+                var current = await apply(stage).ConfigureAwait(false);
+                await describe(previous, current, commands).ConfigureAwait(false);
+                if (commands.Count > 0)
+                {
+                    await outbox.AcceptAsync(commands, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Accepted, so the transition is now true. Nothing between acceptance and
+                // publication can fail: the commit is an assignment and publication isolates
+                // its subscribers.
+                staged.Commit(stage);
+                Publish(current);
+                return current;
+            }
+            finally
+            {
+                _transitionGate.Release();
+            }
+        }
+
+        // Compatibility for direct v1 stores. Production composition uses the outbox above;
+        // direct callers keep the old fail-soft display behavior until they migrate.
+        var previousDirect = raidStateService.Current;
+        var currentDirect = await apply(raidStateService).ConfigureAwait(false);
+        Publish(currentDirect);
+        await describe(previousDirect, currentDirect, commands).ConfigureAwait(false);
+        foreach (var command in commands)
+        {
+            await command.WriteAsync(raidHistoryService, cancellationToken).ConfigureAwait(false);
+        }
+
+        return currentDirect;
+    }
+
+    private async Task RecordForOpenRaidAsync(
+        Func<Guid, RaidHistoryCommand> create,
+        CancellationToken cancellationToken)
+    {
+        if (raidHistoryService is not IAtLeastOnceRaidHistoryService outbox)
+        {
+            if (raidStateService.Current.RaidId is { } directRaidId)
+            {
+                await create(directRaidId).WriteAsync(raidHistoryService, cancellationToken).ConfigureAwait(false);
+            }
+
+            return;
+        }
+
+        // Read under the transition gate so a record cannot attach itself to a raid whose start
+        // is staged but not yet accepted.
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (raidStateService.Current.RaidId is { } raidId)
+            {
+                await outbox.AcceptAsync([create(raidId)], cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    private async Task AddTransitionCommandsAsync(
+        List<RaidHistoryCommand> commands,
         RaidSnapshot previous,
         RaidSnapshot current,
         RaidEvidence evidence,
         bool alreadyRecorded,
         CancellationToken cancellationToken)
     {
-        await EnsureStartedAsync(previous, current, alreadyRecorded, cancellationToken).ConfigureAwait(false);
+        await AddStartIfNewAsync(commands, previous, current, alreadyRecorded, cancellationToken).ConfigureAwait(false);
         if (current.RaidId is { } raidId)
         {
-            await raidHistoryService.RecordEventAsync(
-                raidId,
-                "state",
-                evidence.ObservedUtc,
-                JsonSerializer.Serialize(evidence),
-                cancellationToken).ConfigureAwait(false);
+            commands.Add(RaidHistoryCommand.RecordState(raidId, evidence));
         }
 
         if (previous.RaidId is { } previousRaidId
             && previous.State == RaidLifecycleState.InRaid
             && current.State is RaidLifecycleState.Menu or RaidLifecycleState.PostRaid)
         {
-            await raidHistoryService.EndAsync(previousRaidId, evidence.ObservedUtc, null, null, cancellationToken)
-                .ConfigureAwait(false);
+            commands.Add(RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null));
         }
     }
 
@@ -366,7 +467,8 @@ public sealed class RaidActivityCoordinator(
     /// Inserting it again is a primary key violation, and the identity being new to this
     /// process is exactly what adoption makes untrue.
     /// </param>
-    private async Task EnsureStartedAsync(
+    private async Task AddStartIfNewAsync(
+        List<RaidHistoryCommand> commands,
         RaidSnapshot previous,
         RaidSnapshot current,
         bool alreadyRecorded,
@@ -378,9 +480,8 @@ public sealed class RaidActivityCoordinator(
         }
 
         var profile = await profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
-        await raidHistoryService.StartAsync(
-            new(raidId, profile.Id, current.MapId, profile.GameMode.ToString(), current.StartedUtc, null, null, null),
-            cancellationToken).ConfigureAwait(false);
+        commands.Add(RaidHistoryCommand.StartRaid(
+            new(raidId, profile.Id, current.MapId, profile.GameMode.ToString(), current.StartedUtc, null, null, null)));
     }
 
     private void Publish(RaidSnapshot snapshot) =>

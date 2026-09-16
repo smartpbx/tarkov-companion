@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -52,7 +51,7 @@ public sealed class TarkovDevJsonClientTests
         };
         var client = CreateClient(handler);
 
-        var error = await Assert.ThrowsAsync<JsonException>(
+        var error = await Assert.ThrowsAnyAsync<InvalidDataException>(
             () => client.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
 
         Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -70,7 +69,7 @@ public sealed class TarkovDevJsonClientTests
         };
         var client = CreateClient(handler);
 
-        var error = await Assert.ThrowsAsync<JsonException>(
+        var error = await Assert.ThrowsAnyAsync<InvalidDataException>(
             () => client.GetTasksAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
 
         Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -176,7 +175,7 @@ public sealed class TarkovDevJsonClientTests
         var time = new ManualTimeProvider(new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero));
         var oldBody = await FixtureJson.ReadAsync("crafts.json");
         const string newBody = """
-            {"data":[{"id":"craft-002","requiredItems":[],"productItem":{"item":"item-001","count":1}}],"translations":[]}
+            {"data":[{"id":"craft-002","requiredItems":[{"item":"item-002","count":1,"attributes":{}}],"productItem":{"item":"item-001","count":1}}],"translations":[]}
             """;
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

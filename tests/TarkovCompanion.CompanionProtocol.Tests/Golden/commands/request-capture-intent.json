@@ -1,0 +1,46 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:00:00+00:00",
+  "command": {
+    "type": "requestCaptureIntent",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000014"
+    },
+    "requestedRevision": {
+      "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00+00:00",
+    "expiresUtc": "2026-09-14T20:01:00+00:00",
+    "offlineQueuePreview": null,
+    "intentId": {
+      "value": "60000000-0000-4000-8000-000000000002"
+    },
+    "correlationId": "capture-correlation-2",
+    "captureSessionId": {
+      "value": "70000000-0000-4000-8000-000000000002"
+    },
+    "intent": "Auto",
+    "context": {
+      "mapId": null,
+      "floorId": null,
+      "profileId": null,
+      "previousResultId": null,
+      "objectiveIds": [],
+      "planIds": [],
+      "markIds": [
+        {
+          "value": "50000000-0000-4000-8000-000000000001"
+        }
+      ]
+    }
+  }
+}

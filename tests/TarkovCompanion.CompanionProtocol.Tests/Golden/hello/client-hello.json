@@ -1,0 +1,16 @@
+{
+  "supportedVersions": {
+    "minimum": {
+      "major": 2,
+      "minor": 0
+    },
+    "maximum": {
+      "major": 2,
+      "minor": 3
+    }
+  },
+  "clientInstanceId": "tablet-install-1",
+  "optionalFeatures": [
+    "independent-offline-queue"
+  ]
+}

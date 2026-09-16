@@ -1,0 +1,23 @@
+{
+  "failedCount": 1,
+  "noWindowCount": 0,
+  "blankCount": 1,
+  "interfaceFaultCount": 1,
+  "warningCaptureUnarmedCount": 0,
+  "pages": [
+    {
+      "page": "Raid",
+      "presented": true,
+      "visuallyVaried": false,
+      "distinctColors": 1,
+      "variedFraction": 0.0,
+      "warningCaptureArmed": true,
+      "warningLineCount": 3,
+      "interfaceFaultCount": 1,
+      "interfaceFaults": [
+        "[Binding] An error occurred binding 'Source' to 'Map.Tile' at 'C:\\Users\\build-user\\AppData\\Local\\TarkovCompanion\\Cache\\tile.png': 'Could not find a matching property accessor for 'Tile' on 'TarkovCompanion.App.ViewModels.RaidPageViewModel'' (Image #1) padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding"
+      ],
+      "detail": "Image written to C:\\Users\\build-user\\pages\\raid.png"
+    }
+  ]
+}

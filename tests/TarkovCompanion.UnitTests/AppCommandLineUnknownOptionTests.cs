@@ -29,12 +29,14 @@ public sealed class AppCommandLineUnknownOptionTests
             "--ocr-probe", "shot.png",
             "--ocr-probe-region", "0.85,0.005,0.145,0.5",
             "--ocr-probe-lines", "40",
+            "--ocr-probe-cells",
             "--developer-mode",
         ]);
 
         Assert.Empty(options.UnknownOptions);
         Assert.Equal("0.85,0.005,0.145,0.5", options.OcrProbeRegion);
         Assert.Equal(40, options.OcrProbeLines);
+        Assert.True(options.OcrProbeCells);
     }
 
     [Fact]

@@ -63,13 +63,16 @@
               <TextBlock Classes="label" Text="This application's log" />
               <TextBlock Classes="caption" Text="{Binding CompanionLogPath}" TextWrapping="Wrap" />
             </StackPanel>
+            <!-- Copy exposes the exact closed report text until the send flow gains its own
+                 confirmation preview under #281. Relay retention remains visible at the action. -->
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Classes="primary" Command="{Binding ReportProblemCommand}" Content="Report a problem" />
+              <Button Classes="primary" Command="{Binding ReportProblemCommand}" Content="Report a problem"
+                      ToolTip.Tip="Copy diagnostics puts the same text on your clipboard, so you can read it before sending." />
               <Button Command="{Binding CopyDiagnosticsCommand}" Content="Copy diagnostics" />
               <TextBlock Classes="caption" Text="{Binding DiagnosticsStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="Sends build, folders, sync state and this app's own log. Never game logs, the group key or coordinates." />
+                       Text="Sent to your group's relay, which may keep it. Copy diagnostics shows the exact text first." />
             <TextBlock Classes="prose" Text="{Binding UpdateStatus}" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Command="{Binding CheckForUpdateCommand}"

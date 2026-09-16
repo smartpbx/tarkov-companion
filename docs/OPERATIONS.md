@@ -3,7 +3,8 @@
 Where things run, where they write, and what to do when one of them stops.
 
 Everything here is about the running system. How it is built is `TESTING.md`; how the Windows
-package is proven is `WINDOWS_VERIFICATION.md`.
+package is proven is `WINDOWS_VERIFICATION.md`. Diagnostic contracts and response procedures are
+in `OBSERVABILITY.md`, `PRIVACY.md`, and `runbooks/relay-operations.md`.
 
 ## The desktop application
 
@@ -25,9 +26,10 @@ next to the application instead.
 **Where it does not keep things.** It never writes inside the game's folders except to move
 old screenshots to the recycle bin, and only when that is switched on.
 
-**How it updates.** It checks the `dev` release on every launch and installs what it finds,
-provided the checksum matches what was published. Only builds that passed Windows verification
-are ever published there, so the shortcut does not skip the checks.
+**How it updates.** The anonymous public-release updater has been removed. The signed private-feed
+consumer exists but is intentionally not composed until #294 supplies activation and #270 supplies
+durable consumer state, so the application currently reports that the private feed is not
+configured. Until then, signed desktop builds use the verified offline path in `RELEASES.md`.
 
 ## The group relay
 
@@ -39,36 +41,63 @@ are ever published there, so the shortcut does not skip the checks.
 | Update timer | `tarkov-group-update.timer`, every 30 minutes |
 | State | `/var/lib/tarkov-group` once `StateDirectory=tarkov-group` is set on the unit |
 
-**What it stores.** The squad's waypoints, and nothing else. Positions are held in memory for
-three minutes and never written down; pings expire in forty-five seconds and are not persisted,
-because one restored from disk would be claiming "now".
+**What it stores.** The state directory holds:
 
-**How it updates itself.** The timer fetches the published archive, verifies its checksum
-against what the release says, swaps `/opt/tarkov-group`, and rolls back if the new build does
-not answer `/health`. The archive is packed reproducibly, so a build whose server did not
-change produces the same checksum and no restart happens.
+| File | What is in it |
+| --- | --- |
+| `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
+| `rooms.json` | The registered room hashes, with their labels and creation times. |
+| `reports/*.md` | Problem reports exactly as sent, with no expiry. |
+| `UPDATE_NOW` | The panel's transient request for the root-owned updater to run. |
+
+Live member state (position, recent trail, kit) stays in memory until about three minutes after
+a member stops publishing and is not written to any of those files. Pings expire in forty-five
+seconds and are not persisted, because one restored from disk would be claiming "now". The
+ordinary desktop report is a closed allowlisted projection, but the relay endpoint still accepts
+arbitrary caller-supplied bodies and performs no content allowlisting. Treat `reports/` as
+sensitive in backups and migrations (`RISK-REPORT-REDACTION`).
+
+Authenticated update history and install/refusal state live under root-owned
+`/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
+`/var/lib/tarkov-group-update-status`. Neither belongs to the relay's writable state directory.
+
+**How it updates itself.** The timer follows a signed ring in a separate private feed. Before it
+touches `/opt/tarkov-group`, the root updater verifies the create-once ring decision, manifest,
+and archive against its separately provisioned Sigstore trust root, replay floor, and local
+history. A signed rollback is the only normal downgrade authority. If the replacement does not
+answer `/health` as its signed identity, the updater restores the previous tree and records the
+refusal. See `RELEASES.md` and `deploy/group-server/README.md` for the complete contract.
 
 ## Problem reports
 
-A player presses **Report a problem** on Settings. The report goes to the relay, which keeps it
-in `/var/lib/tarkov-group/reports` and hands back a reference. The hourly `relay-watch.yml`
-lists what is waiting and opens one issue per reference.
+A player presses **Report a problem** on Settings. The desktop builds the same closed, bounded
+text exposed by **Copy diagnostics**, but currently sends it without a separate confirmation
+preview. The relay keeps it in `/var/lib/tarkov-group/reports` and hands back a 12-hex reference.
+The hourly `relay-watch.yml` is designed to validate the complete bounded listing and open one
+issue per reference without copying the report body.
 
 **The relay holds no GitHub credential.** The workflow files the issues with the token GitHub
 Actions already gives it for its own repository, so the internet-facing box never holds a
 long-lived token with write access to anything.
 
-**The issue names a reference; the body stays on the relay.** This repository is public, and a
-report describes somebody's machine. To read one:
+**Automated pickup currently fails closed.** `/reports` lists the timestamp-prefixed stored
+filename, while `/reports/{reference}` accepts the original 12-hex reference. The workflow
+rejects that mismatched shape before writing any issue. #310 owns aligning those two contracts;
+an issue is not evidence that retrieval works. If the original 12-hex reference is available,
+an authorized operator can read it with:
 
 ```bash
 curl -H "X-Admin-Key: $TARKOV_RELAY_ADMIN_KEY" https://<relay>/reports/<reference>
 ```
 
-The admin key is in two places and nowhere else: the repository secret
-`TARKOV_RELAY_ADMIN_KEY`, and `/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on
-CT 115. It is not the group key — any member of any group holds one of those, and this lists
-every group's reports.
+The admin key is provisioned in two places: the repository secret `TARKOV_RELAY_ADMIN_KEY`, and
+`/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on CT 115. Those are not the only
+places it exists while in use. The running relay holds it in its environment, the hourly
+`relay-watch.yml` job receives it as an environment variable, the shell that runs the command
+above holds it, and the relay panel copies whatever is typed into it to that browser tab's
+`sessionStorage` for the life of the tab (asset A-6 in `docs/security/ASSETS_AND_ACTORS.md`).
+Rotating it means changing both provisioned copies. It is not the group key — any member of any
+group holds one of those, and this lists every group's reports.
 
 ## The relay panel
 
@@ -83,7 +112,8 @@ ways of registering a room mean.
 
 The list is `rooms.json` in the relay's state directory (`/var/lib/tarkov-group`), which is
 outside the tree the updater replaces, so it survives the half-hourly update. Deleting that file
-reopens the relay; it never locks anybody out permanently.
+reopens the relay; so, silently, does a corrupt or unreadable one (`RISK-RELAY-REGISTRY-FAIL-OPEN`,
+#310). After anything touches the state directory, check that the panel still says closed.
 
 The page also says which build is running against which is published, including the case worth
 catching: a build that installed, failed its health check and was rolled back is recorded in
@@ -95,9 +125,12 @@ for it and runs the same update the timer runs — the relay runs unprivileged a
 unit itself. If that path unit is not installed the button still works, in the sense that the
 next timer tick picks the file up; it is just no longer immediate.
 
-A report carries no game logs, no group key, no screenshots and no coordinates; user folder
-names are replaced. It does carry the *shape* of the player's screenshot names, with every
-digit masked, which is the thing that usually settles why somebody has no position.
+A report is untrusted diagnostic content. The ordinary desktop now constructs one closed,
+bounded projection and never opens the application log or renders runtime details, screenshot
+names, coordinates, paths, credentials, identities, OCR/pixels, or exception bodies. Its hostile
+complete-payload fixture proves that client boundary. The relay still accepts arbitrary bodies,
+sends no separate confirmation preview, and retains exact submitted bytes, so treat every stored
+report as restricted until #281/#310 close and test the complete transport and lifecycle.
 
 **When the group panel says something is wrong:**
 
@@ -111,19 +144,24 @@ digit masked, which is the thing that usually settles why somebody has no positi
 A key that is merely *different* is not an error. The key **is** the room, so a typo puts
 somebody in a room of their own where everything works and nobody is there.
 
-## When `dev` is missing or stale
+## When a signed ring is missing or stale
 
-The install link, the in-app updater and the relay updater all read the same rolling
-pre-release. If it is gone or behind:
+The old public `dev` release is a frozen migration source, not v2 release authority. If the relay
+or an offline desktop is behind:
 
-1. Check the latest run of `windows-verify.yml` on `main`, and its **`publish` job** in particular. Publishing is its own job: it needs `windows-verify` to have passed, it is the only job in the workflow holding a write token, and it does not run for a pull request at all.
-2. The publish never deletes the release, uploads packages before the feed files, and refuses
-   to publish a version below what is already live — so a half-finished run leaves the previous
-   build whole rather than leaving the feed pointing at nothing.
-3. Re-running the failed job republishes; there is nothing to clean up by hand.
+1. Check `publish.yml` for the successful `windows-verify.yml` push-to-main run. Verification
+   builds and proves artifacts but cannot publish; the protected release job publishes without
+   rebuilding them.
+2. Inspect the selected private ring's newest signed, create-once decision and the relay updater's
+   root-owned published, installed, and refused records. A paused ring, an authorized rollback,
+   a superseded verification run, disabled `V2_RELEASES_ENABLED`, or missing host provisioning are
+   different states and must not be collapsed into "stale."
+3. Use the transition and recovery procedures in `RELEASES.md`. Do not revive the public `dev`
+   writer, overwrite a ring decision, or trust an archive because a checksum beside it matches.
 
-`update.json` on the release is the authority on what is actually published: it carries the
-version, the commit, the build time and the checksum.
+The signed ring decision and signed release manifest, verified against the consumer's own trust
+root and history, are the authority. Relay watch intentionally reports only liveness and known
+default-branch lineage; release selection and freshness remain updater/admin-panel evidence.
 
 ## The fast loop
 

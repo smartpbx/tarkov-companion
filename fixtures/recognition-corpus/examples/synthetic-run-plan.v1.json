@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "run-plan.v1",
+  "runId": "synthetic-run-0001",
+  "producer": {
+    "id": "fixture-producer",
+    "version": "0.0.0-synthetic"
+  },
+  "policyVersion": "recognition-scorer-policy.v1",
+  "corpusId": "synthetic-corpus-0001",
+  "nearDuplicateGraphVersion": "phash-graph.v1",
+  "planLock": "0000000000000000000000000000000000000000000000000000000000000000",
+  "samples": [
+    {
+      "sampleId": "synthetic-sample01",
+      "split": "test",
+      "intent": "loot-decision",
+      "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "synthetic-session1",
+        "correlationId": "synthetic-correl01",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1.0,
+        "locale": "en-US",
+        "gameVersion": "synthetic",
+        "companionUiVersion": "synthetic"
+      },
+      "lineage": {
+        "sequenceId": "synthetic-sequence1",
+        "frameOrdinal": 0,
+        "viewportId": "synthetic-viewport",
+        "containerIdentity": "synthetic-root-0001",
+        "overlapWithPrevious": 0.0,
+        "parentContainerIdentity": null
+      }
+    }
+  ]
+}

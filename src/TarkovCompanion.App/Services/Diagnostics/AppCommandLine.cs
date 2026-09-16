@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Services.V2.Shell;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
@@ -50,6 +51,9 @@ public sealed record AppCommandLine(
     /// <summary>How many lines the probe prints per preparation. Twelve on a 32:9 frame is a rounding error.</summary>
     public int? OcrProbeLines { get; init; }
 
+    /// <summary>Read each stash-grid caption as its own production-provider comparison.</summary>
+    public bool OcrProbeCells { get; init; }
+
     /// <summary>
     /// A map to open on, instead of the default one.
     /// </summary>
@@ -67,6 +71,21 @@ public sealed record AppCommandLine(
 
     /// <summary>Whether to open with the floors drawn as a stack.</summary>
     public bool StacksFloors { get; init; }
+
+    /// <summary>
+    /// Which shell to draw: <c>legacy</c> unless <c>--ui-shell v2-a</c> or <c>v2-b</c> says otherwise.
+    /// </summary>
+    /// <remarks>
+    /// Chosen at process start and never swapped, and fatal when unrecognised rather than reported
+    /// like an unknown option: somebody asking for a particular interface and silently getting a
+    /// different one would mislabel every screenshot taken from that launch. The two V2 values are
+    /// provisional presentations from #265, which has not yet run, so neither is ever the default.
+    ///
+    /// Under a V2 shell, <c>--page</c> is read as that variant's address (<c>raid/loot</c>,
+    /// <c>home</c>) rather than a V1 page name, and an address the variant does not have is fatal
+    /// in the same way.
+    /// </remarks>
+    public V2ShellMode UiShell { get; init; } = V2ShellMode.Legacy;
 
     /// <summary>
     /// Options that were passed and are not recognised.
@@ -99,8 +118,10 @@ public sealed record AppCommandLine(
             MapId = GetValue(args, "--map"),
             MapFloor = GetValue(args, "--floor"),
             StacksFloors = HasFlag(args, "--stack"),
+            UiShell = V2ShellModes.Parse(GetValue(args, V2ShellModes.Option)),
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
+            OcrProbeCells = HasFlag(args, "--ocr-probe-cells"),
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
@@ -127,6 +148,8 @@ public sealed record AppCommandLine(
         "--ocr-probe",
         "--ocr-probe-region",
         "--ocr-probe-lines",
+        "--ocr-probe-cells",
+        V2ShellModes.Option,
     ];
 
     /// <summary>
@@ -169,7 +192,7 @@ public sealed record AppCommandLine(
     private static bool TakesValue(string option) => option is
         "--output" or "--demo-fixture" or "--diagnostic-channel" or
         "--page" or "--map" or "--floor" or
-        "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines";
+        "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines" or V2ShellModes.Option;
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
         args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));

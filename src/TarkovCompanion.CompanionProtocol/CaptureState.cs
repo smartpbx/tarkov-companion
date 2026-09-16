@@ -3,16 +3,16 @@ using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.CompanionProtocol;
 
-public enum ContextualCapturePurpose
+/// <summary>The paired capture intents: the frozen #264 <see cref="ScanIntent"/> set without flea recognition.</summary>
+public static class PairedScanIntents
 {
-    LootDecision = 1,
-    FullStash,
-    Ammo,
-    Keys,
-    QuestAndFutureQuestItems,
-    MapAndExtracts,
-    HealthAndCharacter,
-    AutoDetect,
+    public static IReadOnlyList<ScanIntent> Allowed { get; } =
+        Enum.GetValues<ScanIntent>().Where(intent => intent != ScanIntent.Flea).ToArray();
+
+    internal static ScanIntent Require(ScanIntent intent, string parameterName) =>
+        Enum.IsDefined(intent) && intent != ScanIntent.Flea
+            ? intent
+            : throw new ArgumentOutOfRangeException(parameterName, intent, "Flea recognition is not a paired-device capture intent.");
 }
 
 public enum ContextualCaptureStatus
@@ -187,6 +187,16 @@ public sealed record ContextualCaptureResult
             : detectedContext;
         CompletedUtc = ProtocolGuard.Utc(completedUtc, nameof(completedUtc));
         Provenance = ProtocolGuard.NotNull(provenance, nameof(provenance));
+
+        // The full #264 lineage stays with the referenced result. A paired snapshot inside a
+        // command acknowledgement reaches JSON depth 13 at this bound, inside the wire limit of 16;
+        // Core's own depth of 8 would make a canonical state that no transport could deliver.
+        if (Depth(Provenance) > ProtocolBounds.MaxCaptureProvenanceDepth)
+        {
+            throw new ArgumentException(
+                $"A paired capture result carries at most {ProtocolBounds.MaxCaptureProvenanceDepth} provenance levels.",
+                nameof(provenance));
+        }
     }
 
     public string ResultId { get; }
@@ -202,6 +212,9 @@ public sealed record ContextualCaptureResult
     public DateTimeOffset CompletedUtc { get; }
 
     public EvidenceProvenance Provenance { get; }
+
+    private static int Depth(EvidenceProvenance provenance) =>
+        1 + (provenance.Inputs.Count == 0 ? 0 : provenance.Inputs.Max(Depth));
 }
 
 public sealed record ContextualCaptureGuidance(
@@ -264,11 +277,9 @@ public sealed record ContextualCaptureIntent
         CaptureIntentId intentId,
         string correlationId,
         CaptureSessionId captureSessionId,
-        ContextualCapturePurpose purpose,
+        CaptureIntentState state,
         CompanionDeviceId initiatingDeviceId,
         CompanionSurfaceKind initiatingSurface,
-        DateTimeOffset requestedUtc,
-        DateTimeOffset expiresUtc,
         ContextualCaptureStatus status,
         CompanionCaptureContext context,
         IReadOnlyList<ContextualCaptureProgress> progress,
@@ -282,13 +293,19 @@ public sealed record ContextualCaptureIntent
         CaptureSessionId = captureSessionId.Value == Guid.Empty
             ? throw new ArgumentException("A capture session id is required.", nameof(captureSessionId))
             : captureSessionId;
-        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        State = ProtocolGuard.NotNull(state, nameof(state));
+        PairedScanIntents.Require(State.Intent, nameof(state));
+        ProtocolGuard.Utc(State.ArmedUtc, nameof(state));
+        if (State.ExpiresUtc is not { } expires)
+        {
+            throw new ArgumentException("A paired capture intent always expires.", nameof(state));
+        }
+
+        ProtocolGuard.Utc(expires, nameof(state));
         InitiatingDeviceId = initiatingDeviceId.Value == Guid.Empty
             ? throw new ArgumentException("An initiating device is required.", nameof(initiatingDeviceId))
             : initiatingDeviceId;
         InitiatingSurface = ProtocolGuard.Defined(initiatingSurface, nameof(initiatingSurface));
-        RequestedUtc = ProtocolGuard.Utc(requestedUtc, nameof(requestedUtc));
-        ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         Status = ProtocolGuard.Defined(status, nameof(status));
         Context = ProtocolGuard.NotNull(context, nameof(context));
         Progress = ProtocolGuard.List(progress, nameof(progress));
@@ -299,7 +316,7 @@ public sealed record ContextualCaptureIntent
 
         if (ExpiresUtc <= RequestedUtc || ExpiresUtc - RequestedUtc > ProtocolBounds.CaptureIntentLifetime)
         {
-            throw new ArgumentOutOfRangeException(nameof(expiresUtc), "A contextual capture intent is short lived.");
+            throw new ArgumentOutOfRangeException(nameof(state), "A contextual capture intent is short lived.");
         }
 
         ValidateProgress();
@@ -312,15 +329,12 @@ public sealed record ContextualCaptureIntent
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    public ContextualCapturePurpose Purpose { get; }
+    /// <summary>The Core v2 capture intent: the scan intent, armed time, and expiry.</summary>
+    public CaptureIntentState State { get; }
 
     public CompanionDeviceId InitiatingDeviceId { get; }
 
     public CompanionSurfaceKind InitiatingSurface { get; }
-
-    public DateTimeOffset RequestedUtc { get; }
-
-    public DateTimeOffset ExpiresUtc { get; }
 
     public ContextualCaptureStatus Status { get; }
 
@@ -337,22 +351,17 @@ public sealed record ContextualCaptureIntent
     public IReadOnlyList<ContextualCaptureCorrection> Corrections { get; }
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public ScanIntent CoreIntent => Purpose switch
-    {
-        ContextualCapturePurpose.LootDecision => ScanIntent.Loot,
-        ContextualCapturePurpose.FullStash => ScanIntent.Stash,
-        ContextualCapturePurpose.Ammo => ScanIntent.Ammo,
-        ContextualCapturePurpose.Keys => ScanIntent.Keys,
-        ContextualCapturePurpose.QuestAndFutureQuestItems => ScanIntent.QuestItems,
-        ContextualCapturePurpose.MapAndExtracts => ScanIntent.ExtractsAndMap,
-        ContextualCapturePurpose.HealthAndCharacter => ScanIntent.HealthAndCharacter,
-        ContextualCapturePurpose.AutoDetect => ScanIntent.Auto,
-        _ => throw new InvalidOperationException("Unsupported capture purpose."),
-    };
+    public ScanIntent Intent => State.Intent;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTimeOffset RequestedUtc => State.ArmedUtc;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTimeOffset ExpiresUtc => State.ExpiresUtc!.Value;
 
     private void ValidateProgress()
     {
-        var captures = new List<(string ArtifactId, ContextualCaptureProgressPhase Phase)>();
+        var captures = new List<(string ArtifactId, ContextualCaptureProgressPhase Phase, DateTimeOffset ChangedUtc)>();
         for (var index = 0; index < Progress.Count; index++)
         {
             var item = Progress[index];
@@ -383,7 +392,7 @@ public sealed record ContextualCaptureIntent
                     throw new ArgumentException("An artifact belongs to one capture ordinal.", nameof(Progress));
                 }
 
-                captures.Add((item.ArtifactId!, item.Phase));
+                captures.Add((item.ArtifactId!, item.Phase, item.ChangedUtc));
                 continue;
             }
 
@@ -398,17 +407,23 @@ public sealed record ContextualCaptureIntent
                 throw new ArgumentException("A capture artifact moves forward once and cannot be rebound.", nameof(Progress));
             }
 
-            captures[ordinal] = (previous.ArtifactId, item.Phase);
+            captures[ordinal] = (previous.ArtifactId, item.Phase, item.ChangedUtc);
         }
 
-        if (Result is not null && Result.CompletedUtc > ExpiresUtc)
+        if (Result is not null &&
+            (Result.CompletedUtc < RequestedUtc ||
+             Result.CompletedUtc > ExpiresUtc ||
+             Result.Provenance.ObservedUtc > Result.CompletedUtc))
         {
-            throw new ArgumentException("A capture result cannot complete after its intent expired.", nameof(Result));
+            throw new ArgumentException("A capture result follows its request and evidence observation and precedes intent expiry.", nameof(Result));
         }
 
-        if (StatusRequiresResult(Status) != (Result is not null))
+        var resultRule = ResultRule(Status);
+        if ((resultRule == true && Result is null) || (resultRule == false && Result is not null))
         {
-            throw new ArgumentException("Awaiting-review and complete capture states carry a result; other states do not.", nameof(Result));
+            throw new ArgumentException(
+                "Awaiting-review and complete captures carry a result, unfinished ones do not, and a terminal failure keeps any result it had.",
+                nameof(Result));
         }
 
         if (Result is not null &&
@@ -416,6 +431,27 @@ public sealed record ContextualCaptureIntent
              !string.Equals(captures[Result.CaptureOrdinal].ArtifactId, Result.ArtifactId, StringComparison.Ordinal)))
         {
             throw new ArgumentException("A result identifies an artifact already correlated in progress.", nameof(Result));
+        }
+
+        if (Result is not null)
+        {
+            var correlated = Progress
+                .Where(item => item.CaptureOrdinal == Result.CaptureOrdinal &&
+                               string.Equals(item.ArtifactId, Result.ArtifactId, StringComparison.Ordinal))
+                .ToArray();
+            var awaitingReview = correlated.LastOrDefault(item => item.Phase == ContextualCaptureProgressPhase.AwaitingReview);
+            if (awaitingReview is null)
+            {
+                throw new ArgumentException("A result has an awaiting-review transition.", nameof(Result));
+            }
+
+            var evidence = correlated.LastOrDefault(item =>
+                item.Sequence < awaitingReview.Sequence && item.Phase != ContextualCaptureProgressPhase.AwaitingReview);
+            if (evidence is null ||
+                Result.CompletedUtc < evidence.ChangedUtc || Result.CompletedUtc > awaitingReview.ChangedUtc)
+            {
+                throw new ArgumentException("A result completes after correlated evidence and before its awaiting-review transition.", nameof(Result));
+            }
         }
     }
 
@@ -449,6 +485,12 @@ public sealed record ContextualCaptureIntent
         }
     }
 
-    private static bool StatusRequiresResult(ContextualCaptureStatus status) =>
-        status is ContextualCaptureStatus.AwaitingReview or ContextualCaptureStatus.Complete;
+    // Expiry, cancellation, and failure can arrive after a result was published; they keep that
+    // result as history instead of making server-time maintenance unable to expire the intent.
+    private static bool? ResultRule(ContextualCaptureStatus status) => status switch
+    {
+        ContextualCaptureStatus.AwaitingReview or ContextualCaptureStatus.Complete => true,
+        ContextualCaptureStatus.Armed or ContextualCaptureStatus.AwaitingUserCapture or ContextualCaptureStatus.InProgress => false,
+        _ => null,
+    };
 }

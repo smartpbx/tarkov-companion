@@ -10,6 +10,13 @@ The map view provides explicit location, visual-variant, and upstream floor sele
 
 Map metadata enters the application through `IMapDefinitionCache` and `MapDataService`. The normalized cache JSON reader accepts unknown fields so a source can add data without breaking an installed client, but it rejects missing map, floor, or extract identities. Each definition keeps its `DataProvenance`; map artwork is referenced rather than embedded and must retain its own attribution and distribution terms.
 
+Extracts pass through the reviewed repair layer described by ADR 0012 at both map read
+boundaries. The primary catalog always wins by map-scoped normalized name; only a measured
+omission is supplied locally, with its own provenance. The 2026-09-15 sweep found eleven such
+rows across seven maps. Nine have reviewed positions and can be drawn; Icebreaker's Helicopter
+and Terminal's Zubr Boat remain recognition-only because no reviewed world coordinate was
+available. The evidence and exact count live in `docs/research/EXTRACT_CATALOG_COVERAGE.md`.
+
 ## Coordinate transforms
 
 A transform is usable only when all values are finite, world and visual extents are positive, and floor ranges are finite, non-empty, and non-overlapping. World X/Z is mapped to the visual plane, with configured flips and rotation. World Y selects a floor using an inclusive lower and exclusive upper bound.
@@ -17,6 +24,20 @@ A transform is usable only when all values are finite, world and visual extents 
 For tarkov.dev interactive variants, the four published transform values are applied with tarkov.dev's Leaflet semantics: rotate world X/Z about the origin by `coordinateRotation`, then apply X/Y scale and offset, with the Leaflet Y-axis inversion. Tile planning uses the published bounds, tile size, and minimum/maximum zoom and refuses plans over the safe tile-count limit.
 
 If a map has no transform, or validation fails, the application returns a clear status and no marker. It never estimates, clamps, or borrows coordinates from another map. `fixtures/maps/training-ground.json` is a code-authored test map and is not distributable third-party artwork.
+
+## V2 shared scene
+
+V2 map renderers consume one platform-independent scene snapshot rather than translating the
+desktop canvas. The snapshot carries the selected map and floor, camera, layer state, stable
+object IDs, point/line/area/region geometry, transform version, typed fact semantics, and reviewed
+asset manifests. Its list alternative and hit testing use the same visibility state as the visual
+map. Flat 2D is the baseline; floor-stack and interior presentations are capabilities over the
+same scene, not separate sources of map truth.
+
+Historical estimates carry their observation window, data-through and generation times,
+coverage, calibration, transform version, model version, source, and confidence. Potential
+spawns remain potential. An interior asset is renderable only after its source, licence, hash,
+attribution, map/game version, and review time are present. See ADR 0015.
 
 ## Screenshot observations
 
@@ -27,3 +48,10 @@ Positions are always labeled last known. By default an observation becomes stale
 ## Extracts
 
 Recognized active extracts are joined to cached static extract metadata by canonical ID. An active extract remains visible when its static position is missing, with explicit guidance that no marker can be shown. OCR confidence and source remain attached to the active observation.
+
+A structurally labelled `EXFIL` screenshot row that cannot be matched to either the primary or
+reviewed catalog is retained as an offered extract with conservative confidence. It appears in
+the compact extract list as `Location unavailable` and is not plotted. Speculative rows are
+candidate-confidence, name-shape, 64-character, and sixteen-row bounded; trusted matches take
+priority. A `catalog-gap:` row cannot highlight a static marker by a partial name. Unlabelled OCR
+text and near-tied catalog matches remain unmatched or ambiguous rather than becoming map facts.

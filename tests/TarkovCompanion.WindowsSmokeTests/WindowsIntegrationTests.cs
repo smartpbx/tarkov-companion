@@ -254,7 +254,9 @@ public sealed class WindowsIntegrationTests
                 .GetAsyncEnumerator(timeout.Token);
             var next = enumerator.MoveNextAsync().AsTask();
             var expected = Path.Combine(root, "2026-09-04[18-33]_1, 2, 3_0, 0, 0, 1.png");
-            await File.WriteAllBytesAsync(expected, [1], timeout.Token);
+            var completePng = Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+            await File.WriteAllBytesAsync(expected, completePng, timeout.Token);
 
             Assert.True(await next.WaitAsync(timeout.Token));
             Assert.Equal(expected, enumerator.Current);

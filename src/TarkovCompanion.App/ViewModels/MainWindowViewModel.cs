@@ -8,6 +8,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -1754,9 +1755,11 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// across Discord. This is so the answer can be sent by the person who has the problem,
     /// in one action, without them having to find anything.
     ///
-    /// SAFETY.md governs what it may contain: no game logs, no group key, no screenshots, no
-    /// coordinates, and user folder names replaced. What it does carry is the shape of the
-    /// screenshot names, which is the thing that settles the case above.
+    /// SAFETY.md governs what it may contain. SupportBundle projects the snapshot into a closed
+    /// schema of categories, booleans, and capped counts; it never opens the log or renders a
+    /// screenshot name, coordinate, path, credential, identity, or free-form runtime detail.
+    /// The screenshot compatibility count is enough to settle the case above without exporting
+    /// the evidence that produced it. Relay-side arbitrary-body validation remains owned by #310.
     /// </remarks>
     public async Task CopyDiagnosticsAsync(Func<string, Task> toClipboard)
     {
@@ -1849,7 +1852,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         // and needs no redistributable, so telling somebody running on it to go and install
         // one sends them after a problem they do not have.
         RecognitionNeedsRuntime = ocrStatus.Availability.Provider.StartsWith("tesseract", StringComparison.OrdinalIgnoreCase);
-        IsOffline = options.Offline;
+        IsOffline = options.IsOffline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
             ? "Requested"
@@ -2419,6 +2422,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private string? _followedMapId;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
+    private V2ShellViewModel? _previewShell;
     private IReadOnlyList<StatusChip> _status = [];
     private string _modeLabel = string.Empty;
     private string _lastScanName = "No item scanned";
@@ -2710,6 +2714,50 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     {
         get => _modeLabel;
         private set => SetProperty(ref _modeLabel, value);
+    }
+
+    /// <summary>The optional process-start preview shell; V1 remains the default when this is null.</summary>
+    public V2ShellViewModel? PreviewShell
+    {
+        get => _previewShell;
+        set
+        {
+            if (ReferenceEquals(_previewShell, value))
+            {
+                return;
+            }
+
+            if (_previewShell is not null)
+            {
+                _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+            }
+
+            if (SetProperty(ref _previewShell, value))
+            {
+                if (_previewShell is not null)
+                {
+                    _previewShell.PropertyChanged += PreviewShellPropertyChanged;
+                }
+
+                OnPropertyChanged(nameof(IsLegacyShell));
+                OnPropertyChanged(nameof(IsPreviewShell));
+                OnPropertyChanged(nameof(WindowTitle));
+            }
+        }
+    }
+
+    public bool IsLegacyShell => PreviewShell is null;
+
+    public bool IsPreviewShell => PreviewShell is not null;
+
+    public string WindowTitle => PreviewShell?.Title ?? "Tarkov Companion";
+
+    private void PreviewShellPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is null or nameof(V2ShellViewModel.Title))
+        {
+            OnPropertyChanged(nameof(WindowTitle));
+        }
     }
 
     public string LastScanName
@@ -3038,6 +3086,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _disposed = true;
         _clock?.Stop();
         _clock = null;
+        if (_previewShell is not null)
+        {
+            _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+        }
         _stateStore.Changed -= RuntimeStateChanged;
         // Stops the update watcher, which otherwise outlives the window it reports to and
         // keeps making network calls for a process on its way out.

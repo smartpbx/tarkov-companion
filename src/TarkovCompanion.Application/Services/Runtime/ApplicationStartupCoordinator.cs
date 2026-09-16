@@ -4,6 +4,7 @@ using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
@@ -30,9 +31,16 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ApplicationStartupCoordinator> _logger;
-    private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private Task? _backgroundRefresh;
+    private readonly object _backgroundGate = new();
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly BackgroundWorkSupervisor _supervisor;
+    private readonly FeatureLifecycleCoordinator _lifecycle;
+    private Task<BackgroundWorkResult>? _backgroundRefresh;
+    private Task? _offlineModeMonitor;
+    private bool _backgroundRefreshNeedsOnlineFollowup;
+    private Task? _disposeTask;
+    private bool _disposeStarted;
 
     public ApplicationStartupCoordinator(
         IRuntimeDataStore dataStore,
@@ -81,12 +89,43 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _logger = logger;
         _ocrStatus = ocrStatus;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _supervisor = new(
+            _timeProvider,
+            new(
+                capacity: 16,
+                reservedInteractiveAdmission: 2,
+                maxConcurrent: 4,
+                lightLimit: 4,
+                ioLimit: 2,
+                cpuLimit: 1,
+                maxPriorityBurst: 6,
+                terminalHistoryLimit: 64,
+                defaultStopTimeout: options.RefreshTimeout));
+        _lifecycle = new(
+            BuildFeatureGraph(),
+            _timeProvider,
+            new(
+                maxParallelStarts: 3,
+                startTimeout: options.RefreshTimeout,
+                stopTimeout: TimeSpan.FromSeconds(10)));
+        _supervisor.Changed += PublishSupervisorState;
+        _lifecycle.Changed += PublishLifecycleState;
+        _raidActivityCoordinator.OutboxChanged += PublishOutboxState;
     }
 
     private readonly IOcrEngineStatus? _ocrStatus;
     private readonly GroupSessionService? _groupSession;
 
-    public Task? BackgroundRefresh => _backgroundRefresh;
+    public Task? BackgroundRefresh
+    {
+        get
+        {
+            lock (_backgroundGate)
+            {
+                return _backgroundRefresh;
+            }
+        }
+    }
 
     /// <summary>
     /// Says whether scanning can run at all, before anyone has tried it.
@@ -114,10 +153,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
         var availability = _ocrStatus.Availability;
         _logger.LogInformation(
-            "The {Provider} recogniser is {State}. {Reason}",
+            "The {Provider} recogniser is {State}.",
             availability.Provider,
-            availability.IsAvailable ? "available" : "unavailable",
-            availability.Reason ?? "No reason was reported.");
+            availability.IsAvailable ? "available" : "unavailable");
         return availability.IsAvailable
             ? ScanExecutionResult.Ready(
                 "Ready. Take a screenshot with the game's own key and it will be read.",
@@ -131,96 +169,140 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        if (_options.DemoMode)
-        {
-            await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        await _lifecycle.StartAsync(cancellationToken).ConfigureAwait(false);
         _stateStore.Update(current => current with
         {
-            DatabaseReady = true,
-            Data = Describe(cached),
-            Profile = profile,
-            Scan = DescribeScanner(),
+            // Read while applying the store update. A timed-out start can settle between the
+            // StartAsync await and this publication; writing its captured return value here
+            // regressed the runtime state over that newer lifecycle notification.
+            Lifecycle = _lifecycle.Snapshot,
+            Outbox = _raidActivityCoordinator.OutboxSnapshot,
         });
-
-        if (_options.DemoMode)
-        {
-            var now = _timeProvider.GetUtcNow();
-            await _raidActivityCoordinator.ApplyEvidenceAsync(
-                new(
-                    RaidEvidenceKind.Simulator,
-                    now,
-                    "customs",
-                    RaidLifecycleState.InRaid,
-                    new Confidence(0.95),
-                    "Deterministic demo fixture selected Customs."),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        await WarmCatalogsAsync(cancellationToken).ConfigureAwait(false);
-
-        // Before observation starts, so it can never race the raid the watcher is about to
-        // recover. It closes only rows no raid could still be; anything recent enough to be
-        // resumed is left for the resume to decide about.
-        await _raidActivityCoordinator.CloseAbandonedAsync(cancellationToken).ConfigureAwait(false);
-
-        // Watching the game's own log and screenshot folders is what lets the map follow the
-        // player. It starts here rather than on demand because the game is usually launched
-        // after the companion, and discovery keeps retrying until it appears.
-        _observationService.Start();
-        // Started unconditionally, and does nothing at all until the player has turned sharing
-        // on. Starting it only when enabled would mean a restart to begin sharing, and the
-        // service's own first act is to check whether it should send anything.
-        _groupSession?.Start();
+        EnsureOfflineModeMonitor();
     }
 
     public void BeginBackgroundRefresh()
     {
-        if (_options.DemoMode || _options.Offline || !NeedsRefresh(_stateStore.Current.Data))
+        EnsureOfflineModeMonitor();
+        if (_options.DemoMode || _options.IsOffline || !NeedsRefresh(_stateStore.Current.Data))
         {
             return;
         }
 
-        _backgroundRefresh ??= Task.Run(
-            () => RefreshAsync(force: true, _stopping.Token),
-            CancellationToken.None);
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted)
+            {
+                return;
+            }
+
+            if (_backgroundRefresh is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _backgroundRefresh = StartRefreshUnsafe(force: true, WorkPriority.Background);
+        }
     }
 
+    /// <summary>Starts or joins the one supervised refresh and bounds only this caller's wait.</summary>
+    /// <remarks>
+    /// The wait is deliberately outside the refresh operation. A caller may stop waiting at its
+    /// deadline, but the supervisor's completion remains incomplete, keeps its IO admission, and
+    /// keeps the refresh semaphore alive until the dependency task itself returns. Passing a caller
+    /// token into the shared operation instead would let one cancelled button press stop work that
+    /// startup or another caller is already waiting for.
+    /// </remarks>
     public async Task RefreshAsync(bool force, CancellationToken cancellationToken)
     {
-        if (_options.Offline)
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureOfflineModeMonitor();
+        Task<BackgroundWorkResult> refresh;
+        lock (_backgroundGate)
         {
-            _stateStore.Update(current => current with
-            {
-                Data = current.Data with
-                {
-                    Availability = current.Data.ItemCount > 0 ? DataAvailability.Cached : DataAvailability.Unavailable,
-                    Detail = current.Data.ItemCount > 0
-                        ? "Offline mode is enabled; using the local cache."
-                        : "Offline, and no local game data",
-                },
-            });
-            return;
+            ObjectDisposedException.ThrowIf(_disposeStarted, this);
+            refresh = _backgroundRefresh is { IsCompleted: false } active
+                ? active
+                : _backgroundRefresh = StartRefreshUnsafe(force, WorkPriority.UserBlocking);
         }
 
-        await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await refresh
+                .WaitAsync(_options.RefreshTimeout, _timeProvider, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The operation remains owned and its Running supervisor snapshot is the truthful
+            // result until the dependency returns. RefreshWithFaultAsync publishes the eventual
+            // timeout/cancellation state after that real completion.
+            _logger.LogWarning(
+                "The caller stopped waiting for the game-data refresh after {RefreshTimeout}; the supervised operation is still observed.",
+                _options.RefreshTimeout);
+        }
+    }
+
+    private Task<BackgroundWorkResult> StartRefreshUnsafe(bool force, WorkPriority priority)
+    {
+        // Remember the mode at admission, rather than at completion. If an offline refresh is
+        // already draining cached responses when connectivity returns, the transition monitor
+        // must follow it with one admitted online refresh that normalizes the newly fetched data.
+        _backgroundRefreshNeedsOnlineFollowup = _options.IsOffline;
+        var operationId = OperationId.New();
+        var execution = new OperationExecutionRequest(
+            new("data-refresh"),
+            operationId,
+            CorrelationId.New(),
+            new("json-tarkov-dev"),
+            OperationPolicy.Once(
+                _options.RefreshTimeout,
+                WorkloadClass.IO,
+                OperationRestartMode.Manual,
+                IdempotencyRequirement.Guaranteed));
+        var admission = _supervisor.Submit(
+            new(execution, new("catalog-refresh"), priority),
+            async (_, token) => await RefreshSupervisedAsync(force, token).ConfigureAwait(false));
+        return admission.Handle.Completion;
+    }
+
+    private async Task RefreshSupervisedAsync(bool force, CancellationToken cancellationToken)
+    {
+        if (await RefreshWithFaultAsync(force, cancellationToken).ConfigureAwait(false) is { } fault)
+        {
+            throw new RuntimeFaultException(fault);
+        }
+    }
+
+    private async Task<RuntimeFault?> RefreshWithFaultAsync(bool force, CancellationToken cancellationToken)
+    {
+        if (_options.IsOffline)
+        {
+            PublishOfflineState();
+            return null;
+        }
+
+        using var deadline = new CancellationTokenSource(_options.RefreshTimeout, _timeProvider);
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            deadline.Token);
+        await _refreshLock.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
+        CachedDataSnapshot? cached = null;
         try
         {
             _stateStore.Update(current => current with
             {
+                IsOffline = _options.IsOffline,
                 Data = current.Data with { Availability = DataAvailability.Refreshing, Detail = "Refreshing stale game data in the background." },
             });
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(_options.RefreshTimeout);
             var report = await _dataSyncService.SyncAsync(
-                new(_options.GameMode, _options.Language, force),
-                timeout.Token).ConfigureAwait(false);
-            var cached = await _dataStore.LoadSnapshotAsync(timeout.Token).ConfigureAwait(false);
+                    new(_options.GameMode, _options.Language, force),
+                    operationCancellation.Token)
+                .ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
+            cached = await _dataStore.LoadSnapshotAsync(operationCancellation.Token).ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
 
             // Fresh rows landed, so anything projected from the old ones is now stale.
             _requirementCatalog.Invalidate();
@@ -233,7 +315,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 projection.Invalidate();
             }
 
-            await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
+            await WarmCatalogsAsync(operationCancellation.Token).ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             // The sync has always known when an endpoint answered from a stale cache instead
@@ -242,6 +325,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             var stale = report.Endpoints.Count(endpoint => endpoint.UsedStaleCache);
             _stateStore.Update(current => current with
             {
+                IsOffline = _options.IsOffline,
                 Data = Describe(cached) with
                 {
                     Detail = cached.ItemCount == 0
@@ -261,20 +345,41 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                             : DataAvailability.Current,
                 },
             });
+            return null;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            await SetRefreshErrorAsync(
+            SetRefreshError(
                 "The background refresh exceeded its bounded timeout.",
-                cancellationToken).ConfigureAwait(false);
+                cached?.ItemCount);
             _logger.LogWarning("The game-data refresh exceeded {RefreshTimeout}.", _options.RefreshTimeout);
+            return new(
+                RuntimeFailureKind.Timeout,
+                new("data-refresh-timeout"),
+                RuntimeRecoveryAction.RetryManually,
+                new("feature:data-refresh"),
+                _timeProvider.GetUtcNow());
+        }
+        catch (OperationCanceledException) when (operationCancellation.IsCancellationRequested)
+        {
+            SetRefreshError(
+                deadline.IsCancellationRequested
+                    ? "The background refresh exceeded its bounded timeout."
+                    : "The refresh was stopped; any existing local cache remains available.",
+                cached?.ItemCount);
+            throw;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await SetRefreshErrorAsync(
+            await SetRefreshErrorFromStoreAsync(
                 "The refresh failed; any existing local cache remains available.",
                 cancellationToken).ConfigureAwait(false);
-            _logger.LogError(exception, "The game-data refresh failed.");
+            _logger.LogError("The game-data refresh failed; a sanitized runtime state was published.");
+            return RuntimeFault.FromException(
+                exception,
+                _timeProvider,
+                new("feature:data-refresh"));
         }
         finally
         {
@@ -282,23 +387,240 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync()
+    /// <summary>Stops features and supervised work, then releases what nothing still owns.</summary>
+    /// <remarks>
+    /// This used to unsubscribe from lifecycle and supervisor state before stopping them, so the
+    /// shutdown itself was never published, and it disposed the refresh lock unconditionally —
+    /// under a refresh that had ignored cancellation and would release that lock when it
+    /// finally returned. A stop that runs out of time now leaves the lock alive for that late
+    /// release, and the published state says which work is still unfinished.
+    /// </remarks>
+    public ValueTask DisposeAsync()
     {
-        await _stopping.CancelAsync().ConfigureAwait(false);
-        await _observationService.DisposeAsync().ConfigureAwait(false);
-        if (_backgroundRefresh is not null)
+        lock (_backgroundGate)
         {
-            try
+            _disposeStarted = true;
+            // DisposeCoreAsync yields before touching any dependency, so no lifecycle callback
+            // can run while this admission gate is held. Keeping the one task also makes repeated
+            // and concurrent disposal await the same bounded shutdown.
+            _disposeTask ??= DisposeCoreAsync();
+            return new(_disposeTask);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+        _lifetime.Cancel();
+        Task? offlineModeMonitor;
+        lock (_backgroundGate)
+        {
+            offlineModeMonitor = _offlineModeMonitor;
+        }
+
+        // Both owners receive the same shutdown window. Waiting for one full bound before even
+        // asking the other to stop turned two truthful ten-second waits into a twenty-second
+        // application shutdown.
+        var lifecycleStopping = _lifecycle.StopAsync();
+        var supervisorStopping = _supervisor.StopAsync(TimeSpan.FromSeconds(10));
+        await Task.WhenAll(lifecycleStopping, supervisorStopping).ConfigureAwait(false);
+        var lifecycle = await lifecycleStopping.ConfigureAwait(false);
+        var supervisor = await supervisorStopping.ConfigureAwait(false);
+        if (offlineModeMonitor is not null)
+        {
+            await offlineModeMonitor.ConfigureAwait(false);
+        }
+        _stateStore.Update(current => current with
+        {
+            Lifecycle = _lifecycle.Snapshot,
+            Supervisor = _supervisor.Snapshot,
+            Outbox = _raidActivityCoordinator.OutboxSnapshot,
+        });
+        _supervisor.Changed -= PublishSupervisorState;
+        _lifecycle.Changed -= PublishLifecycleState;
+        _raidActivityCoordinator.OutboxChanged -= PublishOutboxState;
+        if (supervisor.CompletedWithinDeadline)
+        {
+            await _supervisor.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // A timed-out supervisor still needs its cancelled synchronization objects when the
+        // dependency eventually returns and releases its slot. Calling DisposeAsync here used to
+        // wait a second RefreshTimeout after the already-bounded ten-second stop; leaving those
+        // objects alive is both the truthful ownership model and the single shutdown bound.
+        if (supervisor.CompletedWithinDeadline && lifecycle.IsQuiescent && _refreshLock.Wait(0))
+        {
+            // Held while disposing, so a caller arriving now fails as disposed rather than
+            // entering a lock that is about to disappear under it.
+            _refreshLock.Dispose();
+        }
+
+        _lifetime.Dispose();
+    }
+
+    /// <summary>Starts the process-lifetime observer that turns a reconnect into a full sync.</summary>
+    /// <remarks>
+    /// The JSON client can notice the same switch and refresh its raw cache, but it cannot own
+    /// normalized tables, projection invalidation or runtime-state publication. This observer
+    /// therefore admits one forced coordinator refresh on every offline-to-online edge. It does
+    /// no I/O while the fixed offline setting remains enabled and never delays startup.
+    /// </remarks>
+    private void EnsureOfflineModeMonitor()
+    {
+        if (_options.DemoMode || _options.OfflineProbe is null)
+        {
+            return;
+        }
+
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted || _offlineModeMonitor is { IsCompleted: false })
             {
-                await _backgroundRefresh.ConfigureAwait(false);
+                return;
             }
-            catch (OperationCanceledException)
+
+            _offlineModeMonitor = MonitorOfflineModeAsync(_lifetime.Token);
+        }
+    }
+
+    private async Task MonitorOfflineModeAsync(CancellationToken cancellationToken)
+    {
+        var observedOffline = _stateStore.Current.IsOffline;
+        try
+        {
+            while (true)
             {
+                var offline = _options.IsOffline;
+                if (offline != observedOffline)
+                {
+                    observedOffline = offline;
+                    if (offline)
+                    {
+                        lock (_backgroundGate)
+                        {
+                            // A refresh admitted online can cross this edge between endpoints.
+                            // Its mixed cached result is useful, but it is not the online refresh
+                            // promised by the next reconnect.
+                            if (_backgroundRefresh is { IsCompleted: false })
+                            {
+                                _backgroundRefreshNeedsOnlineFollowup = true;
+                            }
+                        }
+
+                        PublishOfflineState();
+                    }
+                    else
+                    {
+                        _stateStore.Update(current => current with
+                        {
+                            IsOffline = false,
+                            Data = current.Data with
+                            {
+                                Detail = "Connection restored; refreshing local game data.",
+                            },
+                        });
+                        await RefreshAfterReconnectAsync(cancellationToken).ConfigureAwait(false);
+                        observedOffline = _options.IsOffline;
+                    }
+                }
+
+                var pollInterval = ValidOfflinePollInterval();
+                await Task.Delay(
+                        pollInterval,
+                        _timeProvider,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal coordinator shutdown. The shared refresh, if any, remains owned by the
+            // supervisor and is stopped through its existing bounded shutdown path.
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "The offline-mode transition monitor stopped unexpectedly.");
+        }
+    }
+
+    private async Task RefreshAfterReconnectAsync(CancellationToken cancellationToken)
+    {
+        Task<BackgroundWorkResult>? refreshStartedOffline = null;
+        Task<BackgroundWorkResult>? onlineRefresh = null;
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted)
+            {
+                return;
+            }
+
+            if (_backgroundRefresh is { IsCompleted: false } active)
+            {
+                if (_backgroundRefreshNeedsOnlineFollowup)
+                {
+                    refreshStartedOffline = active;
+                }
+                else
+                {
+                    onlineRefresh = active;
+                }
+            }
+            else
+            {
+                onlineRefresh = _backgroundRefresh = StartRefreshUnsafe(
+                    force: true,
+                    WorkPriority.Background);
             }
         }
 
-        _refreshLock.Dispose();
-        _stopping.Dispose();
+        if (refreshStartedOffline is not null)
+        {
+            await refreshStartedOffline.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (_options.IsOffline)
+            {
+                return;
+            }
+
+            lock (_backgroundGate)
+            {
+                if (_disposeStarted)
+                {
+                    return;
+                }
+
+                onlineRefresh = _backgroundRefresh is { IsCompleted: false } active
+                    && !_backgroundRefreshNeedsOnlineFollowup
+                    ? active
+                    : _backgroundRefresh = StartRefreshUnsafe(force: true, WorkPriority.Background);
+            }
+        }
+
+        if (onlineRefresh is not null)
+        {
+            await onlineRefresh.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private TimeSpan ValidOfflinePollInterval() =>
+        _options.OfflineTransitionPollInterval > TimeSpan.Zero
+            ? _options.OfflineTransitionPollInterval
+            : TimeSpan.FromSeconds(1);
+
+    private void PublishOfflineState()
+    {
+        _stateStore.Update(current => current with
+        {
+            IsOffline = true,
+            Data = current.Data with
+            {
+                Availability = current.Data.ItemCount > 0
+                    ? DataAvailability.Cached
+                    : DataAvailability.Unavailable,
+                Detail = current.Data.ItemCount > 0
+                    ? "Offline mode is enabled; using the local game-data cache."
+                    : "Offline, and no local game data",
+            },
+        });
     }
 
     private RuntimeDataState Describe(CachedDataSnapshot cached)
@@ -320,10 +642,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 0,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                cached.LastError ?? "No local game data");
+                cached.LastError is null
+                    ? "No local game data"
+                    : "The last local game-data operation failed.");
         }
 
-        if (_options.Offline)
+        if (_options.IsOffline)
         {
             return new(
                 DataAvailability.Cached,
@@ -352,21 +676,18 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// </remarks>
     private async Task WarmCatalogsAsync(CancellationToken cancellationToken)
     {
-        try
-        {
-            var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
-            var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
-            _needAggregation.Update(quest, hideout);
+        var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        _needAggregation.Update(quest, hideout);
 
-            // The game names the map in its log with an internal token; upstream publishes
-            // that token beside the map id, so the parser learns the pairing instead of
-            // carrying a hand-written table of guesses.
-            _logParser.UpdateAliases(await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false));
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _logger.LogWarning(exception, "The requirement catalog could not be preloaded.");
-        }
+        // The game names the map in its log with an internal token; upstream publishes
+        // that token beside the map id, so the parser learns the pairing instead of
+        // carrying a hand-written table of guesses.
+        var aliases = await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        _logParser.UpdateAliases(aliases);
     }
 
     private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
@@ -376,8 +697,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             return "The refresh reported success but no game items were stored.";
         }
 
-        var named = errors.Select(endpoint => $"{endpoint.Endpoint} ({endpoint.Error})");
-        return $"No game items are available; {errors.Count} endpoint refresh(es) failed: {string.Join("; ", named)}";
+        return $"No game items are available; {errors.Count} endpoint refresh(es) failed.";
     }
 
     private bool NeedsRefresh(RuntimeDataState data) =>
@@ -391,7 +711,24 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// have stored items. Reading the item count from the pre-refresh state reported zero and
     /// left item search disabled until the next restart even though the data was on disk.
     /// </remarks>
-    private async Task SetRefreshErrorAsync(string detail, CancellationToken cancellationToken)
+    private void SetRefreshError(string detail, int? observedItemCount = null)
+    {
+        _stateStore.Update(current =>
+        {
+            var itemCount = observedItemCount ?? current.Data.ItemCount;
+            return current with
+            {
+                Data = current.Data with
+                {
+                    Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
+                    ItemCount = itemCount,
+                    Detail = detail,
+                },
+            };
+        });
+    }
+
+    private async Task SetRefreshErrorFromStoreAsync(string detail, CancellationToken cancellationToken)
     {
         var itemCount = _stateStore.Current.Data.ItemCount;
         try
@@ -401,17 +738,152 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(exception, "The post-failure data snapshot could not be read.");
+            _logger.LogWarning("The post-failure data snapshot could not be read.");
         }
 
+        SetRefreshError(detail, itemCount);
+    }
+
+    private IReadOnlyList<RuntimeFeatureDefinition> BuildFeatureGraph()
+    {
+        var database = new RuntimeFeatureId("database");
+        var cachedData = new RuntimeFeatureId("cached-data");
+        var profile = new RuntimeFeatureId("profile");
+        var raidHistoryRepair = new RuntimeFeatureId("raid-history-repair");
+        return
+        [
+            new(
+                database,
+                FeatureStartupPriority.WorkspaceCritical,
+                [],
+                InitializeDataStoreAsync),
+            new(
+                cachedData,
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(database, FeatureDependencyKind.Hard)],
+                LoadCachedDataAsync),
+            new(
+                profile,
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(database, FeatureDependencyKind.Hard)],
+                LoadProfileAsync),
+            new(
+                new("scanner"),
+                FeatureStartupPriority.WorkspaceCritical,
+                [],
+                InitializeScannerAsync),
+            new(
+                raidHistoryRepair,
+                FeatureStartupPriority.WorkspaceCritical,
+                // Repair reads and writes raid-history tables. It cannot race schema creation:
+                // a missing table is a repair failure, not evidence that there was nothing to do.
+                [new(database, FeatureDependencyKind.Hard)],
+                _raidActivityCoordinator.CloseAbandonedAsync),
+            new(
+                new("observation"),
+                FeatureStartupPriority.WorkspaceCritical,
+                // Observation can proceed without a successful repair, but both services touch
+                // schema-bound history. Database initialization is therefore a hard gate while
+                // repair remains optional and only degrades the watcher if it fails.
+                [
+                    new(database, FeatureDependencyKind.Hard),
+                    new(raidHistoryRepair, FeatureDependencyKind.Optional),
+                ],
+                StartObservationAsync,
+                _ => _observationService.DisposeAsync().AsTask()),
+            new(
+                new("demo-raid"),
+                FeatureStartupPriority.Normal,
+                [new(cachedData, FeatureDependencyKind.Hard)],
+                InitializeDemoRaidAsync),
+            new(
+                new("catalog-warmup"),
+                FeatureStartupPriority.Normal,
+                [new(cachedData, FeatureDependencyKind.Optional)],
+                WarmCatalogsAsync),
+            new(
+                new("group-session"),
+                FeatureStartupPriority.Normal,
+                [],
+                StartGroupSessionAsync),
+        ];
+    }
+
+    private async Task InitializeDataStoreAsync(CancellationToken cancellationToken)
+    {
+        await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_options.DemoMode)
+        {
+            await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Loading one projection may still fail independently. The database itself became
+        // ready when initialization (and the optional fixture seed) completed, so preserve
+        // that measured fact instead of letting an unrelated reader report it unavailable.
+        _stateStore.Update(current => current with { DatabaseReady = true });
+    }
+
+    private async Task LoadCachedDataAsync(CancellationToken cancellationToken)
+    {
+        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         _stateStore.Update(current => current with
         {
-            Data = current.Data with
-            {
-                Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
-                ItemCount = itemCount,
-                Detail = detail,
-            },
+            Data = Describe(cached),
         });
     }
+
+    private async Task LoadProfileAsync(CancellationToken cancellationToken)
+    {
+        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        _stateStore.Update(current => current with { Profile = profile });
+    }
+
+    private Task InitializeScannerAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _stateStore.Update(current => current with { Scan = DescribeScanner() });
+        return Task.CompletedTask;
+    }
+
+    private async Task InitializeDemoRaidAsync(CancellationToken cancellationToken)
+    {
+        if (!_options.DemoMode)
+        {
+            return;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        await _raidActivityCoordinator.ApplyEvidenceAsync(
+            new(
+                RaidEvidenceKind.Simulator,
+                now,
+                "customs",
+                RaidLifecycleState.InRaid,
+                new Confidence(0.95),
+                "Deterministic demo fixture selected Customs."),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task StartObservationAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _observationService.Start();
+        return Task.CompletedTask;
+    }
+
+    private Task StartGroupSessionAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _groupSession?.Start();
+        return Task.CompletedTask;
+    }
+
+    private void PublishSupervisorState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Supervisor = _supervisor.Snapshot });
+
+    private void PublishLifecycleState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Lifecycle = _lifecycle.Snapshot });
+
+    private void PublishOutboxState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Outbox = _raidActivityCoordinator.OutboxSnapshot });
 }

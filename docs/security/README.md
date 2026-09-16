@@ -15,12 +15,24 @@ did not.
 | What could go wrong at each boundary? | [ABUSE_CASES.md](ABUSE_CASES.md) |
 | What stops each abuse case, and what is left over if it fails? | [CONTROLS_AND_RESIDUAL_RISK.md](CONTROLS_AND_RESIDUAL_RISK.md) |
 | Does the architecture actually keep the anti-cheat promises in `docs/SAFETY.md`? | [ANTI_CHEAT_REVIEW.md](ANTI_CHEAT_REVIEW.md) |
+| What did the wave-2 serialization and external-data review find? | [audits/SERIALIZATION_AND_EXTERNAL_DATA.md](audits/SERIALIZATION_AND_EXTERNAL_DATA.md) |
+| What did the wave-2 cryptography, secrets, transport, and update review find? | [audits/CRYPTO_SECRETS_AND_UPDATES.md](audits/CRYPTO_SECRETS_AND_UPDATES.md) |
+| What did the wave-2 diagnostics, error, and privacy review find? | [audits/DIAGNOSTICS_ERRORS_AND_PRIVACY.md](audits/DIAGNOSTICS_ERRORS_AND_PRIVACY.md) |
+| What did the wave-2 persistence and local-state review find? | [audits/PERSISTENCE_AND_LOCAL_STATE.md](audits/PERSISTENCE_AND_LOCAL_STATE.md) |
+| What did the wave-2 Windows platform-boundary review find? | [audits/WINDOWS_PLATFORM_BOUNDARIES.md](audits/WINDOWS_PLATFORM_BOUNDARIES.md) |
+| What did the wave-2 relay authorization and state-machine review find? | [audits/RELAY_AUTHORIZATION_AND_STATE.md](audits/RELAY_AUTHORIZATION_AND_STATE.md) |
 | What is future or being rebuilt, and what threat modeling does it still owe? | [TBD_COMPONENTS.md](TBD_COMPONENTS.md) |
 | Exactly what shipped in this pass, and what remains before #317 can close? | [PHASE_STATUS.md](PHASE_STATUS.md) |
 
 Illustrative fixtures for the abuse cases live in `tests/security/` (owned alongside this
 directory) — see `tests/security/README.md` for what they are and, as importantly, what they are
 not.
+
+The six files under `audits/` are source-review evidence lanes, not parallel risk registers and
+not proof of mitigation. Their lane IDs are reconciled into the stable abuse-case and risk IDs in
+`ABUSE_CASES.md` and `CONTROLS_AND_RESIDUAL_RISK.md`; `PHASE_STATUS.md` contains the complete
+crosswalk and reproducible counts. Issue #317 remains open until implementation, exact-head CI,
+and any required manual `dev` verification satisfy its release criteria.
 
 ## Product presentation contract
 

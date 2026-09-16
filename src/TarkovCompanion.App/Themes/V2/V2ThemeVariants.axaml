@@ -1,0 +1,139 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v2="using:TarkovCompanion.App.Themes.V2">
+  <!-- Every colour the V2 adapter uses, per theme variant. Brushes are declared inside each theme
+       dictionary rather than as one brush bound to a colour resource: a brush holding a
+       DynamicResource follows the theme of the element that owns its dictionary, not of the
+       control painting with it, so a ThemeVariantScope could never have changed it.
+
+       V2ThemeResourceTests loads this dictionary through the compiled XAML loader and
+       measures every text, status, boundary, chart, and map pair, including the simulated
+       colour-vision distances for the variants below. Change a value and that test says whether
+       the palette still holds; it does not replace the human review #279 owns. -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#101820" />
+      <SolidColorBrush x:Key="V2.Brush.Surface" Color="#182530" />
+      <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#223441" />
+      <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#F4F8FA" />
+      <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#C8D5DC" />
+      <SolidColorBrush x:Key="V2.Brush.Border" Color="#8297A4" />
+      <SolidColorBrush x:Key="V2.Brush.Action" Color="#63D4DD" />
+      <SolidColorBrush x:Key="V2.Brush.Focus" Color="#8EEBFF" />
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#71D19A" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#FFD166" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#FF9B8E" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#86BFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#C0B5F7" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series1" Color="#5FC8F0" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series2" Color="#E8B04A" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series3" Color="#B39DF2" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series4" Color="#9ED36A" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Historical" Color="#E0B560" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Modelled" Color="#B8A4F5" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Manual" Color="#63D4DD" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Unavailable" Color="#8297A4" />
+      <BoxShadows x:Key="V2.Elevation.Flat.Shadow">0 0 0 0 #00000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Raised.Shadow">0 1 3 0 #66000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Dialog.Shadow">0 8 24 0 #99000000</BoxShadows>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#F6F8F9" />
+      <SolidColorBrush x:Key="V2.Brush.Surface" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#EAF0F3" />
+      <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#15232C" />
+      <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#40545F" />
+      <SolidColorBrush x:Key="V2.Brush.Border" Color="#607783" />
+      <SolidColorBrush x:Key="V2.Brush.Action" Color="#006D7A" />
+      <SolidColorBrush x:Key="V2.Brush.Focus" Color="#005FCC" />
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#167348" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#805B00" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#B3261E" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#155E9F" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#5B4A9C" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series1" Color="#0B6E99" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series2" Color="#8A5A00" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series3" Color="#6A4FB3" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series4" Color="#3F7A1E" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Historical" Color="#805B00" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Modelled" Color="#5B4A9C" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Manual" Color="#006D7A" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Unavailable" Color="#607783" />
+      <BoxShadows x:Key="V2.Elevation.Flat.Shadow">0 0 0 0 #00000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Raised.Shadow">0 1 3 0 #29000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Dialog.Shadow">0 8 24 0 #40000000</BoxShadows>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.HighContrast}">
+      <SolidColorBrush x:Key="V2.Brush.Canvas" Color="#000000" />
+      <SolidColorBrush x:Key="V2.Brush.Surface" Color="#000000" />
+      <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="#000000" />
+      <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Border" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Action" Color="#00FFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Focus" Color="#FFFF00" />
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#0099FF" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#FFE500" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#FF6675" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series1" Color="#00FFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series2" Color="#FFFF00" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series3" Color="#FF00FF" />
+      <SolidColorBrush x:Key="V2.Brush.Chart.Series4" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Historical" Color="#FFFF00" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Modelled" Color="#FF00FF" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Manual" Color="#00FFFF" />
+      <SolidColorBrush x:Key="V2.Brush.Map.Unavailable" Color="#FFFFFF" />
+      <BoxShadows x:Key="V2.Elevation.Flat.Shadow">0 0 0 0 #00000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Raised.Shadow">0 0 0 0 #00000000</BoxShadows>
+      <BoxShadows x:Key="V2.Elevation.Dialog.Shadow">0 0 0 0 #00000000</BoxShadows>
+    </ResourceDictionary>
+    <!-- Colour-vision variants replace only the status roles and inherit everything else. The
+         decision triad (success, warning, danger) is separated for the named deficiency; info and
+         unknown become a neutral ink so they cannot be mistaken for a triad colour. Words, glyphs,
+         and outline patterns still carry every state. -->
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.DarkRedGreenSafe}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#80B0FF" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#F0E060" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#FF9E9E" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#C8D5DC" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#C8D5DC" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.LightRedGreenSafe}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#1D55B5" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#8C5A00" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#5A1A33" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#40545F" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#40545F" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.DarkBlueYellowSafe}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#4FD8C4" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#F5E6A0" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#FF7E6B" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#C8D5DC" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#C8D5DC" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.LightBlueYellowSafe}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#1F67B5" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#5A3812" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#C0182A" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#40545F" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#40545F" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.DarkMonochrome}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#F4F8FA" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#F4F8FA" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#F4F8FA" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#F4F8FA" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#F4F8FA" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="{x:Static v2:V2Appearance.LightMonochrome}">
+      <SolidColorBrush x:Key="V2.Brush.Success" Color="#15232C" />
+      <SolidColorBrush x:Key="V2.Brush.Warning" Color="#15232C" />
+      <SolidColorBrush x:Key="V2.Brush.Danger" Color="#15232C" />
+      <SolidColorBrush x:Key="V2.Brush.Info" Color="#15232C" />
+      <SolidColorBrush x:Key="V2.Brush.Unknown" Color="#15232C" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

@@ -25,17 +25,10 @@ builder.Services.AddSingleton(provider => new GroupMarks(
 builder.Services.AddSingleton(provider => new GroupRoomRegistry(
     provider.GetRequiredService<TimeProvider>(),
     StorePath("rooms.json")));
-// Which build is on the box against which build is published, and the file that asks for the
-// difference. Its own client: GitHub being slow must not hold up the panel, let alone the group
-// exchange this server mainly exists for.
-builder.Services.AddHttpClient(RelayUpdate.HttpClientName, client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(15);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
-});
-builder.Services.AddSingleton(provider => new RelayUpdate(
-    StateDirectory(),
-    provider.GetRequiredService<IHttpClientFactory>().CreateClient(RelayUpdate.HttpClientName)));
+// Which build is on the box against which build the signed release ring selects, and the file
+// that asks for the difference. Read from the updater's own stamps: only the updater holds the
+// feed credential and the trust root, so the panel makes no release request of its own.
+builder.Services.AddSingleton(_ => new RelayUpdate(StateDirectory(), UpdateStatusDirectory()));
 
 // Where the squad's marks are kept, or null to hold them in memory as before.
 //
@@ -57,6 +50,22 @@ static string? StateDirectory()
     return Environment.GetEnvironmentVariable("STATE_DIRECTORY") is { Length: > 0 } stateDirectory
         ? stateDirectory.Split(':')[0]
         : null;
+}
+
+/// <summary>Where the root updater publishes what the panel shows, or null where nothing does.</summary>
+/// <remarks>
+/// Root's directory, which this process reads and cannot write, beside rather than inside its own
+/// state directory: a status this relay could write would be a status a compromised relay could
+/// forge. TARKOV_RELAY_UPDATE_STATUS overrides the path the updater uses by default.
+/// </remarks>
+static string? UpdateStatusDirectory()
+{
+    if (Environment.GetEnvironmentVariable("TARKOV_RELAY_UPDATE_STATUS") is { Length: > 0 } explicitPath)
+    {
+        return explicitPath;
+    }
+
+    return StateDirectory() is null ? null : "/var/lib/tarkov-group-update-status";
 }
 
 /// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>
@@ -247,8 +256,9 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
 // One button, one issue. The person with the problem is the one who can see it and the least
 // able to describe it, so the report travels instead of the conversation.
 //
-// Keyed like everything else: the report is filed against the room rather than a person, and
-// the room is a hash of the key, so the relay learns nothing about who reported what.
+// Keyed like everything else: the rate limit counts per room rather than per person. That is
+// not anonymity. The relay sees the key and the caller's address, and the body it keeps can name
+// the reporter's display name and carry their folder paths and coordinates.
 app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>>> (
     HttpRequest request,
     ProblemReports reports,
@@ -574,9 +584,9 @@ app.MapGet("/admin/rooms", Results<Ok<AdminRoomsView>, UnauthorizedHttpResult> (
 // Registers a room: generating a key, adopting one the group already uses, or adopting a room
 // this relay is already holding by its hash.
 //
-// A generated key is in the response to this request and nowhere else. The relay stores its
-// hash, the same as it does for every other room, so there is no second copy of it anywhere and
-// no way to ask for it again.
+// A generated key is in the response to this request and is not persisted. The relay stores its
+// hash, the same as it does for every other room, so there is no way to ask for it again. It is
+// not relay-blind: every member request afterwards carries the key to this process in plaintext.
 app.MapPost("/admin/rooms", Results<Ok<AdminRoomCreated>, UnauthorizedHttpResult, BadRequest<string>> (
     AdminRoomRequest body,
     HttpRequest request) =>
@@ -638,24 +648,22 @@ app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResul
     return TypedResults.Ok();
 });
 
-// Which build this relay is on against the one that is published.
+// Which build this relay is on against the one its signed release ring selects.
 //
 // The relay has updated itself every half hour for a while and could say nothing about it. A
 // relay running an old build looked exactly like one running the newest, and one that installed
 // a build, failed its health check and rolled back looked like both — the updater records the
 // refusal so it does not loop, and nothing surfaced it.
-app.MapGet("/admin/update", async Task<Results<Ok<RelayUpdateState>, UnauthorizedHttpResult>> (
+app.MapGet("/admin/update", Results<Ok<RelayUpdateState>, UnauthorizedHttpResult> (
     HttpRequest request,
-    RelayUpdate update,
-    TimeProvider timeProvider,
-    CancellationToken cancellationToken) =>
+    RelayUpdate update) =>
 {
     if (!RelayAdmin.IsAuthorised(request))
     {
         return TypedResults.Unauthorized();
     }
 
-    return TypedResults.Ok(await update.ReadAsync(timeProvider, cancellationToken).ConfigureAwait(false));
+    return TypedResults.Ok(update.Read());
 });
 
 // Asks for one now rather than at the next tick.
@@ -680,10 +688,10 @@ app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, U
 
 app.Run();
 
-// The only thing checked is that a key is long enough to be a key. There is nothing to compare
-// it against, because the server holds no secrets: a key that nobody else uses simply names a
-// room that nobody else is in. Refusing a short one is not access control, it is stopping
-// somebody from believing "a" protects their group.
+// The only thing checked here is that a key is long enough to be a key. In open mode there is no
+// registered room verifier to compare it against: a key that nobody else uses simply names a room
+// that nobody else is in. The relay still receives the plaintext bearer key before hashing it.
+// Refusing a short one is not access control; it stops somebody believing "a" protects the group.
 /// <summary>
 /// Whether an If-None-Match value names this snapshot, weak prefix and all.
 /// </summary>

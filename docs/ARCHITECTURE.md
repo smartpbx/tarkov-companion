@@ -42,10 +42,11 @@ itself; the client works completely without it and sends nothing while group sha
 Four things live there, and the reason they live there rather than in the client is the same
 each time: they are the parts that only make sense between people.
 
-**The room.** A group agrees one key. The relay never sees it — it hashes it and buckets
-members by that hash, so a room's name is not discoverable from outside and the relay holds no
-secret to leak. Members publish themselves and are answered with everyone else in one exchange,
-so there is no subscription to hold open and a companion that is not running shows nothing. A
+**The room.** A group agrees one reusable key. The relay receives it on each request, hashes it,
+and buckets members by that hash. Stock source does not intentionally log or persist the raw key,
+but the transport and receiving process can read it. Members publish themselves and are answered
+with everyone else in one exchange, so there is no subscription to hold open and a companion that
+is not running shows nothing. A
 member is forgotten three minutes after they stop publishing, and observations about anybody
 outside the room are pruned on the way in *and* on the way out, because the game describes
 every member of an in-game party and a five-man filled from matchmaking carries a stranger.
@@ -60,8 +61,9 @@ compressed at rest. The client tries the relay first and falls back to upstream,
 keeps the relay an optimisation rather than a dependency.
 
 **Problem reports.** The client posts what it knows about itself; the relay keeps it and hands
-back a reference; an hourly workflow opens an issue naming that reference. The relay holds no
-GitHub credential — the workflow files the issue with the token Actions already gives it — which
+back a reference. An hourly workflow is designed to open an issue naming only a validated
+reference, but currently fails closed on the list/read reference mismatch assigned to #310. The
+relay holds no GitHub credential—the workflow files issues with the token Actions gives it—which
 matters because the relay is the internet-facing box.
 
 Two access models, deliberately separate. A group key is proof of belonging to one room and
@@ -70,10 +72,15 @@ reads every group's reports, registers which rooms may exist, and asks the relay
 group key can do any of that. Registering the first room closes the relay to unregistered ones,
 and until one is registered it is open, which is what it has always been.
 
-State is two files in a directory outside the tree the updater replaces: the marks, and the
-room list. Positions are never written. The relay cannot start a systemd unit and must not be
-able to — asking it to update writes a file that a `.path` unit watches, and the updater ships
-its own units inside the archive so a fix to them reaches the box.
+Persistent state lives outside the tree the updater replaces. The relay's writable directory
+holds marks, the room registry, submitted problem reports, and the transient update request;
+authenticated updater history and panel status live in separate root-owned directories. Live
+member state is not written there, but a reached waypoint records who reached it and a report
+body from an arbitrary relay caller can carry coordinates even though the ordinary desktop's
+closed report projection does not.
+The relay cannot start a systemd unit and must not be able to — asking it to update writes a file
+that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
+them reaches the box.
 
 ## Cross-platform contract
 

@@ -1,0 +1,52 @@
+{
+  "matrix": "v2-primitive-gallery",
+  "version": 1,
+  "status": "unrendered",
+  "evidenceOwner": "#279",
+  "purpose": "The cases the native primitive gallery must be rendered, inspected, and approved at. Nothing in CI renders, lays out, or captures these cases; this file is the checklist that evidence has to cover, not the evidence.",
+  "determinism": "Synthetic resource-backed strings only; no clock, network data, animation frame, font fallback, or OS-specific capture is accepted.",
+  "variants": ["Dark", "Light", "HighContrast", "DarkRedGreenSafe", "LightRedGreenSafe", "DarkBlueYellowSafe", "LightBlueYellowSafe", "DarkMonochrome", "LightMonochrome"],
+  "motionVariants": ["reduced", "full"],
+  "motionRule": "Reduced motion removes transitions without removing, delaying, or renaming an operational state.",
+  "elements": {
+    "heading": ["v2-page-heading"],
+    "status": ["v2-state-banner", "v2-status-badge"],
+    "credibility": ["v2-credibility-historical"],
+    "why": ["v2-why-disclosure"],
+    "field": ["v2-field-error-input"],
+    "toolbar": ["v2-toolbar"],
+    "card": ["v2-empty-state"],
+    "table": ["v2-semantic-table"],
+    "legend": ["v2-map-legend", "v2-chart-legend"],
+    "pairedDevice": ["v2-paired-device", "v2-sharing-state"],
+    "captureQueue": ["v2-capture-queue", "v2-capture-progress"],
+    "operationalRecovery": ["v2-device-reconnect", "v2-capture-correct", "v2-capture-context"],
+    "liveRegion": ["v2-live-polite", "v2-live-assertive"],
+    "touchTargets": ["v2-touch-target"],
+    "focusRing": ["v2-toolbar-open", "v2-field-error-input", "v2-device-reconnect", "v2-capture-correct", "v2-capture-context"]
+  },
+  "cases": [
+    { "id": "desktop-100-expanded", "surface": "desktop", "textScale": 100, "effectiveWidth": "expanded", "motion": "full", "mustShow": ["heading", "toolbar", "card", "table", "legend", "why"] },
+    { "id": "desktop-125-standard", "surface": "desktop", "textScale": 125, "effectiveWidth": "standard", "motion": "full", "mustShow": ["heading", "status", "credibility", "captureQueue", "pairedDevice", "operationalRecovery"] },
+    { "id": "desktop-150-compact", "surface": "desktop", "textScale": 150, "effectiveWidth": "compact", "motion": "full", "mustShow": ["status", "field", "table", "liveRegion"] },
+    { "id": "desktop-200-narrow", "surface": "desktop", "textScale": 200, "effectiveWidth": "narrow", "motion": "reduced", "mustShow": ["heading", "toolbar", "touchTargets", "legend", "credibility", "focusRing"] },
+    { "id": "tablet-100-narrow", "surface": "tablet", "textScale": 100, "effectiveWidth": "narrow", "motion": "reduced", "mustShow": ["touchTargets", "pairedDevice", "captureQueue", "operationalRecovery"] }
+  ],
+  "notInGallery": {
+    "owner": "#266",
+    "reason": "The gallery is one fixed column with no width-driven layout, no horizontally scrolling table, and no ordered map or chart data list, so no case can capture these until a later #266 change adds them.",
+    "elements": ["stackedCards", "singleColumnReflow", "tableOverflowAffordance", "orderedDataAlternative"]
+  },
+  "treeExpectations": [
+    "one level-1 heading",
+    "a named Main landmark in the control view",
+    "every gallery automation id in the control view with a name",
+    "the state banner named with its tone word and title",
+    "polite and assertive live-region text elements",
+    "each table row exposed as a named group",
+    "the toolbar exposed as a ToolBar",
+    "paired-device and capture facts exposed as independent named groups",
+    "ordered capture rows exposed as complete localized sentences",
+    "no decorative glyph or outline in the control view"
+  ]
+}

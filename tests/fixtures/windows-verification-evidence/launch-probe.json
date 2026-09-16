@@ -1,0 +1,28 @@
+{
+  "success": false,
+  "packageIdentity": {
+    "version": "1.0.12",
+    "commit": "0123456789abcdef"
+  },
+  "window": {
+    "appearedAfterSeconds": 2.5
+  },
+  "shutdown": {
+    "windowClosedAfterSeconds": 0.75,
+    "exitCode": 0
+  },
+  "localData": {
+    "databaseBytes": 128
+  },
+  "observations": [
+    {
+      "name": "database-created",
+      "passed": false,
+      "required": true,
+      "detail": "No database at C:\\Users\\build-user\\AppData\\Local\\TarkovCompanion\\Database\\tarkov-companion.db"
+    }
+  ],
+  "errors": [
+    "Startup failed in C:\\Users\\build-user\\work\\repo"
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {
+    "reference": "abcde\n[issue](https://example.invalid)",
+    "bytes": 12,
+    "receivedUtc": "2026-09-15T12:00:00Z"
+  }
+]

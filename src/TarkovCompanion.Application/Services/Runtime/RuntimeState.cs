@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
@@ -186,6 +188,17 @@ public sealed record ApplicationRuntimeSnapshot(
     RaidSnapshot Raid,
     ScanExecutionResult Scan)
 {
+    /// <summary>A process-local publication revision, unrelated to cross-device state revision.</summary>
+    public long LocalRevision { get; init; }
+
+    public FeatureLifecycleSnapshot Lifecycle { get; init; } = FeatureLifecycleSnapshot.Empty;
+
+    public BackgroundWorkSupervisorSnapshot Supervisor { get; init; } = BackgroundWorkSupervisorSnapshot.Empty;
+
+    public OutboxSnapshot Outbox { get; init; } = OutboxSnapshot.Empty;
+
+    public RuntimeResourceSnapshot Resources { get; init; } = RuntimeResourceSnapshot.Empty;
+
     public EftObservationState Observation { get; init; } =
         OperatingSystem.IsWindows() ? EftObservationState.Idle : EftObservationState.Unsupported;
 
@@ -201,8 +214,9 @@ public sealed record ApplicationRuntimeSnapshot(
     /// screenshot, the folder is right, the file is there, and the player simply never appears
     /// on anybody's map. Two players hit exactly that in one evening.
     ///
-    /// Names only, never paths, and the digits are masked before any of this is shown or
-    /// shared — the shape is the diagnosis and the coordinates are nobody's business.
+    /// Names only, never paths. Support diagnostics inspect at most three bounded names and emit
+    /// only a fixed compatibility category and counts; no name, digit, or coordinate is rendered
+    /// or shared.
     /// </remarks>
     public IReadOnlyList<string> RecentScreenshotNames { get; init; } = [];
 
@@ -229,17 +243,37 @@ public interface IRuntimeStateStore
     void Update(Func<ApplicationRuntimeSnapshot, ApplicationRuntimeSnapshot> update);
 }
 
+public sealed record RuntimeResourceSnapshot(long StateSubscriberFaults)
+{
+    public static RuntimeResourceSnapshot Empty { get; } = new(0);
+}
+
+/// <summary>The single published runtime snapshot, with isolated and serialized subscribers.</summary>
+/// <remarks>
+/// Publications now arrive from the supervisor, the feature lifecycle and the raid-history
+/// delivery pump as well as from observation, each on whatever thread finished its work. Handlers
+/// used to be invoked by every one of those threads at once, and the view model that consumes this
+/// is only safe when calls reach it one at a time; in a host with no dispatcher it lost the edge
+/// from InRaid to PostRaid and never produced a raid summary. Notifications are therefore
+/// serialized. Publication and notification share one outer linearization gate, so a later writer
+/// cannot replace the snapshot before subscribers have observed the earlier revision. The snapshot
+/// is still computed under its own lock, and no handler runs while that inner lock is held.
+/// </remarks>
 public sealed class RuntimeStateStore : IRuntimeStateStore
 {
     private readonly object _gate = new();
+    private readonly object _notificationGate = new();
     private ApplicationRuntimeSnapshot _current;
+    private EventHandler? _changed;
+    private long _subscriberFaults;
+    private bool _publicationInProgress;
 
     public RuntimeStateStore(RuntimeOptions options, TimeProvider? timeProvider = null)
     {
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
-        _current = new(
+        _current = Freeze(new(
             options.DemoMode,
-            options.Offline,
+            options.IsOffline,
             false,
             new(DataAvailability.Unavailable, 0, 0, null, "No local game data"),
             null,
@@ -274,10 +308,26 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 // guess, and this is replaced within a second of the window appearing.
                 : ScanExecutionResult.Unavailable(
                     "Checking whether the scanner can run…",
-                    now));
+                    now)));
     }
 
-    public event EventHandler? Changed;
+    public event EventHandler? Changed
+    {
+        add
+        {
+            lock (_gate)
+            {
+                _changed += value;
+            }
+        }
+        remove
+        {
+            lock (_gate)
+            {
+                _changed -= value;
+            }
+        }
+    }
 
     public ApplicationRuntimeSnapshot Current
     {
@@ -293,13 +343,152 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
     public void Update(Func<ApplicationRuntimeSnapshot, ApplicationRuntimeSnapshot> update)
     {
         ArgumentNullException.ThrowIfNull(update);
-        lock (_gate)
+        lock (_notificationGate)
         {
-            _current = update(_current);
-        }
+            // Monitor locks are reentrant. Without an explicit guard, a subscriber that calls
+            // Update can replace the snapshot and recursively notify the subscriber list before
+            // later subscribers have observed the original revision. Subscribers are observers;
+            // reject their nested write and let the outer publication's exception isolation count
+            // that callback fault without corrupting notification order.
+            if (_publicationInProgress)
+            {
+                throw new InvalidOperationException("A runtime state update cannot be nested inside another publication.");
+            }
 
-        Changed?.Invoke(this, EventArgs.Empty);
+            _publicationInProgress = true;
+            try
+            {
+                EventHandler[] handlers;
+                lock (_gate)
+                {
+                    var proposed = update(_current)
+                        ?? throw new InvalidOperationException("A runtime state update cannot return null.");
+                    _current = Freeze(proposed with
+                    {
+                        LocalRevision = checked(_current.LocalRevision + 1),
+                        Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
+                    });
+                    handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
+                }
+
+                var failures = 0;
+                foreach (var handler in handlers)
+                {
+                    try
+                    {
+                        handler(this, EventArgs.Empty);
+                    }
+                    catch (Exception)
+                    {
+                        failures++;
+                    }
+                }
+
+                if (failures == 0)
+                {
+                    return;
+                }
+
+                lock (_gate)
+                {
+                    _subscriberFaults = checked(_subscriberFaults + failures);
+                    _current = Freeze(_current with
+                    {
+                        LocalRevision = checked(_current.LocalRevision + 1),
+                        Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
+                    });
+                }
+            }
+            finally
+            {
+                _publicationInProgress = false;
+            }
+        }
     }
+
+    private static ApplicationRuntimeSnapshot Freeze(ApplicationRuntimeSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(snapshot.Data);
+        ArgumentNullException.ThrowIfNull(snapshot.Raid);
+        ArgumentNullException.ThrowIfNull(snapshot.Scan);
+        ArgumentNullException.ThrowIfNull(snapshot.Observation);
+        ArgumentNullException.ThrowIfNull(snapshot.Squad);
+        ArgumentNullException.ThrowIfNull(snapshot.FleaSales);
+        ArgumentNullException.ThrowIfNull(snapshot.Group);
+        ArgumentNullException.ThrowIfNull(snapshot.Lifecycle);
+        ArgumentNullException.ThrowIfNull(snapshot.Supervisor);
+        ArgumentNullException.ThrowIfNull(snapshot.Outbox);
+        ArgumentNullException.ThrowIfNull(snapshot.Resources);
+
+        return snapshot with
+        {
+            Profile = snapshot.Profile is null ? null : FreezeProfile(snapshot.Profile),
+            Raid = snapshot.Raid with
+            {
+                ActiveExtracts = snapshot.Raid.ActiveExtracts.ToImmutableArray(),
+                PositionTrail = snapshot.Raid.PositionTrail.ToImmutableArray(),
+                ExtractLinesNotMatched = snapshot.Raid.ExtractLinesNotMatched.ToImmutableArray(),
+                Transits = snapshot.Raid.Transits.ToImmutableArray(),
+                Hud = snapshot.Raid.Hud is null
+                    ? null
+                    : snapshot.Raid.Hud with { Bars = snapshot.Raid.Hud.Bars.ToImmutableArray() },
+            },
+            Squad = snapshot.Squad with
+            {
+                Members = [.. snapshot.Squad.Members.Select(member => member with
+                {
+                    Equipment = member.Equipment.ToImmutableArray(),
+                })],
+            },
+            RecentScreenshotNames = snapshot.RecentScreenshotNames.ToImmutableArray(),
+            FleaSales = snapshot.FleaSales with { Sales = snapshot.FleaSales.Sales.ToImmutableArray() },
+            Group = snapshot.Group with
+            {
+                Members = [.. snapshot.Group.Members.Select(member => member with
+                {
+                    Loadout = member.Loadout.ToImmutableArray(),
+                    Quests = member.Quests.ToImmutableArray(),
+                    Extracts = member.Extracts.ToImmutableArray(),
+                    Transits = member.Transits.ToImmutableArray(),
+                    QuestIds = member.QuestIds.ToImmutableArray(),
+                    Trail = member.Trail.ToImmutableArray(),
+                })],
+                Waypoints = snapshot.Group.Waypoints.ToImmutableArray(),
+                Pings = snapshot.Group.Pings.ToImmutableArray(),
+                MyLoadout = snapshot.Group.MyLoadout.ToImmutableArray(),
+            },
+            Lifecycle = snapshot.Lifecycle with
+            {
+                Features = snapshot.Lifecycle.Features.IsDefault
+                    ? []
+                    : [.. snapshot.Lifecycle.Features.Select(feature => feature with
+                    {
+                        Dependencies = feature.Dependencies.IsDefault ? [] : [.. feature.Dependencies],
+                    })],
+            },
+            Supervisor = snapshot.Supervisor with
+            {
+                Operations = snapshot.Supervisor.Operations.IsDefault ? [] : [.. snapshot.Supervisor.Operations],
+            },
+            Outbox = snapshot.Outbox with
+            {
+                DeadLetters = snapshot.Outbox.DeadLetters.IsDefault ? [] : [.. snapshot.Outbox.DeadLetters],
+            },
+        };
+    }
+
+    private static PlayerProfile FreezeProfile(PlayerProfile profile) => profile with
+    {
+        TraderLevels = profile.TraderLevels.ToImmutableDictionary(StringComparer.Ordinal),
+        CompletedTaskIds = profile.CompletedTaskIds.ToImmutableHashSet(StringComparer.Ordinal),
+        ObjectiveProgress = profile.ObjectiveProgress.ToImmutableDictionary(StringComparer.Ordinal),
+        HideoutStationLevels = profile.HideoutStationLevels.ToImmutableDictionary(StringComparer.Ordinal),
+        WishlistItemIds = profile.WishlistItemIds.ToImmutableHashSet(StringComparer.Ordinal),
+        OwnedItemCounts = profile.OwnedItemCounts.ToImmutableDictionary(StringComparer.Ordinal),
+        EventItemStates = profile.EventItemStates.ToImmutableDictionary(StringComparer.Ordinal),
+        ItemOverrides = profile.ItemOverrides.ToImmutableDictionary(StringComparer.Ordinal),
+    };
 }
 
 public sealed record RuntimeOptions(
@@ -308,7 +497,30 @@ public sealed record RuntimeOptions(
     GameMode GameMode,
     string Language,
     TimeSpan DataFreshFor,
-    TimeSpan RefreshTimeout);
+    TimeSpan RefreshTimeout)
+{
+    /// <summary>
+    /// Reads a process-level offline switch that can change while the application is running.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Offline"/> remains the deterministic fallback used by tests and fixed command
+    /// line configuration. Production supplies this probe for the environment-controlled mode;
+    /// snapshotting that value at composition time made reconnect require a full restart.
+    /// </remarks>
+    public Func<bool>? OfflineProbe { get; init; }
+
+    /// <summary>The longest an in-process offline-to-online change waits to be observed.</summary>
+    /// <remarks>
+    /// This is deliberately separate from the HTTP retry delay. The runtime coordinator owns
+    /// normalized data, projections and the published application state; noticing only inside
+    /// the HTTP cache could download newer JSON without ever making that data visible until the
+    /// next process start. A short, injected-clock interval keeps that ownership explicit and
+    /// makes the transition deterministic in tests.
+    /// </remarks>
+    public TimeSpan OfflineTransitionPollInterval { get; init; } = TimeSpan.FromSeconds(1);
+
+    public bool IsOffline => OfflineProbe?.Invoke() ?? Offline;
+}
 
 public interface IRuntimeDataStore
 {

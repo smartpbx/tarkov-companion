@@ -1,0 +1,18 @@
+{
+  "negotiatedVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "deviceId": {
+    "value": "10000000-0000-4000-8000-000000000002"
+  },
+  "deviceKeyId": {
+    "value": "y2YJoMGRv2GSAs5r4sPqGeFymw4LgjbNI5wLCd6IzE0"
+  },
+  "credentialIdBase64Url": "Op_sQ31_jOPkt4KMBM7XUQ",
+  "ephemeralKey": {
+    "algorithm": "EcdhP256",
+    "subjectPublicKeyInfoBase64Url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEb6IcKnajU1d4VvOrws2Gy9uR_gKmM0lR-tDGYb8Km5VIlp03T4d7xoRuHaoHKaBhYZ8eqygcyxLUNSfdJLjoQ"
+  },
+  "clientNonceBase64Url": "cGxgMhl_nCEXnJjy56MQKbznAxfAYSVLcspYcTghk5I"
+}

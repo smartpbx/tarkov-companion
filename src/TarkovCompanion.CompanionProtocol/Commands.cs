@@ -42,6 +42,7 @@ public sealed record OfflineQueuePreview
 [JsonDerivedType(typeof(RequestControlCommand), "requestControl")]
 [JsonDerivedType(typeof(ResolveControlCommand), "resolveControl")]
 [JsonDerivedType(typeof(PreemptControlCommand), "preemptControl")]
+[JsonDerivedType(typeof(UpdateDesktopWorkspaceCommand), "updateDesktopWorkspace")]
 [JsonDerivedType(typeof(ControlWorkspaceCommand), "controlWorkspace")]
 [JsonDerivedType(typeof(ShowOnDesktopCommand), "showOnDesktop")]
 [JsonDerivedType(typeof(UpsertMarkCommand), "upsertMark")]
@@ -51,6 +52,10 @@ public sealed record OfflineQueuePreview
 [JsonDerivedType(typeof(PublishCaptureResultCommand), "publishCaptureResult")]
 [JsonDerivedType(typeof(ReviewCaptureResultCommand), "reviewCaptureResult")]
 [JsonDerivedType(typeof(CorrectCaptureResultCommand), "correctCaptureResult")]
+[JsonDerivedType(typeof(ActivateProfilePreferencesCommand), "activateProfilePreferences")]
+[JsonDerivedType(typeof(MutateProfilePreferencesCommand), "mutateProfilePreferences")]
+[JsonDerivedType(typeof(ResetProfilePreferencesCommand), "resetProfilePreferences")]
+[JsonDerivedType(typeof(DeleteProfilePreferencesCommand), "deleteProfilePreferences")]
 public abstract record CompanionCommand
 {
     private protected CompanionCommand(
@@ -132,9 +137,7 @@ public sealed record RequestControlCommand : CompanionCommand
         DateTimeOffset expiresUtc,
         TimeSpan requestedLease)
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, null) =>
-        RequestedLease = requestedLease > TimeSpan.Zero && requestedLease <= ProtocolBounds.MaximumControlLeaseLifetime
-            ? requestedLease
-            : throw new ArgumentOutOfRangeException(nameof(requestedLease));
+        RequestedLease = ProtocolGuard.LeaseDuration(requestedLease, nameof(requestedLease));
 
     public TimeSpan RequestedLease { get; }
 
@@ -265,6 +268,28 @@ public sealed record ControlWorkspaceCommand : CompanionCommand
     public override CanonicalAggregateKind Aggregate => CanonicalAggregateKind.Workspace;
 }
 
+/// <summary>
+/// A local desktop navigation change. The reducer accepts this only from its authenticated
+/// desktop context, but representing it as an ordinary revisioned command keeps tablets from
+/// missing local UI changes or relying on a second state-update path.
+/// </summary>
+public sealed record UpdateDesktopWorkspaceCommand : CompanionCommand
+{
+    public UpdateDesktopWorkspaceCommand(
+        CommandId commandId,
+        AggregateRevision requestedRevision,
+        DateTimeOffset issuedUtc,
+        DateTimeOffset expiresUtc,
+        WorkspaceProjection projection)
+        : base(commandId, requestedRevision, issuedUtc, expiresUtc, null) =>
+        Projection = ProtocolGuard.NotNull(projection, nameof(projection));
+
+    public WorkspaceProjection Projection { get; }
+
+    [JsonIgnore]
+    public override CanonicalAggregateKind Aggregate => CanonicalAggregateKind.Workspace;
+}
+
 public sealed record ShowOnDesktopCommand : CompanionCommand
 {
     public ShowOnDesktopCommand(
@@ -297,7 +322,7 @@ public sealed record UpsertMarkCommand : CompanionCommand
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.NonNegative(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision));
         Mark = ProtocolGuard.NotNull(mark, nameof(mark));
     }
 
@@ -325,7 +350,7 @@ public sealed record DeleteMarkCommand : CompanionCommand
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.Positive(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.Positive(ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision)), nameof(expectedMarkRevision));
     }
 
     public MarkId MarkId { get; }
@@ -346,7 +371,7 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
         CaptureIntentId intentId,
         string correlationId,
         CaptureSessionId captureSessionId,
-        ContextualCapturePurpose purpose,
+        ScanIntent intent,
         CompanionCaptureContext context,
         OfflineQueuePreview? offlineQueuePreview = null)
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
@@ -356,7 +381,7 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
         CaptureSessionId = captureSessionId.Value == Guid.Empty
             ? throw new ArgumentException("A capture session id is required.", nameof(captureSessionId))
             : captureSessionId;
-        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        Intent = PairedScanIntents.Require(intent, nameof(intent));
         Context = ProtocolGuard.NotNull(context, nameof(context));
     }
 
@@ -366,7 +391,8 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    public ContextualCapturePurpose Purpose { get; }
+    /// <summary>The frozen #264 scan intent to arm; flea recognition is not a paired capture intent.</summary>
+    public ScanIntent Intent { get; }
 
     public CompanionCaptureContext Context { get; }
 

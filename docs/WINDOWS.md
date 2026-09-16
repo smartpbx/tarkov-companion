@@ -18,7 +18,7 @@ Monitor discovery uses ordinary display-monitor enumeration under per-monitor-v2
 
 Path discovery checks ordinary uninstall registry values and conventional user folders, then returns only directories that exist. Partial discoveries carry reduced confidence rather than fabricated paths. Users can still configure paths manually at the application layer.
 
-The log watcher tails newly appended lines in ordinary `*.log` files with read-sharing enabled and feeds the tolerant application parser. Existing bytes are not replayed on watcher startup. Unknown lines are ignored. The screenshot watcher emits only newly created or renamed PNG/JPEG paths; simulator-named paths are ignored unless DeveloperMode was explicit. Both watchers propagate cancellation.
+The log watcher tails newly appended lines in ordinary `*.log` files with read-sharing enabled and feeds the tolerant application parser. Existing bytes are not replayed on watcher startup. Unknown lines are ignored. The screenshot watcher polls PNG/JPEG metadata, waits for two unchanged probes and a complete image envelope, and emits a path when new bytes have settled. A content change at the same path may therefore be delivered again, while attribute-only changes are ignored. Files older than the two-minute startup grace are not replayed, tracking is bounded to 16,384 paths, and encoded files over 64 MiB or cloud placeholders are held rather than opened. If the configured root disappears or becomes unreadable, the watcher raises a path-free availability signal; the application clears screenshot readiness and rediscovers that source without stopping healthy log observation. Simulator-named paths are ignored unless DeveloperMode was explicit. Both watchers propagate cancellation.
 
 ## Secrets
 
@@ -33,7 +33,52 @@ Linux proves contract behavior and Windows gating but cannot exercise User32, GD
 - hotkey registration, receipt, collision reporting, unregister, and clean shutdown;
 - multiple-monitor bounds, primary identity, and scale;
 - registry/folder path discovery against an installed or synthetic layout;
-- concurrent log writes and screenshot create/rename notifications;
+- concurrent log writes and settled screenshot creation/replacement, attribute-only changes,
+  root deletion/recreation, encoded-size limits, and cloud-placeholder transitions;
 - DPAPI set/get/delete and inability to decrypt from another Windows user.
 
 Direct validation against a real EFT installation remains a separate checklist in `LIVE_EFT_VALIDATION.md` and must not be claimed from simulator or VM-only evidence.
+
+## Release and installation
+
+Windows verification builds, launches and packages the desktop and hands the results to its run;
+it does not publish them. `publish.yml` takes the artifacts of a successful push-to-main
+verification run, refuses unless the portable zip, `BUILD_INFO.txt`, the informational version
+compiled into `TarkovCompanion.dll`, and every Velopack file (installer, full and delta packages,
+`releases.win.json`, `assets.win.json`, `RELEASES`) agree, then signs each file into a private,
+authenticated feed and moves it through canary, beta and stable. [RELEASES.md](RELEASES.md) has
+the whole chain.
+
+The installer is unchanged by that: Velopack installs per user under
+`%LOCALAPPDATA%\TarkovCompanionDesktop`, and application data stays separately under
+`%LOCALAPPDATA%\TarkovCompanion`. The pack id must never equal the data directory name, or
+installing renames the player's data aside.
+
+Two things are not true yet, and are recorded rather than implied:
+
+- **In-app updates are not composed yet.** The anonymous public `GithubSource` has been removed,
+  so an unconfigured gateway fails closed. The bounded authenticated transport, pinned Sigstore
+  verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
+  has to compose them with Velopack and component activation, and #270 supplies persisted state.
+- **Delta packages are not produced.** Verification packs full packages only; the release chain
+  signs deltas if verification starts producing them.
+
+Signed desktop builds reach a machine without the in-app updater, or without any network, through
+`scripts/release/install-offline.ps1`:
+
+- It copies what it uses off the media into a directory only the current user can read, verifies
+  that copy, and runs the copied installer, never the file on the media.
+- It verifies with a pinned cosign (v3.1.3, by sha256), against a trust root provisioned separately
+  from the media. It accepts only standardized Sigstore bundles, and only the publish workflow on
+  main in this repository.
+- It requires the ring decision on the media, for `-Ring` in `-FeedRepository`, to select exactly
+  this manifest, not to be paused, and to be at or above `-MinimumGeneration`.
+- It refuses a version older than the installed one unless the decision is a signed rollback or
+  `-AllowDowngrade` is given, and treats an installed version it cannot read the same way.
+- `-Headless` installs silently, and `-WhatIf` performs every check without installing.
+- `-BreakGlass` installs a publisher-signed build without a ring decision and warns that no ring
+  policy was applied.
+
+It is also exercised on a Windows GitHub runner with a successful installer, an installer that
+does nothing, one that writes the wrong `BUILD_INFO.txt`, and an inconsistent rollback decision;
+only the first is accepted.

@@ -1,79 +1,170 @@
 # Phase status
 
-This records what the docs-only phase of #317 delivers and what remains. **This PR does not close
-#317.** It establishes a source-grounded baseline and explicitly records current source/policy
-conflicts; it does not make those findings safe by documenting them.
+This is the integrated wave-2 status for issue
+[#317](https://github.com/smartpbx/tarkov-companion/issues/317). **Issue #317 remains open.**
+The six audits are source-review evidence, not a penetration test, an observed automated run, or
+proof that any recommended mitigation exists. High findings remain release blockers until their
+named owner issues implement the control and exact-head GitHub Actions (plus any stated manual
+`dev` verification) supplies the required evidence.
 
-## What this phase delivers
+## Wave-2 audit coverage
 
-- `SYSTEM_AND_TRUST_BOUNDARIES.md` — the current data flow and eleven named trust boundaries,
-  including both pixel-ingress paths, plaintext group-key handling, full relay state shape,
-  accepted LAN HTTP, unbounded cross-room marks, current import/export surfaces, catalog stale
-  fallback, and the distinct relay/Desktop update implementations.
-- `ASSETS_AND_ACTORS.md` — 14 assets and 12 actors, including a malicious/compromised relay
-  operator and the actual local/in-process/network locations of the reusable group/admin keys.
-- `ABUSE_CASES.md` — 24 concrete cases covering all eleven named boundaries; seven have illustrative
-  JSON fixtures under `tests/security/fixtures/`.
-- `CONTROLS_AND_RESIDUAL_RISK.md` — 16 open and three closed findings. Every open finding has an
-  explicit Accept/Mitigate/Defer disposition. Six High findings remain open with required
-  mitigation: room-key guessing, undetectable display-name impersonation, cleartext/receiver key
-  disclosure, release-channel trust, current relay transmission of log-derived party data contrary
-  to `docs/SAFETY.md`, and incomplete report redaction that can transmit paths/coordinates.
-- `ANTI_CHEAT_REVIEW.md` — three immutable fixtures, four additional design exclusions, and the
-  honest-intelligence evidence contract reviewed against current source, with lexical checks
-  described as partial tripwires rather than certification.
-- `TBD_COMPONENTS.md` — ten future components or material rebuilds, each saying whether source is
-  absent or a current implementation is expected to change.
-- `README.md` — the progressive-disclosure product contract: the full version-matched register is
-  reachable from Setup/Admin Data & Privacy, while routine UI stays concise without hiding active
-  consent, outbound data, auth/transport state, active security/failure state, destructive impact,
-  or decision-changing uncertainty; full provenance remains available on demand.
-- `tests/security/` — seven valid illustrative JSON files. They are not wired to a test runner and
-  are not represented as executed behavior.
+| Lane | Integrated document | Standalone draft evidence superseded by this integration | Finding scope |
+| --- | --- | --- | --- |
+| Serialization and external data | [audits/SERIALIZATION_AND_EXTERNAL_DATA.md](audits/SERIALIZATION_AND_EXTERNAL_DATA.md) | #323 | SER-*; current hostile JSON/HTTP/file readers plus V2 transport prerequisite |
+| Cryptography, secrets, transport, and updates | [audits/CRYPTO_SECRETS_AND_UPDATES.md](audits/CRYPTO_SECRETS_AND_UPDATES.md) | #322 | Key entropy/lifecycle, DPAPI, relay/admin credentials, release/update chain |
+| Windows platform boundaries | [audits/WINDOWS_PLATFORM_BOUNDARIES.md](audits/WINDOWS_PLATFORM_BOUNDARIES.md) | #324 | WIN-001 through WIN-014; P/Invoke, capture, watchers, OCR, install/update |
+| Diagnostics, errors, and privacy | [audits/DIAGNOSTICS_ERRORS_AND_PRIVACY.md](audits/DIAGNOSTICS_ERRORS_AND_PRIVACY.md) | #325, standalone head `ddf621d` | DIAG-01 through DIAG-10; report, error, retention, buffer, developer-channel and outbound truth |
+| Persistence and local state | [audits/PERSISTENCE_AND_LOCAL_STATE.md](audits/PERSISTENCE_AND_LOCAL_STATE.md) | #326 | PERS-01 through PERS-12; migrations, recovery, scope, outbox/export and file races |
+| Relay authorization and state | [audits/RELAY_AUTHORIZATION_AND_STATE.md](audits/RELAY_AUTHORIZATION_AND_STATE.md) | #327 | RELAY-AUTH/STATE/BROWSER/OPS/TRUST; endpoint authority, ordering, persistence and browser policy |
+
+This integration will supersede the six standalone draft PRs #322–#327. Their findings are not
+discarded: each maps below to one canonical abuse case and risk entry, with duplicate scenarios
+sharing the same stable risk rather than inflating counts.
+
+## Canonical register status
+
+The integrated register contains **47 open findings and three closed findings**. Open severity is
+**zero Critical, 14 High, 26 Medium, and seven Low**. Every open row has an explicit
+Accept/Mitigate/Defer disposition, a named GitHub-issue owner, Reviewed source evidence, and exact
+verification required before its status can change.
+
+These counts are reproducible from the Markdown tables, not manually asserted:
+
+```sh
+sed -n '/^## Open findings/,/^## Closed findings/p' docs/security/CONTROLS_AND_RESIDUAL_RISK.md \
+  | rg '^\| RISK-.*\*\*(Critical|High|Medium|Low)\*\*' | wc -l
+sed -n '/^## Open findings/,/^## Closed findings/p' docs/security/CONTROLS_AND_RESIDUAL_RISK.md \
+  | rg '^\| RISK-' | rg -o '\*\*(Critical|High|Medium|Low)\*\*' | sort | uniq -c
+sed -n '/^## Closed findings/,/^## Remaining verification/p' docs/security/CONTROLS_AND_RESIDUAL_RISK.md \
+  | rg '^\| RISK-' | wc -l
+```
+
+## Complete wave-2 reconciliation crosswalk
+
+An audit ID identifies where the evidence was developed. The abuse and risk IDs below are the
+canonical identities used for release status. Positive-control rows remain mapped so they cannot
+be misread as closing a broader risk.
+
+### Serialization and external data
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| SER-HTTP-UNBOUNDED-CATALOG | ABUSE-DESKTOP-CATALOG-RESOURCE-EXHAUSTION | RISK-EXTERNAL-DATA-BOUNDS |
+| SER-RELAY-CATALOG-UNBOUNDED | ABUSE-RELAY-CATALOG-RESOURCE-EXHAUSTION | RISK-EXTERNAL-DATA-BOUNDS |
+| SER-RELAY-LANDMARKS-UNBOUNDED | ABUSE-RELAY-LANDMARK-RESOURCE-EXHAUSTION | RISK-EXTERNAL-DATA-BOUNDS |
+| SER-PROFILE-SCHEMA-AMPLIFICATION | ABUSE-PROFILE-SCHEMA-AMPLIFICATION | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
+| SER-CSV-FORMULA-INJECTION | ABUSE-CSV-FORMULA-INJECTION | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
+| SER-MIGRATION-NEWER-SCHEMA | ABUSE-PERSISTENCE-NEWER-SCHEMA | RISK-PERSISTENCE-SCHEMA-COMPATIBILITY |
+| SER-MAP-ASSET-REDIRECT-ORIGIN | ABUSE-MAP-ASSET-REDIRECT | RISK-MAP-ASSET-ORIGIN |
+| SER-MAP-CATALOG-TRUST | ABUSE-MAP-CATALOG-CONFIGURATION | RISK-MAP-CATALOG-CONFIGURATION |
+| SER-QUEST-IMPORT-BOUNDS (positive control) | ABUSE-LOCAL-IMPORT-REPLAY | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
+| SER-TARKOVTRACKER-BOUNDED-READ (positive control) | ABUSE-TARKOVTRACKER-REDIRECT | RISK-TARKOVTRACKER-REDIRECT (closed narrow regression) |
+| SER-V2-CONTRACT-TRANSPORT-PRECONDITION | ABUSE-DESKTOP-CATALOG-RESOURCE-EXHAUSTION | RISK-EXTERNAL-DATA-BOUNDS |
+
+### Cryptography, secrets, transport, and updates
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| Generated-key `% 31` encoding | ABUSE-GROUP-KEY-GENERATION-BIAS | RISK-GROUP-KEY-GENERATION-BIAS |
+| Weak user key / online room oracle | ABUSE-RELAY-WEAK-KEY-GUESS | RISK-RELAY-KEY-BRUTEFORCE |
+| Weak admin key / unlimited guesses | ABUSE-ADMIN-KEY-GUESS | RISK-ADMIN-KEY-BRUTEFORCE |
+| Plaintext/shared key transport and endpoint visibility | ABUSE-RELAY-PLAINTEXT-KEY, ABUSE-RELAY-CLEARTEXT-CREDENTIAL | RISK-RELAY-KEY-DISCLOSURE |
+| Reusable credential/member replay | ABUSE-RELAY-NAME-COLLISION | RISK-RELAY-IDENTITY |
+| Desktop/browser group-key storage | ABUSE-GROUP-KEY-LOCAL-RECOVERY | RISK-GROUP-KEY-LOCAL-EXPOSURE |
+| DPAPI same-user boundary | ABUSE-DPAPI-SAME-USER-MALWARE | RISK-DPAPI-SAMEUSER |
+| Diagnostic token command-file lifetime | ABUSE-DIAGNOSTIC-CHANNEL-RETENTION | RISK-DIAGNOSTIC-CHANNEL-RETENTION |
+| Release authenticity, downgrade, build tools/actions and feed publication | ABUSE-UPDATE-CHANNEL-DOWNGRADE | RISK-UPDATE-CHANNEL-TRUST |
+| Relay installed/refused stamp ordering | ABUSE-RELAY-UPDATE-STALE-STAMP | RISK-RELAY-UPDATE-STATE |
+| Fixed-time admin comparison | ABUSE-ADMIN-KEY-TIMING | RISK-ADMIN-KEY-TIMING (closed narrow regression) |
+| TarkovTracker redirect refusal | ABUSE-TARKOVTRACKER-REDIRECT | RISK-TARKOVTRACKER-REDIRECT (closed narrow regression) |
+
+### Diagnostics, errors, and privacy
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| DIAG-01, DIAG-02, DIAG-06 | ABUSE-REPORT-INCOMPLETE-REDACTION | RISK-REPORT-REDACTION |
+| DIAG-03 | ABUSE-ERROR-DETAIL-DISCLOSURE | RISK-ERROR-DISCLOSURE |
+| DIAG-04 | ABUSE-DEGRADED-STATE-HIDDEN | RISK-DEGRADED-STATE-INTEGRITY |
+| DIAG-05 | ABUSE-ADMIN-REPORT-FLOOD | RISK-REPORT-RATE-LIMIT |
+| DIAG-07 | ABUSE-SCREENSHOT-RETENTION-SURPRISE | RISK-SCREENSHOT-RETENTION-DEFAULT |
+| DIAG-08 | ABUSE-CAPTURE-BUFFER-RESIDUE | RISK-CAPTURE-BUFFER-LIFETIME |
+| DIAG-09 | ABUSE-DIAGNOSTIC-CHANNEL-RETENTION | RISK-DIAGNOSTIC-CHANNEL-RETENTION |
+| DIAG-10 | ABUSE-OUTBOUND-SURFACE-DRIFT | RISK-OUTBOUND-INVENTORY |
+
+### Persistence and local state
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| PERS-01 | ABUSE-PERSISTENCE-NEWER-SCHEMA | RISK-PERSISTENCE-SCHEMA-COMPATIBILITY |
+| PERS-02, PERS-11 | ABUSE-PERSISTENCE-RECOVERY-FAILURE | RISK-PERSISTENCE-RECOVERY |
+| PERS-03 | ABUSE-PROFILE-CONTEXT-REPLACEMENT | RISK-PROFILE-IMPORT-STATE |
+| PERS-04 | ABUSE-SCREENSHOT-RETENTION-SURPRISE | RISK-SCREENSHOT-RETENTION-DEFAULT |
+| PERS-05, PERS-10 | ABUSE-LOCAL-FILE-PATH-SUBSTITUTION | RISK-LOCAL-FILE-IDENTITY |
+| PERS-06, PERS-12 | ABUSE-LOCAL-JSON-SILENT-RESET | RISK-LOCAL-STATE-RECOVERY |
+| PERS-07 | ABUSE-RAID-HISTORY-DROPPED-EXPORT | RISK-RAID-HISTORY-DURABILITY |
+| PERS-08 | ABUSE-CSV-FORMULA-INJECTION | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
+| PERS-09 | ABUSE-CONTEXT-HISTORY-CROSSOVER | RISK-CONTEXT-ISOLATION |
+
+PERS-03 and PERS-09 retain their audit's High severity as distinct active-context and
+cross-context-disclosure risks. They are not hidden in or used to raise the older Medium
+`RISK-LOCAL-IMPORT-EXPORT-INTEGRITY` umbrella, which remains the canonical risk for bounded-file
+schema/replay/export and CSV concerns such as PERS-08.
+
+### Relay authorization and state
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| RELAY-AUTH-01 | ABUSE-RELAY-NAME-COLLISION, ABUSE-RELAY-LEAVE-WRONG-NAME | RISK-RELAY-IDENTITY |
+| RELAY-AUTH-02 | ABUSE-RELAY-WEAK-KEY-GUESS | RISK-RELAY-KEY-BRUTEFORCE |
+| RELAY-AUTH-03 | ABUSE-RELAY-PLAINTEXT-KEY, ABUSE-RELAY-CLEARTEXT-CREDENTIAL | RISK-RELAY-KEY-DISCLOSURE |
+| RELAY-AUTH-04 | ABUSE-RELAY-REGISTRY-FAIL-OPEN | RISK-RELAY-REGISTRY-FAIL-OPEN |
+| RELAY-STATE-01 | ABUSE-RELAY-OUT-OF-ORDER-STATE | RISK-RELAY-ORDERING |
+| RELAY-STATE-02 | ABUSE-RELAY-SILENT-CAPACITY | RISK-RELAY-CAPACITY |
+| RELAY-STATE-03, RELAY-STATE-04 | ABUSE-RELAY-WAYPOINT-FLOOD, ABUSE-RELAY-CROSS-ROOM-MARK-GROWTH | RISK-RELAY-MARK-CAP |
+| RELAY-BROWSER-01 | ABUSE-RELAY-BROWSER-CONTEXT | RISK-RELAY-BROWSER-HARDENING |
+| RELAY-OPS-01 | ABUSE-RELAY-PUBLIC-ENDPOINT-DOS, ABUSE-ADMIN-REPORT-FLOOD | RISK-RELAY-NO-RATE-LIMIT, RISK-REPORT-RATE-LIMIT |
+| RELAY-TRUST-01 | ABUSE-RELAY-STALE-FRESHNESS | RISK-RELAY-CLIENT-TRUST |
+
+### Windows platform boundaries
+
+| Audit evidence | Canonical abuse case | Canonical risk |
+| --- | --- | --- |
+| WIN-001 | ABUSE-WINDOW-CAPTURE-HANDLE-SWAP | RISK-WINDOW-CAPTURE-IDENTITY |
+| WIN-002, WIN-010 | ABUSE-CAPTURE-INTEGER-OVERFLOW | RISK-CAPTURE-BOUNDS |
+| WIN-003, WIN-009 | ABUSE-WINDOW-NATIVE-LIFETIME | RISK-WINDOW-NATIVE-LIFETIME |
+| WIN-004 | ABUSE-WINDOW-DPI-MISMATCH | RISK-WINDOW-DPI |
+| WIN-005 | ABUSE-WATCHED-PATH-REPARSE | RISK-WATCHED-PATH-CONTAINMENT |
+| WIN-006 | ABUSE-WATCHER-UNBOUNDED-SEEN-SET | RISK-WATCHER-BOUNDS |
+| WIN-007 | ABUSE-LOCAL-FILE-PATH-SUBSTITUTION | RISK-LOCAL-FILE-IDENTITY |
+| WIN-008 | ABUSE-NATIVE-OCR-LOAD-HIJACK | RISK-NATIVE-OCR-SUPPLY-CHAIN |
+| WIN-011 | ABUSE-SHELL-LAYOUT-CORRUPTION | RISK-SHELL-LAYOUT-RECOVERY |
+| WIN-012 | ABUSE-UPDATE-CHANNEL-DOWNGRADE | RISK-UPDATE-CHANNEL-TRUST |
+| WIN-013 | ABUSE-INSTALL-ELEVATION | RISK-INSTALL-PRIVILEGE |
+| WIN-014 | ABUSE-ANTICHEAT-UNREVIEWED-EVIDENCE-SURFACE | RISK-ANTICHEAT-REVIEW-DISCIPLINE |
+
+WIN-014 is deliberately Medium, matching the canonical current review-discipline gap. If a
+future change actually reads EFT memory, generates game input, or renders an in-game overlay,
+that implementation breach is Critical; the current source review found no such breach.
 
 ## What #317 still requires
 
-1. **Complete adversarial implementation review.** This phase does not complete the requested
-   line-by-line review of every serializer, migration/state transition, external dependency,
-   error path, authorization path, or Windows P/Invoke lifetime. The remaining areas are listed
-   in `CONTROLS_AND_RESIDUAL_RISK.md`.
-2. **Mitigate and verify the open High findings.** Documentation is not mitigation. In
-   particular, RISK-RELAY-OBSERVED-DATA-POLICY is a current source/current policy conflict and is
-   release-blocking until product source stops the transmission or a separately authorized
-   policy decision changes the contract outside this worktree. RISK-REPORT-REDACTION is likewise
-   release-blocking until #281/#310 verify a complete assembled/persisted report excludes default
-   paths, coordinate-bearing data, screenshot names, game logs, and credentials.
-3. **Implement and review v2-only boundaries.** Pairing/local gateway, rebuilt operator/report
-   lifecycle, historical model snapshots, new recognition, and Setup/Admin disclosure cannot be
-   threat-modeled as completed systems before their designs exist. The generic #264 evidence
-   envelopes have landed; each remaining row in `TBD_COMPONENTS.md` names feature review debt.
-4. **Executable security verification.** This worktree owns documentation and illustrative
-   fixtures only. It does not add a security test project, workflow, or stronger static analyzer.
-   Fixtures still need behavior assertions in the appropriate test suites. Generic #264 data-
-   contract assertions have landed; #305/#311 still owe feature-specific assertions.
-5. **Release evidence.** GitHub Actions remains the integration gate. A configured workflow is not
-   a passing run; #317 closeout must link exact-head runs and any required manual `dev` evidence.
+1. Implement and verify every Mitigate/Defer control in its named issue; documentation does not
+   make the current behavior safe.
+2. Resolve every open High before v2 release, including external-body bounds, relay/admin
+   authorization, registry fail-open, report privacy, watched-path containment, context isolation,
+   native OCR loading, and release/update trust.
+3. Add executable hostile-input/state/race/platform tests named by the register. Existing test
+   names were read but not run and are not **Tested (automated)** evidence.
+4. Attach exact-head passing GitHub Actions for `scripts/build.sh`/`scripts/test.sh` or their
+   workflow equivalents, `scripts/audit-safety.sh`, secret/license checks, and each new security
+   assertion. Add stated Windows/staging/manual `dev` evidence where the risk requires it.
+5. Re-review future #269–#316 component implementations against the same stable IDs and update
+   this living register rather than creating unindexed standalone findings.
 
-## Recommended next steps
+## Local verification boundary
 
-1. Resolve RISK-RELAY-OBSERVED-DATA-POLICY without silently relaxing `docs/SAFETY.md`.
-2. Assign #304/#310 owners for authenticated confidential LAN transport, scoped pairing
-   credentials, key-at-rest handling, relay/operator trust, global mark/request limits, and
-   bounded report lifecycle.
-3. Complete the Velopack/update-channel review and choose a tested rollback/downgrade policy.
-4. Wire the seven fixtures into executable unit or purpose-built relay integration cases where
-   they can assert actual handlers rather than prose.
-5. Extend this living register as each `TBD_COMPONENTS.md` design lands; do not mark a planned
-   boundary Reviewed before source exists.
-
-## Verification performed for this correction
-
-- No `dotnet`, MSBuild, build, product test, debugger, Docker, or VM command was run locally.
-- All seven fixtures were parsed with `jq -e . tests/security/fixtures/*.json`.
-- Abuse/risk and fixture/abuse identifier sets were compared in both directions with short shell
-  extraction checks; every risk now has an abuse case and every abuse case has one risk.
-- Documentation links/paths, `git diff --check`, `scripts/sweep-prose.sh`,
-  `scripts/audit-safety.sh`, and `scripts/scan-secrets.sh` were run as short static checks only.
-
-Those bullets report static commands, not product behavior. Exact-head GitHub Actions results are
-recorded in PR #319 after the pushed correction and remain the required integration evidence.
+This integration runs documentation/link/identifier/diff and existing lightweight lexical static
+checks only. It does not run `dotnet`, MSBuild, repository build/test scripts, a debugger,
+Docker/container/VM, simulator/capture, network attack, or EFT-facing operation. Exact-head CI is
+still required integration evidence.
