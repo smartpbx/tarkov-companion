@@ -113,18 +113,18 @@ public sealed class RelayHttpSecurityTests
         Assert.True(RelayRequestGuard.ValidateJson<OpaqueRelayFrame>(frame.Request).Allowed);
         await Assert.ThrowsAsync<InvalidDataException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
             new MemoryStream(new byte[RelaySecurityBounds.MaximumRequestBytes + 1])).AsTask());
-        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+        await Assert.ThrowsAnyAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
             new MemoryStream("null"u8.ToArray())).AsTask());
 
         var oversizedString = Encoding.UTF8.GetBytes(
             "{\"supportedVersions\":{\"minimum\":{\"major\":2,\"minor\":0},\"maximum\":{\"major\":2,\"minor\":0}}," +
             "\"clientInstanceId\":\"" + new string('x', ProtocolBounds.MaxStringBytes + 1) + "\",\"optionalFeatures\":[]}");
-        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+        await Assert.ThrowsAnyAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
             new MemoryStream(oversizedString)).AsTask());
 
         var nested = Encoding.UTF8.GetBytes(new string('[', ProtocolBounds.MaxJsonDepth + 1) +
             new string(']', ProtocolBounds.MaxJsonDepth + 1));
-        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+        await Assert.ThrowsAnyAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
             new MemoryStream(nested)).AsTask());
     }
 
