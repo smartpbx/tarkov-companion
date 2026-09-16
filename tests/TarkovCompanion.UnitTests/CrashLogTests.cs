@@ -15,9 +15,9 @@ namespace TarkovCompanion.UnitTests;
 ///
 /// Each was fixed where it appeared and the next one arrived somewhere else, because the cause
 /// was never the assertion — it was that these tests are not alone and the code they test
-/// assumes they are. DisableParallelization is the tool for exactly that: it keeps this
-/// collection from running alongside any other. Eight fast tests is a negligible price for
-/// ending a class of failure rather than its instances.
+/// assumes they are. DisableParallelization keeps this collection from running alongside any
+/// other. It cannot, however, empty the finalizer queue left by tests that have already ended;
+/// the exact-sequence proof below drains that queue before installing its destination.
 /// </remarks>
 [CollectionDefinition(Name, DisableParallelization = true)]
 public sealed class CrashLogCollection
@@ -54,6 +54,16 @@ public sealed class CrashLogTests : IDisposable
     [Fact]
     public void RepeatsAreCollapsedIntoOneLineWithACount()
     {
+        // This assertion deliberately proves one uninterrupted run of identical entries. The
+        // collection keeps other tests from running beside it, but completed tests can leave a
+        // faulted Task waiting for finalization. Its process-wide UnobservedTaskException is a
+        // legitimate different log entry and therefore splits the run. Detach first so a
+        // previously installed handler drains those old failures into no destination, then
+        // install the controlled destination only after every pending finalizer has finished.
+        CrashLog.Detach();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
         CrashLog.Install(_directory);
         for (var attempt = 0; attempt < 120; attempt++)
         {
