@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -14,11 +15,14 @@ namespace TarkovCompanion.GroupServer.Storage;
 /// </remarks>
 public sealed class VerifiedRelayRegistryStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private readonly string _path;
     private readonly string _backupPath;
     private readonly JsonSerializerOptions _json;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private long _expectedGeneration;
+    private bool _allowRecoveryOverwrite;
+    private bool _loaded;
 
     public VerifiedRelayRegistryStore(string path)
     {
@@ -47,22 +51,48 @@ public sealed class VerifiedRelayRegistryStore
         {
             if (!File.Exists(_path) && !File.Exists(_backupPath))
             {
+                TrackLoad(generation: 0, allowRecoveryOverwrite: true);
                 return new RelayRegistryLoadResult(RelayRegistryState.Empty, RelayRegistryLoadStatus.Uninitialized);
             }
 
             var primary = await TryReadVerifiedAsync(_path, cancellationToken).ConfigureAwait(false);
             var backup = await TryReadVerifiedAsync(_backupPath, cancellationToken).ConfigureAwait(false);
+            if (primary is not null && backup is not null && primary.Generation == backup.Generation &&
+                !string.Equals(primary.PayloadDigestBase64Url, backup.PayloadDigestBase64Url, StringComparison.Ordinal))
+            {
+                // Equal generations are written from one immutable state. Divergence means at
+                // least one independently checksummed copy was replaced, so choosing either one
+                // would turn ambiguity at an authorization boundary into authority.
+                TrackLoad(generation: 0, allowRecoveryOverwrite: true);
+                return new RelayRegistryLoadResult(RelayRegistryState.Empty, RelayRegistryLoadStatus.Corrupt);
+            }
+
             if (primary is not null && (backup is null || primary.Generation >= backup.Generation))
             {
+                if (backup is null || primary.Generation > backup.Generation)
+                {
+                    // Authentication must not continue beside a stale fallback. Otherwise a later
+                    // primary failure could resurrect a credential or device revoked after the
+                    // backup's generation.
+                    await WriteEnvelopeAtomicAsync(
+                        _backupPath,
+                        primary.State,
+                        primary.Generation,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                TrackLoad(primary.Generation, allowRecoveryOverwrite: false);
                 return new RelayRegistryLoadResult(primary.State, RelayRegistryLoadStatus.PrimaryVerified);
             }
 
             if (backup is null)
             {
+                TrackLoad(generation: 0, allowRecoveryOverwrite: true);
                 return new RelayRegistryLoadResult(RelayRegistryState.Empty, RelayRegistryLoadStatus.Corrupt);
             }
 
             await WriteEnvelopeAtomicAsync(_path, backup.State, backup.Generation, cancellationToken).ConfigureAwait(false);
+            TrackLoad(backup.Generation, allowRecoveryOverwrite: false);
             return new RelayRegistryLoadResult(backup.State, RelayRegistryLoadStatus.BackupRestored);
         }
         finally
@@ -78,19 +108,49 @@ public sealed class VerifiedRelayRegistryStore
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (!_loaded)
+            {
+                throw new InvalidOperationException("The relay registry must be loaded before it can be saved.");
+            }
+
             var primary = await TryReadVerifiedAsync(_path, cancellationToken).ConfigureAwait(false);
             var backup = await TryReadVerifiedAsync(_backupPath, cancellationToken).ConfigureAwait(false);
-            var generation = checked(Math.Max(primary?.Generation ?? 0, backup?.Generation ?? 0) + 1);
+            if (primary is not null && backup is not null && primary.Generation == backup.Generation &&
+                !string.Equals(primary.PayloadDigestBase64Url, backup.PayloadDigestBase64Url, StringComparison.Ordinal) &&
+                !_allowRecoveryOverwrite)
+            {
+                throw new InvalidDataException("Equal registry generations diverged.");
+            }
+
+            var currentGeneration = Math.Max(primary?.Generation ?? 0, backup?.Generation ?? 0);
+            if (!_allowRecoveryOverwrite && currentGeneration != _expectedGeneration)
+            {
+                throw new InvalidDataException("The relay registry generation changed or disappeared after verification.");
+            }
+
+            var generation = _allowRecoveryOverwrite && currentGeneration >= ProtocolBounds.MaxWireInteger
+                ? 1
+                : currentGeneration < ProtocolBounds.MaxWireInteger
+                    ? currentGeneration + 1
+                    : throw new InvalidDataException("The relay registry generation is exhausted.");
             // Backup first: if the process stops before replacing primary, LoadAsync sees both
             // verified generations and promotes the newer backup. After success both copies are
             // the same generation, so restoring one can never resurrect a revoked credential.
             await WriteEnvelopeAtomicAsync(_backupPath, state, generation, cancellationToken).ConfigureAwait(false);
             await WriteEnvelopeAtomicAsync(_path, state, generation, cancellationToken).ConfigureAwait(false);
+            TrackLoad(generation, allowRecoveryOverwrite: false);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private void TrackLoad(long generation, bool allowRecoveryOverwrite)
+    {
+        _expectedGeneration = generation;
+        _allowRecoveryOverwrite = allowRecoveryOverwrite;
+        _loaded = true;
     }
 
     private async ValueTask<VerifiedRegistry?> TryReadVerifiedAsync(
@@ -105,14 +165,15 @@ public sealed class VerifiedRelayRegistryStore
                 return null;
             }
 
-            var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-            if (bytes.Length is <= 0 or > RelaySecurityBounds.MaximumRegistryBytes)
+            var bytes = await ReadBoundedAsync(path, cancellationToken).ConfigureAwait(false);
+            if (bytes is null)
             {
                 return null;
             }
 
             var envelope = JsonSerializer.Deserialize<StoredRegistryEnvelope>(bytes, _json);
-            if (envelope is null || envelope.SchemaVersion != SchemaVersion || envelope.Generation <= 0 ||
+            if (envelope is null || envelope.SchemaVersion != SchemaVersion ||
+                envelope.Generation is <= 0 or > ProtocolBounds.MaxWireInteger ||
                 envelope.Payload is null ||
                 string.IsNullOrWhiteSpace(envelope.PayloadSha256Base64Url))
             {
@@ -129,12 +190,51 @@ public sealed class VerifiedRelayRegistryStore
             }
 
             ValidateOperationalState(envelope.Payload);
-            return new VerifiedRegistry(envelope.Payload, envelope.Generation);
+            return new VerifiedRegistry(envelope.Payload, envelope.Generation, envelope.PayloadSha256Base64Url);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             JsonException or ArgumentException or NotSupportedException or FormatException)
         {
             return null;
+        }
+    }
+
+    private static async ValueTask<byte[]?> ReadBoundedAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var capacity = RelaySecurityBounds.MaximumRegistryBytes + 1;
+        var rented = ArrayPool<byte>.Shared.Rent(capacity);
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var total = 0;
+            while (total < capacity)
+            {
+                var read = await stream.ReadAsync(
+                    rented.AsMemory(total, capacity - total),
+                    cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                total += read;
+            }
+
+            return total is > 0 and <= RelaySecurityBounds.MaximumRegistryBytes
+                ? rented.AsSpan(0, total).ToArray()
+                : null;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(rented, clearArray: true);
         }
     }
 
@@ -144,7 +244,7 @@ public sealed class VerifiedRelayRegistryStore
         long generation,
         CancellationToken cancellationToken)
     {
-        if (generation <= 0)
+        if (generation is <= 0 or > ProtocolBounds.MaxWireInteger)
         {
             throw new ArgumentOutOfRangeException(nameof(generation));
         }
@@ -193,5 +293,8 @@ public sealed class VerifiedRelayRegistryStore
         string PayloadSha256Base64Url,
         RelayRegistryState Payload);
 
-    private sealed record VerifiedRegistry(RelayRegistryState State, long Generation);
+    private sealed record VerifiedRegistry(
+        RelayRegistryState State,
+        long Generation,
+        string PayloadDigestBase64Url);
 }

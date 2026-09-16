@@ -35,6 +35,8 @@ public sealed record RelayPrincipal
         DeviceKeyId deviceKeyId,
         DeviceSessionId sessionId,
         RelayChannelId channelId,
+        CompanionProtocolVersion protocolVersion,
+        long keyEpoch,
         DeviceAuthorizationRole role,
         IReadOnlyList<DeviceCapability> capabilities,
         CompanionSurfaceKind surface,
@@ -47,7 +49,8 @@ public sealed record RelayPrincipal
             throw new ArgumentException("A relay principal requires device, key, session, and channel identity.");
         }
 
-        if (!Enum.IsDefined(role) || !Enum.IsDefined(surface))
+        if (!protocolVersion.IsDefined || keyEpoch is <= 0 or > ProtocolBounds.MaxKeyEpoch ||
+            !Enum.IsDefined(role) || !Enum.IsDefined(surface))
         {
             throw new ArgumentOutOfRangeException(nameof(role));
         }
@@ -59,16 +62,25 @@ public sealed record RelayPrincipal
             throw new ArgumentOutOfRangeException(nameof(capabilities));
         }
 
-        if (authenticatedUtc == default || authenticatedUtc.Offset != TimeSpan.Zero ||
-            expiresUtc == default || expiresUtc.Offset != TimeSpan.Zero || expiresUtc <= authenticatedUtc)
+        if (!RelayAuthorization.IsCapabilitySetValid(role, copied))
         {
-            throw new ArgumentException("Relay principal timestamps must be ordered UTC values.");
+            throw new ArgumentException("The principal capabilities are not valid for its role.", nameof(capabilities));
+        }
+
+        if (authenticatedUtc == default || authenticatedUtc.Offset != TimeSpan.Zero ||
+            expiresUtc == default || expiresUtc.Offset != TimeSpan.Zero || expiresUtc <= authenticatedUtc ||
+            authenticatedUtc.Ticks % TimeSpan.TicksPerMillisecond != 0 ||
+            expiresUtc.Ticks % TimeSpan.TicksPerMillisecond != 0)
+        {
+            throw new ArgumentException("Relay principal timestamps must be ordered millisecond UTC values.");
         }
 
         DeviceId = deviceId;
         DeviceKeyId = deviceKeyId;
         SessionId = sessionId;
         ChannelId = channelId;
+        ProtocolVersion = protocolVersion;
+        KeyEpoch = keyEpoch;
         Role = role;
         Capabilities = Array.AsReadOnly(copied);
         Surface = surface;
@@ -83,6 +95,10 @@ public sealed record RelayPrincipal
     public DeviceSessionId SessionId { get; }
 
     public RelayChannelId ChannelId { get; }
+
+    public CompanionProtocolVersion ProtocolVersion { get; }
+
+    public long KeyEpoch { get; }
 
     public DeviceAuthorizationRole Role { get; }
 
@@ -105,8 +121,23 @@ public readonly record struct RelayAuthorizationDecision(bool Allowed, string Co
 /// <summary>Central role and capability policy for every relay security mutation.</summary>
 public static class RelayAuthorization
 {
+    // Keep this list explicit. A newly added protocol capability must not silently become an
+    // owner grant until the relay policy and threat model have reviewed it.
     private static readonly ReadOnlyCollection<DeviceCapability> OwnerCapabilities = Array.AsReadOnly(
-        Enum.GetValues<DeviceCapability>());
+        new[]
+        {
+            DeviceCapability.FollowDesktop,
+            DeviceCapability.RequestControl,
+            DeviceCapability.ShowOnDesktop,
+            DeviceCapability.ManageOwnMarks,
+            DeviceCapability.PublishTeamMarks,
+            DeviceCapability.RequestCaptureIntent,
+            DeviceCapability.ReviewCaptureResult,
+            DeviceCapability.ManageDevices,
+            DeviceCapability.ResolveControlRequests,
+            DeviceCapability.ReportCaptureProgress,
+            DeviceCapability.ManageProfilePreferences,
+        });
 
     private static readonly ReadOnlyCollection<DeviceCapability> MemberCapabilities = Array.AsReadOnly(
         new[]
@@ -117,6 +148,7 @@ public static class RelayAuthorization
             DeviceCapability.ManageOwnMarks,
             DeviceCapability.RequestCaptureIntent,
             DeviceCapability.ReviewCaptureResult,
+            DeviceCapability.ManageProfilePreferences,
         });
 
     private static readonly ReadOnlyCollection<DeviceCapability> ObserverCapabilities = Array.AsReadOnly(
@@ -142,18 +174,25 @@ public static class RelayAuthorization
     public static RelayAuthorizationDecision Decide(
         RelayPrincipal? principal,
         RelayPermission permission,
+        DateTimeOffset nowUtc,
         CompanionDeviceId? targetDeviceId = null)
     {
-        if (principal is null || !Enum.IsDefined(permission) || principal.ExpiresUtc <= principal.AuthenticatedUtc)
+        RelayCsrfProtector.ValidateUtc(nowUtc, nameof(nowUtc));
+        if (principal is null || !Enum.IsDefined(permission) || nowUtc >= principal.ExpiresUtc ||
+            principal.AuthenticatedUtc > nowUtc.Add(ProtocolBounds.MaxClientClockSkew) ||
+            !CompanionProtocolVersion.Current.CanRead(principal.ProtocolVersion) ||
+            !IsCapabilitySetValid(principal.Role, principal.Capabilities))
         {
             return RelayAuthorizationDecision.Deny;
         }
 
-        var ownsTarget = targetDeviceId is null || targetDeviceId == principal.DeviceId;
+        var ownsTarget = targetDeviceId is not null && targetDeviceId == principal.DeviceId;
         var allowed = permission switch
         {
             RelayPermission.ReceiveOpaqueFrames => true,
-            RelayPermission.PublishOpaqueFrames => principal.Role is not DeviceAuthorizationRole.Observer,
+            // The relay cannot see the encrypted payload kind. Observers must be able to send
+            // acknowledgements and reconnect traffic; the desktop enforces inner mutations.
+            RelayPermission.PublishOpaqueFrames => true,
             RelayPermission.CloseOwnSession or RelayPermission.RotateOwnSession => ownsTarget,
             RelayPermission.CreatePairingInvitation or RelayPermission.ApprovePairingInvitation or
                 RelayPermission.RevokeDevice or RelayPermission.ReplaceDevice or RelayPermission.ReadSecurityAudit =>

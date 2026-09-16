@@ -7,6 +7,7 @@ namespace TarkovCompanion.GroupServer.Security;
 
 /// <summary>A short-lived one-use recovery assertion created outside the browser session.</summary>
 public sealed record OwnerRecoveryGrant(
+    int Version,
     CompanionDeviceId NewOwnerDeviceId,
     DeviceKeyId NewOwnerKeyId,
     string NonceBase64Url,
@@ -22,6 +23,7 @@ public sealed record OwnerRecoveryGrant(
 /// </remarks>
 public sealed class OwnerRecoveryProtector : IDisposable
 {
+    public const int CurrentGrantVersion = 1;
     private static readonly TimeSpan Lifetime = TimeSpan.FromMinutes(2);
     private const int MaximumConsumedNonces = 256;
     private readonly byte[] _secret;
@@ -45,54 +47,65 @@ public sealed class OwnerRecoveryProtector : IDisposable
     /// <summary>Used by a trusted local/operator ceremony, never by an unauthenticated endpoint.</summary>
     public OwnerRecoveryGrant CreateGrant(CompanionDeviceId deviceId, DeviceKeyId keyId)
     {
-        ThrowIfDisposed();
-        ValidateIds(deviceId, keyId);
-        var now = MillisecondUtc(_timeProvider.GetUtcNow());
-        var nonce = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(32));
-        var expires = now.Add(Lifetime);
-        return new OwnerRecoveryGrant(deviceId, keyId, nonce, now, expires, ComputeMac(deviceId, keyId, nonce, now, expires));
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            ValidateIds(deviceId, keyId);
+            var now = MillisecondUtc(_timeProvider.GetUtcNow());
+            var nonce = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(32));
+            var expires = now.Add(Lifetime);
+            return new OwnerRecoveryGrant(
+                CurrentGrantVersion,
+                deviceId,
+                keyId,
+                nonce,
+                now,
+                expires,
+                ComputeMac(CurrentGrantVersion, deviceId, keyId, nonce, now, expires));
+        }
     }
 
     public bool TryConsume(OwnerRecoveryGrant? grant)
     {
-        ThrowIfDisposed();
-        if (grant is null)
+        lock (_gate)
         {
-            return false;
-        }
-
-        try
-        {
-            ValidateIds(grant.NewOwnerDeviceId, grant.NewOwnerKeyId);
-            RelayCsrfProtector.ValidateUtc(grant.IssuedUtc, nameof(grant.IssuedUtc));
-            RelayCsrfProtector.ValidateUtc(grant.ExpiresUtc, nameof(grant.ExpiresUtc));
-            var nonce = RelayCsrfProtector.DecodeBase64Url(grant.NonceBase64Url);
-            var presented = RelayCsrfProtector.DecodeBase64Url(grant.MacBase64Url);
-            if (nonce.Length != 32 || presented.Length != SHA256.HashSizeInBytes)
+            ThrowIfDisposed();
+            if (grant is null || grant.Version != CurrentGrantVersion)
             {
                 return false;
             }
 
-            var now = MillisecondUtc(_timeProvider.GetUtcNow());
-            if (grant.ExpiresUtc <= now || grant.ExpiresUtc - grant.IssuedUtc != Lifetime ||
-                grant.IssuedUtc > now.Add(RelaySecurityBounds.ClockSkew))
+            try
             {
-                return false;
-            }
+                ValidateIds(grant.NewOwnerDeviceId, grant.NewOwnerKeyId);
+                RelayCsrfProtector.ValidateUtc(grant.IssuedUtc, nameof(grant.IssuedUtc));
+                RelayCsrfProtector.ValidateUtc(grant.ExpiresUtc, nameof(grant.ExpiresUtc));
+                var nonce = RelayCsrfProtector.DecodeBase64Url(grant.NonceBase64Url);
+                var presented = RelayCsrfProtector.DecodeBase64Url(grant.MacBase64Url);
+                if (nonce.Length != 32 || presented.Length != SHA256.HashSizeInBytes)
+                {
+                    return false;
+                }
 
-            var expected = RelayCsrfProtector.DecodeBase64Url(ComputeMac(
-                grant.NewOwnerDeviceId,
-                grant.NewOwnerKeyId,
-                grant.NonceBase64Url,
-                grant.IssuedUtc,
-                grant.ExpiresUtc));
-            if (!CryptographicOperations.FixedTimeEquals(expected, presented))
-            {
-                return false;
-            }
+                var now = MillisecondUtc(_timeProvider.GetUtcNow());
+                if (grant.ExpiresUtc <= now || grant.ExpiresUtc - grant.IssuedUtc != Lifetime ||
+                    grant.IssuedUtc > now.Add(ProtocolBounds.MaxClientClockSkew))
+                {
+                    return false;
+                }
 
-            lock (_gate)
-            {
+                var expected = RelayCsrfProtector.DecodeBase64Url(ComputeMac(
+                    grant.Version,
+                    grant.NewOwnerDeviceId,
+                    grant.NewOwnerKeyId,
+                    grant.NonceBase64Url,
+                    grant.IssuedUtc,
+                    grant.ExpiresUtc));
+                if (!CryptographicOperations.FixedTimeEquals(expected, presented))
+                {
+                    return false;
+                }
+
                 foreach (var expired in _consumed
                              .Where(pair => pair.Value <= now)
                              .Select(pair => pair.Key)
@@ -109,25 +122,29 @@ public sealed class OwnerRecoveryProtector : IDisposable
                 _consumed.Add(grant.NonceBase64Url, grant.ExpiresUtc);
                 return true;
             }
-        }
-        catch (Exception exception) when (exception is ArgumentException or FormatException or CryptographicException)
-        {
-            return false;
+            catch (Exception exception) when (exception is ArgumentException or FormatException or CryptographicException)
+            {
+                return false;
+            }
         }
     }
 
     public void Dispose()
     {
-        if (_disposed)
+        lock (_gate)
         {
-            return;
-        }
+            if (_disposed)
+            {
+                return;
+            }
 
-        CryptographicOperations.ZeroMemory(_secret);
-        _disposed = true;
+            CryptographicOperations.ZeroMemory(_secret);
+            _disposed = true;
+        }
     }
 
     private string ComputeMac(
+        int version,
         CompanionDeviceId deviceId,
         DeviceKeyId keyId,
         string nonce,
@@ -135,7 +152,8 @@ public sealed class OwnerRecoveryProtector : IDisposable
         DateTimeOffset expiresUtc)
     {
         var payload = string.Join('\n',
-            "tarkov-companion-owner-recovery-v1",
+            "tarkov-companion-owner-recovery",
+            version.ToString(System.Globalization.CultureInfo.InvariantCulture),
             deviceId.Value.ToString("N"),
             keyId.Value,
             nonce,

@@ -1,4 +1,6 @@
 using System.Net;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer.Security;
@@ -8,11 +10,12 @@ namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 public sealed class RelayHttpSecurityTests
 {
     [Fact]
-    public void BrowserSessionCookieIsHostOnlySecureHttpOnlyAndStrict()
+    public void BrowserSessionCookieIsHostOnlySecureHttpOnlyStrictAndExactlyExpiring()
     {
-        var options = RelaySessionCookie.Create(RelaySecurityTestFactory.Now.AddHours(1));
+        var expires = RelaySecurityTestFactory.Now.AddHours(1);
+        var options = RelaySessionCookie.Create(expires, RelaySecurityTestFactory.Now);
         var sessionId = new DeviceSessionId(Guid.NewGuid());
-        var secret = Convert.ToBase64String(new byte[32]).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var secret = RelaySecurityTestFactory.Base64Url(new byte[32]);
         var value = RelaySessionCookie.Encode(sessionId, secret);
 
         Assert.StartsWith("__Host-", RelaySessionCookie.Name, StringComparison.Ordinal);
@@ -21,21 +24,27 @@ public sealed class RelayHttpSecurityTests
         Assert.Equal(SameSiteMode.Strict, options.SameSite);
         Assert.Equal("/", options.Path);
         Assert.Null(options.Domain);
+        Assert.Equal(expires, options.Expires);
+        Assert.Equal(TimeSpan.FromHours(1), options.MaxAge);
         Assert.True(RelaySessionCookie.TryDecode(value, out var decoded));
         Assert.Equal(sessionId, decoded.SessionId);
         Assert.Equal(secret, decoded.Secret);
+        Assert.False(RelaySessionCookie.TryDecode(value + "=", out _));
         Assert.False(RelaySessionCookie.TryDecode("a-known-room-key", out _));
     }
 
     [Fact]
-    public void SecurityHeadersCoverBrowserIsolationCachingAndHsts()
+    public void SecurityHeadersCoverIsolationCachingHstsAndSameOriginConnections()
     {
         var context = new DefaultHttpContext();
 
         RelaySecurityHeaders.Apply(context.Response, RelayHttpSurface.BrowserApplication, effectiveHttps: true);
 
-        Assert.Contains("frame-ancestors 'none'", context.Response.Headers.ContentSecurityPolicy.ToString());
-        Assert.DoesNotContain("unsafe-inline", context.Response.Headers.ContentSecurityPolicy.ToString());
+        var csp = context.Response.Headers.ContentSecurityPolicy.ToString();
+        Assert.Contains("frame-ancestors 'none'", csp);
+        Assert.Contains("connect-src 'self'", csp);
+        Assert.DoesNotContain("unsafe-inline", csp);
+        Assert.DoesNotContain("wss:", csp);
         Assert.Equal("text/html; charset=utf-8", context.Response.ContentType);
         Assert.Equal("DENY", context.Response.Headers.XFrameOptions.ToString());
         Assert.Equal("nosniff", context.Response.Headers.XContentTypeOptions.ToString());
@@ -46,51 +55,77 @@ public sealed class RelayHttpSecurityTests
     }
 
     [Fact]
-    public void UntrustedForwardedHeadersAreRejectedAndTrustedHttpsIsAccepted()
+    public void ForwardingIsAcceptedOnlyFromConfiguredPeerWithOneHttpsProto()
     {
         var untrusted = Context(IPAddress.Parse("198.51.100.10"));
         untrusted.Request.Headers["X-Forwarded-Proto"] = "https";
         var trusted = Context(IPAddress.Parse("10.0.0.2"));
         trusted.Request.Headers["X-Forwarded-Proto"] = "https";
+        var ambiguous = Context(IPAddress.Parse("10.0.0.2"));
+        ambiguous.Request.Headers["X-Forwarded-Proto"] = "https,http";
+        var rfcForwarded = Context(IPAddress.Parse("10.0.0.2"));
+        rfcForwarded.Request.Headers["Forwarded"] = "for=198.51.100.1;proto=https";
         var options = new RelayTransportPolicyOptions(
             requireHttps: true,
             allowLoopbackHttp: false,
-            [IPAddress.Parse("10.0.0.2")]);
+            [IPAddress.Parse("::ffff:10.0.0.2")]);
 
         Assert.False(RelayTransportPolicy.Evaluate(untrusted, options).Allowed);
         var accepted = RelayTransportPolicy.Evaluate(trusted, options);
         Assert.True(accepted.Allowed);
         Assert.True(accepted.EffectiveHttps);
+        Assert.False(RelayTransportPolicy.Evaluate(ambiguous, options).Allowed);
+        Assert.False(RelayTransportPolicy.Evaluate(rfcForwarded, options).Allowed);
     }
 
     [Fact]
-    public void CleartextIsRejectedExceptExplicitLoopbackDevelopment()
+    public void BrowserCookieMutationRequiresCsrfFetchMetadataAndExactOrigin()
     {
-        var remote = Context(IPAddress.Parse("198.51.100.20"));
-        var loopback = Context(IPAddress.Loopback);
-        var options = new RelayTransportPolicyOptions(requireHttps: true, allowLoopbackHttp: true);
+        var valid = Context(IPAddress.Loopback);
+        valid.Request.Scheme = "https";
+        valid.Request.Host = new HostString("relay.example");
+        valid.Request.Headers["Origin"] = "https://relay.example";
+        valid.Request.Headers["Sec-Fetch-Site"] = "same-origin";
+        valid.Request.Headers[RelayCsrfProtector.HeaderName] = RelaySecurityTestFactory.Base64Url(new byte[32]);
+        var crossSite = Context(IPAddress.Loopback);
+        crossSite.Request.Scheme = "https";
+        crossSite.Request.Host = new HostString("relay.example");
+        crossSite.Request.Headers["Origin"] = "https://attacker.example";
+        crossSite.Request.Headers["Sec-Fetch-Site"] = "cross-site";
+        crossSite.Request.Headers[RelayCsrfProtector.HeaderName] = RelaySecurityTestFactory.Base64Url(new byte[32]);
 
-        Assert.False(RelayTransportPolicy.Evaluate(remote, options).Allowed);
-        Assert.True(RelayTransportPolicy.Evaluate(loopback, options).Allowed);
+        Assert.True(RelayRequestGuard.ValidateBrowserMutation(valid.Request, cookieAuthenticated: true).Allowed);
+        Assert.False(RelayRequestGuard.ValidateBrowserMutation(crossSite.Request, cookieAuthenticated: true).Allowed);
+        Assert.True(RelayRequestGuard.ValidateBrowserMutation(crossSite.Request, cookieAuthenticated: false).Allowed);
     }
 
     [Fact]
-    public async Task RequestContentTypeDeclaredLengthAndStreamingLengthAreBounded()
+    public async Task RequestAndProtocolLexicalBoundsRejectNullDepthStringsAndOversize()
     {
-        var accepted = new DefaultHttpContext();
-        accepted.Request.ContentType = "application/json; charset=utf-8";
-        accepted.Request.ContentLength = 2;
-        var wrongType = new DefaultHttpContext();
-        wrongType.Request.ContentType = "text/plain";
-        var declaredLarge = new DefaultHttpContext();
-        declaredLarge.Request.ContentType = "application/json";
-        declaredLarge.Request.ContentLength = RelaySecurityBounds.MaximumRequestBytes + 1;
+        var ordinary = new DefaultHttpContext();
+        ordinary.Request.ContentType = "application/json; charset=utf-8";
+        ordinary.Request.ContentLength = ProtocolBounds.MaxPayloadBytes + 1;
+        var frame = new DefaultHttpContext();
+        frame.Request.ContentType = "application/json";
+        frame.Request.ContentLength = ProtocolBounds.MaxPayloadBytes + 1;
 
-        Assert.True(RelayRequestGuard.ValidateJson(accepted.Request).Allowed);
-        Assert.Equal("unsupported-content-type", RelayRequestGuard.ValidateJson(wrongType.Request).Code);
-        Assert.Equal("request-too-large", RelayRequestGuard.ValidateJson(declaredLarge.Request).Code);
+        Assert.Equal("request-too-large", RelayRequestGuard.ValidateJson<ClientHello>(ordinary.Request).Code);
+        Assert.True(RelayRequestGuard.ValidateJson<OpaqueRelayFrame>(frame.Request).Allowed);
         await Assert.ThrowsAsync<InvalidDataException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
             new MemoryStream(new byte[RelaySecurityBounds.MaximumRequestBytes + 1])).AsTask());
+        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+            new MemoryStream("null"u8.ToArray())).AsTask());
+
+        var oversizedString = Encoding.UTF8.GetBytes(
+            "{\"supportedVersions\":{\"minimum\":{\"major\":2,\"minor\":0},\"maximum\":{\"major\":2,\"minor\":0}}," +
+            "\"clientInstanceId\":\"" + new string('x', ProtocolBounds.MaxStringBytes + 1) + "\",\"optionalFeatures\":[]}");
+        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+            new MemoryStream(oversizedString)).AsTask());
+
+        var nested = Encoding.UTF8.GetBytes(new string('[', ProtocolBounds.MaxJsonDepth + 1) +
+            new string(']', ProtocolBounds.MaxJsonDepth + 1));
+        await Assert.ThrowsAsync<JsonException>(() => RelayRequestGuard.ReadProtocolJsonAsync<ClientHello>(
+            new MemoryStream(nested)).AsTask());
     }
 
     [Fact]
@@ -107,7 +142,7 @@ public sealed class RelayHttpSecurityTests
     }
 
     [Fact]
-    public void RateLimiterBoundsPartitionsAsWellAsRequests()
+    public void RateLimiterBoundsPartitionsAndRequiresOpaqueKeyedSourceHashes()
     {
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         var limiter = new RelayRateLimiter(
@@ -115,14 +150,15 @@ public sealed class RelayHttpSecurityTests
             limit: 1,
             window: TimeSpan.FromMinutes(1),
             maximumPartitions: 2);
-        var a = RelayRateLimiter.HashSource("a");
-        var b = RelayRateLimiter.HashSource("b");
-        var c = RelayRateLimiter.HashSource("c");
+        var a = RelaySecurityTestFactory.SourceHash("198.51.100.1");
+        var b = RelaySecurityTestFactory.SourceHash("198.51.100.2");
+        var c = RelaySecurityTestFactory.SourceHash("198.51.100.3");
 
         Assert.True(limiter.TryConsume(a).Allowed);
         Assert.True(limiter.TryConsume(b).Allowed);
         Assert.False(limiter.TryConsume(c).Allowed);
         Assert.False(limiter.TryConsume(a).Allowed);
+        Assert.Throws<ArgumentException>(() => limiter.TryConsume("198.51.100.4"));
         Assert.Equal(2, limiter.PartitionCount);
         clock.Advance(TimeSpan.FromMinutes(1));
         Assert.True(limiter.TryConsume(c).Allowed);

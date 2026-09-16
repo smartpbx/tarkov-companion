@@ -17,16 +17,27 @@ public static class RelaySessionCookie
 {
     public const string Name = "__Host-TarkovCompanion-Device";
 
-    public static CookieOptions Create(DateTimeOffset expiresUtc) => new()
+    public static CookieOptions Create(DateTimeOffset expiresUtc, DateTimeOffset nowUtc)
     {
-        Secure = true,
-        HttpOnly = true,
-        SameSite = SameSiteMode.Strict,
-        Path = "/",
-        IsEssential = true,
-        Expires = expiresUtc,
-        MaxAge = RelaySecurityBounds.MaximumBrowserSessionLifetime,
-    };
+        RelayCsrfProtector.ValidateUtc(expiresUtc, nameof(expiresUtc));
+        RelayCsrfProtector.ValidateUtc(nowUtc, nameof(nowUtc));
+        var lifetime = expiresUtc - nowUtc;
+        if (lifetime <= TimeSpan.Zero || lifetime > RelaySecurityBounds.MaximumBrowserSessionLifetime)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expiresUtc));
+        }
+
+        return new CookieOptions
+        {
+            Secure = true,
+            HttpOnly = true,
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            IsEssential = true,
+            Expires = expiresUtc,
+            MaxAge = lifetime,
+        };
+    }
 
     public static CookieOptions Delete() => new()
     {
@@ -59,7 +70,8 @@ public static class RelaySessionCookie
 
         var separator = value.IndexOf('.');
         if (separator != 32 || value.LastIndexOf('.') != separator ||
-            !Guid.TryParseExact(value.AsSpan(0, separator), "N", out var sessionId))
+            !Guid.TryParseExact(value.AsSpan(0, separator), "N", out var sessionId) ||
+            !string.Equals(sessionId.ToString("N"), value[..separator], StringComparison.Ordinal))
         {
             return false;
         }
@@ -103,7 +115,7 @@ public static class RelaySecurityHeaders
     public const string BrowserContentSecurityPolicy =
         "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
         "form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
-        "connect-src 'self' wss:";
+        "connect-src 'self'";
 
     public const string PermissionsPolicy =
         "accelerometer=(), ambient-light-sensor=(), autoplay=(), camera=(), display-capture=(), " +
@@ -147,7 +159,9 @@ public sealed record RelayTransportPolicyOptions
     {
         RequireHttps = requireHttps;
         AllowLoopbackHttp = allowLoopbackHttp;
-        TrustedForwarders = (trustedForwarders ?? []).ToHashSet();
+        TrustedForwarders = (trustedForwarders ?? [])
+            .Select(address => address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address)
+            .ToHashSet();
         if (TrustedForwarders.Any(address => address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any)))
         {
             throw new ArgumentException("Wildcard addresses cannot be trusted forwarders.", nameof(trustedForwarders));
@@ -195,12 +209,31 @@ public static class RelayTransportPolicy
             return RelayTransportDecision.Reject;
         }
 
-        var forwardedProto = context.Request.Headers["X-Forwarded-Proto"].ToString();
-        if (trustedForwarder && !string.IsNullOrEmpty(forwardedProto) &&
-            (forwardedProto.Contains(',', StringComparison.Ordinal) ||
+        // This application has no need for RFC 7239's much larger grammar. Refusing Forwarded
+        // avoids ambiguous disagreement with the one explicitly supported proxy header.
+        if (context.Request.Headers.ContainsKey("Forwarded"))
+        {
+            return RelayTransportDecision.Reject;
+        }
+
+        var forwardedProtoValues = context.Request.Headers["X-Forwarded-Proto"];
+        var forwardedProto = forwardedProtoValues.ToString();
+        if (trustedForwarder && hasForwarded &&
+            (forwardedProtoValues.Count != 1 || forwardedProto.Contains(',', StringComparison.Ordinal) ||
              !string.Equals(forwardedProto, "https", StringComparison.OrdinalIgnoreCase)))
         {
             return RelayTransportDecision.Reject;
+        }
+
+        foreach (var header in new[] { "X-Forwarded-For", "X-Forwarded-Host" })
+        {
+            var values = context.Request.Headers[header];
+            if (values.Count > 0 &&
+                (values.Count != 1 || string.IsNullOrWhiteSpace(values[0]) ||
+                 values.ToString().Contains(',', StringComparison.Ordinal)))
+            {
+                return RelayTransportDecision.Reject;
+            }
         }
 
         var effectiveHttps = context.Request.IsHttps ||
@@ -227,9 +260,49 @@ public readonly record struct RelayRequestValidation(bool Allowed, string Code)
 public static class RelayRequestGuard
 {
     public static RelayRequestValidation ValidateJson(HttpRequest request)
+        => ValidateJson(request, RelaySecurityBounds.MaximumRequestBytes);
+
+    public static RelayRequestValidation ValidateJson<T>(HttpRequest request)
+        => ValidateJson(
+            request,
+            typeof(T) == typeof(OpaqueRelayFrame)
+                ? RelaySecurityBounds.MaximumRelayFrameRequestBytes
+                : RelaySecurityBounds.MaximumRequestBytes);
+
+    public static RelayRequestValidation ValidateBrowserMutation(HttpRequest request, bool cookieAuthenticated)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.ContentLength is < 0 or > RelaySecurityBounds.MaximumRequestBytes)
+        if (!cookieAuthenticated)
+        {
+            return RelayRequestValidation.Accept;
+        }
+
+        var csrf = request.Headers[RelayCsrfProtector.HeaderName];
+        var fetchSite = request.Headers["Sec-Fetch-Site"];
+        if (csrf.Count != 1 || string.IsNullOrWhiteSpace(csrf[0]) || csrf[0]!.Length > 64 ||
+            fetchSite.Count != 1 || !string.Equals(fetchSite[0], "same-origin", StringComparison.Ordinal))
+        {
+            return RelayRequestValidation.Reject("csrf-rejected");
+        }
+
+        var originValues = request.Headers["Origin"];
+        if (originValues.Count != 1 || !Uri.TryCreate(originValues[0], UriKind.Absolute, out var origin) ||
+            !string.Equals(origin.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(origin.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase) ||
+            !string.IsNullOrEmpty(origin.UserInfo) || origin.AbsolutePath != "/" ||
+            !string.IsNullOrEmpty(origin.Query) || !string.IsNullOrEmpty(origin.Fragment))
+        {
+            return RelayRequestValidation.Reject("csrf-rejected");
+        }
+
+        return RelayRequestValidation.Accept;
+    }
+
+    private static RelayRequestValidation ValidateJson(HttpRequest request, int maximumBytes)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ContentLength is < 0 ||
+            (request.ContentLength is { } declaredLength && declaredLength > maximumBytes))
         {
             return RelayRequestValidation.Reject("request-too-large");
         }
@@ -250,13 +323,19 @@ public static class RelayRequestGuard
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(body);
-        var rented = ArrayPool<byte>.Shared.Rent(RelaySecurityBounds.MaximumRequestBytes + 1);
+        var maximumBytes = typeof(T) == typeof(OpaqueRelayFrame)
+            ? RelaySecurityBounds.MaximumRelayFrameRequestBytes
+            : RelaySecurityBounds.MaximumRequestBytes;
+        var readCapacity = maximumBytes + 1;
+        var rented = ArrayPool<byte>.Shared.Rent(readCapacity);
         try
         {
             var total = 0;
-            while (total <= RelaySecurityBounds.MaximumRequestBytes)
+            while (total < readCapacity)
             {
-                var read = await body.ReadAsync(rented.AsMemory(total), cancellationToken).ConfigureAwait(false);
+                var read = await body.ReadAsync(
+                    rented.AsMemory(total, readCapacity - total),
+                    cancellationToken).ConfigureAwait(false);
                 if (read == 0)
                 {
                     break;
@@ -270,7 +349,7 @@ public static class RelayRequestGuard
                 throw new InvalidDataException("request-empty");
             }
 
-            if (total > RelaySecurityBounds.MaximumRequestBytes)
+            if (total > maximumBytes)
             {
                 throw new InvalidDataException("request-too-large");
             }

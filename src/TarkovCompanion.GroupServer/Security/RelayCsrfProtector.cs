@@ -36,12 +36,14 @@ public static class RelayCsrfProtector
     public static bool Validate(
         DeviceSessionId sessionId,
         string? presentedToken,
-        string expectedDigestBase64Url,
+        string? expectedDigestBase64Url,
         DateTimeOffset expiresUtc,
         DateTimeOffset nowUtc)
     {
         ValidateUtc(nowUtc, nameof(nowUtc));
+        ValidateUtc(expiresUtc, nameof(expiresUtc));
         if (nowUtc >= expiresUtc || string.IsNullOrWhiteSpace(presentedToken) ||
+            string.IsNullOrWhiteSpace(expectedDigestBase64Url) ||
             presentedToken.Length > 64 || expectedDigestBase64Url.Length > 64)
         {
             return false;
@@ -51,6 +53,11 @@ public static class RelayCsrfProtector
         byte[] actual;
         try
         {
+            if (DecodeBase64Url(presentedToken).Length != TokenBytes)
+            {
+                return false;
+            }
+
             expected = DecodeBase64Url(expectedDigestBase64Url);
             actual = DecodeBase64Url(Digest(sessionId, presentedToken));
         }
@@ -72,6 +79,12 @@ public static class RelayCsrfProtector
             throw new ArgumentException("A session id is required.", nameof(sessionId));
         }
 
+        var decodedToken = DecodeBase64Url(token);
+        if (decodedToken.Length != TokenBytes)
+        {
+            throw new ArgumentException("A CSRF or session credential is exactly 256 bits.", nameof(token));
+        }
+
         var tokenBytes = Encoding.ASCII.GetBytes(token);
         Span<byte> sessionBytes = stackalloc byte[16];
         sessionId.Value.TryWriteBytes(sessionBytes);
@@ -86,6 +99,13 @@ public static class RelayCsrfProtector
 
     internal static byte[] DecodeBase64Url(string value)
     {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.Length == 0 || value.Any(character =>
+                !(char.IsAsciiLetterOrDigit(character) || character is '-' or '_')))
+        {
+            throw new FormatException("Only unpadded base64url is accepted.");
+        }
+
         var padding = value.Length % 4 switch
         {
             0 => string.Empty,
@@ -94,14 +114,21 @@ public static class RelayCsrfProtector
             _ => throw new FormatException("Invalid base64url length."),
         };
 
-        return Convert.FromBase64String(value.Replace('-', '+').Replace('_', '/') + padding);
+        var decoded = Convert.FromBase64String(value.Replace('-', '+').Replace('_', '/') + padding);
+        if (!string.Equals(Base64Url(decoded), value, StringComparison.Ordinal))
+        {
+            throw new FormatException("The base64url value is not canonical.");
+        }
+
+        return decoded;
     }
 
     internal static void ValidateUtc(DateTimeOffset value, string parameterName)
     {
-        if (value == default || value.Offset != TimeSpan.Zero)
+        if (value == default || value.Offset != TimeSpan.Zero ||
+            value.Ticks % TimeSpan.TicksPerMillisecond != 0)
         {
-            throw new ArgumentException("An explicit UTC timestamp is required.", parameterName);
+            throw new ArgumentException("An explicit millisecond UTC timestamp is required.", parameterName);
         }
     }
 }
@@ -115,7 +142,7 @@ public sealed record RelayCsrfToken(
 public static class RelaySecurityBounds
 {
     public const int MaximumSessions = 64;
-    public const int MaximumSessionsPerDevice = 4;
+    public const int MaximumSessionsPerDevice = 1;
     public const int MaximumAuditEvents = 2_048;
     public const int MaximumPairingInvitations = 256;
     public const int MaximumRatePartitions = 4_096;
@@ -126,9 +153,10 @@ public static class RelaySecurityBounds
     public const int MaximumQueuedBytesPerParticipant = 4 * 1024 * 1024;
     public const int MaximumRegistryBytes = 2 * 1024 * 1024;
     public const int MaximumRequestBytes = ProtocolBounds.MaxPayloadBytes;
+    public const int MaximumRelayFrameRequestBytes = ProtocolBounds.MaxRelayFrameBytes;
 
     public static TimeSpan SessionLifetime { get; } = TimeSpan.FromHours(12);
     public static TimeSpan MaximumBrowserSessionLifetime { get; } = TimeSpan.FromHours(12);
-    public static TimeSpan ClockSkew { get; } = TimeSpan.FromMinutes(2);
+    public static TimeSpan ClockSkew { get; } = ProtocolBounds.MaxClientClockSkew;
     public static TimeSpan RequestAdmissionTimeout { get; } = TimeSpan.FromSeconds(2);
 }

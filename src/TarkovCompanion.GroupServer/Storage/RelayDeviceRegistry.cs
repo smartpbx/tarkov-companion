@@ -37,24 +37,29 @@ public sealed record RelaySessionRoute(
     DeviceSessionId SessionId,
     CompanionDeviceId DeviceId,
     RelayChannelId ChannelId,
+    CompanionProtocolVersion ProtocolVersion,
+    long KeyEpoch,
+    RelayCipherSuite CipherSuite,
     DeviceAuthorizationRole Role,
+    CompanionSurfaceKind Surface,
     DateTimeOffset ExpiresUtc);
 
-/// <summary>Authoritative relay registry for devices, sessions, replay state, and audit history.</summary>
+/// <summary>Authoritative relay registry for cryptographic devices, sessions, replay, and audit.</summary>
 /// <remarks>
-/// Every reusable credential is random and stored only as a SHA-256 digest bound to its session
-/// id. Mutations are written through the verified store before becoming visible in memory. A
-/// storage failure closes authentication rather than silently continuing with an unpersisted
-/// revocation or replay counter.
+/// Device ids, session ids, channels, epochs, and key ids come only from a completed signed #276
+/// pairing or resume. The relay adds an outer random cookie credential, stores only its digest,
+/// and persists replay movement before a frame can be queued. A storage failure closes the in-
+/// memory authority instead of continuing with an unpersisted revocation or replay counter.
 /// </remarks>
 public sealed class RelayDeviceRegistry
 {
+    private static readonly TimeSpan DeviceLifetime = TimeSpan.FromDays(30);
     private readonly TimeProvider _timeProvider;
     private readonly OwnerRecoveryProtector _recovery;
     private readonly VerifiedRelayRegistryStore? _store;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private RelayRegistryState _state;
-    private RelayRegistryLoadStatus _loadStatus;
+    private volatile RelayRegistryState _state;
+    private volatile RelayRegistryLoadStatus _loadStatus;
 
     private RelayDeviceRegistry(
         TimeProvider timeProvider,
@@ -74,7 +79,7 @@ public sealed class RelayDeviceRegistry
 
     public bool CanAuthenticate =>
         _state.IsInitialized &&
-        _loadStatus is (RelayRegistryLoadStatus.PrimaryVerified or RelayRegistryLoadStatus.BackupRestored);
+        _loadStatus is RelayRegistryLoadStatus.PrimaryVerified or RelayRegistryLoadStatus.BackupRestored;
 
     public static async ValueTask<RelayDeviceRegistry> OpenAsync(
         TimeProvider timeProvider,
@@ -90,25 +95,16 @@ public sealed class RelayDeviceRegistry
         return new RelayDeviceRegistry(timeProvider, recovery, store, loaded.State, loaded.Status);
     }
 
-    /// <summary>
-    /// Creates a replacement owner after a protected, short-lived recovery ceremony.
-    /// </summary>
-    /// <remarks>
-    /// This is the only operation allowed against missing or corrupt state. It replaces rather
-    /// than opens the registry and invalidates every surviving session when valid-but-ownerless
-    /// state is being recovered.
-    /// </remarks>
+    /// <summary>Replaces a missing owner after both operator recovery and device-key proof.</summary>
     public async ValueTask<RelayMutationResult<RelaySessionCredential>> RecoverOwnerAsync(
         OwnerRecoveryGrant grant,
-        string displayName,
-        DevicePublicKey deviceKey,
-        RelayChannelId channelId,
+        PairingAttempt completedPairing,
         CompanionSurfaceKind surface,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(grant);
-        ArgumentNullException.ThrowIfNull(deviceKey);
-        if (grant.NewOwnerKeyId != deviceKey.KeyId || !_recovery.TryConsume(grant))
+        ArgumentNullException.ThrowIfNull(completedPairing);
+        if (surface is not (CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser))
         {
             return RelayMutationResult<RelaySessionCredential>.Reject("recovery-rejected");
         }
@@ -117,55 +113,29 @@ public sealed class RelayDeviceRegistry
         try
         {
             var now = Now();
-            if (_state.Devices.Any(device => device.Status == DeviceLifecycleStatus.Active &&
-                                             device.Role == DeviceAuthorizationRole.Owner))
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment) ||
+                grant.NewOwnerDeviceId != establishment.Assignment.DeviceId ||
+                grant.NewOwnerKeyId != deviceKey.KeyId ||
+                (_loadStatus != RelayRegistryLoadStatus.Corrupt &&
+                 _state.Devices.Any(device => device.Role == DeviceAuthorizationRole.Owner && IsLive(device, now))) ||
+                !_recovery.TryConsume(grant))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("owner-active");
+                return RelayMutationResult<RelaySessionCredential>.Reject("recovery-rejected");
             }
 
-            var devices = _loadStatus == RelayRegistryLoadStatus.Corrupt
-                ? new List<PairedDevice>()
-                : _state.Devices.ToList();
-            // Recovery invalidates every old bearer credential. Keeping terminal records would
-            // also let accumulated abandoned sessions prevent issuance of the recovered owner.
-            var sessions = new List<RelaySessionRecord>();
-
-            var prior = devices.FindIndex(device => device.DeviceId == grant.NewOwnerDeviceId);
-            if (prior >= 0)
-            {
-                devices.RemoveAt(prior);
-            }
-
-            if (devices.Count >= ProtocolBounds.MaxDevices)
-            {
-                return RelayMutationResult<RelaySessionCredential>.Reject("device-limit");
-            }
-
-            var owner = new PairedDevice(
-                grant.NewOwnerDeviceId,
-                displayName,
-                deviceKey,
-                DeviceAuthorizationRole.Owner,
-                RelayAuthorization.CapabilitiesFor(DeviceAuthorizationRole.Owner),
-                DeviceLifecycleStatus.Active,
+            var owner = CreateDevice(deviceKey, establishment, DeviceAuthorizationRole.Owner);
+            var issued = IssueSession(owner, establishment, surface, now);
+            var retainedAudit = _loadStatus == RelayRegistryLoadStatus.Corrupt ? [] : _state.Audit;
+            var audit = AppendAudit(retainedAudit, new RelayAuditEvent(
+                Guid.NewGuid(),
+                RelayAuditAction.OwnerRecovered,
                 now,
-                now,
-                now.AddDays(30),
-                now);
-            devices.Add(owner);
-            var issued = CreateSession(owner, channelId, surface, now);
-            sessions.Add(issued.Record);
-            var audit = AppendAudit(
-                _loadStatus == RelayRegistryLoadStatus.Corrupt ? [] : _state.Audit,
-                new RelayAuditEvent(
-                    Guid.NewGuid(),
-                    RelayAuditAction.OwnerRecovered,
-                    now,
-                    "recovered",
-                    subjectDeviceId: owner.DeviceId,
-                    sessionId: issued.Credential.SessionId));
-            var candidate = new RelayRegistryState(true, devices, sessions, audit);
-            await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
+                "recovered",
+                subjectDeviceId: owner.DeviceId,
+                sessionId: issued.Credential.SessionId));
+            await CommitAsync(
+                new RelayRegistryState(true, [owner], [issued.Record], audit),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
         }
         finally
@@ -192,13 +162,14 @@ public sealed class RelayDeviceRegistry
                 return RelayAuthenticationResult.Reject("unavailable");
             }
 
-            var index = _state.Sessions.ToList().FindIndex(record => record.Session.SessionId == sessionId);
-            if (index < 0)
+            var sessions = _state.Sessions.ToList();
+            var sessionIndex = sessions.FindIndex(record => record.Session.SessionId == sessionId);
+            if (sessionIndex < 0)
             {
                 return RelayAuthenticationResult.Reject();
             }
 
-            var record = _state.Sessions[index];
+            var record = sessions[sessionIndex];
             byte[] expectedDigest;
             try
             {
@@ -225,91 +196,34 @@ public sealed class RelayDeviceRegistry
             }
 
             var device = devices[deviceIndex];
-            if (record.Session.Status != DeviceSessionStatus.Active || device.Status != DeviceLifecycleStatus.Active)
+            if (!IsLive(record.Session, device, now))
             {
-                return RelayAuthenticationResult.Reject();
-            }
-
-            var deviceExpired = now >= device.ExpiresUtc ||
-                now - device.LastUsedUtc >= ProtocolBounds.DeviceInactivityExpiry;
-            if (now >= record.Session.ExpiresUtc || deviceExpired)
-            {
-                var expiredSessions = _state.Sessions
-                    .Select(item => (deviceExpired && item.Session.DeviceId == device.DeviceId) ||
-                                    item.Session.SessionId == sessionId
-                        ? EndIfActive(item, DeviceSessionStatus.Expired, now, "expired")
-                        : item)
-                    .ToArray();
-                var expiredDevice = deviceExpired && device.Status == DeviceLifecycleStatus.Active
-                    ? DeviceLifecycle.Expire(device, now)
-                    : device;
-                devices[deviceIndex] = expiredDevice;
-                var expiredState = new RelayRegistryState(
-                    true,
-                    devices,
-                    expiredSessions,
-                    AppendAudit(_state.Audit, new RelayAuditEvent(
-                        Guid.NewGuid(),
-                        RelayAuditAction.SessionRejected,
-                        now,
-                        "expired",
-                        subjectDeviceId: device.DeviceId,
-                        sessionId: sessionId)));
-                await CommitAsync(expiredState, cancellationToken).ConfigureAwait(false);
+                var expired = ExpireForAuthentication(devices, sessions, deviceIndex, sessionIndex, now);
+                await CommitAsync(expired, cancellationToken).ConfigureAwait(false);
                 return RelayAuthenticationResult.Reject("expired");
             }
 
-            var touchedDevice = new PairedDevice(
-                device.DeviceId,
-                device.DisplayName,
-                device.DeviceKey,
-                device.Role,
-                device.Capabilities,
-                device.Status,
-                device.CreatedUtc,
-                now,
-                device.ExpiresUtc,
-                device.StatusChangedUtc,
-                device.ReplacedByDeviceId,
-                device.LifecycleReason);
-            var touchedSession = new DeviceSession(
-                record.Session.SessionId,
-                record.Session.DeviceId,
-                record.Session.DeviceKeyId,
-                record.Session.Status,
-                record.Session.Transport,
-                record.Session.Surface,
-                record.Session.Capabilities,
-                record.Session.CreatedUtc,
-                now,
-                record.Session.ExpiresUtc);
+            var touchedDevice = Touch(device, now, device.LastKeyEpoch);
+            var touchedSession = Touch(record.Session, now);
             devices[deviceIndex] = touchedDevice;
-            var sessions = _state.Sessions.ToList();
-            sessions[index] = record.WithSession(touchedSession);
-            await CommitAsync(new RelayRegistryState(true, devices, sessions, _state.Audit), cancellationToken)
-                .ConfigureAwait(false);
+            sessions[sessionIndex] = record.WithSession(touchedSession);
+            await CommitAsync(
+                new RelayRegistryState(true, devices, sessions, _state.Audit),
+                cancellationToken).ConfigureAwait(false);
 
             return new RelayAuthenticationResult(
                 true,
                 "authenticated",
-                new RelayPrincipal(
-                    touchedDevice.DeviceId,
-                    touchedDevice.DeviceKey.KeyId,
-                    touchedSession.SessionId,
-                    record.ChannelId,
-                    touchedDevice.Role,
-                    touchedSession.Capabilities,
-                    touchedSession.Surface,
-                    now,
-                    touchedSession.ExpiresUtc));
+                Principal(touchedDevice, touchedSession, now));
         }
         finally
         {
+            CryptographicOperations.ZeroMemory(actualDigest);
             _gate.Release();
         }
     }
 
-    /// <summary>Checks and rotates the memory-only CSRF nonce after each cookie-authenticated mutation.</summary>
+    /// <summary>Checks and rotates the memory-only CSRF nonce after each cookie mutation.</summary>
     public async ValueTask<RelayMutationResult<string>> ValidateAndRotateCsrfAsync(
         RelayPrincipal principal,
         string? presentedToken,
@@ -319,20 +233,15 @@ public sealed class RelayDeviceRegistry
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!CanAuthenticate || !StillCurrent(principal))
+            var now = Now();
+            if (!StillCurrent(principal, now, _state))
             {
-                return RelayMutationResult<string>.Reject("unavailable");
+                return RelayMutationResult<string>.Reject("not-authenticated");
             }
 
             var sessions = _state.Sessions.ToList();
             var index = sessions.FindIndex(record => record.Session.SessionId == principal.SessionId);
-            if (index < 0 || sessions[index].Session.Status != DeviceSessionStatus.Active)
-            {
-                return RelayMutationResult<string>.Reject("csrf-rejected");
-            }
-
             var current = sessions[index];
-            var now = Now();
             if (!RelayCsrfProtector.Validate(
                     principal.SessionId,
                     presentedToken,
@@ -340,27 +249,31 @@ public sealed class RelayDeviceRegistry
                     current.CsrfExpiresUtc,
                     now))
             {
-                var rejected = new RelayRegistryState(
-                    true,
-                    _state.Devices,
-                    sessions,
-                    AppendAudit(_state.Audit, new RelayAuditEvent(
-                        Guid.NewGuid(),
-                        RelayAuditAction.CsrfRejected,
-                        now,
-                        "csrf-rejected",
-                        principal.DeviceId,
-                        principal.DeviceId,
-                        principal.SessionId)));
-                await CommitAsync(rejected, cancellationToken).ConfigureAwait(false);
+                await CommitAsync(
+                    new RelayRegistryState(
+                        true,
+                        _state.Devices,
+                        sessions,
+                        AppendAudit(_state.Audit, new RelayAuditEvent(
+                            Guid.NewGuid(),
+                            RelayAuditAction.CsrfRejected,
+                            now,
+                            "csrf-rejected",
+                            principal.DeviceId,
+                            principal.DeviceId,
+                            principal.SessionId))),
+                    cancellationToken).ConfigureAwait(false);
                 return RelayMutationResult<string>.Reject("csrf-rejected");
             }
 
-            var lifetime = current.Session.ExpiresUtc - now;
-            var next = RelayCsrfProtector.Issue(principal.SessionId, now, lifetime);
+            var next = RelayCsrfProtector.Issue(
+                principal.SessionId,
+                now,
+                current.Session.ExpiresUtc - now);
             sessions[index] = current.WithCsrf(next);
-            await CommitAsync(new RelayRegistryState(true, _state.Devices, sessions, _state.Audit), cancellationToken)
-                .ConfigureAwait(false);
+            await CommitAsync(
+                new RelayRegistryState(true, _state.Devices, sessions, _state.Audit),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<string>.Success(next.Token);
         }
         finally
@@ -369,68 +282,60 @@ public sealed class RelayDeviceRegistry
         }
     }
 
-    /// <summary>Creates a non-owner device only after the #276 proof state machine completed.</summary>
     public async ValueTask<RelayMutationResult<RelaySessionCredential>> AddPairedDeviceAsync(
         RelayPrincipal owner,
-        PairingAttempt completedAttempt,
+        PairingAttempt completedPairing,
         DeviceAuthorizationRole role,
         CompanionSurfaceKind surface,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentNullException.ThrowIfNull(completedAttempt);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation).Allowed)
+        ArgumentNullException.ThrowIfNull(completedPairing);
+        if (role is not (DeviceAuthorizationRole.Member or DeviceAuthorizationRole.Observer) ||
+            !Enum.IsDefined(surface))
         {
-            return RelayMutationResult<RelaySessionCredential>.Reject("not-authorized");
-        }
-
-        if (completedAttempt.Stage != PairingAttemptStage.Completed || completedAttempt.Request is null ||
-            role is not (DeviceAuthorizationRole.Member or DeviceAuthorizationRole.Observer))
-        {
-            return RelayMutationResult<RelaySessionCredential>.Reject("pairing-incomplete");
+            return RelayMutationResult<RelaySessionCredential>.Reject("pairing-rejected");
         }
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!StillCurrent(owner))
+            var now = Now();
+            if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation, now).Allowed ||
+                !StillCurrent(owner, now, _state))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("not-authenticated");
+                return RelayMutationResult<RelaySessionCredential>.Reject("not-authorized");
+            }
+
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("pairing-incomplete");
             }
 
             if (_state.Devices.Count >= ProtocolBounds.MaxDevices ||
-                _state.Sessions.Count >= RelaySecurityBounds.MaximumSessions ||
-                _state.Devices.Any(device => device.DeviceKey.KeyId == completedAttempt.Request.DeviceKey.KeyId))
+                HasIdentityCollision(deviceKey, establishment))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("device-limit-or-duplicate");
             }
 
-            var now = Now();
-            var device = new PairedDevice(
-                new CompanionDeviceId(Guid.NewGuid()),
-                completedAttempt.Request.RequestedDeviceName,
-                completedAttempt.Request.DeviceKey,
-                role,
-                RelayAuthorization.CapabilitiesFor(role),
-                DeviceLifecycleStatus.Active,
-                now,
-                now,
-                now.AddDays(30),
-                now);
-            var issued = CreateSession(device, owner.ChannelId, surface, now);
-            var candidate = new RelayRegistryState(
-                true,
-                [.. _state.Devices, device],
-                [.. _state.Sessions, issued.Record],
-                AppendAudit(_state.Audit, new RelayAuditEvent(
-                    Guid.NewGuid(),
-                    RelayAuditAction.DevicePaired,
-                    now,
-                    "paired",
-                    owner.DeviceId,
-                    device.DeviceId,
-                    issued.Credential.SessionId)));
-            await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
+            var device = CreateDevice(deviceKey, establishment, role);
+            var issued = IssueSession(device, establishment, surface, now);
+            var sessions = MakeRoomForSession(_state.Sessions);
+            sessions.Add(issued.Record);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    [.. _state.Devices, device],
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.DevicePaired,
+                        now,
+                        "paired",
+                        owner.DeviceId,
+                        device.DeviceId,
+                        issued.Credential.SessionId))),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
         }
         finally
@@ -441,49 +346,85 @@ public sealed class RelayDeviceRegistry
 
     public async ValueTask<RelayMutationResult<RelaySessionCredential>> RotateSessionAsync(
         RelayPrincipal principal,
+        SessionResumeAttempt completedResume,
+        CompanionSurfaceKind surface,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.RotateOwnSession, principal.DeviceId).Allowed)
+        ArgumentNullException.ThrowIfNull(completedResume);
+        if (!Enum.IsDefined(surface))
         {
-            return RelayMutationResult<RelaySessionCredential>.Reject("not-authorized");
+            return RelayMutationResult<RelaySessionCredential>.Reject("resume-rejected");
         }
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!StillCurrent(principal))
+            var now = Now();
+            if (!RelayAuthorization.Decide(
+                    principal,
+                    RelayPermission.RotateOwnSession,
+                    now,
+                    principal.DeviceId).Allowed ||
+                !StillCurrent(principal, now, _state))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("not-authenticated");
             }
 
-            var device = _state.Devices.Single(item => item.DeviceId == principal.DeviceId);
-            var now = Now();
+            if (completedResume.Stage != SessionResumeStage.Completed ||
+                completedResume.Establishment is not { } establishment ||
+                establishment.Purpose != HandshakePurpose.SessionResume ||
+                establishment.EstablishedUtc > now ||
+                now - establishment.EstablishedUtc > ProtocolBounds.HandshakeChallengeLifetime ||
+                establishment.Assignment.SessionExpiresUtc <= now ||
+                !CompanionProtocolVersion.Current.CanRead(establishment.Assignment.ProtocolVersion))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("resume-incomplete");
+            }
+
+            var devices = _state.Devices.ToList();
+            var deviceIndex = devices.FindIndex(device => device.DeviceId == principal.DeviceId);
+            var device = devices[deviceIndex];
+            if (device.Role == DeviceAuthorizationRole.Owner &&
+                surface is not (CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("resume-rejected");
+            }
+
+            if (completedResume.Request.DeviceId != device.DeviceId ||
+                completedResume.Request.DeviceKeyId != device.DeviceKey.KeyId ||
+                establishment.Assignment.DeviceId != device.DeviceId ||
+                establishment.DeviceKeyId != device.DeviceKey.KeyId ||
+                establishment.Assignment.KeyEpoch <= device.LastKeyEpoch ||
+                establishment.Assignment.SessionExpiresUtc > device.ExpiresUtc ||
+                HasSessionCollision(establishment))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("resume-rejected");
+            }
+
+            devices[deviceIndex] = Touch(device, establishment.EstablishedUtc, establishment.Assignment.KeyEpoch);
             var sessions = _state.Sessions
-                .Select(record => record.Session.SessionId == principal.SessionId
+                .Select(record => record.Session.DeviceId == device.DeviceId
                     ? EndIfActive(record, DeviceSessionStatus.Replaced, now, "session-rotated")
                     : record)
                 .ToList();
-            if (sessions.Count >= RelaySecurityBounds.MaximumSessions)
-            {
-                sessions.RemoveAll(record => record.Session.Status != DeviceSessionStatus.Active);
-            }
-
-            var issued = CreateSession(device, principal.ChannelId, principal.Surface, now);
+            sessions = MakeRoomForSession(sessions);
+            var issued = IssueSession(devices[deviceIndex], establishment, surface, now);
             sessions.Add(issued.Record);
-            var candidate = new RelayRegistryState(
-                true,
-                _state.Devices,
-                sessions,
-                AppendAudit(_state.Audit, new RelayAuditEvent(
-                    Guid.NewGuid(),
-                    RelayAuditAction.SessionRotated,
-                    now,
-                    "rotated",
-                    principal.DeviceId,
-                    principal.DeviceId,
-                    principal.SessionId)));
-            await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    devices,
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.SessionRotated,
+                        now,
+                        "rotated",
+                        principal.DeviceId,
+                        principal.DeviceId,
+                        issued.Credential.SessionId))),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
         }
         finally
@@ -497,38 +438,39 @@ public sealed class RelayDeviceRegistry
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.CloseOwnSession, principal.DeviceId).Allowed)
-        {
-            return RelayMutationResult<bool>.Reject("not-authorized");
-        }
-
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!StillCurrent(principal))
+            var now = Now();
+            if (!RelayAuthorization.Decide(
+                    principal,
+                    RelayPermission.CloseOwnSession,
+                    now,
+                    principal.DeviceId).Allowed ||
+                !StillCurrent(principal, now, _state))
             {
                 return RelayMutationResult<bool>.Reject("not-authenticated");
             }
 
-            var now = Now();
             var sessions = _state.Sessions
                 .Select(record => record.Session.SessionId == principal.SessionId
                     ? EndIfActive(record, DeviceSessionStatus.Closed, now, "session-closed")
                     : record)
                 .ToArray();
-            var candidate = new RelayRegistryState(
-                true,
-                _state.Devices,
-                sessions,
-                AppendAudit(_state.Audit, new RelayAuditEvent(
-                    Guid.NewGuid(),
-                    RelayAuditAction.SessionClosed,
-                    now,
-                    "closed",
-                    principal.DeviceId,
-                    principal.DeviceId,
-                    principal.SessionId)));
-            await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    _state.Devices,
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.SessionClosed,
+                        now,
+                        "closed",
+                        principal.DeviceId,
+                        principal.DeviceId,
+                        principal.SessionId))),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<bool>.Success(true);
         }
         finally
@@ -544,55 +486,51 @@ public sealed class RelayDeviceRegistry
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.RevokeDevice, targetDeviceId).Allowed)
-        {
-            return RelayMutationResult<bool>.Reject("not-authorized");
-        }
-
         RelayAuditEvent.ValidateBoundedToken(reason, nameof(reason));
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!StillCurrent(owner))
+            var now = Now();
+            if (!RelayAuthorization.Decide(owner, RelayPermission.RevokeDevice, now, targetDeviceId).Allowed ||
+                !StillCurrent(owner, now, _state))
             {
-                return RelayMutationResult<bool>.Reject("not-authenticated");
+                return RelayMutationResult<bool>.Reject("not-authorized");
             }
 
             var devices = _state.Devices.ToList();
             var index = devices.FindIndex(device => device.DeviceId == targetDeviceId);
-            if (index < 0 || devices[index].Status != DeviceLifecycleStatus.Active)
+            if (index < 0 || !IsLive(devices[index], now))
             {
                 return RelayMutationResult<bool>.Reject("device-not-active");
             }
 
             var target = devices[index];
             if (target.Role == DeviceAuthorizationRole.Owner &&
-                !_state.Devices.Any(device => device.DeviceId != targetDeviceId &&
-                                             device.Role == DeviceAuthorizationRole.Owner &&
-                                             device.Status == DeviceLifecycleStatus.Active))
+                !devices.Any(device => device.DeviceId != targetDeviceId &&
+                    device.Role == DeviceAuthorizationRole.Owner && IsLive(device, now)))
             {
                 return RelayMutationResult<bool>.Reject("owner-recovery-required");
             }
 
-            var now = Now();
-            devices[index] = DeviceLifecycle.Revoke(target, now, reason);
+            devices[index] = Transition(target, DeviceLifecycleStatus.Revoked, now, reason);
             var sessions = _state.Sessions
                 .Select(record => record.Session.DeviceId == targetDeviceId
                     ? EndIfActive(record, DeviceSessionStatus.Revoked, now, reason)
                     : record)
                 .ToArray();
-            var candidate = new RelayRegistryState(
-                true,
-                devices,
-                sessions,
-                AppendAudit(_state.Audit, new RelayAuditEvent(
-                    Guid.NewGuid(),
-                    RelayAuditAction.DeviceRevoked,
-                    now,
-                    reason,
-                    owner.DeviceId,
-                    targetDeviceId)));
-            await CommitAsync(candidate, cancellationToken).ConfigureAwait(false);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    devices,
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.DeviceRevoked,
+                        now,
+                        reason,
+                        owner.DeviceId,
+                        targetDeviceId))),
+                cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<bool>.Success(true);
         }
         finally
@@ -601,20 +539,95 @@ public sealed class RelayDeviceRegistry
         }
     }
 
-    /// <summary>Persists replay state before a frame can enter a delivery queue.</summary>
+    public async ValueTask<RelayMutationResult<RelaySessionCredential>> ReplaceDeviceAsync(
+        RelayPrincipal owner,
+        CompanionDeviceId targetDeviceId,
+        PairingAttempt completedReplacement,
+        CompanionSurfaceKind surface,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(completedReplacement);
+        if (!Enum.IsDefined(surface))
+        {
+            return RelayMutationResult<RelaySessionCredential>.Reject("replacement-rejected");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var now = Now();
+            if (!RelayAuthorization.Decide(owner, RelayPermission.ReplaceDevice, now, targetDeviceId).Allowed ||
+                !StillCurrent(owner, now, _state))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("not-authorized");
+            }
+
+            var devices = _state.Devices.ToList();
+            var targetIndex = devices.FindIndex(device => device.DeviceId == targetDeviceId);
+            if (targetIndex < 0 || !IsLive(devices[targetIndex], now) ||
+                !TryCompletedPairing(completedReplacement, now, out var deviceKey, out var establishment) ||
+                _state.Devices.Count >= ProtocolBounds.MaxDevices ||
+                HasIdentityCollision(deviceKey, establishment))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("replacement-rejected");
+            }
+
+            var target = devices[targetIndex];
+            if (target.Role == DeviceAuthorizationRole.Owner &&
+                surface is not (CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("replacement-rejected");
+            }
+
+            var replacement = CreateDevice(deviceKey, establishment, target.Role, target.Capabilities);
+            devices[targetIndex] = Transition(
+                target,
+                DeviceLifecycleStatus.Replaced,
+                now,
+                "device-replaced",
+                replacement.DeviceId);
+            devices.Add(replacement);
+            var sessions = _state.Sessions
+                .Select(record => record.Session.DeviceId == targetDeviceId
+                    ? EndIfActive(record, DeviceSessionStatus.Replaced, now, "device-replaced")
+                    : record)
+                .ToList();
+            sessions = MakeRoomForSession(sessions);
+            var issued = IssueSession(replacement, establishment, surface, now);
+            sessions.Add(issued.Record);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    devices,
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.DeviceReplaced,
+                        now,
+                        "replaced",
+                        owner.DeviceId,
+                        targetDeviceId,
+                        issued.Credential.SessionId))),
+                cancellationToken).ConfigureAwait(false);
+            return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>Persists target-session replay state before the hub enqueues the frame.</summary>
     public async ValueTask<RelayFrameAdmission> AdvanceFrameSequenceAsync(
         RelayPrincipal principal,
-        long keyEpoch,
-        long senderSequence,
+        OpaqueRelayFrame frame,
+        PairingTrafficDirection direction,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames).Allowed)
-        {
-            return RelayFrameAdmission.Reject("not-authorized");
-        }
-
-        if (keyEpoch <= 0 || senderSequence <= 0)
+        ArgumentNullException.ThrowIfNull(frame);
+        if (!Enum.IsDefined(direction))
         {
             return RelayFrameAdmission.Reject("sequence-invalid");
         }
@@ -622,38 +635,83 @@ public sealed class RelayDeviceRegistry
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!StillCurrent(principal))
+            var now = Now();
+            if (!RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames, now).Allowed ||
+                !StillCurrent(principal, now, _state))
             {
                 return RelayFrameAdmission.Reject("not-authenticated");
             }
 
             var sessions = _state.Sessions.ToList();
-            var index = sessions.FindIndex(record => record.Session.SessionId == principal.SessionId);
-            var current = sessions[index];
-            var accepted = keyEpoch == current.KeyEpoch
-                ? senderSequence > current.LastSenderSequence
-                : keyEpoch > current.KeyEpoch && senderSequence == 1;
-            if (!accepted)
+            var targetIndex = sessions.FindIndex(record => record.Session.SessionId == frame.SessionId);
+            if (targetIndex < 0)
             {
-                var rejected = new RelayRegistryState(
+                return RelayFrameAdmission.Reject("route-rejected");
+            }
+
+            var target = sessions[targetIndex];
+            var devices = _state.Devices.ToList();
+            var targetDevice = devices.Single(device => device.DeviceId == target.Session.DeviceId);
+            var directionAllowed = direction switch
+            {
+                PairingTrafficDirection.TabletToDesktop =>
+                    principal.SessionId == target.Session.SessionId &&
+                    principal.DeviceId == target.Session.DeviceId,
+                PairingTrafficDirection.DesktopToTablet =>
+                    principal.Role == DeviceAuthorizationRole.Owner &&
+                    principal.Capabilities.Contains(DeviceCapability.ManageDevices) &&
+                    targetDevice.Role is DeviceAuthorizationRole.Member or DeviceAuthorizationRole.Observer &&
+                    target.Session.DeviceId != principal.DeviceId,
+                _ => false,
+            };
+            var frameBound = target.Session.Status == DeviceSessionStatus.Active &&
+                IsLive(target.Session, targetDevice, now) &&
+                frame.ChannelId == target.Session.RelayChannelId &&
+                frame.ProtocolVersion == target.Session.ProtocolVersion &&
+                frame.KeyEpoch == target.Session.KeyEpoch &&
+                frame.CipherSuite == target.Session.CipherSuite &&
+                frame.ExpiresUtc > now &&
+                frame.IssuedUtc <= now.Add(ProtocolBounds.MaxClientClockSkew);
+            if (!directionAllowed || !frameBound)
+            {
+                return await RejectFrameAsync(
+                    principal,
+                    sessions,
+                    now,
+                    directionAllowed ? "frame-binding-rejected" : "route-rejected",
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            if (frame.SenderSequence <= target.LastSequence(direction))
+            {
+                return await RejectFrameAsync(
+                    principal,
+                    sessions,
+                    now,
+                    "replay-rejected",
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            sessions[targetIndex] = target.WithSequence(direction, frame.SenderSequence);
+            var actorDeviceIndex = devices.FindIndex(device => device.DeviceId == principal.DeviceId);
+            var actorSessionIndex = sessions.FindIndex(record => record.Session.SessionId == principal.SessionId);
+            devices[actorDeviceIndex] = Touch(devices[actorDeviceIndex], now, devices[actorDeviceIndex].LastKeyEpoch);
+            sessions[actorSessionIndex] = sessions[actorSessionIndex].WithSession(
+                Touch(sessions[actorSessionIndex].Session, now));
+            await CommitAsync(
+                new RelayRegistryState(
                     true,
-                    _state.Devices,
+                    devices,
                     sessions,
                     AppendAudit(_state.Audit, new RelayAuditEvent(
                         Guid.NewGuid(),
-                        RelayAuditAction.FrameRejected,
-                        Now(),
-                        "replay-rejected",
+                        RelayAuditAction.FrameAccepted,
+                        now,
+                        "accepted",
                         principal.DeviceId,
-                        principal.DeviceId,
-                        principal.SessionId)));
-                await CommitAsync(rejected, cancellationToken).ConfigureAwait(false);
-                return RelayFrameAdmission.Reject("replay-rejected");
-            }
-
-            sessions[index] = current.WithSequence(keyEpoch, senderSequence);
-            await CommitAsync(new RelayRegistryState(true, _state.Devices, sessions, _state.Audit), cancellationToken)
-                .ConfigureAwait(false);
+                        target.Session.DeviceId,
+                        target.Session.SessionId))),
+                cancellationToken).ConfigureAwait(false);
             return RelayFrameAdmission.Permit;
         }
         finally
@@ -665,49 +723,449 @@ public sealed class RelayDeviceRegistry
     public RelayMutationResult<IReadOnlyList<RelayAuditEvent>> ReadAudit(RelayPrincipal owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        return RelayAuthorization.Decide(owner, RelayPermission.ReadSecurityAudit).Allowed && StillCurrent(owner)
+        var now = Now();
+        return RelayAuthorization.Decide(owner, RelayPermission.ReadSecurityAudit, now).Allowed &&
+               StillCurrent(owner, now, _state)
             ? RelayMutationResult<IReadOnlyList<RelayAuditEvent>>.Success(_state.Audit.ToArray())
             : RelayMutationResult<IReadOnlyList<RelayAuditEvent>>.Reject("not-authorized");
     }
 
-    /// <summary>Returns only non-secret routing metadata for live sessions on one opaque channel.</summary>
-    public IReadOnlyList<RelaySessionRoute> ActiveRoutes(RelayChannelId channelId)
+    public bool IsCurrent(RelayPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        return StillCurrent(principal, Now(), _state);
+    }
+
+    public RelaySessionRoute? ActiveRoute(DeviceSessionId sessionId)
     {
         var now = Now();
-        var devices = _state.Devices.ToDictionary(device => device.DeviceId);
-        return _state.Sessions
-            .Where(record => record.ChannelId == channelId &&
-                             record.Session.Status == DeviceSessionStatus.Active &&
-                             record.Session.ExpiresUtc > now &&
-                             devices.TryGetValue(record.Session.DeviceId, out var device) &&
-                             device.Status == DeviceLifecycleStatus.Active &&
-                             device.ExpiresUtc > now)
-            .Select(record => new RelaySessionRoute(
-                record.Session.SessionId,
-                record.Session.DeviceId,
-                record.ChannelId,
-                devices[record.Session.DeviceId].Role,
-                record.Session.ExpiresUtc))
+        var state = _state;
+        var record = state.Sessions.SingleOrDefault(item => item.Session.SessionId == sessionId);
+        if (record is null)
+        {
+            return null;
+        }
+
+        var device = state.Devices.SingleOrDefault(item => item.DeviceId == record.Session.DeviceId);
+        return device is not null && IsLive(record.Session, device, now)
+            ? Route(record.Session, device)
+            : null;
+    }
+
+    public IReadOnlyList<RelaySessionRoute> ActiveOwners()
+    {
+        var now = Now();
+        var state = _state;
+        var devices = state.Devices.ToDictionary(device => device.DeviceId);
+        return state.Sessions
+            .Where(record => devices.TryGetValue(record.Session.DeviceId, out var device) &&
+                device.Role == DeviceAuthorizationRole.Owner &&
+                record.Session.Surface is CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser &&
+                IsLive(record.Session, device, now))
+            .Select(record => Route(record.Session, devices[record.Session.DeviceId]))
             .Take(RelaySecurityBounds.MaximumChannelParticipants)
             .ToArray();
     }
 
-    private bool StillCurrent(RelayPrincipal principal)
+    public IReadOnlyList<RelaySessionRoute> ActiveRoutes(RelayChannelId channelId)
     {
-        if (!CanAuthenticate)
+        var now = Now();
+        var state = _state;
+        var devices = state.Devices.ToDictionary(device => device.DeviceId);
+        return state.Sessions
+            .Where(record => record.ChannelId == channelId &&
+                devices.TryGetValue(record.Session.DeviceId, out var device) &&
+                IsLive(record.Session, device, now))
+            .Select(record => Route(record.Session, devices[record.Session.DeviceId]))
+            .Take(RelaySecurityBounds.MaximumChannelParticipants)
+            .ToArray();
+    }
+
+    public async ValueTask<int> SweepExpiredAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!CanAuthenticate)
+            {
+                return 0;
+            }
+
+            var now = Now();
+            var devices = _state.Devices.ToList();
+            var sessions = _state.Sessions.ToList();
+            var audit = _state.Audit;
+            var changed = 0;
+            for (var index = 0; index < devices.Count; index++)
+            {
+                var device = devices[index];
+                if (device.Status != DeviceLifecycleStatus.Active || IsLive(device, now))
+                {
+                    continue;
+                }
+
+                devices[index] = Transition(device, DeviceLifecycleStatus.Expired, now, "device-expired");
+                for (var sessionIndex = 0; sessionIndex < sessions.Count; sessionIndex++)
+                {
+                    if (sessions[sessionIndex].Session.DeviceId == device.DeviceId)
+                    {
+                        sessions[sessionIndex] = EndIfActive(
+                            sessions[sessionIndex],
+                            DeviceSessionStatus.Expired,
+                            now,
+                            "device-expired");
+                    }
+                }
+
+                audit = AppendAudit(audit, new RelayAuditEvent(
+                    Guid.NewGuid(),
+                    RelayAuditAction.DeviceExpired,
+                    now,
+                    "expired",
+                    subjectDeviceId: device.DeviceId));
+                changed++;
+            }
+
+            for (var index = 0; index < sessions.Count; index++)
+            {
+                var record = sessions[index];
+                if (record.Session.Status == DeviceSessionStatus.Active && now >= record.Session.ExpiresUtc)
+                {
+                    sessions[index] = EndIfActive(record, DeviceSessionStatus.Expired, now, "session-expired");
+                    changed++;
+                }
+            }
+
+            if (changed != 0)
+            {
+                await CommitAsync(
+                    new RelayRegistryState(true, devices, sessions, audit),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return changed;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async ValueTask<RelayFrameAdmission> RejectFrameAsync(
+        RelayPrincipal principal,
+        IReadOnlyList<RelaySessionRecord> sessions,
+        DateTimeOffset now,
+        string code,
+        CancellationToken cancellationToken)
+    {
+        await CommitAsync(
+            new RelayRegistryState(
+                true,
+                _state.Devices,
+                sessions,
+                AppendAudit(_state.Audit, new RelayAuditEvent(
+                    Guid.NewGuid(),
+                    RelayAuditAction.FrameRejected,
+                    now,
+                    code,
+                    principal.DeviceId,
+                    principal.DeviceId,
+                    principal.SessionId))),
+            cancellationToken).ConfigureAwait(false);
+        return RelayFrameAdmission.Reject(code);
+    }
+
+    private RelayRegistryState ExpireForAuthentication(
+        List<RelayDeviceRecord> devices,
+        List<RelaySessionRecord> sessions,
+        int deviceIndex,
+        int sessionIndex,
+        DateTimeOffset now)
+    {
+        var device = devices[deviceIndex];
+        var deviceExpired = !IsLive(device, now);
+        if (deviceExpired && device.Status == DeviceLifecycleStatus.Active)
+        {
+            devices[deviceIndex] = Transition(device, DeviceLifecycleStatus.Expired, now, "device-expired");
+            for (var index = 0; index < sessions.Count; index++)
+            {
+                if (sessions[index].Session.DeviceId == device.DeviceId)
+                {
+                    sessions[index] = EndIfActive(
+                        sessions[index],
+                        DeviceSessionStatus.Expired,
+                        now,
+                        "device-expired");
+                }
+            }
+        }
+        else
+        {
+            sessions[sessionIndex] = EndIfActive(
+                sessions[sessionIndex],
+                DeviceSessionStatus.Expired,
+                now,
+                "session-expired");
+        }
+
+        return new RelayRegistryState(
+            true,
+            devices,
+            sessions,
+            AppendAudit(_state.Audit, new RelayAuditEvent(
+                Guid.NewGuid(),
+                RelayAuditAction.SessionRejected,
+                now,
+                "expired",
+                subjectDeviceId: device.DeviceId,
+                sessionId: sessions[sessionIndex].Session.SessionId)));
+    }
+
+    private bool HasIdentityCollision(DevicePublicKey key, SessionEstablished establishment) =>
+        _state.Devices.Any(device => device.DeviceId == establishment.Assignment.DeviceId ||
+            device.DeviceKey.KeyId == key.KeyId) ||
+        HasSessionCollision(establishment);
+
+    private bool HasSessionCollision(SessionEstablished establishment) =>
+        _state.Sessions.Any(record =>
+            record.Session.SessionId == establishment.Assignment.SessionId ||
+            record.ChannelId == establishment.Assignment.RelayChannelId ||
+            record.Session.Establishment.ChallengeId == establishment.ChallengeId ||
+            string.Equals(
+                record.Session.TranscriptHashBase64Url,
+                establishment.TranscriptHashBase64Url,
+                StringComparison.Ordinal));
+
+    private static bool TryCompletedPairing(
+        PairingAttempt attempt,
+        DateTimeOffset now,
+        out DevicePublicKey deviceKey,
+        out SessionEstablished establishment)
+    {
+        deviceKey = null!;
+        establishment = null!;
+        if (attempt.Stage != PairingAttemptStage.Completed || attempt.Request is null ||
+            attempt.Establishment is not { } completed || completed.Purpose != HandshakePurpose.Pairing ||
+            completed.DeviceKeyId != attempt.Request.DeviceKey.KeyId ||
+            completed.Assignment.ProtocolVersion != attempt.Request.NegotiatedVersion ||
+            !CompanionProtocolVersion.Current.CanRead(completed.Assignment.ProtocolVersion) ||
+            completed.EstablishedUtc > now || now - completed.EstablishedUtc > ProtocolBounds.MaximumPairingLifetime ||
+            completed.Assignment.SessionExpiresUtc <= now)
         {
             return false;
         }
 
-        var session = _state.Sessions.SingleOrDefault(record => record.Session.SessionId == principal.SessionId);
-        var device = _state.Devices.SingleOrDefault(item => item.DeviceId == principal.DeviceId);
-        return session is not null && device is not null &&
-            session.Session.Status == DeviceSessionStatus.Active &&
-            device.Status == DeviceLifecycleStatus.Active &&
+        deviceKey = attempt.Request.DeviceKey;
+        establishment = completed;
+        return true;
+    }
+
+    private static RelayDeviceRecord CreateDevice(
+        DevicePublicKey key,
+        SessionEstablished establishment,
+        DeviceAuthorizationRole role,
+        IReadOnlyList<DeviceCapability>? capabilities = null)
+    {
+        var created = establishment.EstablishedUtc;
+        return new RelayDeviceRecord(
+            establishment.Assignment.DeviceId,
+            key,
+            role,
+            capabilities ?? RelayAuthorization.CapabilitiesFor(role),
+            DeviceLifecycleStatus.Active,
+            created,
+            created,
+            establishment.Assignment.KeyEpoch,
+            created.Add(DeviceLifetime),
+            created);
+    }
+
+    private static RelayDeviceRecord Touch(RelayDeviceRecord device, DateTimeOffset usedUtc, long keyEpoch) => new(
+        device.DeviceId,
+        device.DeviceKey,
+        device.Role,
+        device.Capabilities,
+        device.Status,
+        device.CreatedUtc,
+        usedUtc > device.LastUsedUtc ? usedUtc : device.LastUsedUtc,
+        keyEpoch,
+        device.ExpiresUtc,
+        device.StatusChangedUtc,
+        device.ReplacedByDeviceId,
+        device.LifecycleReason);
+
+    private static DeviceSession Touch(DeviceSession session, DateTimeOffset usedUtc) => new(
+        session.Establishment,
+        session.Status,
+        session.Transport,
+        session.Surface,
+        session.Capabilities,
+        usedUtc > session.LastUsedUtc ? usedUtc : session.LastUsedUtc);
+
+    private static RelayDeviceRecord Transition(
+        RelayDeviceRecord device,
+        DeviceLifecycleStatus status,
+        DateTimeOffset now,
+        string reason,
+        CompanionDeviceId? replacement = null)
+    {
+        if (device.Status != DeviceLifecycleStatus.Active || status == DeviceLifecycleStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active relay device can enter a terminal state.");
+        }
+
+        return new RelayDeviceRecord(
+            device.DeviceId,
+            device.DeviceKey,
+            device.Role,
+            device.Capabilities,
+            status,
+            device.CreatedUtc,
+            device.LastUsedUtc,
+            device.LastKeyEpoch,
+            device.ExpiresUtc,
+            now,
+            replacement,
+            reason);
+    }
+
+    private static bool IsLive(RelayDeviceRecord device, DateTimeOffset now) =>
+        device.Status == DeviceLifecycleStatus.Active &&
+        now >= device.CreatedUtc &&
+        now >= device.LastUsedUtc &&
+        now < device.ExpiresUtc &&
+        now - device.LastUsedUtc < ProtocolBounds.DeviceInactivityExpiry;
+
+    private static bool IsLive(DeviceSession session, RelayDeviceRecord device, DateTimeOffset now) =>
+        session.Status == DeviceSessionStatus.Active &&
+        now >= session.CreatedUtc &&
+        now >= session.LastUsedUtc &&
+        now < session.ExpiresUtc &&
+        CompanionProtocolVersion.Current.CanRead(session.ProtocolVersion) &&
+        session.DeviceId == device.DeviceId &&
+        session.DeviceKeyId == device.DeviceKey.KeyId &&
+        session.KeyEpoch == device.LastKeyEpoch &&
+        IsLive(device, now);
+
+    private static RelayPrincipal Principal(
+        RelayDeviceRecord device,
+        DeviceSession session,
+        DateTimeOffset authenticatedUtc) => new(
+        device.DeviceId,
+        device.DeviceKey.KeyId,
+        session.SessionId,
+        session.RelayChannelId,
+        session.ProtocolVersion,
+        session.KeyEpoch,
+        device.Role,
+        session.Capabilities,
+        session.Surface,
+        authenticatedUtc,
+        session.ExpiresUtc);
+
+    private static RelaySessionRoute Route(DeviceSession session, RelayDeviceRecord device) => new(
+        session.SessionId,
+        session.DeviceId,
+        session.RelayChannelId,
+        session.ProtocolVersion,
+        session.KeyEpoch,
+        session.CipherSuite,
+        device.Role,
+        session.Surface,
+        session.ExpiresUtc);
+
+    private bool StillCurrent(RelayPrincipal principal, DateTimeOffset now, RelayRegistryState state)
+    {
+        if (!CanAuthenticate || now >= principal.ExpiresUtc ||
+            principal.AuthenticatedUtc > now.Add(ProtocolBounds.MaxClientClockSkew))
+        {
+            return false;
+        }
+
+        var session = state.Sessions.SingleOrDefault(record => record.Session.SessionId == principal.SessionId);
+        var device = state.Devices.SingleOrDefault(item => item.DeviceId == principal.DeviceId);
+        return session is not null && device is not null && IsLive(session.Session, device, now) &&
             session.Session.DeviceId == principal.DeviceId &&
             session.Session.DeviceKeyId == principal.DeviceKeyId &&
-            session.ChannelId == principal.ChannelId;
+            session.ChannelId == principal.ChannelId &&
+            session.Session.ProtocolVersion == principal.ProtocolVersion &&
+            session.Session.KeyEpoch == principal.KeyEpoch &&
+            session.Session.Surface == principal.Surface &&
+            session.Session.ExpiresUtc == principal.ExpiresUtc &&
+            principal.AuthenticatedUtc >= session.Session.CreatedUtc &&
+            principal.AuthenticatedUtc <= session.Session.LastUsedUtc &&
+            device.Role == principal.Role &&
+            session.Session.Capabilities.ToHashSet().SetEquals(principal.Capabilities);
     }
+
+    private (RelaySessionRecord Record, RelaySessionCredential Credential) IssueSession(
+        RelayDeviceRecord device,
+        SessionEstablished establishment,
+        CompanionSurfaceKind surface,
+        DateTimeOffset now)
+    {
+        if (establishment.Assignment.DeviceId != device.DeviceId ||
+            establishment.DeviceKeyId != device.DeviceKey.KeyId ||
+            establishment.Assignment.KeyEpoch != device.LastKeyEpoch ||
+            establishment.Assignment.SessionExpiresUtc > device.ExpiresUtc ||
+            establishment.Assignment.SessionExpiresUtc <= now)
+        {
+            throw new ArgumentException("The establishment does not bind a live session for this device.", nameof(establishment));
+        }
+
+        var session = new DeviceSession(
+            establishment,
+            DeviceSessionStatus.Active,
+            CompanionTransportKind.EndToEndRelay,
+            surface,
+            device.Capabilities,
+            establishment.EstablishedUtc);
+        var secret = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(32));
+        var csrf = RelayCsrfProtector.Issue(session.SessionId, now, session.ExpiresUtc - now);
+        var record = new RelaySessionRecord(
+            session,
+            CredentialDigest(session.SessionId, secret),
+            csrf.DigestBase64Url,
+            csrf.ExpiresUtc);
+        return (
+            record,
+            new RelaySessionCredential(
+                session.SessionId,
+                device.DeviceId,
+                device.DeviceKey.KeyId,
+                session.RelayChannelId,
+                secret,
+                csrf.Token,
+                session.ExpiresUtc));
+    }
+
+    private static List<RelaySessionRecord> MakeRoomForSession(IEnumerable<RelaySessionRecord> existing)
+    {
+        var sessions = existing.ToList();
+        while (sessions.Count >= RelaySecurityBounds.MaximumSessions)
+        {
+            var oldest = sessions
+                .Where(record => record.Session.Status != DeviceSessionStatus.Active)
+                .OrderBy(record => record.Session.EndedUtc)
+                .FirstOrDefault();
+            if (oldest is null)
+            {
+                throw new InvalidOperationException("The relay session bound is exhausted by active sessions.");
+            }
+
+            sessions.Remove(oldest);
+        }
+
+        return sessions;
+    }
+
+    private static RelaySessionRecord EndIfActive(
+        RelaySessionRecord record,
+        DeviceSessionStatus status,
+        DateTimeOffset now,
+        string reason) => record.Session.Status == DeviceSessionStatus.Active
+            ? record.WithSession(DeviceLifecycle.EndSession(record.Session, status, now, reason))
+            : record;
 
     private async ValueTask CommitAsync(RelayRegistryState candidate, CancellationToken cancellationToken)
     {
@@ -718,12 +1176,20 @@ public sealed class RelayDeviceRegistry
                 await _store.SaveAsync(candidate, cancellationToken).ConfigureAwait(false);
                 _loadStatus = RelayRegistryLoadStatus.PrimaryVerified;
             }
-            else if (_loadStatus == RelayRegistryLoadStatus.Uninitialized)
+            else if (_loadStatus is RelayRegistryLoadStatus.Uninitialized or RelayRegistryLoadStatus.Corrupt)
             {
                 _loadStatus = RelayRegistryLoadStatus.PrimaryVerified;
             }
 
             _state = candidate;
+        }
+        catch (OperationCanceledException) when (_store is not null)
+        {
+            // Cancellation can arrive after the backup was atomically advanced but before the
+            // primary or in-memory state was. Close authority until a fresh verified load selects
+            // and repairs the newest durable generation.
+            CloseInMemory();
+            throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
             InvalidDataException or System.Text.Json.JsonException or NotSupportedException or
@@ -739,49 +1205,6 @@ public sealed class RelayDeviceRegistry
         _state = RelayRegistryState.Empty;
         _loadStatus = RelayRegistryLoadStatus.Corrupt;
     }
-
-    private (RelaySessionRecord Record, RelaySessionCredential Credential) CreateSession(
-        PairedDevice device,
-        RelayChannelId channelId,
-        CompanionSurfaceKind surface,
-        DateTimeOffset now)
-    {
-        var sessionId = new DeviceSessionId(Guid.NewGuid());
-        var expires = new[] { now.Add(RelaySecurityBounds.SessionLifetime), device.ExpiresUtc }.Min();
-        var session = new DeviceSession(
-            sessionId,
-            device.DeviceId,
-            device.DeviceKey.KeyId,
-            DeviceSessionStatus.Active,
-            CompanionTransportKind.EndToEndRelay,
-            surface,
-            RelayAuthorization.CapabilitiesFor(device.Role),
-            now,
-            now,
-            expires);
-        var secret = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(32));
-        var csrf = RelayCsrfProtector.Issue(sessionId, now, expires - now);
-        var digest = CredentialDigest(sessionId, secret);
-        var record = new RelaySessionRecord(session, channelId, digest, csrf.DigestBase64Url, csrf.ExpiresUtc);
-        return (
-            record,
-            new RelaySessionCredential(
-                sessionId,
-                device.DeviceId,
-                device.DeviceKey.KeyId,
-                channelId,
-                secret,
-                csrf.Token,
-                expires));
-    }
-
-    private static RelaySessionRecord EndIfActive(
-        RelaySessionRecord record,
-        DeviceSessionStatus status,
-        DateTimeOffset now,
-        string reason) => record.Session.Status == DeviceSessionStatus.Active
-            ? record.WithSession(DeviceLifecycle.EndSession(record.Session, status, now, reason))
-            : record;
 
     private static IReadOnlyList<RelayAuditEvent> AppendAudit(
         IEnumerable<RelayAuditEvent> existing,
@@ -809,7 +1232,7 @@ public sealed class RelayDeviceRegistry
             digest = RelayCsrfProtector.DecodeBase64Url(CredentialDigest(sessionId, credential));
             return true;
         }
-        catch (FormatException)
+        catch (Exception exception) when (exception is ArgumentException or FormatException)
         {
             return false;
         }

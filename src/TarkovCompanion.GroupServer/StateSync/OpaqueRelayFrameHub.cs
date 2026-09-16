@@ -27,19 +27,19 @@ public readonly record struct RelayAcknowledgementResult(bool Accepted, string C
     public static RelayAcknowledgementResult Reject(string code) => new(false, code);
 }
 
-/// <summary>Routes only bounded #276 ciphertext while the desktop remains canonical.</summary>
+/// <summary>Routes bounded #276 ciphertext while the authenticated desktop stays canonical.</summary>
 /// <remarks>
-/// The relay never deserializes the ciphertext and cannot mint canonical acknowledgements. It
-/// validates only authenticated routing metadata, expiry, protocol version, sequence replay, and
-/// resource bounds. Overflow is surfaced as a reconnect requirement instead of pretending a
-/// discontinuous queue is complete.
+/// A frame names the traffic session whose key protects it, while its delivery queue belongs to
+/// the recipient. Those are intentionally different for tablet-to-desktop traffic: many tablet
+/// channels feed one desktop queue. Replay state is therefore advanced on the target traffic
+/// session and never on a publisher-wide channel counter.
 /// </remarks>
 public sealed class OpaqueRelayFrameHub
 {
     private readonly RelayDeviceRegistry _registry;
     private readonly TimeProvider _timeProvider;
     private readonly Lock _gate = new();
-    private readonly Dictionary<RelayChannelId, Channel> _channels = [];
+    private readonly Dictionary<DeviceSessionId, RecipientQueue> _queues = [];
 
     public OpaqueRelayFrameHub(RelayDeviceRegistry registry, TimeProvider timeProvider)
     {
@@ -56,17 +56,15 @@ public sealed class OpaqueRelayFrameHub
     {
         ArgumentNullException.ThrowIfNull(principal);
         ArgumentNullException.ThrowIfNull(frame);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames).Allowed)
+        var now = Now();
+        if (!RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames, now).Allowed ||
+            !_registry.IsCurrent(principal))
         {
             return RelayFramePublishResult.Reject("not-authorized");
         }
 
-        var now = Now();
-        if (frame.ChannelId != principal.ChannelId ||
-            !CompanionProtocolVersion.Current.CanRead(frame.ProtocolVersion) ||
-            frame.IssuedUtc > now.Add(RelaySecurityBounds.ClockSkew) ||
-            frame.ExpiresUtc <= now ||
-            !TryMeasure(frame, out var frameBytes))
+        if (!CompanionProtocolVersion.Current.CanRead(frame.ProtocolVersion) ||
+            frame.IssuedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) || frame.ExpiresUtc <= now)
         {
             return RelayFramePublishResult.Reject(
                 !CompanionProtocolVersion.Current.CanRead(frame.ProtocolVersion)
@@ -74,108 +72,125 @@ public sealed class OpaqueRelayFrameHub
                     : "frame-rejected");
         }
 
-        var routes = _registry.ActiveRoutes(principal.ChannelId);
-        var target = routes.SingleOrDefault(route => route.SessionId == frame.SessionId);
-        if (principal.Role != DeviceAuthorizationRole.Owner && frame.SessionId != principal.SessionId)
+        PairingTrafficDirection direction;
+        RelaySessionRoute[] recipients;
+        if (frame.SessionId == principal.SessionId)
         {
-            return RelayFramePublishResult.Reject("not-authorized");
+            direction = PairingTrafficDirection.TabletToDesktop;
+            recipients = _registry.ActiveOwners()
+                .Where(route => route.SessionId != principal.SessionId)
+                .Take(RelaySecurityBounds.MaximumChannelParticipants)
+                .ToArray();
+        }
+        else
+        {
+            direction = PairingTrafficDirection.DesktopToTablet;
+            var target = _registry.ActiveRoute(frame.SessionId);
+            recipients = target is null ? [] : [target];
         }
 
-        if (principal.Role == DeviceAuthorizationRole.Owner && frame.SessionId != principal.SessionId &&
-            (target is null || target.Role == DeviceAuthorizationRole.Owner))
+        if (recipients.Length == 0)
         {
             return RelayFramePublishResult.Reject("route-rejected");
         }
 
-        var sequence = await _registry.AdvanceFrameSequenceAsync(
-            principal,
-            frame.KeyEpoch,
-            frame.SenderSequence,
-            cancellationToken).ConfigureAwait(false);
-        if (!sequence.Accepted)
-        {
-            return RelayFramePublishResult.Reject(sequence.Code);
-        }
-
-        var recipients = principal.Role == DeviceAuthorizationRole.Owner && target is not null &&
-            frame.SessionId != principal.SessionId
-            ? new[] { target }
-            : routes.Where(route => route.DeviceId != principal.DeviceId &&
-                                    route.Role == DeviceAuthorizationRole.Owner).ToArray();
         lock (_gate)
         {
-            SweepCore(now, principal.ChannelId, routes);
-            if (!_channels.TryGetValue(principal.ChannelId, out var channel))
+            SweepCore(now);
+            var resultingChannels = _queues.Values.Select(queue => queue.RecipientChannelId).ToHashSet();
+            foreach (var recipient in recipients.Where(recipient => !_queues.ContainsKey(recipient.SessionId)))
             {
-                if (_channels.Count >= RelaySecurityBounds.MaximumChannels)
-                {
-                    return RelayFramePublishResult.Reject("channel-limit");
-                }
-
-                channel = new Channel();
-                _channels.Add(principal.ChannelId, channel);
+                resultingChannels.Add(recipient.ChannelId);
             }
 
-            foreach (var recipient in recipients.Take(RelaySecurityBounds.MaximumChannelParticipants))
+            if (resultingChannels.Count > RelaySecurityBounds.MaximumChannels ||
+                _queues.Keys.Union(recipients.Select(recipient => recipient.SessionId)).Count() >
+                    RelaySecurityBounds.MaximumSessions)
             {
-                if (!channel.Queues.TryGetValue(recipient.SessionId, out var queue))
-                {
-                    if (channel.Queues.Count >= RelaySecurityBounds.MaximumChannelParticipants)
-                    {
-                        continue;
-                    }
+                return RelayFramePublishResult.Reject("channel-limit");
+            }
+        }
 
-                    queue = new RecipientQueue();
-                    channel.Queues.Add(recipient.SessionId, queue);
+        var admission = await _registry.AdvanceFrameSequenceAsync(
+            principal,
+            frame,
+            direction,
+            cancellationToken).ConfigureAwait(false);
+        if (!admission.Accepted)
+        {
+            return RelayFramePublishResult.Reject(admission.Code);
+        }
+
+        var frameBytes = frame.CiphertextLength;
+        var enqueued = 0;
+        lock (_gate)
+        {
+            // Registry bounds guarantee that a recipient set which passed the preflight cannot
+            // exceed these caps before this serialized enqueue. A revoked recipient is skipped.
+            foreach (var recipient in recipients)
+            {
+                var live = _registry.ActiveRoute(recipient.SessionId);
+                if (live is null || live.DeviceId != recipient.DeviceId)
+                {
+                    continue;
+                }
+
+                if (!_queues.TryGetValue(recipient.SessionId, out var queue))
+                {
+                    queue = new RecipientQueue(recipient.ChannelId);
+                    _queues.Add(recipient.SessionId, queue);
                 }
 
                 while (queue.Frames.Count >= RelaySecurityBounds.MaximumQueuedFramesPerParticipant ||
                        queue.QueuedBytes + frameBytes > RelaySecurityBounds.MaximumQueuedBytesPerParticipant)
                 {
-                    if (queue.Frames.Count == 0)
+                    if (!queue.Frames.TryDequeue(out var removed))
                     {
                         break;
                     }
 
-                    var removed = queue.Frames.Dequeue();
                     queue.QueuedBytes -= removed.SizeBytes;
                     queue.RequiresReconnect = true;
                 }
 
-                var delivery = checked(++queue.LastIssuedDeliveryId);
+                var deliveryId = checked(++queue.LastIssuedDeliveryId);
                 queue.Frames.Enqueue(new StoredFrame(
-                    new RelayQueuedFrame(delivery, frame, now),
+                    new RelayQueuedFrame(deliveryId, frame, now),
                     frameBytes));
                 queue.QueuedBytes += frameBytes;
+                enqueued++;
             }
         }
 
-        return new RelayFramePublishResult(true, "accepted", recipients.Length);
+        return enqueued == 0
+            ? RelayFramePublishResult.Reject("route-rejected")
+            : new RelayFramePublishResult(true, "accepted", enqueued);
     }
 
     public RelayFrameBatch Read(RelayPrincipal principal, long afterDeliveryId, int maximumItems = 32)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames).Allowed ||
-            afterDeliveryId < 0 || maximumItems is < 1 or > RelaySecurityBounds.MaximumQueuedFramesPerParticipant)
-        {
-            return new RelayFrameBatch(CompanionProtocolVersion.Current, [], true, Now());
-        }
-
         var now = Now();
-        var routes = _registry.ActiveRoutes(principal.ChannelId);
-        if (!routes.Any(route => route.SessionId == principal.SessionId && route.DeviceId == principal.DeviceId))
+        if (!RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames, now).Allowed ||
+            !_registry.IsCurrent(principal) || afterDeliveryId < 0 ||
+            maximumItems is < 1 or > RelaySecurityBounds.MaximumQueuedFramesPerParticipant)
         {
             return new RelayFrameBatch(CompanionProtocolVersion.Current, [], true, now);
         }
 
         lock (_gate)
         {
-            SweepCore(now, principal.ChannelId, routes);
-            if (!_channels.TryGetValue(principal.ChannelId, out var channel) ||
-                !channel.Queues.TryGetValue(principal.SessionId, out var queue))
+            SweepCore(now);
+            if (!_queues.TryGetValue(principal.SessionId, out var queue))
             {
-                return new RelayFrameBatch(CompanionProtocolVersion.Current, [], false, now);
+                // Queues are deliberately memory-only. A nonzero cursor with no queue therefore
+                // means this relay restarted or discarded delivery state; an empty batch must not
+                // masquerade as continuity.
+                return new RelayFrameBatch(
+                    CompanionProtocolVersion.Current,
+                    [],
+                    afterDeliveryId != 0,
+                    now);
             }
 
             var frames = queue.Frames
@@ -186,7 +201,9 @@ public sealed class OpaqueRelayFrameHub
             return new RelayFrameBatch(
                 CompanionProtocolVersion.Current,
                 frames,
-                queue.RequiresReconnect || afterDeliveryId < queue.LastAcknowledgedDeliveryId,
+                queue.RequiresReconnect ||
+                afterDeliveryId < queue.LastAcknowledgedDeliveryId ||
+                afterDeliveryId > queue.LastIssuedDeliveryId,
                 now);
         }
     }
@@ -194,23 +211,17 @@ public sealed class OpaqueRelayFrameHub
     public RelayAcknowledgementResult Acknowledge(RelayPrincipal principal, long deliveryId)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        if (!RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames).Allowed || deliveryId <= 0)
-        {
-            return RelayAcknowledgementResult.Reject("acknowledgement-rejected");
-        }
-
-        var routes = _registry.ActiveRoutes(principal.ChannelId);
-        if (!routes.Any(route => route.SessionId == principal.SessionId && route.DeviceId == principal.DeviceId))
+        var now = Now();
+        if (!RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames, now).Allowed ||
+            !_registry.IsCurrent(principal) || deliveryId <= 0)
         {
             return RelayAcknowledgementResult.Reject("acknowledgement-rejected");
         }
 
         lock (_gate)
         {
-            SweepCore(Now(), principal.ChannelId, routes);
-            if (!_channels.TryGetValue(principal.ChannelId, out var channel) ||
-                !channel.Queues.TryGetValue(principal.SessionId, out var queue) ||
-                queue.RequiresReconnect ||
+            SweepCore(now);
+            if (!_queues.TryGetValue(principal.SessionId, out var queue) || queue.RequiresReconnect ||
                 deliveryId <= queue.LastAcknowledgedDeliveryId || deliveryId > queue.LastIssuedDeliveryId)
             {
                 return RelayAcknowledgementResult.Reject("acknowledgement-rejected");
@@ -223,29 +234,25 @@ public sealed class OpaqueRelayFrameHub
             }
 
             queue.LastAcknowledgedDeliveryId = deliveryId;
-            if (queue.Frames.Count == 0)
-            {
-                queue.RequiresReconnect = false;
-            }
-
             return RelayAcknowledgementResult.Permit;
         }
     }
 
-    /// <summary>Clears a discontinuous queue after the authenticated peers choose a full snapshot.</summary>
+    /// <summary>Clears a discontinuous queue after authenticated peers request a full snapshot.</summary>
     public RelayAcknowledgementResult ResetAfterReconnect(RelayPrincipal principal)
     {
         ArgumentNullException.ThrowIfNull(principal);
-        var routes = _registry.ActiveRoutes(principal.ChannelId);
-        if (!routes.Any(route => route.SessionId == principal.SessionId && route.DeviceId == principal.DeviceId))
+        var now = Now();
+        if (!RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames, now).Allowed ||
+            !_registry.IsCurrent(principal))
         {
             return RelayAcknowledgementResult.Reject("reconnect-rejected");
         }
 
         lock (_gate)
         {
-            if (!_channels.TryGetValue(principal.ChannelId, out var channel) ||
-                !channel.Queues.TryGetValue(principal.SessionId, out var queue))
+            SweepCore(now);
+            if (!_queues.TryGetValue(principal.SessionId, out var queue))
             {
                 return RelayAcknowledgementResult.Permit;
             }
@@ -262,13 +269,9 @@ public sealed class OpaqueRelayFrameHub
     {
         lock (_gate)
         {
-            var before = _channels.Count;
-            foreach (var channelId in _channels.Keys.ToArray())
-            {
-                SweepCore(Now(), channelId, _registry.ActiveRoutes(channelId));
-            }
-
-            return before - _channels.Count;
+            var before = _queues.Count;
+            SweepCore(Now());
+            return before - _queues.Count;
         }
     }
 
@@ -278,29 +281,24 @@ public sealed class OpaqueRelayFrameHub
         {
             lock (_gate)
             {
-                return _channels.Count;
+                SweepCore(Now());
+                return _queues.Values.Select(queue => queue.RecipientChannelId).Distinct().Count();
             }
         }
     }
 
-    private void SweepCore(
-        DateTimeOffset now,
-        RelayChannelId channelId,
-        IReadOnlyCollection<RelaySessionRoute> routes)
+    private void SweepCore(DateTimeOffset now)
     {
-        var live = routes.Where(route => route.ExpiresUtc > now).Select(route => route.SessionId).ToHashSet();
-        if (!_channels.TryGetValue(channelId, out var channel))
+        foreach (var sessionId in _queues.Keys.ToArray())
         {
-            return;
-        }
+            var queue = _queues[sessionId];
+            var route = _registry.ActiveRoute(sessionId);
+            if (route is null || route.ChannelId != queue.RecipientChannelId)
+            {
+                _queues.Remove(sessionId);
+                continue;
+            }
 
-        foreach (var sessionId in channel.Queues.Keys.Where(sessionId => !live.Contains(sessionId)).ToArray())
-        {
-            channel.Queues.Remove(sessionId);
-        }
-
-        foreach (var queue in channel.Queues.Values)
-        {
             var count = queue.Frames.Count;
             for (var index = 0; index < count; index++)
             {
@@ -316,26 +314,6 @@ public sealed class OpaqueRelayFrameHub
                 }
             }
         }
-
-        if (channel.Queues.Count == 0)
-        {
-            _channels.Remove(channelId);
-        }
-    }
-
-    private static bool TryMeasure(OpaqueRelayFrame frame, out int bytes)
-    {
-        try
-        {
-            bytes = frame.CiphertextChunksBase64Url.Sum(chunk =>
-                RelayCsrfProtector.DecodeBase64Url(chunk).Length);
-            return bytes is > 0 and <= RelaySecurityBounds.MaximumRequestBytes;
-        }
-        catch (Exception exception) when (exception is FormatException or OverflowException)
-        {
-            bytes = 0;
-            return false;
-        }
     }
 
     private DateTimeOffset Now()
@@ -344,13 +322,10 @@ public sealed class OpaqueRelayFrameHub
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
-    private sealed class Channel
+    private sealed class RecipientQueue(RelayChannelId recipientChannelId)
     {
-        public Dictionary<DeviceSessionId, RecipientQueue> Queues { get; } = [];
-    }
+        public RelayChannelId RecipientChannelId { get; } = recipientChannelId;
 
-    private sealed class RecipientQueue
-    {
         public Queue<StoredFrame> Frames { get; } = new();
 
         public int QueuedBytes { get; set; }

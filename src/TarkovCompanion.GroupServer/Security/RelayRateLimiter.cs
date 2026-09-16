@@ -1,5 +1,6 @@
+using System.Net;
 using System.Security.Cryptography;
-using System.Text;
+using TarkovCompanion.CompanionProtocol;
 
 namespace TarkovCompanion.GroupServer.Security;
 
@@ -98,16 +99,8 @@ public sealed class RelayRateLimiter
         }
     }
 
-    public static string HashSource(string source)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(source);
-        if (Encoding.UTF8.GetByteCount(source) > 512)
-        {
-            throw new ArgumentOutOfRangeException(nameof(source));
-        }
-
-        return RelayCsrfProtector.Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(source)));
-    }
+    public static string HashSource(ReadOnlySpan<byte> sourceHashKey, IPAddress remoteAddress) =>
+        PairedTransportBinding.ComputeSourceHash(sourceHashKey, remoteAddress);
 
     private static void ValidateSourceHash(string sourceHash)
     {

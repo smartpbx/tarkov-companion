@@ -9,19 +9,20 @@ namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 public sealed class OpaqueRelayFrameHubTests
 {
     [Fact]
-    public async Task MemberFrameRoutesToOwnerAndReplayIsRejected()
+    public async Task MemberFrameRoutesToOwnerAndReplayAndStaleAckAreRejected()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
         var member = await AddDeviceAsync(context, owner, "member", DeviceAuthorizationRole.Member);
         var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
-        var frame = Frame(member.Credential.SessionId, member.Credential.ChannelId, context.Clock.UtcNow, 1, 1);
+        var frame = RelaySecurityTestFactory.Frame(member.Principal, context.Clock.UtcNow, 1);
 
         var first = await hub.PublishAsync(member.Principal, frame);
         var replay = await hub.PublishAsync(member.Principal, frame);
         var batch = hub.Read(owner, 0);
-        var acknowledged = hub.Acknowledge(owner, Assert.Single(batch.Frames).DeliveryId);
-        var staleAcknowledgement = hub.Acknowledge(owner, batch.Frames[0].DeliveryId);
+        var delivery = Assert.Single(batch.Frames).DeliveryId;
+        var acknowledged = hub.Acknowledge(owner, delivery);
+        var staleAcknowledgement = hub.Acknowledge(owner, delivery);
 
         Assert.True(first.Accepted);
         Assert.Equal(1, first.RecipientCount);
@@ -32,29 +33,70 @@ public sealed class OpaqueRelayFrameHubTests
     }
 
     [Fact]
-    public async Task OwnerCanReplyOnlyToAnActiveDeviceSessionOnItsChannel()
+    public async Task ReplayStateIsPerTargetSessionAndPerDirection()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var first = await AddDeviceAsync(context, owner, "first", DeviceAuthorizationRole.Member);
+        var second = await AddDeviceAsync(context, owner, "second", DeviceAuthorizationRole.Observer);
+        var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
+
+        var firstUp = await hub.PublishAsync(
+            first.Principal,
+            RelaySecurityTestFactory.Frame(first.Principal, context.Clock.UtcNow, 1));
+        var firstDown = await hub.PublishAsync(
+            owner,
+            RelaySecurityTestFactory.Frame(first.Principal, context.Clock.UtcNow, 1));
+        var secondDown = await hub.PublishAsync(
+            owner,
+            RelaySecurityTestFactory.Frame(second.Principal, context.Clock.UtcNow, 1));
+        var secondUp = await hub.PublishAsync(
+            second.Principal,
+            RelaySecurityTestFactory.Frame(second.Principal, context.Clock.UtcNow, 1));
+
+        Assert.True(firstUp.Accepted);
+        Assert.True(firstDown.Accepted);
+        Assert.True(secondDown.Accepted);
+        Assert.True(secondUp.Accepted);
+        Assert.Single(hub.Read(first.Principal, 0).Frames);
+        Assert.Single(hub.Read(second.Principal, 0).Frames);
+        Assert.Equal(2, hub.Read(owner, 0).Frames.Count);
+    }
+
+    [Fact]
+    public async Task OwnerCannotSpoofTargetChannelEpochOrUnknownSession()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
         var member = await AddDeviceAsync(context, owner, "target", DeviceAuthorizationRole.Member);
         var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
 
-        var sent = await hub.PublishAsync(
+        var wrongChannel = await hub.PublishAsync(
             owner,
-            Frame(member.Credential.SessionId, owner.ChannelId, context.Clock.UtcNow, 1, 1));
-        var received = hub.Read(member.Principal, 0);
-        var unknown = await hub.PublishAsync(
+            RelaySecurityTestFactory.Frame(
+                member.Principal,
+                context.Clock.UtcNow,
+                1,
+                channelId: owner.ChannelId));
+        var wrongEpoch = await hub.PublishAsync(
             owner,
-            Frame(new DeviceSessionId(Guid.NewGuid()), owner.ChannelId, context.Clock.UtcNow, 1, 2));
+            RelaySecurityTestFactory.Frame(
+                member.Principal,
+                context.Clock.UtcNow,
+                1,
+                keyEpoch: member.Principal.KeyEpoch + 1));
+        var valid = await hub.PublishAsync(
+            owner,
+            RelaySecurityTestFactory.Frame(member.Principal, context.Clock.UtcNow, 1));
 
-        Assert.True(sent.Accepted);
-        Assert.Single(received.Frames);
-        Assert.False(unknown.Accepted);
-        Assert.Equal("route-rejected", unknown.Code);
+        Assert.False(wrongChannel.Accepted);
+        Assert.False(wrongEpoch.Accepted);
+        Assert.True(valid.Accepted);
+        Assert.Single(hub.Read(member.Principal, 0).Frames);
     }
 
     [Fact]
-    public async Task ObserverIsReadOnlyForEveryOpaqueMutation()
+    public async Task ObserverCanSendEncryptedAcknowledgementTrafficButCannotGainAdminAuthority()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
@@ -63,45 +105,49 @@ public sealed class OpaqueRelayFrameHubTests
 
         var result = await hub.PublishAsync(
             observer.Principal,
-            Frame(observer.Credential.SessionId, owner.ChannelId, context.Clock.UtcNow, 1, 1));
+            RelaySecurityTestFactory.Frame(observer.Principal, context.Clock.UtcNow, 1));
+        var revoked = await context.Registry.RevokeDeviceAsync(
+            observer.Principal,
+            owner.DeviceId,
+            "observer-forgery");
 
-        Assert.False(result.Accepted);
-        Assert.Equal("not-authorized", result.Code);
-        Assert.Empty(hub.Read(observer.Principal, 0).Frames);
+        Assert.True(result.Accepted);
+        Assert.Single(hub.Read(owner, 0).Frames);
+        Assert.False(revoked.Succeeded);
     }
 
     [Fact]
-    public async Task ExpiredFutureAndVersionSkewedFramesFailClosed()
+    public async Task ExpiredFutureVersionAndStaleEpochFramesFailClosed()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
         var member = await AddDeviceAsync(context, owner, "skew", DeviceAuthorizationRole.Member);
         var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
 
-        var expired = Frame(
-            member.Credential.SessionId,
-            owner.ChannelId,
-            context.Clock.UtcNow.AddMinutes(-5),
-            1,
+        var expired = RelaySecurityTestFactory.Frame(
+            member.Principal,
+            context.Clock.UtcNow.AddMinutes(-1),
             1,
             expiresUtc: context.Clock.UtcNow);
-        var future = Frame(
-            member.Credential.SessionId,
-            owner.ChannelId,
-            context.Clock.UtcNow.Add(RelaySecurityBounds.ClockSkew).AddMilliseconds(1),
-            1,
+        var future = RelaySecurityTestFactory.Frame(
+            member.Principal,
+            context.Clock.UtcNow.Add(ProtocolBounds.MaxClientClockSkew).AddMilliseconds(1),
             1);
-        var incompatible = Frame(
-            member.Credential.SessionId,
-            owner.ChannelId,
+        var incompatible = RelaySecurityTestFactory.Frame(
+            member.Principal,
             context.Clock.UtcNow,
             1,
-            1,
             new CompanionProtocolVersion(3, 0));
+        var staleEpoch = RelaySecurityTestFactory.Frame(
+            member.Principal,
+            context.Clock.UtcNow,
+            1,
+            keyEpoch: member.Principal.KeyEpoch + 1);
 
         Assert.False((await hub.PublishAsync(member.Principal, expired)).Accepted);
         Assert.False((await hub.PublishAsync(member.Principal, future)).Accepted);
         Assert.Equal("unsupported-version", (await hub.PublishAsync(member.Principal, incompatible)).Code);
+        Assert.False((await hub.PublishAsync(member.Principal, staleEpoch)).Accepted);
     }
 
     [Fact]
@@ -116,7 +162,7 @@ public sealed class OpaqueRelayFrameHubTests
         {
             var result = await hub.PublishAsync(
                 member.Principal,
-                Frame(member.Credential.SessionId, owner.ChannelId, context.Clock.UtcNow, 1, sequence));
+                RelaySecurityTestFactory.Frame(member.Principal, context.Clock.UtcNow, sequence));
             Assert.True(result.Accepted);
         }
 
@@ -131,21 +177,39 @@ public sealed class OpaqueRelayFrameHubTests
     }
 
     [Fact]
-    public async Task PairedDeviceNeverCreatesAPhantomGroupMember()
+    public async Task MissingOrFutureDeliveryCursorRequiresReconnect()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
-        _ = await AddDeviceAsync(context, owner, "not-a-squad-member", DeviceAuthorizationRole.Member);
+        var member = await AddDeviceAsync(context, owner, "cursor", DeviceAuthorizationRole.Member);
+        var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
+        Assert.True((await hub.PublishAsync(
+            member.Principal,
+            RelaySecurityTestFactory.Frame(member.Principal, context.Clock.UtcNow, 1))).Accepted);
+
+        var future = hub.Read(owner, 99);
+        var afterRestart = new OpaqueRelayFrameHub(context.Registry, context.Clock).Read(owner, 1);
+
+        Assert.True(future.RequiresReconnect);
+        Assert.True(afterRestart.RequiresReconnect);
+    }
+
+    [Fact]
+    public async Task PairedDeviceNeverCreatesAPhantomV1GroupMember()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var member = await AddDeviceAsync(context, owner, "not-a-squad-member", DeviceAuthorizationRole.Member);
         var v1Rooms = new GroupRooms(context.Clock);
 
-        Assert.Equal(2, context.Registry.ActiveRoutes(owner.ChannelId).Count);
+        Assert.NotNull(context.Registry.ActiveRoute(member.Principal.SessionId));
         Assert.Equal(0, v1Rooms.MemberCount);
         Assert.DoesNotContain(
             typeof(RelaySessionRoute).GetProperties(),
             property => property.PropertyType == typeof(GroupMemberState));
     }
 
-    private static async ValueTask<(RelaySessionCredential Credential, RelayPrincipal Principal)> AddDeviceAsync(
+    private static async ValueTask<AddedDevice> AddDeviceAsync(
         RelayTestContext context,
         RelayPrincipal owner,
         string suffix,
@@ -161,31 +225,11 @@ public sealed class OpaqueRelayFrameHubTests
         var principal = Assert.IsType<RelayPrincipal>((await context.Registry.AuthenticateAsync(
             credential.SessionId,
             credential.Secret)).Principal);
-        return (credential, principal);
+        return new AddedDevice(credential, principal, completed);
     }
 
-    private static OpaqueRelayFrame Frame(
-        DeviceSessionId sessionId,
-        RelayChannelId channelId,
-        DateTimeOffset issuedUtc,
-        long keyEpoch,
-        long senderSequence,
-        CompanionProtocolVersion? version = null,
-        DateTimeOffset? expiresUtc = null) => new(
-            version ?? CompanionProtocolVersion.Current,
-            channelId,
-            sessionId,
-            keyEpoch,
-            senderSequence,
-            RelayCipherSuite.P256HkdfSha256Aes256Gcm,
-            Encode(new byte[12]),
-            [Encode([1, 2, 3, 4])],
-            Encode(new byte[16]),
-            issuedUtc,
-            expiresUtc ?? issuedUtc.AddMinutes(1));
-
-    private static string Encode(byte[] value) => Convert.ToBase64String(value)
-        .TrimEnd('=')
-        .Replace('+', '-')
-        .Replace('/', '_');
+    private sealed record AddedDevice(
+        RelaySessionCredential Credential,
+        RelayPrincipal Principal,
+        PairingAttempt Pairing);
 }

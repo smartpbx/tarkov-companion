@@ -3,6 +3,7 @@ using System.Text;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.GroupServer.Security;
+using TarkovCompanion.GroupServer.Storage;
 
 namespace TarkovCompanion.GroupServer.Pairing;
 
@@ -13,11 +14,16 @@ public sealed record PairingInvitationCredential(
 
 public sealed record PairingInvitationView(
     PairingAttemptId AttemptId,
-    PairingAttemptStage Stage,
     DateTimeOffset OfferedUtc,
     DateTimeOffset ExpiresUtc,
-    string? RequestedDeviceName,
-    DeviceKeyId? RequestedDeviceKeyId);
+    DateTimeOffset? CodeConsumedUtc,
+    DateTimeOffset? RevokedUtc);
+
+public sealed record RelayPairingRoute(
+    PairingAttemptId AttemptId,
+    CompanionDeviceId OwnerDeviceId,
+    DeviceSessionId OwnerSessionId,
+    DateTimeOffset ExpiresUtc);
 
 public sealed record RelayPairingResult<T>(bool Succeeded, string Code, T? Value, DateTimeOffset? RetryAfterUtc = null)
 {
@@ -27,242 +33,221 @@ public sealed record RelayPairingResult<T>(bool Succeeded, string Code, T? Value
         new(false, code, default, retryAfterUtc);
 }
 
-/// <summary>Holds short-lived, owner-created, single-use #276 pairing invitations.</summary>
+/// <summary>Bounded, one-use lookup and routing state for desktop-created pairing offers.</summary>
 /// <remarks>
-/// The human code is only a lookup value: the service stores its digest, consumes it on the first
-/// resolved request, then still requires desktop-owner approval and proof of the bound WebAuthn
-/// key. The code is never accepted as a device session or room credential.
+/// The relay is not a handshake authority. It never holds the desktop nonce, a device name,
+/// challenge, proof, or session secret and cannot advance <see cref="PairingStateMachine"/>. It
+/// rate-limits and consumes the short code, publishes the already-created public offer, and keeps
+/// only enough owner identity to route the remaining opaque handshake connection.
 /// </remarks>
-public sealed class RelayPairingInvitations
+public sealed class RelayPairingInvitations : IDisposable
 {
-    private const int CodeBytes = 10;
+    private readonly RelayDeviceRegistry _registry;
     private readonly TimeProvider _timeProvider;
-    private readonly RelayRateLimiter _resolveRate;
+    private readonly byte[] _codeDigestKey = RandomNumberGenerator.GetBytes(32);
     private readonly Lock _gate = new();
     private readonly Dictionary<PairingAttemptId, Invitation> _invitations = [];
+    private PairingRateState _rateState = PairingRateState.Empty;
+    private bool _disposed;
 
-    public RelayPairingInvitations(TimeProvider timeProvider)
+    public RelayPairingInvitations(RelayDeviceRegistry registry, TimeProvider timeProvider)
     {
+        ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        _registry = registry;
         _timeProvider = timeProvider;
-        _resolveRate = new RelayRateLimiter(
-            timeProvider,
-            ProtocolBounds.MaxPairingAttemptsPerWindow,
-            ProtocolBounds.PairingRateWindow);
     }
 
-    public RelayPairingResult<PairingInvitationCredential> Create(RelayPrincipal owner)
+    public RelayPairingResult<PairingInvitationCredential> Register(
+        RelayPrincipal owner,
+        PairingOffer offer,
+        string pairingCode)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.CreatePairingInvitation).Allowed)
+        ArgumentNullException.ThrowIfNull(offer);
+        var now = Now();
+        if (!RelayAuthorization.Decide(owner, RelayPermission.CreatePairingInvitation, now).Allowed ||
+            !_registry.IsCurrent(owner))
         {
             return RelayPairingResult<PairingInvitationCredential>.Reject("not-authorized");
         }
 
+        string normalized;
+        try
+        {
+            normalized = PairedTransportBinding.NormalizePairingCode(pairingCode);
+        }
+        catch (ArgumentException)
+        {
+            return RelayPairingResult<PairingInvitationCredential>.Reject("pairing-rejected");
+        }
+
+        if (offer.OfferedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) || offer.ExpiresUtc <= now)
+        {
+            return RelayPairingResult<PairingInvitationCredential>.Reject("pairing-rejected");
+        }
+
         lock (_gate)
         {
-            var now = Now();
+            ThrowIfDisposed();
             SweepCore(now);
-            if (owner.ExpiresUtc <= now || _invitations.Count >= RelaySecurityBounds.MaximumPairingInvitations)
+            if (_invitations.Count >= RelaySecurityBounds.MaximumPairingInvitations)
             {
-                return RelayPairingResult<PairingInvitationCredential>.Reject("pairing-unavailable");
+                return RelayPairingResult<PairingInvitationCredential>.Reject("invitation-limit");
             }
 
-            var attemptId = new PairingAttemptId(Guid.NewGuid());
-            var attempt = PairingStateMachine.Offer(attemptId, now);
-            var code = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(CodeBytes));
-            _invitations.Add(attemptId, new Invitation(
-                owner.DeviceId,
-                owner.ChannelId,
-                Digest(code),
-                attempt));
+            var digest = Digest(normalized);
+            if (_invitations.ContainsKey(offer.AttemptId) ||
+                _invitations.Values.Any(item => item.CodeDigest.Length != 0 &&
+                    CryptographicOperations.FixedTimeEquals(item.CodeDigest, digest)))
+            {
+                CryptographicOperations.ZeroMemory(digest);
+                return RelayPairingResult<PairingInvitationCredential>.Reject("pairing-rejected");
+            }
+
+            _invitations.Add(
+                offer.AttemptId,
+                new Invitation(owner.DeviceId, owner.SessionId, digest, offer, null, null));
             return RelayPairingResult<PairingInvitationCredential>.Success(
-                new PairingInvitationCredential(attemptId, code, attempt.ExpiresUtc));
+                new PairingInvitationCredential(offer.AttemptId, normalized, offer.ExpiresUtc));
         }
     }
 
-    public RelayPairingResult<PairingInvitationView> Resolve(
-        string shortCode,
-        string sourceHash,
-        PairingRequest request)
+    /// <summary>Consumes a rate-limited code before revealing its public pairing offer.</summary>
+    public RelayPairingResult<PairingOffer> Resolve(string? pairingCode, string sourceHash)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        var rate = _resolveRate.TryConsume(sourceHash);
-        if (!rate.Allowed)
-        {
-            return RelayPairingResult<PairingInvitationView>.Reject("rate-limited", rate.RetryAfterUtc);
-        }
-
-        if (string.IsNullOrWhiteSpace(shortCode) || Encoding.UTF8.GetByteCount(shortCode) > 64)
-        {
-            return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
-        }
-
-        var presented = Digest(shortCode);
+        var now = Now();
         lock (_gate)
         {
-            var now = Now();
+            ThrowIfDisposed();
             SweepCore(now);
-            Invitation? match = null;
-            foreach (var candidate in _invitations.Values)
+            PairingRateDecision rate;
+            try
             {
-                if (CryptographicOperations.FixedTimeEquals(candidate.CodeDigest, presented) &&
-                    candidate.Attempt.Stage == PairingAttemptStage.Offered)
+                rate = PairingRateLimiter.TryConsume(_rateState, sourceHash, now);
+            }
+            catch (ArgumentException)
+            {
+                return RelayPairingResult<PairingOffer>.Reject("pairing-rejected");
+            }
+
+            _rateState = rate.State;
+            if (!rate.Accepted)
+            {
+                return RelayPairingResult<PairingOffer>.Reject("rate-limited", rate.RetryAfterUtc);
+            }
+
+            string normalized;
+            try
+            {
+                normalized = PairedTransportBinding.NormalizePairingCode(pairingCode);
+            }
+            catch (ArgumentException)
+            {
+                return RelayPairingResult<PairingOffer>.Reject("pairing-rejected");
+            }
+
+            var presented = Digest(normalized);
+            try
+            {
+                PairingAttemptId matchedAttemptId = default;
+                Invitation? matched = null;
+                foreach (var (attemptId, invitation) in _invitations)
                 {
-                    match = candidate;
+                    if (invitation.CodeConsumedUtc is not null || invitation.RevokedUtc is not null ||
+                        invitation.CodeDigest.Length == 0 ||
+                        !CryptographicOperations.FixedTimeEquals(invitation.CodeDigest, presented))
+                    {
+                        continue;
+                    }
+
+                    matchedAttemptId = attemptId;
+                    matched = invitation;
+                    break;
+                }
+
+                if (matched is not null)
+                {
+                    _invitations[matchedAttemptId] = matched with { CodeConsumedUtc = now };
+                    return RelayPairingResult<PairingOffer>.Success(matched.Offer);
                 }
             }
-
-            if (match is null || match.Attempt.AttemptId != request.AttemptId)
+            finally
             {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
+                CryptographicOperations.ZeroMemory(presented);
             }
 
-            try
-            {
-                var bound = PairingStateMachine.BindResolvedCode(match.Attempt, request, now);
-                _invitations[bound.AttemptId] = match with { Attempt = bound, CodeDigest = ZeroDigest() };
-                return RelayPairingResult<PairingInvitationView>.Success(View(bound));
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
-            {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
-            }
+            return RelayPairingResult<PairingOffer>.Reject("pairing-rejected");
         }
     }
 
-    public RelayPairingResult<PairingInvitationView> Approve(
-        RelayPrincipal owner,
-        PairingChallenge challenge)
+    public RelayPairingResult<bool> Revoke(RelayPrincipal owner, PairingAttemptId attemptId)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentNullException.ThrowIfNull(challenge);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation).Allowed)
+        var now = Now();
+        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation, now).Allowed ||
+            !_registry.IsCurrent(owner))
         {
-            return RelayPairingResult<PairingInvitationView>.Reject("not-authorized");
+            return RelayPairingResult<bool>.Reject("not-authorized");
         }
 
         lock (_gate)
         {
-            var now = Now();
-            SweepCore(now);
-            if (!_invitations.TryGetValue(challenge.AttemptId, out var invitation) ||
-                invitation.OwnerDeviceId != owner.DeviceId || invitation.ChannelId != owner.ChannelId ||
-                owner.ExpiresUtc <= now)
-            {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
-            }
-
-            try
-            {
-                var approved = PairingStateMachine.Approve(invitation.Attempt, challenge, now);
-                _invitations[approved.AttemptId] = invitation with { Attempt = approved };
-                return RelayPairingResult<PairingInvitationView>.Success(View(approved));
-            }
-            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
-            {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
-            }
-        }
-    }
-
-    public RelayPairingResult<PairingInvitationView> Deny(RelayPrincipal owner, PairingAttemptId attemptId)
-    {
-        ArgumentNullException.ThrowIfNull(owner);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation).Allowed)
-        {
-            return RelayPairingResult<PairingInvitationView>.Reject("not-authorized");
-        }
-
-        lock (_gate)
-        {
-            var now = Now();
+            ThrowIfDisposed();
             SweepCore(now);
             if (!_invitations.TryGetValue(attemptId, out var invitation) ||
-                invitation.OwnerDeviceId != owner.DeviceId || invitation.ChannelId != owner.ChannelId)
+                invitation.OwnerDeviceId != owner.DeviceId || invitation.RevokedUtc is not null)
             {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
+                return RelayPairingResult<bool>.Reject("pairing-rejected");
             }
 
-            try
-            {
-                var denied = PairingStateMachine.Deny(invitation.Attempt, now);
-                _invitations[attemptId] = invitation with { Attempt = denied, CodeDigest = ZeroDigest() };
-                return RelayPairingResult<PairingInvitationView>.Success(View(denied));
-            }
-            catch (InvalidOperationException)
-            {
-                return RelayPairingResult<PairingInvitationView>.Reject("pairing-rejected");
-            }
+            _invitations[attemptId] = invitation with { RevokedUtc = now };
+            return RelayPairingResult<bool>.Success(true);
         }
     }
 
-    public async ValueTask<RelayPairingResult<PairingAttempt>> CompleteAsync(
-        PairingAttemptId attemptId,
-        PairingProof proof,
-        IDeviceKeyProofVerifier verifier,
-        CancellationToken cancellationToken = default)
+    public RelayPairingResult<RelayPairingRoute> RouteFor(PairingAttemptId attemptId)
     {
-        ArgumentNullException.ThrowIfNull(proof);
-        ArgumentNullException.ThrowIfNull(verifier);
         Invitation invitation;
         lock (_gate)
         {
+            ThrowIfDisposed();
             var now = Now();
             SweepCore(now);
-            if (!_invitations.TryGetValue(attemptId, out var found) ||
-                found.Attempt.Stage != PairingAttemptStage.AwaitingDeviceProof)
+            if (!_invitations.TryGetValue(attemptId, out invitation) ||
+                invitation.CodeConsumedUtc is null || invitation.RevokedUtc is not null)
             {
-                return RelayPairingResult<PairingAttempt>.Reject("pairing-rejected");
+                return RelayPairingResult<RelayPairingRoute>.Reject("pairing-rejected");
             }
-
-            invitation = found;
         }
 
-        PairingAttempt completed;
-        try
-        {
-            completed = await PairingStateMachine.CompleteAsync(
-                invitation.Attempt,
-                proof,
-                verifier,
-                Now(),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or UnauthorizedAccessException)
-        {
-            return RelayPairingResult<PairingAttempt>.Reject("pairing-rejected");
-        }
-
-        lock (_gate)
-        {
-            if (!_invitations.TryGetValue(attemptId, out var current) || current != invitation)
-            {
-                return RelayPairingResult<PairingAttempt>.Reject("pairing-rejected");
-            }
-
-            _invitations[attemptId] = current with { Attempt = completed, CodeDigest = ZeroDigest() };
-            return RelayPairingResult<PairingAttempt>.Success(completed);
-        }
+        var route = _registry.ActiveRoute(invitation.OwnerSessionId);
+        return route is not null && route.DeviceId == invitation.OwnerDeviceId
+            ? RelayPairingResult<RelayPairingRoute>.Success(new RelayPairingRoute(
+                invitation.Offer.AttemptId,
+                invitation.OwnerDeviceId,
+                invitation.OwnerSessionId,
+                invitation.Offer.ExpiresUtc))
+            : RelayPairingResult<RelayPairingRoute>.Reject("pairing-rejected");
     }
 
     public IReadOnlyList<PairingInvitationView> PendingFor(RelayPrincipal owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation).Allowed)
+        var now = Now();
+        if (!RelayAuthorization.Decide(owner, RelayPermission.ApprovePairingInvitation, now).Allowed ||
+            !_registry.IsCurrent(owner))
         {
             return [];
         }
 
         lock (_gate)
         {
-            SweepCore(Now());
+            ThrowIfDisposed();
+            SweepCore(now);
             return _invitations.Values
-                .Where(invitation => invitation.OwnerDeviceId == owner.DeviceId &&
-                                     invitation.ChannelId == owner.ChannelId &&
-                                     invitation.Attempt.Stage is PairingAttemptStage.AwaitingDesktopApproval or
-                                         PairingAttemptStage.AwaitingDeviceProof)
-                .Select(invitation => View(invitation.Attempt))
+                .Where(invitation => invitation.OwnerDeviceId == owner.DeviceId && invitation.RevokedUtc is null)
+                .Select(View)
                 .OrderBy(view => view.OfferedUtc)
                 .ToArray();
         }
@@ -272,50 +257,58 @@ public sealed class RelayPairingInvitations
     {
         lock (_gate)
         {
+            ThrowIfDisposed();
             return SweepCore(Now());
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            foreach (var invitation in _invitations.Values)
+            {
+                CryptographicOperations.ZeroMemory(invitation.CodeDigest);
+            }
+
+            _invitations.Clear();
+            CryptographicOperations.ZeroMemory(_codeDigestKey);
+            _disposed = true;
         }
     }
 
     private int SweepCore(DateTimeOffset now)
     {
         var removed = 0;
-        foreach (var (id, invitation) in _invitations.ToArray())
+        foreach (var (attemptId, invitation) in _invitations.ToArray())
         {
-            var attempt = invitation.Attempt;
-            if (attempt.Stage is PairingAttemptStage.Completed or PairingAttemptStage.Denied or PairingAttemptStage.Expired)
+            if (now < invitation.Offer.ExpiresUtc)
             {
-                if (now >= attempt.ExpiresUtc && _invitations.Remove(id))
-                {
-                    removed++;
-                }
-
                 continue;
             }
 
-            if (now >= attempt.ExpiresUtc)
-            {
-                _invitations[id] = invitation with
-                {
-                    Attempt = PairingStateMachine.Expire(attempt, now),
-                    CodeDigest = ZeroDigest(),
-                };
-            }
+            CryptographicOperations.ZeroMemory(invitation.CodeDigest);
+            _invitations.Remove(attemptId);
+            removed++;
         }
 
         return removed;
     }
 
-    private static PairingInvitationView View(PairingAttempt attempt) => new(
-        attempt.AttemptId,
-        attempt.Stage,
-        attempt.OfferedUtc,
-        attempt.ExpiresUtc,
-        attempt.Request?.RequestedDeviceName,
-        attempt.Request?.DeviceKey.KeyId);
+    private byte[] Digest(string normalizedCode) =>
+        HMACSHA256.HashData(_codeDigestKey, Encoding.ASCII.GetBytes(normalizedCode));
 
-    private static byte[] Digest(string code) => SHA256.HashData(Encoding.UTF8.GetBytes(code));
-
-    private static byte[] ZeroDigest() => new byte[SHA256.HashSizeInBytes];
+    private static PairingInvitationView View(Invitation invitation) => new(
+        invitation.Offer.AttemptId,
+        invitation.Offer.OfferedUtc,
+        invitation.Offer.ExpiresUtc,
+        invitation.CodeConsumedUtc,
+        invitation.RevokedUtc);
 
     private DateTimeOffset Now()
     {
@@ -323,9 +316,13 @@ public sealed class RelayPairingInvitations
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
     private sealed record Invitation(
         CompanionDeviceId OwnerDeviceId,
-        RelayChannelId ChannelId,
+        DeviceSessionId OwnerSessionId,
         byte[] CodeDigest,
-        PairingAttempt Attempt);
+        PairingOffer Offer,
+        DateTimeOffset? CodeConsumedUtc,
+        DateTimeOffset? RevokedUtc);
 }

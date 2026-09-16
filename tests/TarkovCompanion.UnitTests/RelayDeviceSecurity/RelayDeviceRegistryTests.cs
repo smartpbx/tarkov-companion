@@ -24,28 +24,26 @@ public sealed class RelayDeviceRegistryTests
     }
 
     [Fact]
-    public async Task RecoveryGrantIsDeviceKeyBoundAndSingleUse()
+    public async Task RecoveryRequiresCurrentVersionDeviceKeyProofAndIsSingleUse()
     {
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         using var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)7, 32).ToArray(), clock);
         var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
-        var key = RelaySecurityTestFactory.DeviceKey("recovered-owner");
         var ownerId = new CompanionDeviceId(Guid.NewGuid());
-        var grant = recovery.CreateGrant(ownerId, key.KeyId);
+        var pairing = await RelaySecurityTestFactory.CompletedPairingAsync(
+            "recovered-owner",
+            clock.UtcNow,
+            ownerId);
+        var grant = recovery.CreateGrant(ownerId, pairing.Request!.DeviceKey.KeyId);
 
-        var recovered = await registry.RecoverOwnerAsync(
-            grant,
-            "Recovered owner",
-            key,
-            new RelayChannelId(Guid.NewGuid()),
+        var wrongVersion = await registry.RecoverOwnerAsync(
+            grant with { Version = OwnerRecoveryProtector.CurrentGrantVersion + 1 },
+            pairing,
             CompanionSurfaceKind.Desktop);
-        var replay = await registry.RecoverOwnerAsync(
-            grant,
-            "Replay owner",
-            key,
-            new RelayChannelId(Guid.NewGuid()),
-            CompanionSurfaceKind.Desktop);
+        var recovered = await registry.RecoverOwnerAsync(grant, pairing, CompanionSurfaceKind.Desktop);
+        var replay = await registry.RecoverOwnerAsync(grant, pairing, CompanionSurfaceKind.Desktop);
 
+        Assert.False(wrongVersion.Succeeded);
         Assert.True(recovered.Succeeded);
         Assert.True(registry.CanAuthenticate);
         Assert.False(replay.Succeeded);
@@ -53,93 +51,178 @@ public sealed class RelayDeviceRegistryTests
     }
 
     [Fact]
-    public async Task SessionRotationInvalidatesAStolenCredentialIndependently()
+    public async Task SignedResumeRotatesSessionAndInvalidatesStolenCredential()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
+        var idOnly = await context.Registry.AuthenticateAsync(
+            context.OwnerCredential.SessionId,
+            RelaySecurityTestFactory.Base64Url(Enumerable.Repeat((byte)0x99, 32).ToArray()));
+        var resume = await RelaySecurityTestFactory.CompletedResumeAsync(
+            owner,
+            context.OwnerKey,
+            context.OwnerPairing.Establishment!.EstablishedUtc,
+            context.Clock.UtcNow);
 
-        var rotated = await context.Registry.RotateSessionAsync(owner);
+        var rotated = await context.Registry.RotateSessionAsync(
+            owner,
+            resume,
+            CompanionSurfaceKind.Desktop);
         var replacement = Assert.IsType<RelaySessionCredential>(rotated.Value);
         var stolenOld = await context.Registry.AuthenticateAsync(
             context.OwnerCredential.SessionId,
             context.OwnerCredential.Secret);
         var activeNew = await context.Registry.AuthenticateAsync(replacement.SessionId, replacement.Secret);
 
+        Assert.False(idOnly.Authenticated);
         Assert.True(rotated.Succeeded);
         Assert.False(stolenOld.Authenticated);
         Assert.True(activeNew.Authenticated);
+        Assert.False(context.Registry.IsCurrent(owner));
         Assert.NotEqual(context.OwnerCredential.Secret, replacement.Secret);
         Assert.NotEqual(context.OwnerCredential.SessionId, replacement.SessionId);
     }
 
     [Fact]
-    public async Task RevokingOneDeviceTerminatesItsSessionsButNotTheOwner()
+    public async Task EqualEpochOrPairingReplayCannotRotateASession()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
-        var completed = await RelaySecurityTestFactory.CompletedPairingAsync("member", context.Clock.UtcNow);
+        var resume = await RelaySecurityTestFactory.CompletedResumeAsync(
+            owner,
+            context.OwnerKey,
+            context.OwnerPairing.Establishment!.EstablishedUtc,
+            context.Clock.UtcNow);
+        var first = await context.Registry.RotateSessionAsync(
+            owner,
+            resume,
+            CompanionSurfaceKind.Desktop);
+        var credential = Assert.IsType<RelaySessionCredential>(first.Value);
+        var current = Assert.IsType<RelayPrincipal>((await context.Registry.AuthenticateAsync(
+            credential.SessionId,
+            credential.Secret)).Principal);
+
+        var rejected = await context.Registry.RotateSessionAsync(
+            current,
+            resume,
+            CompanionSurfaceKind.Desktop);
+
+        Assert.False(rejected.Succeeded);
+    }
+
+    [Fact]
+    public async Task RevocationAndReplacementAreIndependentPerDevice()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var pairing = await RelaySecurityTestFactory.CompletedPairingAsync("member", context.Clock.UtcNow);
         var paired = await context.Registry.AddPairedDeviceAsync(
             owner,
-            completed,
+            pairing,
             DeviceAuthorizationRole.Member,
             CompanionSurfaceKind.TabletLandscape);
         var credential = Assert.IsType<RelaySessionCredential>(paired.Value);
         var member = Assert.IsType<RelayPrincipal>((await context.Registry.AuthenticateAsync(
             credential.SessionId,
             credential.Secret)).Principal);
+        var replacementPairing = await RelaySecurityTestFactory.CompletedPairingAsync(
+            "replacement",
+            context.Clock.UtcNow);
 
-        var revoked = await context.Registry.RevokeDeviceAsync(owner, member.DeviceId, "lost-device");
+        var replaced = await context.Registry.ReplaceDeviceAsync(
+            owner,
+            member.DeviceId,
+            replacementPairing,
+            CompanionSurfaceKind.TabletLandscape);
+        var replacementCredential = Assert.IsType<RelaySessionCredential>(replaced.Value);
 
-        Assert.True(revoked.Succeeded);
+        Assert.True(replaced.Succeeded);
         Assert.False((await context.Registry.AuthenticateAsync(credential.SessionId, credential.Secret)).Authenticated);
+        Assert.True((await context.Registry.AuthenticateAsync(
+            replacementCredential.SessionId,
+            replacementCredential.Secret)).Authenticated);
         Assert.True((await context.Registry.AuthenticateAsync(
             context.OwnerCredential.SessionId,
             context.OwnerCredential.Secret)).Authenticated);
         Assert.Contains(
             Assert.IsAssignableFrom<IReadOnlyList<RelayAuditEvent>>(context.Registry.ReadAudit(owner).Value),
-            entry => entry.Action == RelayAuditAction.DeviceRevoked && entry.OutcomeCode == "lost-device");
+            entry => entry.Action == RelayAuditAction.DeviceReplaced);
     }
 
     [Fact]
-    public async Task BrowserCsrfTokenRotatesAndCannotReplay()
+    public async Task BrowserCsrfIsSessionBoundCanonicalRotatingAndNullSafe()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
         var owner = await context.AuthenticateOwnerAsync();
-
-        var first = await context.Registry.ValidateAndRotateCsrfAsync(owner, context.OwnerCredential.CsrfToken);
-        var replay = await context.Registry.ValidateAndRotateCsrfAsync(owner, context.OwnerCredential.CsrfToken);
-        var second = await context.Registry.ValidateAndRotateCsrfAsync(
-            owner,
-            Assert.IsType<string>(first.Value));
-
-        Assert.True(first.Succeeded);
-        Assert.False(replay.Succeeded);
-        Assert.Equal("csrf-rejected", replay.Code);
-        Assert.True(second.Succeeded);
-    }
-
-    [Fact]
-    public async Task CryptographicIdentityNotDisplayNameControlsAuthorization()
-    {
-        using var context = await RelaySecurityTestFactory.BootstrapAsync();
-        var owner = await context.AuthenticateOwnerAsync();
-        var completed = await RelaySecurityTestFactory.CompletedPairingAsync("same-name", context.Clock.UtcNow);
+        var pairing = await RelaySecurityTestFactory.CompletedPairingAsync("csrf-member", context.Clock.UtcNow);
         var paired = await context.Registry.AddPairedDeviceAsync(
             owner,
-            completed,
+            pairing,
+            DeviceAuthorizationRole.Member,
+            CompanionSurfaceKind.TabletPortrait);
+        var memberCredential = Assert.IsType<RelaySessionCredential>(paired.Value);
+
+        var missing = await context.Registry.ValidateAndRotateCsrfAsync(owner, null);
+        var crossSession = await context.Registry.ValidateAndRotateCsrfAsync(owner, memberCredential.CsrfToken);
+        var first = await context.Registry.ValidateAndRotateCsrfAsync(owner, context.OwnerCredential.CsrfToken);
+        var replay = await context.Registry.ValidateAndRotateCsrfAsync(owner, context.OwnerCredential.CsrfToken);
+        var nonCanonical = await context.Registry.ValidateAndRotateCsrfAsync(owner, context.OwnerCredential.CsrfToken + "=");
+
+        Assert.False(missing.Succeeded);
+        Assert.False(crossSession.Succeeded);
+        Assert.True(first.Succeeded);
+        Assert.False(replay.Succeeded);
+        Assert.False(nonCanonical.Succeeded);
+    }
+
+    [Fact]
+    public async Task ForgedRoleAndDisplayNameCannotBecomeAuthorizationIdentity()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var pairing = await RelaySecurityTestFactory.CompletedPairingAsync("observer", context.Clock.UtcNow);
+        var paired = await context.Registry.AddPairedDeviceAsync(
+            owner,
+            pairing,
             DeviceAuthorizationRole.Observer,
             CompanionSurfaceKind.NarrowPhone);
-        var observerCredential = Assert.IsType<RelaySessionCredential>(paired.Value);
+        var credential = Assert.IsType<RelaySessionCredential>(paired.Value);
         var observer = Assert.IsType<RelayPrincipal>((await context.Registry.AuthenticateAsync(
-            observerCredential.SessionId,
-            observerCredential.Secret)).Principal);
+            credential.SessionId,
+            credential.Secret)).Principal);
+        var forgedOwner = new RelayPrincipal(
+            observer.DeviceId,
+            observer.DeviceKeyId,
+            observer.SessionId,
+            observer.ChannelId,
+            observer.ProtocolVersion,
+            observer.KeyEpoch,
+            DeviceAuthorizationRole.Owner,
+            RelayAuthorization.CapabilitiesFor(DeviceAuthorizationRole.Owner),
+            observer.Surface,
+            observer.AuthenticatedUtc,
+            observer.ExpiresUtc);
 
-        Assert.True(RelayAuthorization.Decide(observer, RelayPermission.ReceiveOpaqueFrames).Allowed);
-        Assert.False(RelayAuthorization.Decide(observer, RelayPermission.PublishOpaqueFrames).Allowed);
-        Assert.False(RelayAuthorization.Decide(observer, RelayPermission.RevokeDevice, owner.DeviceId).Allowed);
-        Assert.True(RelayAuthorization.Decide(owner, RelayPermission.RevokeDevice, observer.DeviceId).Allowed);
+        var attempted = await context.Registry.RevokeDeviceAsync(
+            forgedOwner,
+            owner.DeviceId,
+            "forged-owner");
+
+        Assert.False(attempted.Succeeded);
+        Assert.True(RelayAuthorization.Decide(
+            observer,
+            RelayPermission.PublishOpaqueFrames,
+            context.Clock.UtcNow).Allowed);
+        Assert.False(RelayAuthorization.Decide(
+            observer,
+            RelayPermission.RevokeDevice,
+            context.Clock.UtcNow,
+            owner.DeviceId).Allowed);
         Assert.DoesNotContain(
             typeof(RelayPrincipal).GetProperties(),
+            property => property.Name.Contains("Name", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            typeof(RelayDeviceRecord).GetProperties(),
             property => property.Name.Contains("Name", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -147,6 +230,7 @@ public sealed class RelayDeviceRegistryTests
     public async Task SessionAndDeviceExpiryUseServerTimeAndFailClosed()
     {
         using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
         context.Clock.Advance(ProtocolBounds.DeviceInactivityExpiry);
 
         var expired = await context.Registry.AuthenticateAsync(
@@ -155,6 +239,7 @@ public sealed class RelayDeviceRegistryTests
 
         Assert.False(expired.Authenticated);
         Assert.Equal("expired", expired.Code);
+        Assert.False(context.Registry.IsCurrent(owner));
     }
 }
 
@@ -162,7 +247,7 @@ public sealed class RelayAuthorizationTests
 {
     [Theory]
     [InlineData(RelayPermission.ReceiveOpaqueFrames, true, true, true)]
-    [InlineData(RelayPermission.PublishOpaqueFrames, true, true, false)]
+    [InlineData(RelayPermission.PublishOpaqueFrames, true, true, true)]
     [InlineData(RelayPermission.CreatePairingInvitation, true, false, false)]
     [InlineData(RelayPermission.ApprovePairingInvitation, true, false, false)]
     [InlineData(RelayPermission.CloseOwnSession, true, true, true)]
@@ -189,6 +274,8 @@ public sealed class RelayAuthorizationTests
             RelaySecurityTestFactory.DeviceKey(role.ToString()).KeyId,
             new DeviceSessionId(Guid.NewGuid()),
             new RelayChannelId(Guid.NewGuid()),
+            CompanionProtocolVersion.Current,
+            1,
             role,
             RelayAuthorization.CapabilitiesFor(role),
             CompanionSurfaceKind.DesktopBrowser,
@@ -197,7 +284,11 @@ public sealed class RelayAuthorizationTests
         var target = permission is RelayPermission.CloseOwnSession or RelayPermission.RotateOwnSession
             ? deviceId
             : new CompanionDeviceId(Guid.NewGuid());
-        return RelayAuthorization.Decide(principal, permission, target).Allowed;
+        return RelayAuthorization.Decide(
+            principal,
+            permission,
+            RelaySecurityTestFactory.Now,
+            target).Allowed;
     }
 }
 
@@ -216,8 +307,6 @@ public sealed class VerifiedRelayRegistryStoreTests : IDisposable
         using (var context = await RelaySecurityTestFactory.BootstrapAsync(path))
         {
             credential = context.OwnerCredential;
-            _ = await context.AuthenticateOwnerAsync();
-            Assert.True(File.Exists(path + ".backup"));
             File.WriteAllText(path, "{ corrupt");
         }
 
@@ -233,62 +322,95 @@ public sealed class VerifiedRelayRegistryStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task CorruptPrimaryAndBackupNeverEnableOpenMode()
+    public async Task CorruptOrDivergentCopiesNeverEnableOpenMode()
     {
         Directory.CreateDirectory(_directory);
-        var path = Path.Combine(_directory, "devices.json");
-        File.WriteAllText(path, "not-json");
-        File.WriteAllText(path + ".backup", "also-not-json");
+        var pathA = Path.Combine(_directory, "a.json");
+        var pathB = Path.Combine(_directory, "b.json");
+        using var first = await RelaySecurityTestFactory.BootstrapAsync(pathA);
+        using var second = await RelaySecurityTestFactory.BootstrapAsync(pathB);
+        File.Copy(pathB, pathA + ".backup", overwrite: true);
+
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         using var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x5a, 32).ToArray(), clock);
-
         var registry = await RelayDeviceRegistry.OpenAsync(
             clock,
             recovery,
-            new VerifiedRelayRegistryStore(path));
+            new VerifiedRelayRegistryStore(pathA));
 
         Assert.Equal(RelayRegistryLoadStatus.Corrupt, registry.LoadStatus);
         Assert.False(registry.CanAuthenticate);
         Assert.False((await registry.AuthenticateAsync(
-            new DeviceSessionId(Guid.NewGuid()),
-            RelaySecurityTestFactory.Base64Url(new string('x', 32)))).Authenticated);
+            first.OwnerCredential.SessionId,
+            first.OwnerCredential.Secret)).Authenticated);
     }
 
     [Fact]
-    public async Task VerifiedBackupCannotResurrectARevokedSession()
+    public async Task NewerPrimaryRepairsStaleBackupBeforeItCanResurrectState()
     {
         Directory.CreateDirectory(_directory);
-        var path = Path.Combine(_directory, "devices.json");
+        var path = Path.Combine(_directory, "rollback.json");
         RelaySessionCredential revokedCredential;
+        RelaySessionCredential activeCredential;
+        byte[] staleBackup;
         using (var context = await RelaySecurityTestFactory.BootstrapAsync(path))
         {
+            revokedCredential = context.OwnerCredential;
+            staleBackup = await File.ReadAllBytesAsync(path + ".backup");
             var owner = await context.AuthenticateOwnerAsync();
-            var completed = await RelaySecurityTestFactory.CompletedPairingAsync("lost", context.Clock.UtcNow);
-            var paired = await context.Registry.AddPairedDeviceAsync(
+            var resume = await RelaySecurityTestFactory.CompletedResumeAsync(
                 owner,
-                completed,
-                DeviceAuthorizationRole.Member,
-                CompanionSurfaceKind.TabletLandscape);
-            revokedCredential = Assert.IsType<RelaySessionCredential>(paired.Value);
-            Assert.True((await context.Registry.RevokeDeviceAsync(
+                context.OwnerKey,
+                context.OwnerPairing.Establishment!.EstablishedUtc,
+                context.Clock.UtcNow);
+            activeCredential = Assert.IsType<RelaySessionCredential>((await context.Registry.RotateSessionAsync(
                 owner,
-                revokedCredential.DeviceId,
-                "lost-device")).Succeeded);
-            File.WriteAllText(path, "{ corrupt");
+                resume,
+                CompanionSurfaceKind.Desktop)).Value);
         }
 
+        await File.WriteAllBytesAsync(path + ".backup", staleBackup);
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         using var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x5a, 32).ToArray(), clock);
-        var reopened = await RelayDeviceRegistry.OpenAsync(clock, recovery, new VerifiedRelayRegistryStore(path));
+        _ = await RelayDeviceRegistry.OpenAsync(clock, recovery, new VerifiedRelayRegistryStore(path));
+        File.WriteAllText(path, "{ corrupt");
 
-        Assert.Equal(RelayRegistryLoadStatus.BackupRestored, reopened.LoadStatus);
-        Assert.False((await reopened.AuthenticateAsync(
+        using var fallbackRecovery = new OwnerRecoveryProtector(
+            Enumerable.Repeat((byte)0x5a, 32).ToArray(),
+            clock);
+        var restored = await RelayDeviceRegistry.OpenAsync(
+            clock,
+            fallbackRecovery,
+            new VerifiedRelayRegistryStore(path));
+
+        Assert.Equal(RelayRegistryLoadStatus.BackupRestored, restored.LoadStatus);
+        Assert.False((await restored.AuthenticateAsync(
             revokedCredential.SessionId,
             revokedCredential.Secret)).Authenticated);
+        Assert.True((await restored.AuthenticateAsync(
+            activeCredential.SessionId,
+            activeCredential.Secret)).Authenticated);
     }
 
     [Fact]
-    public async Task RegistryPersistsNoRawSessionOrCsrfCredential()
+    public async Task RegistryDisappearanceAfterVerificationClosesInMemoryAuthority()
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "disappeared.json");
+        using var context = await RelaySecurityTestFactory.BootstrapAsync(path);
+        File.Delete(path);
+        File.Delete(path + ".backup");
+
+        await Assert.ThrowsAsync<RelayRegistryUnavailableException>(() => context.Registry.AuthenticateAsync(
+            context.OwnerCredential.SessionId,
+            context.OwnerCredential.Secret).AsTask());
+
+        Assert.False(context.Registry.CanAuthenticate);
+        Assert.Equal(RelayRegistryLoadStatus.Corrupt, context.Registry.LoadStatus);
+    }
+
+    [Fact]
+    public async Task RegistryPersistsNoRawCredentialOrDeviceName()
     {
         Directory.CreateDirectory(_directory);
         var path = Path.Combine(_directory, "devices.json");
@@ -298,6 +420,7 @@ public sealed class VerifiedRelayRegistryStoreTests : IDisposable
 
         Assert.DoesNotContain(context.OwnerCredential.Secret, stored, StringComparison.Ordinal);
         Assert.DoesNotContain(context.OwnerCredential.CsrfToken, stored, StringComparison.Ordinal);
+        Assert.DoesNotContain("Device owner", stored, StringComparison.Ordinal);
         Assert.DoesNotContain("a-known-room-key", stored, StringComparison.Ordinal);
     }
 
