@@ -9,6 +9,8 @@
     xmlns:shell="using:TarkovCompanion.App.Views.V2.Shell"
     xmlns:raidCockpit="using:TarkovCompanion.App.Views.V2.Raid"
     xmlns:raidCockpitVm="using:TarkovCompanion.App.ViewModels.V2.Raid"
+    xmlns:lootScanVm="using:TarkovCompanion.App.ViewModels.V2.LootScan"
+    xmlns:lootScanViews="using:TarkovCompanion.App.Views.V2.LootScan"
     Title="{Binding WindowTitle}"
     Icon="/Assets/TarkovCompanion.ico"
     Width="1500"
@@ -62,6 +64,9 @@
     <!-- V2 Raid cockpit (package 2) -->
     <DataTemplate DataType="{x:Type raidCockpitVm:RaidCockpitViewModel}">
       <raidCockpit:RaidCockpitView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type lootScanVm:LootScanViewModel}">
+      <lootScanViews:LootScanView />
     </DataTemplate>
   </Window.DataTemplates>
 

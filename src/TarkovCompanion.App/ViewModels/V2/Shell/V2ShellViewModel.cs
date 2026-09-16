@@ -7,6 +7,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -72,6 +73,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private V2ReadinessCheck? _activeReadinessTarget;
     private V2FocusRequest? _playerActionStateFocus;
     private V2CaptureShellState _captureState = V2CaptureShellState.Empty;
+    private LootScanViewModel? _lootScanResult;
     private V2CaptureShellState? _renderedCaptureState;
     private ScanIntent _selectedCaptureIntent = ScanIntent.Auto;
     private string _persistenceFailure = string.Empty;
@@ -242,6 +244,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public object? LegacyPage => Legacy?.CurrentPage;
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
+    public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
     public V2RouteRegistry Registry { get; }
     public V2ShellVariantDefinition Variant { get; }
     public V2ShellRouter Router { get; }
@@ -552,7 +555,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     // V2 Raid cockpit (package 2): a full-page workspace like the legacy page it replaced on
     // this route, so it takes the same row span.
     public bool ShowsRaidCockpit => Registry[Router.Current.Location.Route].Content == V2RouteContent.RaidCockpit;
-    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsRaidCockpit ? 1 : 2;
+    public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
+    public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
+    public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
+    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -837,6 +843,34 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             InitiatingDevice = state.SettingDevice,
         });
         _apply.Request();
+    }
+
+    /// <summary>
+    /// Projects a frozen Loot Scan result into the Loot route and returns focus to it, from
+    /// whatever thread the capture session's own handoff runs on. #271/#282 own its source.
+    /// </summary>
+    /// <remarks>
+    /// Setting the result and navigating must land on the UI thread together, the same rule
+    /// <see cref="CoalescingDispatch"/> follows for background-driven updates: run inline when
+    /// there is no dispatcher or the caller is already on it (tests, headless), otherwise post.
+    /// </remarks>
+    public void ShowLootScanResult(LootScanViewModel result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        void Apply()
+        {
+            Volatile.Write(ref _lootScanResult, result);
+            GoTo(V2Routes.Loot);
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
     }
 
     /// <summary>Accepts plan-owned suggestions without making the shell own plan persistence.</summary>
@@ -1744,7 +1778,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsRaidCockpit), nameof(ShellBodyRowSpan),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsRaidCockpit),
+            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),

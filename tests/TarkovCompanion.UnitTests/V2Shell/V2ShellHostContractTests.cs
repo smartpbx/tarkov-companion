@@ -7,7 +7,7 @@ namespace TarkovCompanion.UnitTests.V2Shell;
 public sealed class V2ShellHostContractTests
 {
     [Theory]
-    [InlineData(null, V2ShellMode.Legacy)]
+    [InlineData(null, V2ShellMode.VariantB)]
     [InlineData("legacy", V2ShellMode.Legacy)]
     [InlineData("v2-a", V2ShellMode.VariantA)]
     [InlineData("v2-b", V2ShellMode.VariantB)]

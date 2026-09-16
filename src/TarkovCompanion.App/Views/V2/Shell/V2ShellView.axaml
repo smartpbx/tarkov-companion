@@ -402,6 +402,8 @@
           <!-- V2 Raid cockpit (package 2): a full-page workspace on the same row as the legacy
                page above, mutually exclusive with it by route content. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
+          <TextBlock Grid.Row="1" Classes="v2-body" IsVisible="{Binding ShowsLootScanEmpty}" Text="{Binding LootScanEmptyLabel}" />
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
