@@ -21,6 +21,25 @@ public sealed record ProfileContextChanged(ProfileWorkspaceSnapshot Snapshot);
 public sealed record CreateProfileRequest(ProfileContext Context, string Name, ProfileProgress Progress, bool MakeActive = true);
 
 /// <summary>
+/// Replaces progress only when the caller still owns the exact active workspace revision.
+/// A scan or quest write that began before a profile switch must fail visibly instead of landing
+/// in whichever profile happens to be active when that write reaches persistence.
+/// </summary>
+public sealed record UpdateActiveProfileProgressRequest(
+    long ExpectedWorkspaceRevision,
+    ProfileIdentity Identity,
+    ProfileProgress Progress);
+
+public sealed class ProfileWorkspaceRevisionConflictException(long expectedRevision, long actualRevision)
+    : InvalidOperationException(
+        $"Profile workspace revision changed from {expectedRevision} to {actualRevision}; reload the active profile before saving.")
+{
+    public long ExpectedRevision { get; } = expectedRevision;
+
+    public long ActualRevision { get; } = actualRevision;
+}
+
+/// <summary>
 /// Mutations are serialized and committed by compare-and-swap. <see cref="ContextChanged"/> is
 /// raised only after the mutation gate is released, one change at a time and in commit order.
 /// Raising it inside the gate let a subscriber that reacted by switching profile wait on the gate
@@ -87,6 +106,60 @@ public sealed class ProfileContextService : IDisposable
                 ? snapshot
                 : new ProfileWorkspaceSnapshot(checked(snapshot.Revision + 1), profileId, snapshot.Profiles);
         }, cancellationToken);
+
+    public Task<ProfileWorkspaceSnapshot> UpdateActiveProgressAsync(
+        UpdateActiveProfileProgressRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Identity);
+        ArgumentNullException.ThrowIfNull(request.Progress);
+        if (request.ExpectedWorkspaceRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "The expected workspace revision cannot be negative.");
+        }
+
+        return MutateAsync(snapshot =>
+        {
+            if (snapshot.Revision != request.ExpectedWorkspaceRevision)
+            {
+                throw new ProfileWorkspaceRevisionConflictException(
+                    request.ExpectedWorkspaceRevision,
+                    snapshot.Revision);
+            }
+
+            if (snapshot.ActiveProfileId != request.Identity.ProfileId)
+            {
+                throw new InvalidOperationException(
+                    "The profile that produced this progress is no longer active; reload before saving.");
+            }
+
+            var profile = Find(snapshot, request.Identity.ProfileId);
+            if (!string.Equals(
+                    profile.Context.Identity.Generation,
+                    request.Identity.Generation,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The profile generation that produced this progress is no longer active; reload before saving.");
+            }
+
+            var replacement = new ProfileRecord(
+                profile.Context,
+                profile.Name,
+                request.Progress,
+                profile.Lifecycle,
+                UtcNow(),
+                profile.ExtensionJson);
+            return new ProfileWorkspaceSnapshot(
+                checked(snapshot.Revision + 1),
+                snapshot.ActiveProfileId,
+                snapshot.Profiles.Select(candidate =>
+                    candidate.Context.Identity.ProfileId == request.Identity.ProfileId
+                        ? replacement
+                        : candidate).ToArray());
+        }, cancellationToken);
+    }
 
     public Task<ProfileWorkspaceSnapshot> ArchiveAsync(Guid profileId, CancellationToken cancellationToken) =>
         MutateAsync(snapshot =>

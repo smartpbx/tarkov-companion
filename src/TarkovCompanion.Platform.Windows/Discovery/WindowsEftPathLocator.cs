@@ -1,9 +1,13 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.Versioning;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Win32;
-using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.Platform.Windows.Discovery;
@@ -34,29 +38,281 @@ public sealed class WindowsEftPathLocator(
     IEftPathProbe? probe = null,
     // Optional so a composition without stored settings still discovers, which is what every
     // test that builds this by hand relies on.
-    IEftPathOverrideStore? overrides = null) : IEftPathLocator
+    IEftPathOverrideStore? overrides = null,
+    TimeProvider? timeProvider = null,
+    ILogger<WindowsEftPathLocator>? logger = null) : IEftPathLocator, IEftInstallDiscoverySource
 {
     private readonly IEftPathProbe _probe = probe ?? new SystemEftPathProbe();
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly ILogger<WindowsEftPathLocator> _logger = logger ?? NullLogger<WindowsEftPathLocator>.Instance;
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly Lock _stateGate = new();
+    private readonly ConcurrentQueue<EftInstallDiscoveryChanged> _pendingChanges = new();
+    private EftInstallDiscoverySnapshot? _current;
+    private int _publishingChanges;
+
+    public event Action<EftInstallDiscoveryChanged>? StateChanged;
+
+    public EftInstallDiscoverySnapshot Current
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _current ??= EftInstallDiscoverySnapshot.Uninitialized(UtcNow());
+            }
+        }
+    }
 
     public async Task<EftPaths> FindAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var named = overrides is null
-            ? EftPathOverrides.None
-            : await overrides.GetAsync(cancellationToken).ConfigureAwait(false);
-        var candidates = _probe.GetCandidates();
-        var install = FirstExisting(candidates.InstallRoots);
-        var logs = Named(named.LogRoot) ?? FirstExisting(candidates.LogRoots);
-        var screenshots = Named(named.ScreenshotRoot) ?? BestScreenshotRoot(candidates.ScreenshotRoots);
-        var foundCount = new[] { install, logs, screenshots }.Count(path => path is not null);
-        var confidence = foundCount switch
+        var state = await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        if (state.Status == EftInstallDiscoveryStatus.Unavailable)
         {
-            3 => new Confidence(0.95),
-            2 => new Confidence(0.80),
-            1 => new Confidence(0.60),
-            _ => Confidence.Unknown,
-        };
-        return new EftPaths(install, logs, screenshots, confidence);
+            throw new InvalidOperationException($"{state.Code}: {state.Detail}");
+        }
+
+        return state.Paths;
+    }
+
+    public async Task<EftInstallDiscoverySnapshot> RefreshAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        EftInstallDiscoverySnapshot result;
+        try
+        {
+            result = await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+
+        PublishPendingChanges();
+        return result;
+    }
+
+    private async Task<EftInstallDiscoverySnapshot> RefreshCoreAsync(CancellationToken cancellationToken)
+    {
+        EftPathOverrides named = EftPathOverrides.None;
+        Exception? configurationError = null;
+        if (overrides is not null)
+        {
+            try
+            {
+                named = await overrides.GetAsync(cancellationToken).ConfigureAwait(false)
+                    ?? throw new InvalidDataException("The game-folder settings reader returned no value.");
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Keep automatic discovery useful, but retain the configuration failure as the
+                // primary state. Falling back used to erase the only evidence that malformed
+                // discovery settings needed repair.
+                configurationError = exception;
+                _logger.LogWarning(exception, "Saved EFT game-folder settings could not be read; automatic discovery will continue.");
+            }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
+        {
+            var previous = Current;
+            var candidates = _probe.GetCandidates()
+                ?? throw new InvalidDataException("The EFT path probe returned no candidates.");
+            var previousInstallExists = previous.Paths.InstallRoot is { } previousInstall &&
+                _probe.DirectoryExists(previousInstall);
+            var install = FirstExisting(candidates.InstallRoots) ??
+                (previousInstallExists ? previous.Paths.InstallRoot : null);
+            var logs = Named(named.LogRoot) ?? FirstExisting(candidates.LogRoots);
+            var screenshots = Named(named.ScreenshotRoot) ?? BestScreenshotRoot(candidates.ScreenshotRoots);
+            var foundCount = new[] { install, logs, screenshots }.Count(path => path is not null);
+            var confidence = foundCount switch
+            {
+                3 => new Confidence(0.95),
+                2 => new Confidence(0.80),
+                1 => new Confidence(0.60),
+                _ => Confidence.Unknown,
+            };
+            var paths = new EftPaths(install, logs, screenshots, confidence);
+            if (configurationError is not null)
+            {
+                return Commit(
+                    EftInstallDiscoveryStatus.InvalidConfiguration,
+                    paths,
+                    "eft-discovery-configuration-invalid",
+                    ErrorDetail(
+                        "Saved game-folder settings could not be read",
+                        configurationError,
+                        "Re-save them in Settings, then retry discovery."));
+            }
+
+            if (install is not null)
+            {
+                var recovered = (previous.Status is EftInstallDiscoveryStatus.Missing
+                    or EftInstallDiscoveryStatus.InvalidConfiguration
+                    or EftInstallDiscoveryStatus.Invalidated
+                    or EftInstallDiscoveryStatus.Unavailable) ||
+                    string.Equals(previous.Code, "eft-discovery-recovered", StringComparison.Ordinal);
+                return Commit(
+                    EftInstallDiscoveryStatus.Ready,
+                    paths,
+                    recovered ? "eft-discovery-recovered" : "eft-discovery-ready",
+                    recovered
+                        ? "Escape from Tarkov installation discovery recovered; file observation can resume."
+                        : "Escape from Tarkov installation and file roots are available.");
+            }
+
+            var disappeared = previous.Status == EftInstallDiscoveryStatus.Invalidated ||
+                (previous.Status == EftInstallDiscoveryStatus.Ready &&
+                 previous.Paths.InstallRoot is not null &&
+                 !previousInstallExists);
+            return Commit(
+                disappeared ? EftInstallDiscoveryStatus.Invalidated : EftInstallDiscoveryStatus.Missing,
+                paths,
+                disappeared ? "eft-install-disappeared" : "eft-install-missing",
+                disappeared
+                    ? "The selected Escape from Tarkov installation is no longer available. Reconnect its drive, reinstall, or choose valid folders in Settings."
+                    : "Escape from Tarkov is not installed or could not be found. Install it or choose valid folders in Settings, then retry discovery.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "EFT installation discovery failed.");
+            return Commit(
+                EftInstallDiscoveryStatus.Unavailable,
+                new EftPaths(null, null, null, Confidence.Unknown),
+                "eft-discovery-unavailable",
+                ErrorDetail(
+                    "Escape from Tarkov installation discovery failed",
+                    exception,
+                    "Retry discovery or choose valid folders in Settings."));
+        }
+    }
+
+    public async IAsyncEnumerable<EftInstallDiscoverySnapshot> WatchAsync(
+        TimeSpan interval,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (interval <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(interval), "Discovery interval must be positive.");
+        }
+
+        var initial = await RefreshAsync(cancellationToken).ConfigureAwait(false);
+        yield return initial;
+        using var timer = new PeriodicTimer(interval, _timeProvider);
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var priorRevision = Current.Revision;
+            var observed = await RefreshAsync(cancellationToken).ConfigureAwait(false);
+            if (observed.Revision != priorRevision)
+            {
+                yield return observed;
+            }
+        }
+    }
+
+    private EftInstallDiscoverySnapshot Commit(
+        EftInstallDiscoveryStatus status,
+        EftPaths paths,
+        string code,
+        string detail)
+    {
+        EftInstallDiscoveryChanged? change = null;
+        EftInstallDiscoverySnapshot result;
+        lock (_stateGate)
+        {
+            var current = _current ??= EftInstallDiscoverySnapshot.Uninitialized(UtcNow());
+            var changed = current.Status != status ||
+                !Equals(current.Paths, paths) ||
+                !string.Equals(current.Code, code, StringComparison.Ordinal) ||
+                !string.Equals(current.Detail, detail, StringComparison.Ordinal);
+            result = new(
+                changed ? checked(current.Revision + 1) : current.Revision,
+                status,
+                paths,
+                UtcNow(),
+                code,
+                detail);
+            _current = result;
+            if (changed)
+            {
+                change = new(result);
+                _pendingChanges.Enqueue(change);
+            }
+        }
+
+        return result;
+    }
+
+    private void PublishPendingChanges()
+    {
+        while (Interlocked.CompareExchange(ref _publishingChanges, 1, 0) == 0)
+        {
+            try
+            {
+                while (_pendingChanges.TryDequeue(out var change))
+                {
+                    Deliver(change);
+                }
+            }
+            finally
+            {
+                Volatile.Write(ref _publishingChanges, 0);
+            }
+
+            if (_pendingChanges.IsEmpty)
+            {
+                return;
+            }
+        }
+    }
+
+    private void Deliver(EftInstallDiscoveryChanged change)
+    {
+        if (StateChanged is not { } handlers)
+        {
+            return;
+        }
+
+        foreach (Action<EftInstallDiscoveryChanged> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(change);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "An EFT install-discovery subscriber failed after revision {Revision} was published.",
+                    change.Snapshot.Revision);
+            }
+        }
+    }
+
+    private DateTimeOffset UtcNow() => _timeProvider.GetUtcNow().ToUniversalTime();
+
+    private static string ErrorDetail(string prefix, Exception exception, string recovery)
+    {
+        const int maximumDetailLength = 2048;
+        var fixedLength = prefix.Length + recovery.Length + 5;
+        var maximumMessageLength = Math.Max(0, maximumDetailLength - fixedLength);
+        var rawMessage = exception.Message;
+        if (rawMessage.Length > maximumMessageLength)
+        {
+            rawMessage = rawMessage[..maximumMessageLength];
+        }
+
+        var message = new string(rawMessage
+            .Select(character => char.IsControl(character) ? ' ' : character)
+            .ToArray()).Trim();
+        if (message.Length == 0)
+        {
+            message = "no additional detail";
+        }
+
+        return $"{prefix} ({message}). {recovery}";
     }
 
     /// <summary>
