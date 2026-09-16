@@ -118,14 +118,9 @@ public sealed class MapSceneRendererViewModelTests
         var renderer = new MapSceneRendererViewModel(Scene(firstFloorObjects: [route, risk]));
 
         Assert.Empty(renderer.SpatialObjects);
-        Assert.Collection(
-            renderer.GeometryObjects,
-            item =>
-            {
-                Assert.Equal(MapSceneGeometryKind.Line, item.Kind);
-                Assert.Equal(3, item.Points.Count);
-            },
-            item => Assert.Equal(MapSceneGeometryKind.Region, item.Kind));
+        Assert.Equal(2, renderer.GeometryObjects.Count);
+        Assert.Equal(3, renderer.GeometryObjects.Single(item => item.Kind == MapSceneGeometryKind.Line).Points.Count);
+        Assert.Single(renderer.GeometryObjects, item => item.Kind == MapSceneGeometryKind.Region);
         Assert.Equal(2, renderer.ListItems.Count);
     }
 
