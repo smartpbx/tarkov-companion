@@ -140,7 +140,7 @@ public sealed class ProfileAwareKeyIntelligenceService
         var requirementsComplete = request.RequirementsStatus.Completeness == ResultCompleteness.Complete &&
                                    request.Requirements.All(requirement =>
                                        requirement.Status.Completeness == ResultCompleteness.Complete);
-        var quest = requirementsComplete
+        double? quest = requirementsComplete
             ? current.Length > 0 ? 100d : future.Length > 0 ? 65d : 0d
             : null;
         if (quest is null)
@@ -154,7 +154,7 @@ public sealed class ProfileAwareKeyIntelligenceService
         var economy = Economy(Known(request.Utility.AcquisitionCostRoubles), Known(request.Utility.ExpectedLootProxyRoubles));
         var uses = Uses(Known(request.Inventory.MaximumUses), Known(request.Inventory.RemainingUses));
         var lockUtility = LockUtility(request.Utility);
-        var uniqueAccess = Known(request.Utility.UniqueAccess) is { } unique ? unique ? 100d : 0d : null;
+        double? uniqueAccess = Known(request.Utility.UniqueAccess) is { } unique ? unique ? 100d : 0d : null;
         var riskAdjustedLoot = RiskAdjustedLoot(request.Utility);
         var components = new KeyScoreComponentsV2(
             quest,
