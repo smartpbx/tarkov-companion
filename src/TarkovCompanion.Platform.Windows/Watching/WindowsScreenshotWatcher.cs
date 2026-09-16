@@ -96,8 +96,13 @@ public sealed class WindowsScreenshotWatcher(
                 }
 
                 var order = new FileOrderKey(candidate.WrittenUtc.Ticks, candidate.Path);
+                // A later screenshot can finish first while an older file is still growing or
+                // locked. The delivery watermark suppresses newly discovered historical files;
+                // it must not turn a candidate already under observation into a delivered file.
+                var wasSettling = settling.ContainsKey(candidate.Path);
                 if (candidate.WrittenUtc < cutoff
                     || (!wasTracked
+                        && !wasSettling
                         && watchState.DeliveryWatermark is { } watermark
                         && order.CompareTo(watermark) <= 0))
                 {
@@ -169,7 +174,7 @@ public sealed class WindowsScreenshotWatcher(
     }
 
     /// <summary>
-    /// Lists the screenshots currently in the folder, oldest first.
+    /// Lists the newest bounded population of screenshots in the folder, oldest first.
     /// </summary>
     /// <remarks>
     /// Oldest first so that when several arrive between two polls the newest is reported last
@@ -178,10 +183,37 @@ public sealed class WindowsScreenshotWatcher(
     /// </remarks>
     private IReadOnlyList<FileCandidate> Snapshot(string screenshotRoot)
     {
-        string[] files;
+        var newest = new PriorityQueue<FileCandidate, FileOrderKey>();
         try
         {
-            files = Directory.GetFiles(screenshotRoot);
+            // Directory.GetFiles and OrderBy used to allocate one path and one candidate for
+            // every file before the configured tracking bound was applied. A mistaken folder
+            // containing hundreds of thousands of images could therefore exhaust memory even
+            // though the retained dictionaries were later pruned. Walk the directory lazily and
+            // retain only the newest bounded population; older entries are already behind the
+            // delivery watermark and startup grace.
+            foreach (var path in Directory.EnumerateFiles(screenshotRoot))
+            {
+                if (!SupportedExtensions.Contains(Path.GetExtension(path))
+                    || (!developerMode && path.Contains("EftSimulator", StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                var candidate = TryProbe(path);
+                if (candidate is null)
+                {
+                    continue;
+                }
+
+                newest.Enqueue(
+                    candidate,
+                    new(candidate.WrittenUtc.Ticks, candidate.Path));
+                if (newest.Count > _maximumTrackedFiles)
+                {
+                    _ = newest.Dequeue();
+                }
+            }
         }
         catch (IOException)
         {
@@ -192,12 +224,8 @@ public sealed class WindowsScreenshotWatcher(
             throw new CaptureSourceUnavailableException();
         }
 
-        return files
-            .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
-            .Where(path => developerMode || !path.Contains("EftSimulator", StringComparison.OrdinalIgnoreCase))
-            .Select(TryProbe)
-            .Where(candidate => candidate is not null)
-            .Select(candidate => candidate!)
+        return newest.UnorderedItems
+            .Select(entry => entry.Element)
             .OrderBy(entry => entry.WrittenUtc)
             .ThenBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();

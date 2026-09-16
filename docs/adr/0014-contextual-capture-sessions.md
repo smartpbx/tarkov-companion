@@ -1,4 +1,4 @@
-# ADR 0013: Contextual capture sessions own transient review state
+# ADR 0014: Contextual capture sessions own transient review state
 
 Status: Accepted as an uncomposed v2 checkpoint
 

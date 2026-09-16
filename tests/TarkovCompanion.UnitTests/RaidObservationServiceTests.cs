@@ -118,6 +118,57 @@ public sealed class RaidObservationServiceTests
     }
 
     [Fact]
+    public async Task SlowerOlderScreenshotCannotOverwriteANewerPublishedScan()
+    {
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var scan = new ControlledScanUseCase(expectedCalls: 2);
+        using var harness = new Harness(
+            new("eft", null, screenshotRoot, new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            scanUseCase: scan);
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "older.png"));
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "newer.png"));
+
+        harness.Service.Start();
+        await scan.AllStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        scan.Complete(1, "Newer item", hudLength: 120);
+        await UntilAsync(() => harness.Store.Current.Scan.ItemName == "Newer item");
+
+        scan.Complete(0, "Older item", hudLength: 60);
+        await harness.Service.DisposeAsync();
+
+        Assert.Equal("Newer item", harness.Store.Current.Scan.ItemName);
+        Assert.Equal(120, Assert.Single(harness.Store.Current.Raid.Hud!.Bars).Length);
+    }
+
+    [Fact]
+    public async Task ScanFromADisappearedScreenshotSourceCannotPublishLate()
+    {
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var scan = new ControlledScanUseCase(expectedCalls: 1);
+        using var harness = new Harness(
+            new("eft", null, screenshotRoot, new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            scanUseCase: scan)
+        {
+            ScreenshotFailure = new CaptureSourceUnavailableException(),
+        };
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "old-source.png"));
+
+        harness.Service.Start();
+        await scan.AllStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await UntilAsync(() => !harness.Store.Current.Observation.IsWatchingScreenshots);
+
+        // This fixture deliberately ignores cancellation. The generation fence, rather than a
+        // well-behaved dependency, must own the guarantee that vanished-source work is stale.
+        scan.Complete(0, "Stale source item");
+        await harness.Service.DisposeAsync();
+
+        Assert.NotEqual("Stale source item", harness.Store.Current.Scan.ItemName);
+    }
+
+    [Fact]
     public async Task DoesNotObserveInDemoMode()
     {
         using var harness = new Harness(
@@ -289,6 +340,80 @@ public sealed class RaidObservationServiceTests
                 Cancelled.TrySetResult();
                 throw;
             }
+        }
+    }
+
+    private sealed class ControlledScanUseCase : IScanUseCase
+    {
+        private readonly TaskCompletionSource<ScanOutcome>[] _results;
+        private int _calls;
+
+        public ControlledScanUseCase(int expectedCalls)
+        {
+            _results = Enumerable.Range(0, expectedCalls)
+                .Select(_ => new TaskCompletionSource<ScanOutcome>(
+                    TaskCreationOptions.RunContinuationsAsynchronously))
+                .ToArray();
+        }
+
+        public TaskCompletionSource AllStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The fixture only receives decoded screenshot images.");
+
+        public async Task<ScanOutcome> ScanImageAsync(
+            CapturedImage image,
+            CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _calls) - 1;
+            if ((uint)call >= (uint)_results.Length)
+            {
+                throw new InvalidOperationException("The fixture received more scans than expected.");
+            }
+
+            if (call + 1 == _results.Length)
+            {
+                AllStarted.TrySetResult();
+            }
+
+            // Cancellation is intentionally ignored: the service's publication fence must still
+            // reject old work when an external OCR provider is late or non-cooperative.
+            return await _results[call].Task.ConfigureAwait(false);
+        }
+
+        public void Complete(int call, string itemName, int? hudLength = null)
+        {
+            var candidate = new RecognitionCandidate(
+                itemName.ToLowerInvariant().Replace(' ', '-'),
+                itemName,
+                new Confidence(0.99),
+                "controlled fixture");
+            var recognition = new RecognitionResult(
+                ScanContext.SingleItem,
+                [candidate],
+                DateTimeOffset.UnixEpoch.AddSeconds(call),
+                "controlled_fixture")
+            {
+                Hud = hudLength is { } length
+                    ? new HudReading(true, "Controlled HUD fixture.")
+                    {
+                        Bars = [new(HudBarKind.Blue, new(0, 0, length, 3))],
+                    }
+                    : null,
+            };
+            _results[call].TrySetResult(new(
+                Guid.NewGuid(),
+                ScanCompletionStatus.Partial,
+                ScanContext.SingleItem,
+                DateTimeOffset.UnixEpoch.AddSeconds(call),
+                recognition,
+                null,
+                null,
+                null,
+                null,
+                [],
+                "controlled_fixture"));
         }
     }
 

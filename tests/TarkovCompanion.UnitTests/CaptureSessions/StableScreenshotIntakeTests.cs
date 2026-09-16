@@ -41,6 +41,81 @@ public sealed class StableScreenshotIntakeTests
     }
 
     [Fact]
+    public async Task NewerCompletedScreenshotDoesNotDropAnOlderSettlingFile()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var older = Path.Combine(root, "older.png");
+            var newer = Path.Combine(root, "newer.png");
+            var olderWritten = DateTime.UtcNow.AddSeconds(-2);
+            await File.WriteAllBytesAsync(older, Png[..20], stopping.Token);
+            File.SetLastWriteTimeUtc(older, olderWritten);
+            await File.WriteAllBytesAsync(newer, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(newer, olderWritten.AddSeconds(1));
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    requiredStableProbes: 2)
+                .WatchAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+
+            Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
+            Assert.Equal(newer, enumerator.Current);
+
+            await File.WriteAllBytesAsync(older, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(older, olderWritten);
+            Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
+            Assert.Equal(older, enumerator.Current);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DirectorySnapshotKeepsOnlyTheNewestBoundedPopulation()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var paths = new List<string>();
+            var written = DateTime.UtcNow.AddSeconds(-30);
+            for (var index = 0; index < 17; index++)
+            {
+                var path = Path.Combine(root, $"shot-{index:D2}.png");
+                await File.WriteAllBytesAsync(path, Png, stopping.Token);
+                File.SetLastWriteTimeUtc(path, written.AddSeconds(index));
+                paths.Add(path);
+            }
+
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    requiredStableProbes: 2,
+                    maximumTrackedFiles: 16)
+                .WatchAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var delivered = new List<string>();
+            for (var index = 0; index < 16; index++)
+            {
+                Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(
+                    TimeSpan.FromSeconds(2),
+                    stopping.Token));
+                delivered.Add(enumerator.Current);
+            }
+
+            Assert.DoesNotContain(paths[0], delivered);
+            Assert.Equal(paths.Skip(1), delivered);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task WatcherReportsTheSamePathAgainOnlyAfterItsContentChangesAndSettles()
     {
         var root = NewDirectory();
