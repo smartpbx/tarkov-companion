@@ -183,6 +183,12 @@ public sealed record LootScanResult
         SourceContentSha256 = LootScanApplicationGuard.Sha256(sourceContentSha256, nameof(sourceContentSha256));
         ReviewedContentSha256 = LootScanApplicationGuard.Sha256(reviewedContentSha256, nameof(reviewedContentSha256));
         FocusDeviceId = LootScanApplicationGuard.Required(focusDeviceId, nameof(focusDeviceId), 128);
+        if (context.InitiatingDevice is not null &&
+            !string.Equals(context.InitiatingDevice, FocusDeviceId, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Result focus must return to the device that initiated the capture.", nameof(focusDeviceId));
+        }
+
         EvaluatedUtc = evaluatedUtc.Offset == TimeSpan.Zero
             ? evaluatedUtc
             : throw new ArgumentException("Loot-scan evaluation time must be UTC.", nameof(evaluatedUtc));
@@ -195,6 +201,11 @@ public sealed record LootScanResult
 
         Issues = Copy(issues, LootScanPlannerLimits.MaximumVisibleItems * 4, nameof(issues));
         Timings = Copy(timings, 32, nameof(timings));
+        if (Status.Completeness == ResultCompleteness.Complete &&
+            (Issues.Count > 0 || Decisions.Any(decision => decision.Verdict == LootScanVerdict.Review)))
+        {
+            throw new ArgumentException("A complete loot result cannot contain review decisions or unresolved issues.", nameof(status));
+        }
     }
 
     public string ScanId { get; }

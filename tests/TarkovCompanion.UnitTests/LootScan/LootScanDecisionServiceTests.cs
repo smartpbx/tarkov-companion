@@ -127,8 +127,39 @@ public sealed class LootScanDecisionServiceTests
 
         var decision = Assert.Single(result.Decisions);
         Assert.Equal(LootScanVerdict.Review, decision.Verdict);
-        Assert.Equal("swap.incoming-value-unknown", Assert.Single(decision.Reasons).Code);
+        Assert.Equal("economics.incomplete", Assert.Single(decision.Reasons).Code);
         Assert.Equal(ResultCompleteness.Partial, decision.Economics!.Status.Completeness);
+        Assert.Equal(FreshnessState.Stale, decision.Economics.Status.Freshness);
+        Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void AmbiguousProtectionEvidenceMakesAPotentialSwapReviewOnly()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var provenance = CatalogProvenance("ambiguous-protection");
+        var protectedItem = new EvidencedValue<bool?>(
+            "carried.protected",
+            false,
+            new(ResultCompleteness.Complete, FreshnessState.Current),
+            provenance,
+            candidates: [new("protected", "Protected", true, provenance)]);
+        var policy = new LootScanCarriedPolicy(
+            Binding(anchor, "carried"),
+            protectedItem,
+            Complete<bool?>("carried.pinned", false, provenance),
+            Complete<long?>("carried.replacement-value", 1_000, provenance));
+
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "incoming", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1, Cell(anchor, "carried", 1, 1)),
+            [Recommendation(anchor, "incoming")],
+            [policy]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("swap.evidence-incomplete", Assert.Single(decision.Reasons).Code);
+        Assert.Empty(decision.Drops);
     }
 
     [Theory]
@@ -149,6 +180,20 @@ public sealed class LootScanDecisionServiceTests
         Assert.Equal(LootScanVerdict.Leave, decision.Verdict);
         Assert.Empty(decision.Drops);
         Assert.Equal("capacity.no-supported-fit", Assert.Single(decision.Reasons).Code);
+    }
+
+    [Fact]
+    public void MissingCarriedPolicyMakesAPotentialSwapReviewOnly()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "incoming", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1, Cell(anchor, "carried", 1, 1)),
+            [Recommendation(anchor, "incoming")]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("swap.evidence-incomplete", Assert.Single(decision.Reasons).Code);
     }
 
     [Fact]
@@ -256,6 +301,104 @@ public sealed class LootScanDecisionServiceTests
     }
 
     [Fact]
+    public void CompleteStatusWithAlternateItemEvidenceStillRequiresReview()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var current = Item("current-item", 1, 1);
+        var provenance = ScreenshotProvenance("ambiguous-item");
+        var item = new EvidencedValue<RecognizedItem>(
+            "cell.0.0",
+            current,
+            new(ResultCompleteness.Complete, FreshnessState.Current),
+            provenance,
+            candidates: [new("alternate", "Alternate", Item("alternate-item", 1, 1), provenance)]);
+
+        var result = Evaluate(
+            CompleteGrid(
+                InventoryGridSurface.VisibleLoot,
+                1,
+                1,
+                new GridCellRecognition(anchor, item)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(anchor, "current-item")]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("item.evidence-incomplete", Assert.Single(decision.Reasons).Code);
+    }
+
+    [Fact]
+    public void EconomicFootprintMustMatchTheObservedItem()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 2, Cell(anchor, "wide-item", 2, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 2),
+            [Recommendation(
+                anchor,
+                "wide-item",
+                RecommendationReasonCategory.Economics,
+                valueRoubles: 100_000,
+                occupiedSquares: 1)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("economics.incomplete", Assert.Single(decision.Reasons).Code);
+        Assert.Equal("economics.footprint-mismatch", decision.Economics!.Status.Code);
+    }
+
+    [Fact]
+    public void RaidAdjustedEconomicAdviceStillRequiresASwapGain()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "incoming", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1, Cell(anchor, "carried", 1, 1)),
+            [Recommendation(
+                anchor,
+                "incoming",
+                RecommendationReasonCategory.Safety,
+                valueRoubles: 1_000,
+                reasonCode: "raid.risk.high")],
+            [Droppable(anchor, "carried", 5_000)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Leave, decision.Verdict);
+        Assert.Equal("swap.cost-exceeds-value", Assert.Single(decision.Reasons).Code);
+        Assert.Empty(decision.Drops);
+    }
+
+    [Fact]
+    public void DerivedPriceWithModelledLineageStaysReviewOnly()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var evaluated = Recommendation(
+            anchor,
+            "incoming",
+            RecommendationReasonCategory.Economics,
+            valueRoubles: 100_000);
+        var modelled = ModelledProvenance(CatalogProvenance("model-input"));
+        var derived = ScoredDerivedProvenance(modelled);
+        var economics = new RecommendationEconomics(
+            Complete<long?>("economics.flea-gross", 101_000, derived),
+            Complete<long?>("economics.flea-fee", 1_000, derived),
+            Complete<long?>("economics.flea-net", 100_000, derived),
+            Complete<long?>("economics.trader", 90_000, CatalogProvenance("trader")),
+            Complete<int?>("economics.squares", 1, ScreenshotProvenance("squares")),
+            Complete<double?>("economics.condition", 1, ScreenshotProvenance("condition")));
+
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "incoming", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [new(evaluated.Binding, evaluated.Recommendation, economics)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("economics.incomplete", Assert.Single(decision.Reasons).Code);
+        Assert.Equal("economics.model-review", decision.Economics!.Status.Code);
+    }
+
+    [Fact]
     public void ChangedScreenshotInvalidatesEveryResolvedRecommendation()
     {
         var anchor = new GridCellAddress(0, 0);
@@ -323,6 +466,24 @@ public sealed class LootScanDecisionServiceTests
         Assert.Contains("120,000", card.ValueLabel, StringComparison.Ordinal);
         Assert.Contains("confidence", card.EvidenceLabel, StringComparison.Ordinal);
         Assert.True(card.HasPlacement);
+    }
+
+    [Fact]
+    public void SwapContractRejectsTheSameDisplacedItemTwice()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var item = Complete("item", Item("carried", 1, 1));
+        var provenance = CatalogProvenance("replacement");
+        var drop = new LootScanDropItem(anchor, item, 100, provenance);
+
+        Assert.Throws<ArgumentException>(() => new LootScanDecision(
+            anchor,
+            Complete("incoming", Item("incoming", 1, 1)),
+            LootScanVerdict.Swap,
+            [new("swap", "Swap")],
+            placement: new(anchor, 1, 1, false),
+            drops: [drop, drop],
+            replacementCostRoubles: 200));
     }
 
     private static LootScanResult Evaluate(
@@ -427,7 +588,8 @@ public sealed class LootScanDecisionServiceTests
         int occupiedSquares = 1,
         DateTimeOffset? economicsObservedUtc = null,
         ResultCompleteness decisionCompleteness = ResultCompleteness.Complete,
-        FreshnessState decisionFreshness = FreshnessState.Current)
+        FreshnessState decisionFreshness = FreshnessState.Current,
+        string reasonCode = "take")
     {
         EvidencedValue<long?> opportunityCost;
         OpportunityCostLineage? lineage;
@@ -454,7 +616,7 @@ public sealed class LootScanDecisionServiceTests
         var decision = new RecommendationDecision(
             RecommendationAction.Take,
             "Take this item.",
-            [new(category, "take", "The current profile supports taking this item.", priority, decisionProvenance)],
+            [new(category, reasonCode, "The current profile supports taking this item.", priority, decisionProvenance)],
             opportunityCost,
             lineage,
             []);
@@ -547,5 +709,25 @@ public sealed class LootScanDecisionServiceTests
         EvidenceConfidence.Unscored,
         new ProducerIdentity("loot-scan-tests", "1"),
         generatedUtc: Now,
+        inputs: inputs);
+
+    private static EvidenceProvenance ModelledProvenance(params EvidenceProvenance[] inputs) => new(
+        EvidenceSourceClass.ModelledEstimate,
+        "fixture://loot-scan/modelled-price",
+        Now.AddMinutes(-5),
+        new EvidenceConfidence(EvidenceConfidenceKind.CalibratedEstimate, 0.9, "fixture-calibration"),
+        new ProducerIdentity("loot-scan-tests", "1", "price-model-1"),
+        dataThroughUtc: Now.AddMinutes(-10),
+        generatedUtc: Now.AddMinutes(-5),
+        coverage: new EvidenceCoverage(sampleSize: 100),
+        inputs: inputs);
+
+    private static EvidenceProvenance ScoredDerivedProvenance(params EvidenceProvenance[] inputs) => new(
+        EvidenceSourceClass.DerivedCalculation,
+        "fixture://loot-scan/derived-price",
+        Now.AddMinutes(-5),
+        new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.9),
+        new ProducerIdentity("loot-scan-tests", "1"),
+        generatedUtc: Now.AddMinutes(-5),
         inputs: inputs);
 }

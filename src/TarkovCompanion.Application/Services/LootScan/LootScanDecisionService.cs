@@ -109,7 +109,7 @@ public sealed class LootScanDecisionService
                 : ResultCompleteness.Complete;
         var status = new ResultStatus(
             completeness,
-            FreshnessState.Current,
+            HasStaleInput(request) ? FreshnessState.Stale : FreshnessState.Current,
             completeness switch
             {
                 ResultCompleteness.Complete => "loot-scan.complete",
@@ -185,7 +185,10 @@ public sealed class LootScanDecisionService
         }
 
         var recommendation = evaluated.Recommendation;
-        var economics = ProjectEconomics(evaluated.Economics, request.EvaluatedUtc);
+        var economics = ProjectEconomics(
+            evaluated.Economics,
+            request.EvaluatedUtc,
+            checked(width * height));
         if (!string.Equals(recommendation.RulesetVersion, _policy.RulesetVersion, StringComparison.Ordinal))
         {
             return Review(
@@ -206,6 +209,18 @@ public sealed class LootScanDecisionService
                 cell.Item,
                 "recommendation.incomplete",
                 "The recommendation has incomplete or stale evidence.",
+                recommendation,
+                economics);
+        }
+
+        var economicDominant = IsEconomicLootAdvice(advice);
+        if (economicDominant && economics.Status.Completeness != ResultCompleteness.Complete)
+        {
+            return Review(
+                cell.Anchor,
+                cell.Item,
+                "economics.incomplete",
+                "The current economic inputs do not reproduce a trustworthy value-per-square decision for this item.",
                 recommendation,
                 economics);
         }
@@ -256,9 +271,21 @@ public sealed class LootScanDecisionService
                 placement: freePlacement);
         }
 
-        var swap = capacity.FindBestSwap(width, height, cancellationToken);
+        var swapSearch = capacity.FindBestSwap(width, height, cancellationToken);
+        var swap = swapSearch.Best;
         if (swap is null)
         {
+            if (swapSearch.HasUnresolvedPolicyOption)
+            {
+                return Review(
+                    cell.Anchor,
+                    cell.Item,
+                    "swap.evidence-incomplete",
+                    "A geometric swap may fit, but one or more carried-item protections, pins, bindings, or replacement values need review.",
+                    recommendation,
+                    economics);
+            }
+
             return new(
                 cell.Anchor,
                 cell.Item,
@@ -269,8 +296,7 @@ public sealed class LootScanDecisionService
         }
 
         var incomingValue = economics.BestNetValueRoubles;
-        var economicOnly = advice.Reasons[0].Category == RecommendationReasonCategory.Economics;
-        if (economicOnly && incomingValue is null)
+        if (economicDominant && incomingValue is null)
         {
             return Review(
                 cell.Anchor,
@@ -281,7 +307,7 @@ public sealed class LootScanDecisionService
                 economics);
         }
 
-        if (economicOnly && incomingValue!.Value <= swap.ReplacementCostRoubles)
+        if (economicDominant && incomingValue!.Value <= swap.ReplacementCostRoubles)
         {
             return new(
                 cell.Anchor,
@@ -390,18 +416,26 @@ public sealed class LootScanDecisionService
             var replacementValue = policy is null
                 ? null
                 : ReliableValue(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge);
-            var droppable = policy is not null &&
-                IsReliable(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) &&
-                policy.ProtectedItem.Value == false &&
-                IsReliable(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) &&
-                policy.Pinned.Value == false &&
-                replacementValue is not null;
+            var protectedReliable = policy is not null &&
+                IsReliable(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true);
+            var pinnedReliable = policy is not null &&
+                IsReliable(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true);
+            var disposition = policy switch
+            {
+                null => CapacityItemDisposition.Unresolved,
+                _ when protectedReliable && policy!.ProtectedItem.Value == true => CapacityItemDisposition.Retained,
+                _ when pinnedReliable && policy!.Pinned.Value == true => CapacityItemDisposition.Retained,
+                _ when protectedReliable && pinnedReliable &&
+                    policy!.ProtectedItem.Value == false && policy.Pinned.Value == false &&
+                    replacementValue is not null => CapacityItemDisposition.Droppable,
+                _ => CapacityItemDisposition.Unresolved,
+            };
             items.Add(new(
                 cell.Anchor,
                 width,
                 height,
                 cell.Item,
-                droppable,
+                disposition,
                 replacementValue,
                 policy?.ReplacementValueRoubles.Provenance));
         }
@@ -430,16 +464,23 @@ public sealed class LootScanDecisionService
 
     private LootScanEconomicProjection ProjectEconomics(
         RecommendationEconomics economics,
-        DateTimeOffset evaluatedUtc)
+        DateTimeOffset evaluatedUtc,
+        int observedSquares)
     {
         var flea = ReliableValue(economics.FleaNetRoubles, evaluatedUtc, _policy.MaximumPriceAge);
         var trader = ReliableValue(economics.TraderRoubles, evaluatedUtc, _policy.MaximumPriceAge);
         var squares = ReliableValue(economics.OccupiedSquares, evaluatedUtc, _policy.MaximumPriceAge);
-        if ((flea is null && trader is null) || squares is null)
+        var freshness = EconomicsFreshness(economics, evaluatedUtc);
+        if ((flea is null && trader is null) || squares is null || squares.Value != observedSquares)
         {
             return new(
                 economics,
-                new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, "economics.review"),
+                new ResultStatus(
+                    ResultCompleteness.Partial,
+                    freshness,
+                    squares is not null && squares.Value != observedSquares
+                        ? "economics.footprint-mismatch"
+                        : "economics.review"),
                 null,
                 null,
                 null,
@@ -450,11 +491,11 @@ public sealed class LootScanDecisionService
         var useFlea = flea.HasValue && (!trader.HasValue || flea.Value >= trader.Value);
         var total = useFlea ? flea!.Value : trader!.Value;
         var price = useFlea ? economics.FleaNetRoubles : economics.TraderRoubles;
-        if (price.Provenance.SourceClass == EvidenceSourceClass.ModelledEstimate)
+        if (ContainsModelledEstimate(price.Provenance))
         {
             return new(
                 economics,
-                new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, "economics.model-review"),
+                new ResultStatus(ResultCompleteness.Partial, freshness, "economics.model-review"),
                 null,
                 null,
                 null,
@@ -499,18 +540,106 @@ public sealed class LootScanDecisionService
         bool requireComplete = false) =>
         (!requireComplete || field.Status.Completeness == ResultCompleteness.Complete) &&
         (field.Status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial) &&
+        field.Candidates.Count == 0 &&
         field.Status.Freshness == FreshnessState.Current &&
         field.Provenance.EvidenceThroughUtc <= evaluatedUtc &&
         evaluatedUtc - field.Provenance.EvidenceThroughUtc <= maximumAge &&
         field.Provenance.Confidence.Score is { } score &&
         score >= _policy.MinimumEvidenceConfidence;
 
+    private FreshnessState EconomicsFreshness(
+        RecommendationEconomics economics,
+        DateTimeOffset evaluatedUtc) =>
+        new EvidencedValue<long?>[]
+            {
+                economics.FleaNetRoubles,
+                economics.TraderRoubles,
+            }
+            .Any(field => IsStaleOrExpired(field, evaluatedUtc, _policy.MaximumPriceAge)) ||
+        IsStaleOrExpired(economics.OccupiedSquares, evaluatedUtc, _policy.MaximumPriceAge)
+            ? FreshnessState.Stale
+            : FreshnessState.Current;
+
+    private static bool IsStaleOrExpired<T>(
+        EvidencedValue<T> field,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge) =>
+        field.Status.Freshness == FreshnessState.Stale ||
+        (field.Provenance.EvidenceThroughUtc <= evaluatedUtc &&
+         evaluatedUtc - field.Provenance.EvidenceThroughUtc > maximumAge);
+
+    private static bool ContainsModelledEstimate(EvidenceProvenance provenance) =>
+        provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
+        provenance.Inputs.Any(ContainsModelledEstimate);
+
+    private bool HasStaleInput(LootScanRequest request)
+    {
+        bool EconomicsIsStale(RecommendationEconomics economics) =>
+            EconomicsFreshness(economics, request.EvaluatedUtc) == FreshnessState.Stale ||
+            IsStaleOrExpired(economics.FleaGrossRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge) ||
+            IsStaleOrExpired(economics.FleaFeeRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge) ||
+            IsStaleOrExpired(economics.ConditionFraction, request.EvaluatedUtc, _policy.MaximumPriceAge);
+
+        bool ItemIsStale(EvidencedValue<RecognizedItem> field)
+        {
+            if (IsStaleOrExpired(field, request.EvaluatedUtc, _policy.MaximumInventoryAge))
+            {
+                return true;
+            }
+
+            if (field.Value is not { } item)
+            {
+                return false;
+            }
+
+            return IsStaleOrExpired(item.CanonicalId, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.DisplayName, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.Quantity, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.WidthCells, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.HeightCells, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.Rotated, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.FoundInRaid, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(item.Condition, request.EvaluatedUtc, _policy.MaximumInventoryAge);
+        }
+
+        bool GridIsStale(GridReconstructionResult grid) =>
+            grid.Recognition is { } recognition &&
+            (IsStaleOrExpired(recognition.Geometry.Rows, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+             IsStaleOrExpired(recognition.Geometry.Columns, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+             recognition.Cells.Any(cell => ItemIsStale(cell.Item))) ||
+            grid.UnresolvedCells.Any(cell => ItemIsStale(cell.Item));
+
+        return GridIsStale(request.VisibleLoot) ||
+            GridIsStale(request.CarriedInventory) ||
+            request.Recommendations.Any(item =>
+                item.Recommendation.Decision.Status.Freshness == FreshnessState.Stale ||
+                EconomicsIsStale(item.Economics)) ||
+            request.CarriedPolicies.Any(policy =>
+                IsStaleOrExpired(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge));
+    }
+
+    private static bool IsEconomicLootAdvice(RecommendationDecision advice)
+    {
+        var dominant = advice.Reasons[0];
+        return dominant.Category == RecommendationReasonCategory.Economics ||
+            dominant.Code.StartsWith("raid.", StringComparison.Ordinal);
+    }
+
+    private enum CapacityItemDisposition
+    {
+        Droppable = 1,
+        Retained,
+        Unresolved,
+    }
+
     private sealed record CapacityItem(
         GridCellAddress Anchor,
         int Width,
         int Height,
         EvidencedValue<RecognizedItem> Evidence,
-        bool IsKnownDroppable,
+        CapacityItemDisposition Disposition,
         long? ReplacementValueRoubles,
         EvidenceProvenance? ReplacementValueProvenance);
 
@@ -519,6 +648,10 @@ public sealed class LootScanDecisionService
         IReadOnlyList<int> BlockerIndexes,
         IReadOnlyList<LootScanDropItem> Drops,
         long ReplacementCostRoubles);
+
+    private sealed record SwapSearchResult(
+        SwapOption? Best,
+        bool HasUnresolvedPolicyOption);
 
     private sealed class CapacityMap
     {
@@ -618,9 +751,10 @@ public sealed class LootScanDecisionService
             }
         }
 
-        public SwapOption? FindBestSwap(int width, int height, CancellationToken cancellationToken)
+        public SwapSearchResult FindBestSwap(int width, int height, CancellationToken cancellationToken)
         {
             SwapOption? best = null;
+            var hasUnresolvedPolicyOption = false;
             foreach (var orientation in Orientations(width, height))
             {
                 for (var row = 0; row <= Rows - orientation.Height; row++)
@@ -642,15 +776,26 @@ public sealed class LootScanDecisionService
                         var drops = new List<LootScanDropItem>(blockers.Count);
                         long cost = 0;
                         var supported = true;
+                        var retained = false;
+                        var unresolved = false;
                         foreach (var blocker in blockers.Order())
                         {
                             var carried = _items[blocker];
                             var value = carried.ReplacementValueRoubles;
-                            if (!carried.IsKnownDroppable || value is null || value > long.MaxValue - cost ||
-                                carried.ReplacementValueProvenance is null)
+                            if (carried.Disposition == CapacityItemDisposition.Retained)
                             {
+                                retained = true;
                                 supported = false;
                                 break;
+                            }
+
+                            if (carried.Disposition == CapacityItemDisposition.Unresolved ||
+                                value is null || value > long.MaxValue - cost ||
+                                carried.ReplacementValueProvenance is null)
+                            {
+                                unresolved = true;
+                                supported = false;
+                                continue;
                             }
 
                             cost += value.Value;
@@ -659,6 +804,11 @@ public sealed class LootScanDecisionService
                                 carried.Evidence,
                                 value.Value,
                                 carried.ReplacementValueProvenance));
+                        }
+
+                        if (!retained && unresolved)
+                        {
+                            hasUnresolvedPolicyOption = true;
                         }
 
                         if (supported)
@@ -677,7 +827,7 @@ public sealed class LootScanDecisionService
                 }
             }
 
-            return best;
+            return new(best, hasUnresolvedPolicyOption);
         }
 
         public void CommitSwap(SwapOption swap)

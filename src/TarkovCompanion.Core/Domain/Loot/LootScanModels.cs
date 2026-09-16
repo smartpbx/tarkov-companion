@@ -326,6 +326,11 @@ public sealed record LootScanDecision
             throw new ArgumentException("A loot decision exceeds the bounded swap size.", nameof(drops));
         }
 
+        if (dropCopy.Select(drop => drop.Anchor).Distinct().Count() != dropCopy.Length)
+        {
+            throw new ArgumentException("A carried item can be displaced at most once.", nameof(drops));
+        }
+
         if ((verdict == LootScanVerdict.Swap) != (placement is not null && dropCopy.Length > 0))
         {
             throw new ArgumentException("Only a swap carries both a placement and displaced items.");
