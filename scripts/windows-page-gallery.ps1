@@ -337,6 +337,7 @@ function Wait-AutomationNamePattern {
         [IntPtr] $WindowHandle,
         [string] $AutomationId,
         [string] $Pattern,
+        [bool] $IncludeOffscreen = $false,
         [int] $TimeoutSeconds = 15
     )
 
@@ -345,7 +346,10 @@ function Wait-AutomationNamePattern {
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         try {
-            $Element = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $AutomationId
+            $Element = Find-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId $AutomationId `
+                -IncludeOffscreen $IncludeOffscreen
             if ($null -ne $Element -and $Element.Current.Name -match $Pattern) { return $Element }
         }
         catch [System.Windows.Automation.ElementNotAvailableException] {
@@ -363,6 +367,16 @@ function Invoke-AutomationElement {
         throw "$Description does not expose the UI Automation Invoke pattern."
     }
     ([System.Windows.Automation.InvokePattern] $Pattern).Invoke()
+}
+
+function Toggle-AutomationElement {
+    param([System.Windows.Automation.AutomationElement] $Element, [string] $Description)
+
+    $Pattern = $null
+    if (-not $Element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref] $Pattern)) {
+        throw "$Description does not expose the UI Automation Toggle pattern."
+    }
+    ([System.Windows.Automation.TogglePattern] $Pattern).Toggle()
 }
 
 function Set-AutomationValue {
@@ -410,6 +424,7 @@ function Invoke-ShellInteraction {
             if ($null -eq $Target) { throw "Interaction target '$Description' was not in the packaged app's automation tree." }
             switch ($Action) {
                 "invoke" { Invoke-AutomationElement -Element $Target -Description $Description }
+                "toggle" { Toggle-AutomationElement -Element $Target -Description $Description }
                 "focus" { $Target.SetFocus() }
                 "set-value" {
                     Set-AutomationValue `
@@ -495,7 +510,8 @@ function Invoke-ShellInteraction {
             if ($null -eq (Wait-AutomationNamePattern `
                 -WindowHandle $WindowHandle `
                 -AutomationId $NameAssertion.automationId `
-                -Pattern $NameAssertion.pattern)) {
+                -Pattern $NameAssertion.pattern `
+                -IncludeOffscreen ([bool](Get-InteractionProperty -Object $NameAssertion -Name "includeOffscreen" -Default $false)))) {
                 throw "'$Description' did not expose '$($NameAssertion.automationId)' with name matching '$($NameAssertion.pattern)' within 15 seconds."
             }
         }
@@ -948,10 +964,14 @@ $Shots.Add([pscustomobject]@{
                 expectedAutomationIds = @(
                     "v2-map-renderer", "v2-map-plan", "v2-map-search", "v2-map-page-next",
                     "v2-map-page-status", "v2-map-mode-floorstack2d", "v2-map-background-status",
-                    "v2-map-zoom-in", "v2-map-object-cluster-3-2-1176be92")
+                    "v2-map-zoom-in", "v2-map-object-cluster-3-2-1176be92",
+                    "v2-map-loot-preset", "v2-map-loot-heading", "v2-map-loot-legend", "v2-map-loot-state")
                 expectedBounds = @(
                     [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 },
+                    [pscustomobject]@{ automationId = "v2-map-loot-preset"; minimumWidth = 44; minimumHeight = 44 },
                     [pscustomobject]@{ automationId = "v2-map-object-cluster-3-2-1176be92"; minimumWidth = 44; minimumHeight = 44 })
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^Some spawn knowledge is incomplete or list-only\.' })
             },
             [pscustomobject]@{
                 action = "invoke"; description = "open every record in the dense map cluster"
@@ -969,11 +989,74 @@ $Shots.Add([pscustomobject]@{
             [pscustomobject]@{
                 action = "set-value"; description = "search a record beyond the first map page"
                 targetAutomationId = "v2-map-search"; targetControlType = "Edit"; value = "Potential loot 305"
-                expectedAutomationIds = @("v2-map-list-dense-304-fdfa94e9")
+                expectedAutomationIds = @("v2-map-list-loot-spawn-a9b34ab73ebd45eea8742a68aaf2d8e96899a59396562e2859948149e42e542f-0386ea0d")
                 expectedNamePatterns = @(
                     [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 1 .* 1 matching details$' })
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "apply the high-value loot-only preset"
+                targetAutomationId = "v2-map-loot-preset"; targetControlType = "Button"
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-layer-estimates-d4fc996e"; pattern = '^Show Historical estimates$'; includeOffscreen = $true },
+                    [pscustomobject]@{ automationId = "v2-map-layer-hazards-88da2def"; pattern = '^Hide Hazards$'; includeOffscreen = $true })
+            },
+            [pscustomobject]@{
+                action = "toggle"; description = "filter the typed loot layer to exceptional spawns"
+                targetAutomationId = "v2-map-loot-filter-tier-exceptional-71739f81"; targetControlType = "Button"
+                includeOffscreen = $true
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-loot-page-status"; pattern = '^Loot page 1 of 1 .* 2 matching spawns$'; includeOffscreen = $true })
+            },
+            [pscustomobject]@{
+                action = "focus"; description = "bring the list-only loot row into keyboard view"
+                targetAutomationId = "v2-map-loot-row-map-only-cache-9594a087"; targetControlType = "Button"
+                includeOffscreen = $true
+                expectedFocusAutomationId = "v2-map-loot-row-map-only-cache-9594a087"
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "open typed list-only loot details"
+                targetAutomationId = "v2-map-loot-row-map-only-cache-9594a087"; targetControlType = "Button"
+                expectedNamePatterns = @(
+                    # Text peers may expose either the explicit composite AutomationProperties.Name
+                    # or their visible heading as the UIA Name. The stable id proves this is the
+                    # selected-detail peer; accept both truthful names instead of requiring the
+                    # toolkit-specific punctuation after the heading.
+                    [pscustomobject]@{ automationId = "v2-map-loot-selection-live"; pattern = '^Map-only medical cache(?:\.|$)'; includeOffscreen = $true })
+            },
+            [pscustomobject]@{
+                action = "toggle"; description = "filter typed loot rows to the medical category"
+                targetAutomationId = "v2-map-loot-filter-category-medical-fca38b50"; targetControlType = "Button"
+                includeOffscreen = $true
+            },
+            [pscustomobject]@{
+                action = "toggle"; description = "show the explicit empty profile-utility filter state"
+                targetAutomationId = "v2-map-loot-filter-basis-profileutility-3e6145a0"; targetControlType = "Button"
+                includeOffscreen = $true
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^No potential spawns match these filters\.'; includeOffscreen = $true })
             }
         )
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "map-renderer-loot-offline"
+    args = @("--map-renderer-gallery", "--map-renderer-loot-offline")
+    shellMode = "v2-map"; width = 900; height = 700
+    interaction = [pscustomobject]@{
+        steps = @([pscustomobject]@{
+            action = "assert"; description = "offline loot layer remains explicit and independently toggleable"
+            expectedAutomationIds = @(
+                "v2-map-renderer", "v2-map-plan", "v2-map-loot-preset", "v2-map-loot-heading",
+                "v2-map-loot-legend", "v2-map-loot-state")
+            expectedNamePatterns = @(
+                [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^Loot-spawn data is unavailable\.' })
+        }, [pscustomobject]@{
+            action = "toggle"; description = "toggle the unavailable loot layer independently"
+            targetAutomationId = "v2-map-layer-high-value-loot-spawns-cb6f64d2"; targetControlType = "Button"
+            includeOffscreen = $true
+            expectedNamePatterns = @(
+                [pscustomobject]@{ automationId = "v2-map-layer-high-value-loot-spawns-cb6f64d2"; pattern = '^Show High-value loot$'; includeOffscreen = $true })
+        })
     }
 })
 $Shots.Add([pscustomobject]@{
@@ -983,7 +1066,7 @@ $Shots.Add([pscustomobject]@{
     interaction = [pscustomobject]@{
         steps = @([pscustomobject]@{
             action = "assert"; description = "320 DIP map renderer at twice interface scale"
-            expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in")
+            expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in", "v2-map-loot-preset")
             expectedOutsideViewportAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
             expectedBounds = @(
                 [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 })
