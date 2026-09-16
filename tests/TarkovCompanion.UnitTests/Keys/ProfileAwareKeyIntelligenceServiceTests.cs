@@ -20,6 +20,9 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
         Assert.Equal(ResultCompleteness.Complete, result.Status.Completeness);
         Assert.Equal(FreshnessState.Current, result.Status.Freshness);
         Assert.Equal(ProfileAwareKeyIntelligenceService.CurrentRulesetVersion, result.RulesetVersion);
+        Assert.Equal("snapshot-1", result.DataSnapshotId);
+        Assert.Equal("0.16.9", result.GameVersion);
+        Assert.Equal("maps-2026-09-16", result.MapDataVersion);
         Assert.NotNull(result.Score);
         Assert.NotNull(result.ScoreProvenance);
         Assert.Equal(EvidenceSourceClass.DerivedCalculation, result.ScoreProvenance.SourceClass);
@@ -99,7 +102,7 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             Unknown<double>("route-risk"));
         var request = new ProfileAwareKeyIntelligenceRequest(
             KeyIntelligenceEntryPoint.ManualLookup,
-            inventory.ItemId,
+            Context(inventory.ProfileScope, inventory.ItemId),
             ObservedUtc.AddMinutes(1),
             inventory,
             CompleteStatus(),
@@ -144,7 +147,7 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             Unknown<double>("route-risk"));
         var request = new ProfileAwareKeyIntelligenceRequest(
             KeyIntelligenceEntryPoint.ContextScreenshot,
-            inventory.ItemId,
+            Context(inventory.ProfileScope, inventory.ItemId),
             ObservedUtc.AddMinutes(1),
             inventory,
             unknownStatus,
@@ -221,12 +224,11 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     public void ReviewedOverrideRequiresReviewMetadataAndSourcedCuratedProvenance()
     {
         var ex = Assert.Throws<ArgumentException>(() => new ReviewedKeyOverride(
+            Context(),
             90,
             KeyIntelligenceTier.S,
             "Reviewed.",
             null,
-            "0.16",
-            "maps-1",
             "reviewer",
             ObservedUtc,
             PublicProvenance()));
@@ -246,12 +248,11 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             reference: "manifest://keys/review-1");
 
         var exception = Assert.Throws<ArgumentException>(() => new ReviewedKeyOverride(
+            Context(),
             88,
             KeyIntelligenceTier.S,
             "Reviewed route priority.",
             null,
-            "0.16.9",
-            "maps-2026-09-16",
             "reviewer-1",
             ObservedUtc.AddSeconds(-1),
             curated));
@@ -262,6 +263,7 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     [Fact]
     public void ReviewedOverrideCannotInfluenceAnEvaluationBeforeItsReviewTime()
     {
+        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
         var curated = new EvidenceProvenance(
             EvidenceSourceClass.CuratedData,
             "reviewed key manifest",
@@ -270,20 +272,18 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             new ProducerIdentity("key reviewers", "1"),
             reference: "manifest://keys/review-1");
         var reviewed = new ReviewedKeyOverride(
+            baseline.Context,
             88,
             KeyIntelligenceTier.S,
             "Reviewed route priority.",
             null,
-            "0.16.9",
-            "maps-2026-09-16",
             "reviewer-1",
             ObservedUtc.AddMinutes(2),
             curated);
-        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
 
         var exception = Assert.Throws<ArgumentException>(() => new ProfileAwareKeyIntelligenceRequest(
             baseline.EntryPoint,
-            baseline.ItemId,
+            baseline.Context,
             ObservedUtc.AddMinutes(1),
             baseline.Inventory,
             baseline.RequirementsStatus,
@@ -298,6 +298,7 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     [Fact]
     public void ReviewedOverrideCarriesReviewerVersionsAndWinsGeneratedScore()
     {
+        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
         var curated = new EvidenceProvenance(
             EvidenceSourceClass.CuratedData,
             "reviewed key manifest",
@@ -306,19 +307,17 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             new ProducerIdentity("key reviewers", "1"),
             reference: "manifest://keys/review-1");
         var reviewed = new ReviewedKeyOverride(
+            baseline.Context,
             88,
             KeyIntelligenceTier.S,
             "Reviewed route priority.",
             "Reviewed against the named game and map versions.",
-            "0.16.9",
-            "maps-2026-09-16",
             "reviewer-1",
             ObservedUtc,
             curated);
-        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
         var request = new ProfileAwareKeyIntelligenceRequest(
             baseline.EntryPoint,
-            baseline.ItemId,
+            baseline.Context,
             baseline.EvaluatedUtc,
             baseline.Inventory,
             baseline.RequirementsStatus,
@@ -334,6 +333,8 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
         Assert.Same(reviewed, result.AppliedOverride);
         Assert.Equal(curated, result.ScoreProvenance);
         Assert.Equal("reviewer-1", result.AppliedOverride!.Reviewer);
+        Assert.Equal("0.16.9", result.AppliedOverride.GameVersion);
+        Assert.Equal("maps-2026-09-16", result.AppliedOverride.MapDataVersion);
         Assert.Contains(result.Reasons, reason => reason.Code == "key.override.reviewed");
     }
 
@@ -373,11 +374,127 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     }
 
     [Fact]
+    public void ExactContextRejectsCrossProfileItemSnapshotGameAndMapFacts()
+    {
+        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
+        var otherProfile = new InventoryProfileScope(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            baseline.ProfileScope.Generation,
+            baseline.ProfileScope.GameMode);
+        var incompatibleContexts = new[]
+        {
+            Context(otherProfile),
+            Context(itemId: "another-key"),
+            Context(dataSnapshotId: "snapshot-2"),
+            Context(gameVersion: "0.17.0"),
+            Context(mapDataVersion: "maps-2026-09-17"),
+        };
+        var curated = new EvidenceProvenance(
+            EvidenceSourceClass.CuratedData,
+            "reviewed key manifest",
+            ObservedUtc,
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.85),
+            new ProducerIdentity("key reviewers", "1"),
+            reference: "manifest://keys/review-1");
+
+        foreach (var incompatible in incompatibleContexts)
+        {
+            var requirement = new KeyRequirementFact(
+                incompatible,
+                "quest-other",
+                KeyRequirementTiming.Current,
+                1,
+                false,
+                CompleteStatus(),
+                PublicProvenance());
+            Assert.Throws<ArgumentException>(() => new ProfileAwareKeyIntelligenceRequest(
+                baseline.EntryPoint,
+                baseline.Context,
+                baseline.EvaluatedUtc,
+                baseline.Inventory,
+                baseline.RequirementsStatus,
+                baseline.RequirementsProvenance,
+                [requirement],
+                baseline.Utility));
+
+            var reviewed = new ReviewedKeyOverride(
+                incompatible,
+                88,
+                KeyIntelligenceTier.S,
+                "Reviewed route priority.",
+                null,
+                "reviewer-1",
+                ObservedUtc,
+                curated);
+            Assert.Throws<ArgumentException>(() => new ProfileAwareKeyIntelligenceRequest(
+                baseline.EntryPoint,
+                baseline.Context,
+                baseline.EvaluatedUtc,
+                baseline.Inventory,
+                baseline.RequirementsStatus,
+                baseline.RequirementsProvenance,
+                baseline.Requirements,
+                baseline.Utility,
+                reviewed));
+        }
+    }
+
+    [Fact]
+    public void AccessAssociationRejectsBlankIdentifiers()
+    {
+        var provenance = PublicProvenance();
+
+        Assert.Throws<ArgumentException>(() => new KeyAccessAssociation(
+            "association-blank",
+            KnownString("map", " ", provenance),
+            KnownString("lock", "\t", provenance),
+            KnownString("room", "", provenance),
+            provenance));
+    }
+
+    [Fact]
+    public void ScoreProvenanceIncludesRequirementAndAssociationAndKeepsLowestConfidence()
+    {
+        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Planner, requirementTiming: null);
+        var requirementProvenance = PublicProvenance("low-confidence-requirement", 0.2);
+        var associationProvenance = PublicProvenance("reviewed-association", 0.35);
+        var requirement = new KeyRequirementFact(
+            baseline.Context,
+            "quest-low-confidence",
+            KeyRequirementTiming.Future,
+            1,
+            false,
+            CompleteStatus(),
+            requirementProvenance);
+        var utility = FullUtility(
+            PublicProvenance(),
+            associations: [Association(associationProvenance)]);
+        var request = new ProfileAwareKeyIntelligenceRequest(
+            baseline.EntryPoint,
+            baseline.Context,
+            baseline.EvaluatedUtc,
+            baseline.Inventory,
+            baseline.RequirementsStatus,
+            baseline.RequirementsProvenance,
+            [requirement],
+            utility);
+
+        var result = new ProfileAwareKeyIntelligenceService().Evaluate(request, CancellationToken.None);
+
+        Assert.NotNull(result.ScoreProvenance);
+        Assert.Equal(EvidenceConfidenceKind.ProviderScore, result.ScoreProvenance.Confidence.Kind);
+        Assert.Equal(0.2, result.ScoreProvenance.Confidence.Score);
+        Assert.Contains(requirementProvenance, result.ScoreProvenance.Inputs);
+        Assert.Contains(associationProvenance, result.ScoreProvenance.Inputs);
+    }
+
+    [Fact]
     public void MaximumRequirementSetProducesBoundedReasonsWithAnExplicitLimitMarker()
     {
         var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Planner, requirementTiming: null);
         var requirements = Enumerable.Range(0, KeyIntelligenceBounds.MaximumRequirements)
             .Select(index => new KeyRequirementFact(
+                baseline.Context,
                 $"quest-{index}",
                 KeyRequirementTiming.Future,
                 1,
@@ -387,7 +504,7 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             .ToArray();
         var request = new ProfileAwareKeyIntelligenceRequest(
             baseline.EntryPoint,
-            baseline.ItemId,
+            baseline.Context,
             baseline.EvaluatedUtc,
             baseline.Inventory,
             baseline.RequirementsStatus,
@@ -421,11 +538,12 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
         KeyRequirementTiming? requirementTiming = KeyRequirementTiming.Current,
         bool stale = false)
     {
+        var context = Context();
         var provenance = PublicProvenance();
         var status = stale ? new ResultStatus(ResultCompleteness.Complete, FreshnessState.Stale) : CompleteStatus();
         var inventory = new KeyInventoryFacts(
-            Scope(),
-            "key-1",
+            context.ProfileScope,
+            context.ItemId,
             Known("total", 3, provenance, status),
             Known("fir", 2, provenance, status),
             Known("duplicates", 2, provenance, status),
@@ -437,11 +555,11 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
             routeRisk: Known("route-risk", 0.25, routeRiskProvenance ?? provenance, status),
             acquisitionCostProvenance: acquisitionCostProvenance);
         KeyRequirementFact[] requirements = requirementTiming is { } timing
-            ? [new("quest-1", timing, 2, true, status, provenance)]
+            ? [new(context, "quest-1", timing, 2, true, status, provenance)]
             : [];
         return new ProfileAwareKeyIntelligenceRequest(
             entryPoint,
-            inventory.ItemId,
+            context,
             ObservedUtc.AddMinutes(1),
             inventory,
             status,
@@ -484,6 +602,14 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     private static InventoryProfileScope Scope() =>
         new(Guid.Parse("11111111-1111-1111-1111-111111111111"), "wipe-1", "regular");
 
+    private static KeyIntelligenceContext Context(
+        InventoryProfileScope? scope = null,
+        string itemId = "key-1",
+        string dataSnapshotId = "snapshot-1",
+        string gameVersion = "0.16.9",
+        string mapDataVersion = "maps-2026-09-16") =>
+        new(scope ?? Scope(), itemId, dataSnapshotId, gameVersion, mapDataVersion);
+
     private static ResultStatus CompleteStatus() =>
         new(ResultCompleteness.Complete, FreshnessState.Current);
 
@@ -513,12 +639,14 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
         ResultStatus? status = null) =>
         new(fieldId, value, status ?? CompleteStatus(), provenance);
 
-    private static EvidenceProvenance PublicProvenance(string sourceIdentifier = "json.tarkov.dev fixture") =>
+    private static EvidenceProvenance PublicProvenance(
+        string sourceIdentifier = "json.tarkov.dev fixture",
+        double confidence = 0.9) =>
         new(
             EvidenceSourceClass.PublicStructuredData,
             sourceIdentifier,
             ObservedUtc,
-            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.9),
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, confidence),
             new ProducerIdentity("fixture", "1"),
             reference: "fixture://keys");
 

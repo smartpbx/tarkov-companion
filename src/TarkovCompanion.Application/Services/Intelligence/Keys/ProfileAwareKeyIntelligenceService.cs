@@ -1,5 +1,6 @@
 using System.Globalization;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Keys;
 
 namespace TarkovCompanion.Application.Services.Intelligence.Keys;
@@ -8,7 +9,7 @@ public sealed record ProfileAwareKeyIntelligenceRequest
 {
     public ProfileAwareKeyIntelligenceRequest(
         KeyIntelligenceEntryPoint entryPoint,
-        string itemId,
+        KeyIntelligenceContext context,
         DateTimeOffset evaluatedUtc,
         KeyInventoryFacts inventory,
         ResultStatus requirementsStatus,
@@ -20,13 +21,7 @@ public sealed record ProfileAwareKeyIntelligenceRequest
         EntryPoint = Enum.IsDefined(entryPoint)
             ? entryPoint
             : throw new ArgumentOutOfRangeException(nameof(entryPoint));
-        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
-        ItemId = itemId.Trim();
-        if (ItemId.Length > KeyIntelligenceBounds.MaximumIdentifierLength)
-        {
-            throw new ArgumentOutOfRangeException(nameof(itemId));
-        }
-
+        Context = context ?? throw new ArgumentNullException(nameof(context));
         EvaluatedUtc = evaluatedUtc != default && evaluatedUtc.Offset == TimeSpan.Zero
             ? evaluatedUtc
             : throw new ArgumentException("Evaluation time must be a defined UTC instant.", nameof(evaluatedUtc));
@@ -34,9 +29,10 @@ public sealed record ProfileAwareKeyIntelligenceRequest
         RequirementsStatus = requirementsStatus ?? throw new ArgumentNullException(nameof(requirementsStatus));
         RequirementsProvenance = requirementsProvenance ?? throw new ArgumentNullException(nameof(requirementsProvenance));
         Utility = utility ?? throw new ArgumentNullException(nameof(utility));
-        if (!string.Equals(ItemId, inventory.ItemId, StringComparison.Ordinal))
+        if (!string.Equals(ItemId, inventory.ItemId, StringComparison.Ordinal) ||
+            ProfileScope != inventory.ProfileScope)
         {
-            throw new ArgumentException("Inventory facts must describe the requested key.", nameof(inventory));
+            throw new ArgumentException("Inventory facts must match the requested profile and key.", nameof(inventory));
         }
 
         ArgumentNullException.ThrowIfNull(requirements);
@@ -56,17 +52,33 @@ public sealed record ProfileAwareKeyIntelligenceRequest
             throw new ArgumentException("Requirement identifiers must be unique.", nameof(requirements));
         }
 
+        if (copied.Any(requirement => requirement.Context != Context))
+        {
+            throw new ArgumentException(
+                "Requirements must match the request's exact profile, item, snapshot, game, and map-data context.",
+                nameof(requirements));
+        }
+
         Requirements = Array.AsReadOnly(copied);
         if (reviewedOverride is { } reviewed && reviewed.ReviewedUtc > EvaluatedUtc)
         {
             throw new ArgumentException("A reviewed override cannot postdate this evaluation.", nameof(reviewedOverride));
         }
 
+        if (reviewedOverride is { } scopedOverride && scopedOverride.Context != Context)
+        {
+            throw new ArgumentException(
+                "A reviewed override must match the request's exact profile, item, snapshot, game, and map-data context.",
+                nameof(reviewedOverride));
+        }
+
         ReviewedOverride = reviewedOverride;
     }
 
     public KeyIntelligenceEntryPoint EntryPoint { get; }
-    public string ItemId { get; }
+    public KeyIntelligenceContext Context { get; }
+    public string ItemId => Context.ItemId;
+    public InventoryProfileScope ProfileScope => Context.ProfileScope;
     public DateTimeOffset EvaluatedUtc { get; }
     public KeyInventoryFacts Inventory { get; }
     public ResultStatus RequirementsStatus { get; }
@@ -82,7 +94,7 @@ public sealed record ProfileAwareKeyIntelligenceRequest
 /// </summary>
 public sealed class ProfileAwareKeyIntelligenceService
 {
-    public const string CurrentRulesetVersion = "key-intelligence-308.1";
+    public const string CurrentRulesetVersion = "key-intelligence-308.2";
 
     public ProfileAwareKeyIntelligenceResult Evaluate(
         ProfileAwareKeyIntelligenceRequest request,
@@ -267,8 +279,7 @@ public sealed class ProfileAwareKeyIntelligenceService
                 : "Missing or incomplete facts remain visible in Learn Mode and keep stash planning conservative.");
 
         return new ProfileAwareKeyIntelligenceResult(
-            request.ItemId,
-            request.Inventory.ProfileScope,
+            request.Context,
             CurrentRulesetVersion,
             status,
             request.Inventory,
@@ -508,26 +519,36 @@ public sealed class ProfileAwareKeyIntelligenceService
         var inputs = new[]
         {
             request.RequirementsProvenance,
-            request.Inventory.MaximumUses.Provenance,
-            request.Inventory.RemainingUses.Provenance,
+            EffectiveProvenance(request.Inventory.MaximumUses),
+            EffectiveProvenance(request.Inventory.RemainingUses),
             request.Utility.Provenance,
-            request.Utility.AcquisitionCostRoubles.Provenance,
-            request.Utility.ExpectedLootProxyRoubles.Provenance,
-            request.Utility.UniqueAccess.Provenance,
-            request.Utility.RouteUtility.Provenance,
-            request.Utility.RouteRisk.Provenance,
-        };
+            EffectiveProvenance(request.Utility.AcquisitionCostRoubles),
+            EffectiveProvenance(request.Utility.ExpectedLootProxyRoubles),
+            EffectiveProvenance(request.Utility.UniqueAccess),
+            EffectiveProvenance(request.Utility.RouteUtility),
+            EffectiveProvenance(request.Utility.RouteRisk),
+        }
+            .Concat(request.Requirements.Select(requirement => requirement.Provenance))
+            .Concat(request.Utility.Associations.Select(association => association.Provenance))
+            .Distinct()
+            .ToArray();
 
         try
         {
             var hasModel = inputs.Any(ContainsModelledEstimate);
             if (!hasModel)
             {
+                var flattened = inputs.SelectMany(Flatten).ToArray();
+                var scores = flattened.Select(provenance => provenance.Confidence.Score).ToArray();
+                var containsUnknown = flattened.Any(provenance => provenance.SourceClass == EvidenceSourceClass.Unknown);
+                var confidence = containsUnknown || scores.Any(score => score is null)
+                    ? EvidenceConfidence.Unscored
+                    : new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min()!.Value);
                 return new EvidenceProvenance(
                     EvidenceSourceClass.DerivedCalculation,
                     "tarkov-companion:key-score",
                     request.EvaluatedUtc,
-                    EvidenceConfidence.Certain,
+                    confidence,
                     new ProducerIdentity("Tarkov Companion key intelligence", CurrentRulesetVersion),
                     generatedUtc: request.EvaluatedUtc,
                     reference: CurrentRulesetVersion,
@@ -580,6 +601,27 @@ public sealed class ProfileAwareKeyIntelligenceService
 
     private static IEnumerable<EvidenceProvenance> Flatten(EvidenceProvenance provenance) =>
         new[] { provenance }.Concat(provenance.Inputs.SelectMany(Flatten));
+
+    private static EvidenceProvenance EffectiveProvenance<T>(EvidencedValue<T?> field)
+        where T : struct
+    {
+        if (field.Corrections.Count == 0)
+        {
+            return field.Provenance;
+        }
+
+        var correction = field.Corrections[^1];
+        var sourceClass = correction.OriginClass == CorrectionOriginClass.PairedDevice
+            ? EvidenceSourceClass.PairedDeviceAction
+            : EvidenceSourceClass.UserEntered;
+        return new EvidenceProvenance(
+            sourceClass,
+            $"correction:{field.FieldId}:{correction.OriginClass}:{correction.OriginIdentifier}:{correction.Sequence.ToString(CultureInfo.InvariantCulture)}",
+            correction.CorrectedUtc,
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("Tarkov Companion key evidence correction", CurrentRulesetVersion),
+            reference: field.Provenance.SourceIdentifier);
+    }
 
     private static EvidenceProvenance MissingEvidenceProvenance(ProfileAwareKeyIntelligenceRequest request) =>
         new(

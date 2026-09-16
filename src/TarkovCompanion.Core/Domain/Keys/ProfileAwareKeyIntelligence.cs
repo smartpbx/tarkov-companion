@@ -61,10 +61,35 @@ public enum KeyIntelligenceReasonCategory
     CuratedOverride,
 }
 
+/// <summary>The exact profile and data boundary within which key facts may be combined.</summary>
+public sealed record KeyIntelligenceContext
+{
+    public KeyIntelligenceContext(
+        InventoryProfileScope profileScope,
+        string itemId,
+        string dataSnapshotId,
+        string gameVersion,
+        string mapDataVersion)
+    {
+        ProfileScope = profileScope ?? throw new ArgumentNullException(nameof(profileScope));
+        ItemId = KeyIntelligenceGuard.Required(itemId, nameof(itemId));
+        DataSnapshotId = KeyIntelligenceGuard.Required(dataSnapshotId, nameof(dataSnapshotId));
+        GameVersion = KeyIntelligenceGuard.Required(gameVersion, nameof(gameVersion));
+        MapDataVersion = KeyIntelligenceGuard.Required(mapDataVersion, nameof(mapDataVersion));
+    }
+
+    public InventoryProfileScope ProfileScope { get; }
+    public string ItemId { get; }
+    public string DataSnapshotId { get; }
+    public string GameVersion { get; }
+    public string MapDataVersion { get; }
+}
+
 /// <summary>A still-outstanding profile requirement. An absent requirement is never invented.</summary>
 public sealed record KeyRequirementFact
 {
     public KeyRequirementFact(
+        KeyIntelligenceContext context,
         string requirementId,
         KeyRequirementTiming timing,
         int remainingQuantity,
@@ -72,6 +97,7 @@ public sealed record KeyRequirementFact
         ResultStatus status,
         EvidenceProvenance provenance)
     {
+        Context = context ?? throw new ArgumentNullException(nameof(context));
         RequirementId = KeyIntelligenceGuard.Required(requirementId, nameof(requirementId));
         Timing = KeyIntelligenceGuard.Defined(timing, nameof(timing));
         RemainingQuantity = remainingQuantity >= 1
@@ -87,6 +113,7 @@ public sealed record KeyRequirementFact
         Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
     }
 
+    public KeyIntelligenceContext Context { get; }
     public string RequirementId { get; }
     public KeyRequirementTiming Timing { get; }
     public int RemainingQuantity { get; }
@@ -219,16 +246,16 @@ public sealed record KeyUtilityFacts
 public sealed record ReviewedKeyOverride
 {
     public ReviewedKeyOverride(
+        KeyIntelligenceContext context,
         double? score,
         KeyIntelligenceTier? tier,
         string? advice,
         string? explanation,
-        string gameVersion,
-        string mapDataVersion,
         string reviewer,
         DateTimeOffset reviewedUtc,
         EvidenceProvenance provenance)
     {
+        Context = context ?? throw new ArgumentNullException(nameof(context));
         if (score is { } numericScore && (!double.IsFinite(numericScore) || numericScore is < 0 or > 100))
         {
             throw new ArgumentOutOfRangeException(nameof(score));
@@ -257,8 +284,6 @@ public sealed record ReviewedKeyOverride
         Score = score;
         Advice = KeyIntelligenceGuard.Optional(advice, nameof(advice));
         Explanation = KeyIntelligenceGuard.Optional(explanation, nameof(explanation));
-        GameVersion = KeyIntelligenceGuard.Required(gameVersion, nameof(gameVersion));
-        MapDataVersion = KeyIntelligenceGuard.Required(mapDataVersion, nameof(mapDataVersion));
         Reviewer = KeyIntelligenceGuard.Required(reviewer, nameof(reviewer));
         ReviewedUtc = KeyIntelligenceGuard.Utc(reviewedUtc, nameof(reviewedUtc));
         if (ReviewedUtc < provenance.ObservedUtc)
@@ -267,12 +292,13 @@ public sealed record ReviewedKeyOverride
         }
     }
 
+    public KeyIntelligenceContext Context { get; }
     public double? Score { get; }
     public KeyIntelligenceTier? Tier { get; }
     public string? Advice { get; }
     public string? Explanation { get; }
-    public string GameVersion { get; }
-    public string MapDataVersion { get; }
+    public string GameVersion => Context.GameVersion;
+    public string MapDataVersion => Context.MapDataVersion;
     public string Reviewer { get; }
     public DateTimeOffset ReviewedUtc { get; }
     public EvidenceProvenance Provenance { get; }
@@ -349,8 +375,7 @@ public sealed record KeyScoreComponentsV2
 public sealed record ProfileAwareKeyIntelligenceResult
 {
     public ProfileAwareKeyIntelligenceResult(
-        string itemId,
-        InventoryProfileScope profileScope,
+        KeyIntelligenceContext context,
         string rulesetVersion,
         ResultStatus status,
         KeyInventoryFacts inventory,
@@ -367,8 +392,7 @@ public sealed record ProfileAwareKeyIntelligenceResult
         IReadOnlyList<string> missingFacts,
         ReviewedKeyOverride? appliedOverride)
     {
-        ItemId = KeyIntelligenceGuard.Required(itemId, nameof(itemId));
-        ProfileScope = profileScope ?? throw new ArgumentNullException(nameof(profileScope));
+        Context = context ?? throw new ArgumentNullException(nameof(context));
         RulesetVersion = KeyIntelligenceGuard.Required(rulesetVersion, nameof(rulesetVersion));
         Status = status ?? throw new ArgumentNullException(nameof(status));
         Inventory = inventory ?? throw new ArgumentNullException(nameof(inventory));
@@ -385,6 +409,10 @@ public sealed record ProfileAwareKeyIntelligenceResult
             KeyIntelligenceBounds.MaximumRequirements,
             requirement => requirement.RequirementId,
             nameof(requirements));
+        if (Requirements.Any(requirement => requirement.Context != Context))
+        {
+            throw new ArgumentException("Returned requirements must match the exact key-intelligence context.", nameof(requirements));
+        }
         Components = components ?? throw new ArgumentNullException(nameof(components));
         if (score is { } numericScore && (!double.IsFinite(numericScore) || numericScore is < 0 or > 100))
         {
@@ -413,11 +441,20 @@ public sealed record ProfileAwareKeyIntelligenceResult
             missingFacts,
             KeyIntelligenceBounds.MaximumExplanationLines,
             nameof(missingFacts));
+        if (appliedOverride is { } reviewed && reviewed.Context != Context)
+        {
+            throw new ArgumentException("The applied override must match the exact key-intelligence context.", nameof(appliedOverride));
+        }
+
         AppliedOverride = appliedOverride;
     }
 
-    public string ItemId { get; }
-    public InventoryProfileScope ProfileScope { get; }
+    public KeyIntelligenceContext Context { get; }
+    public string ItemId => Context.ItemId;
+    public InventoryProfileScope ProfileScope => Context.ProfileScope;
+    public string DataSnapshotId => Context.DataSnapshotId;
+    public string GameVersion => Context.GameVersion;
+    public string MapDataVersion => Context.MapDataVersion;
     public string RulesetVersion { get; }
     public ResultStatus Status { get; }
     public KeyInventoryFacts Inventory { get; }
@@ -519,9 +556,11 @@ internal static class KeyIntelligenceGuard
             .Concat(value.Candidates.Select(candidate => candidate.Value))
             .Concat(value.Corrections.SelectMany(correction =>
                 new[] { correction.OriginalValue, correction.CorrectedValue }));
-        if (strings.Any(candidate => candidate is { Length: > KeyIntelligenceBounds.MaximumIdentifierLength }))
+        if (strings.Any(candidate => candidate is not null &&
+                                     (string.IsNullOrWhiteSpace(candidate) ||
+                                      candidate.Length > KeyIntelligenceBounds.MaximumIdentifierLength)))
         {
-            throw new ArgumentOutOfRangeException(parameterName);
+            throw new ArgumentException("Association identifiers must be nonblank and bounded.", parameterName);
         }
 
         return value;
