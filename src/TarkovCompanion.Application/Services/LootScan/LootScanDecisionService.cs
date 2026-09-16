@@ -743,16 +743,27 @@ public sealed class LootScanDecisionService
             return true;
         }
 
-        private static bool IsBetter(SwapOption candidate, SwapOption current) =>
-            candidate.ReplacementCostRoubles < current.ReplacementCostRoubles ||
-            candidate.ReplacementCostRoubles == current.ReplacementCostRoubles &&
-            (candidate.Drops.Count < current.Drops.Count ||
-             candidate.Drops.Count == current.Drops.Count &&
-             (!candidate.Placement.RotateFromObserved && current.Placement.RotateFromObserved ||
-              candidate.Placement.RotateFromObserved == current.Placement.RotateFromObserved &&
-              (candidate.Placement.Anchor.Row < current.Placement.Anchor.Row ||
-               candidate.Placement.Anchor.Row == current.Placement.Anchor.Row &&
-               candidate.Placement.Anchor.Column < current.Placement.Anchor.Column))));
+        private static bool IsBetter(SwapOption candidate, SwapOption current)
+        {
+            if (candidate.ReplacementCostRoubles != current.ReplacementCostRoubles)
+            {
+                return candidate.ReplacementCostRoubles < current.ReplacementCostRoubles;
+            }
+
+            if (candidate.Drops.Count != current.Drops.Count)
+            {
+                return candidate.Drops.Count < current.Drops.Count;
+            }
+
+            if (candidate.Placement.RotateFromObserved != current.Placement.RotateFromObserved)
+            {
+                return !candidate.Placement.RotateFromObserved;
+            }
+
+            return candidate.Placement.Anchor.Row != current.Placement.Anchor.Row
+                ? candidate.Placement.Anchor.Row < current.Placement.Anchor.Row
+                : candidate.Placement.Anchor.Column < current.Placement.Anchor.Column;
+        }
 
         private static IReadOnlyList<(int Width, int Height, bool Rotate)> Orientations(int width, int height) =>
             width == height
