@@ -365,9 +365,12 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         string.Equals(left.CanonicalItemId, right.CanonicalItemId, StringComparison.Ordinal) &&
         string.Equals(left.SourceUri.AbsoluteUri, right.SourceUri.AbsoluteUri, StringComparison.Ordinal);
 
-    private static bool TryParseFingerprint(string? value, out ulong fingerprint) =>
-        value is { Length: 16 } &&
-        ulong.TryParse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out fingerprint);
+    private static bool TryParseFingerprint(string? value, out ulong fingerprint)
+    {
+        fingerprint = default;
+        return value is { Length: 16 } &&
+               ulong.TryParse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out fingerprint);
+    }
 
     private static void TryDeleteTemporaryFile(string path)
     {
