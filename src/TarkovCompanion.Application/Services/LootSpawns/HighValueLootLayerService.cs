@@ -291,7 +291,7 @@ public sealed record HighValueLootLayerResult
         AppliedFilter = appliedFilter ?? throw new ArgumentNullException(nameof(appliedFilter));
         Status = status ?? throw new ArgumentNullException(nameof(status));
         CompactLegend = HighValueLootGuard.Required(compactLegend, nameof(compactLegend), 256);
-        if (dataThroughUtc?.Offset != TimeSpan.Zero)
+        if (dataThroughUtc.HasValue && dataThroughUtc.Value.Offset != TimeSpan.Zero)
         {
             throw new ArgumentException("Data-through time must be UTC.", nameof(dataThroughUtc));
         }
