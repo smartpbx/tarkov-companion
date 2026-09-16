@@ -21,10 +21,13 @@ public sealed class ExplainableRecommendationEngine(
 
     private readonly ExplainableRecommendationPolicy _policy = policy ?? ExplainableRecommendationPolicy.Default;
 
-    public V2RecommendationResult Evaluate(ExplainableRecommendationRequest request)
+    public V2RecommendationResult Evaluate(
+        ExplainableRecommendationRequest request,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateEvidenceTimes(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateEvidenceTimes(request, cancellationToken);
 
         var reasons = new List<ReasonDraft>();
         var sensitivities = new List<RecommendationSensitivity>();
@@ -135,6 +138,7 @@ public sealed class ExplainableRecommendationEngine(
         decisionInputs.AddRange(allocation.DecisionInputs);
         foreach (var need in applicableNeeds)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var rule = RuleFor(need.Need);
             var category = CategoryFor(rule);
             var horizon = need.Need.StepsAhead == 0 ? "current" : $"{need.Need.StepsAhead} step(s) ahead";
@@ -268,6 +272,7 @@ public sealed class ExplainableRecommendationEngine(
 
         foreach (var issue in evidenceIssues.Values)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             reasons.Add(new(
                 ExplainableRecommendationRule.EvidenceQuality,
                 RecommendationReasonCategory.EvidenceQuality,
@@ -1668,7 +1673,9 @@ public sealed class ExplainableRecommendationEngine(
     private static int ProvenanceInputCount(EvidenceProvenance provenance) =>
         provenance.Inputs.Count + provenance.Inputs.Sum(ProvenanceInputCount);
 
-    private static void ValidateEvidenceTimes(ExplainableRecommendationRequest request)
+    private static void ValidateEvidenceTimes(
+        ExplainableRecommendationRequest request,
+        CancellationToken cancellationToken)
     {
         var provenances = new List<EvidenceProvenance>
         {
@@ -1688,11 +1695,19 @@ public sealed class ExplainableRecommendationEngine(
         AddEvidenceTimes(request.Economics.OccupiedSquares, provenances, correctionTimes);
         AddEvidenceTimes(request.Economics.ConditionFraction, provenances, correctionTimes);
         AddEvidenceTimes(request.Scarcity.Obtainability, provenances, correctionTimes);
-        provenances.AddRange(request.Profile.Needs.Select(need => need.Provenance));
+        foreach (var need in request.Profile.Needs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            provenances.Add(need.Provenance);
+        }
+
         if (request.Inventory is { } inventory)
         {
             provenances.Add(inventory.Provenance);
-            foreach (var item in inventory.Items)
+            // Only the observed count for this recommendation's item can affect its allocation.
+            // Walking every item kind for every loot candidate would multiply one shared snapshot
+            // into unbounded scan work without adding decision evidence.
+            if (inventory.Find(request.ItemId) is { } item)
             {
                 AddEvidenceTimes(item.TotalQuantity, provenances, correctionTimes);
                 AddEvidenceTimes(item.FoundInRaidQuantity, provenances, correctionTimes);
@@ -1705,6 +1720,7 @@ public sealed class ExplainableRecommendationEngine(
             AddEvidenceTimes(raidContext.Risk, provenances, correctionTimes);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         if (provenances.Any(provenance => provenance.EvidenceThroughUtc > request.EvaluatedUtc) ||
             correctionTimes.Any(correctedUtc => correctedUtc > request.EvaluatedUtc))
         {
