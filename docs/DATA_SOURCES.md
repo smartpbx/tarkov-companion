@@ -36,6 +36,23 @@ provenance, and yields whenever the primary publishes the same map-scoped normal
 `fixtures/extract-catalog/coverage-2026-09-15.normalized.json` for its retained deterministic
 input.
 
+### High-value loot-spawn locations
+
+The `json.tarkov.dev` maps payload supplies loose-loot positions with candidate item IDs and
+container positions with container-type IDs. Its item catalog supplies canonical item and value
+metadata. These public structured facts are the primary source for the high-value model. Explicit
+floors, spawn probability, respawn behavior, and container candidate contents are not published
+there and remain unknown unless a separately reviewed, licensed curated source supplies the gap.
+
+Runtime inputs use a versioned normalized-bundle contract with explicit provenance, licence,
+timestamps, confidence, content hash, map/transform identity, precision, pool semantics, and
+measured per-map coverage. The importer never derives or guesses a location from item metadata.
+No production normalized bundle or maps-to-bundle adapter is currently checked in, so publication
+coverage through this new path is zero supported maps even though the raw primary feed contains
+usable loose-loot facts. The only bundled example is a synthetic test fixture. See
+[`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the contract, validation, publication behavior,
+and remaining composition and persistence gaps.
+
 ## Map configuration and assets
 
 Map geometry/configuration may be derived from current `the-hideout/tarkov-dev` data with provenance. Third-party map imagery is optional per-map data and cannot be treated as project-owned. When its license is not distribution-compatible, the app must download the original asset into the user's cache and expose attribution rather than embed a derivative.
