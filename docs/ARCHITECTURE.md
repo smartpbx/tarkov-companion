@@ -76,7 +76,8 @@ Persistent state lives outside the tree the updater replaces. The relay's writab
 holds marks, the room registry, submitted problem reports, and the transient update request;
 authenticated updater history and panel status live in separate root-owned directories. Live
 member state is not written there, but a reached waypoint records who reached it and a report
-body can carry coordinates.
+body from an arbitrary relay caller can carry coordinates even though the ordinary desktop's
+closed report projection does not.
 The relay cannot start a systemd unit and must not be able to — asking it to update writes a file
 that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
 them reaches the box.
