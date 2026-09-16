@@ -117,8 +117,15 @@ public sealed class CrashLogTests : IDisposable
 
         CrashLog.Write("sync", "something new");
 
+        // The global unobserved-task handler can append a legitimate exception between this
+        // write and the assertions. Proving the replacement is under 1 KiB therefore tested
+        // finalizer timing, not rotation. The archived size plus the new entry prove the actual
+        // contract without assuming nobody else used the process-wide crash sink.
         Assert.True(File.Exists(path + ".1"), "the oversized log should have been rolled aside");
-        Assert.True(new FileInfo(path).Length < 1024, "the current log should start again");
+        Assert.True(
+            new FileInfo(path + ".1").Length >= 3 * 1024 * 1024,
+            "the previous file should be the oversized log");
+        Assert.Contains("something new", ReadShared(path), StringComparison.Ordinal);
     }
 
     /// <summary>A line is still written while something else holds the log open.</summary>
