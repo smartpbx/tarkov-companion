@@ -517,6 +517,35 @@ public sealed class LootScanDecisionServiceTests
     }
 
     [Fact]
+    public void LosingComparedPriceCannotHideModelledLineage()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var directFlea = CatalogProvenance("direct-winning-flea");
+        var modelledTrader = ModelledProvenance(CatalogProvenance("modelled-losing-trader-input"));
+        var evaluated = Recommendation(
+            anchor,
+            "loot",
+            RecommendationReasonCategory.Economics,
+            valueRoubles: 100_000);
+        var economics = new RecommendationEconomics(
+            Complete<long?>("economics.flea-gross", 101_000, directFlea),
+            Complete<long?>("economics.flea-fee", 1_000, directFlea),
+            Complete<long?>("economics.flea-net", 100_000, directFlea),
+            Complete<long?>("economics.trader", 90_000, modelledTrader),
+            Complete<int?>("economics.squares", 1, ScreenshotProvenance("squares")),
+            Complete<double?>("economics.condition", 1, ScreenshotProvenance("condition")));
+
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [new(evaluated.Binding, evaluated.Recommendation, economics)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("economics.model-review", decision.Economics!.Status.Code);
+    }
+
+    [Fact]
     public void ARecentCorrectionDoesNotRenewExpiredPriceEvidence()
     {
         var anchor = new GridCellAddress(0, 0);
@@ -670,8 +699,19 @@ public sealed class LootScanDecisionServiceTests
         Assert.Equal(FreshnessState.Current, result.Status.Freshness);
     }
 
-    [Fact]
-    public void DurableRecommendationReasonDoesNotExpireByInventoryTtl()
+    [Theory]
+    [InlineData(RecommendationReasonCategory.ExplicitOverride, "override.explicit", RecommendationAction.Take, LootScanVerdict.Take)]
+    [InlineData(RecommendationReasonCategory.Safety, "event.allergic", RecommendationAction.AvoidConsume, LootScanVerdict.Review)]
+    [InlineData(RecommendationReasonCategory.Safety, "item.protected", RecommendationAction.Take, LootScanVerdict.Take)]
+    [InlineData(RecommendationReasonCategory.PinOrWishlist, "profile.pinned", RecommendationAction.Take, LootScanVerdict.Take)]
+    [InlineData(RecommendationReasonCategory.PinOrWishlist, "profile.wishlist", RecommendationAction.Take, LootScanVerdict.Take)]
+    [InlineData(RecommendationReasonCategory.Safety, "event.untested", RecommendationAction.Review, LootScanVerdict.Review)]
+    [InlineData(RecommendationReasonCategory.Safety, "event.safe", RecommendationAction.UseSoon, LootScanVerdict.Review)]
+    public void DurableRecommendationReasonDoesNotExpireByInventoryTtl(
+        RecommendationReasonCategory category,
+        string reasonCode,
+        RecommendationAction action,
+        LootScanVerdict expectedVerdict)
     {
         var anchor = new GridCellAddress(0, 0);
         var result = Evaluate(
@@ -680,11 +720,14 @@ public sealed class LootScanDecisionServiceTests
             [Recommendation(
                 anchor,
                 "loot",
-                RecommendationReasonCategory.ExplicitOverride,
+                category,
+                reasonCode: reasonCode,
                 decisionObservedUtc: Now.AddDays(-30),
-                action: RecommendationAction.Take)]);
+                action: action)]);
 
-        Assert.Equal(LootScanVerdict.Take, Assert.Single(result.Decisions).Verdict);
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(expectedVerdict, decision.Verdict);
+        Assert.DoesNotContain(decision.Reasons, reason => reason.Code == "recommendation.expired");
         Assert.Equal(FreshnessState.Current, result.Status.Freshness);
     }
 
@@ -702,6 +745,7 @@ public sealed class LootScanDecisionServiceTests
     [InlineData(RecommendationReasonCategory.PinOrWishlist, "profile.pinned", RecommendationAction.Leave)]
     [InlineData(RecommendationReasonCategory.PinOrWishlist, "profile.wishlist", RecommendationAction.Leave)]
     [InlineData(RecommendationReasonCategory.ScarcityOrObtainability, "scarcity.fixture", RecommendationAction.Leave)]
+    [InlineData(RecommendationReasonCategory.Safety, "raid.risk.high", RecommendationAction.Review)]
     [InlineData(RecommendationReasonCategory.Economics, "economics.flea-net.high", RecommendationAction.Review)]
     [InlineData(RecommendationReasonCategory.EvidenceQuality, "evidence.insufficient", RecommendationAction.Take)]
     public void DominantReasonCannotCarryAnInconsistentAction(
@@ -718,6 +762,30 @@ public sealed class LootScanDecisionServiceTests
         var decision = Assert.Single(result.Decisions);
         Assert.Equal(LootScanVerdict.Review, decision.Verdict);
         Assert.Equal("recommendation.action-mismatch", Assert.Single(decision.Reasons).Code);
+    }
+
+    [Theory]
+    [InlineData(RecommendationReasonCategory.Safety, "raid.risk.high")]
+    [InlineData(RecommendationReasonCategory.Economics, "economics.flea-net.low")]
+    public void RaidAndEconomicReasonsMayConsistentlyLeave(
+        RecommendationReasonCategory category,
+        string reasonCode)
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(
+                anchor,
+                "loot",
+                category,
+                valueRoubles: 1,
+                reasonCode: reasonCode,
+                action: RecommendationAction.Leave)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Leave, decision.Verdict);
+        Assert.Equal("recommendation.leave", Assert.Single(decision.Reasons).Code);
     }
 
     [Theory]
@@ -1123,10 +1191,30 @@ public sealed class LootScanDecisionServiceTests
                 "loot",
                 RecommendationReasonCategory.Safety,
                 reasonCode: "raid.risk.high",
-                decisionObservedUtc: Now.AddMinutes(-15).AddTicks(-1))]);
+                decisionObservedUtc:
+                    Now - ExplainableRecommendationPolicy.Default.MaximumRaidContextAge - TimeSpan.FromTicks(1))]);
 
         Assert.Equal(LootScanVerdict.Review, Assert.Single(result.Decisions).Verdict);
         Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void RaidReasonCannotUseEconomicsPriority()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(
+                anchor,
+                "loot",
+                RecommendationReasonCategory.Safety,
+                priority: ExplainableRecommendationPolicy.Default.PriorityOf(ExplainableRecommendationRule.Economics),
+                reasonCode: "raid.risk.high")]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("recommendation.precedence-mismatch", Assert.Single(decision.Reasons).Code);
     }
 
     [Fact]
@@ -1141,10 +1229,50 @@ public sealed class LootScanDecisionServiceTests
                 "loot",
                 RecommendationReasonCategory.Safety,
                 reasonCode: "raid.risk.high",
-                decisionObservedUtc: Now.AddMinutes(-15))]);
+                decisionObservedUtc: Now - ExplainableRecommendationPolicy.Default.MaximumRaidContextAge)]);
 
         Assert.Equal(LootScanVerdict.Take, Assert.Single(result.Decisions).Verdict);
         Assert.Equal(FreshnessState.Current, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void ScarcityReasonUsesItsOwnLongerPolicyWindow()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(
+                anchor,
+                "loot",
+                RecommendationReasonCategory.ScarcityOrObtainability,
+                decisionObservedUtc:
+                    Now - ExplainableRecommendationPolicy.Default.MaximumScarcityAge + TimeSpan.FromDays(1),
+                action: RecommendationAction.Take)]);
+
+        Assert.Equal(LootScanVerdict.Take, Assert.Single(result.Decisions).Verdict);
+        Assert.Equal(FreshnessState.Current, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void ScarcityReasonExpiresAfterItsPolicyWindow()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(
+                anchor,
+                "loot",
+                RecommendationReasonCategory.ScarcityOrObtainability,
+                decisionObservedUtc:
+                    Now - ExplainableRecommendationPolicy.Default.MaximumScarcityAge - TimeSpan.FromTicks(1),
+                action: RecommendationAction.Take)]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("recommendation.expired", Assert.Single(decision.Reasons).Code);
+        Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
     }
 
     [Fact]
@@ -1835,7 +1963,8 @@ public sealed class LootScanDecisionServiceTests
             RecommendationReasonCategory.Safety when code == "item.protected" => ExplainableRecommendationRule.ProtectedItem,
             RecommendationReasonCategory.Safety when code == "event.untested" => ExplainableRecommendationRule.EventUntested,
             RecommendationReasonCategory.Safety when code == "event.safe" => ExplainableRecommendationRule.EventSafe,
-            RecommendationReasonCategory.Safety when code.StartsWith("raid.", StringComparison.Ordinal) => ExplainableRecommendationRule.Economics,
+            RecommendationReasonCategory.Safety when code.StartsWith("raid.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.RaidContext,
             RecommendationReasonCategory.CurrentFoundInRaidQuest => ExplainableRecommendationRule.CurrentFoundInRaidQuest,
             RecommendationReasonCategory.CurrentQuest => ExplainableRecommendationRule.CurrentQuest,
             RecommendationReasonCategory.FutureQuest => ExplainableRecommendationRule.FutureQuest,

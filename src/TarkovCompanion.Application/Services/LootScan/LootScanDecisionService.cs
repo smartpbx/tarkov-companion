@@ -16,8 +16,6 @@ namespace TarkovCompanion.Application.Services.LootScan;
 /// </summary>
 public sealed class LootScanDecisionService
 {
-    private static readonly TimeSpan MaximumVolatileRaidRecommendationAge = TimeSpan.FromMinutes(15);
-
     private readonly TimeProvider _timeProvider;
     private readonly ExplainableRecommendationPolicy _policy;
     private readonly int _maximumPlacementCellVisits;
@@ -519,7 +517,7 @@ public sealed class LootScanDecisionService
         if (!TryValidateProvenance(
                 decision.Provenance,
                 evaluatedUtc,
-                MaximumAge(dominant.Rule, dominant.Reason.Code),
+                MaximumAge(dominant.Rule),
                 includeInputs: false,
                 budget,
                 ref candidateVisits,
@@ -548,7 +546,7 @@ public sealed class LootScanDecisionService
             if (!TryValidateProvenance(
                     mapped.Reason.Provenance,
                     evaluatedUtc,
-                    MaximumAge(mapped.Rule, mapped.Reason.Code),
+                    MaximumAge(mapped.Rule),
                     includeInputs: true,
                     budget,
                     ref candidateVisits,
@@ -669,7 +667,8 @@ public sealed class LootScanDecisionService
             RecommendationReasonCategory.Safety when reason.Code == "item.protected" => ExplainableRecommendationRule.ProtectedItem,
             RecommendationReasonCategory.Safety when reason.Code == "event.untested" => ExplainableRecommendationRule.EventUntested,
             RecommendationReasonCategory.Safety when reason.Code == "event.safe" => ExplainableRecommendationRule.EventSafe,
-            RecommendationReasonCategory.Safety when reason.Code.StartsWith("raid.", StringComparison.Ordinal) => ExplainableRecommendationRule.Economics,
+            RecommendationReasonCategory.Safety when reason.Code.StartsWith("raid.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.RaidContext,
             RecommendationReasonCategory.CurrentFoundInRaidQuest
                 when reason.Code.StartsWith("need.quest-current-fir.", StringComparison.Ordinal) =>
                 ExplainableRecommendationRule.CurrentFoundInRaidQuest,
@@ -736,31 +735,25 @@ public sealed class LootScanDecisionService
         ExplainableRecommendationRule.Pin or
         ExplainableRecommendationRule.Wishlist or
         ExplainableRecommendationRule.Scarcity => action == RecommendationAction.Take,
-        ExplainableRecommendationRule.Economics =>
+        ExplainableRecommendationRule.RaidContext or ExplainableRecommendationRule.Economics =>
             action is RecommendationAction.Take or RecommendationAction.Leave,
         _ => false,
     };
 
-    private TimeSpan? MaximumAge(ExplainableRecommendationRule rule, string code)
+    private TimeSpan? MaximumAge(ExplainableRecommendationRule rule) => rule switch
     {
-        if (code.StartsWith("raid.", StringComparison.Ordinal))
-        {
-            return MaximumVolatileRaidRecommendationAge;
-        }
-
-        return rule switch
-        {
-            ExplainableRecommendationRule.EventAllergy or
-            ExplainableRecommendationRule.ExplicitOverride or
-            ExplainableRecommendationRule.ProtectedItem or
-            ExplainableRecommendationRule.Pin or
-            ExplainableRecommendationRule.Wishlist or
-            ExplainableRecommendationRule.EventUntested or
-            ExplainableRecommendationRule.EventSafe => null,
-            ExplainableRecommendationRule.Economics => _policy.MaximumPriceAge,
-            _ => _policy.MaximumInventoryAge,
-        };
-    }
+        ExplainableRecommendationRule.EventAllergy or
+        ExplainableRecommendationRule.ExplicitOverride or
+        ExplainableRecommendationRule.ProtectedItem or
+        ExplainableRecommendationRule.Pin or
+        ExplainableRecommendationRule.Wishlist or
+        ExplainableRecommendationRule.EventUntested or
+        ExplainableRecommendationRule.EventSafe => null,
+        ExplainableRecommendationRule.Scarcity => _policy.MaximumScarcityAge,
+        ExplainableRecommendationRule.RaidContext => _policy.MaximumRaidContextAge,
+        ExplainableRecommendationRule.Economics => _policy.MaximumPriceAge,
+        _ => _policy.MaximumInventoryAge,
+    };
 
     private static int PlanningPriority(
         GridCellRecognition cell,
@@ -1221,7 +1214,7 @@ public sealed class LootScanDecisionService
         var dominant = advice.Reasons[0];
         if (TryMapRule(dominant, out var rule))
         {
-            return MaximumAge(rule, dominant.Code);
+            return MaximumAge(rule);
         }
 
         return _policy.MaximumInventoryAge;
