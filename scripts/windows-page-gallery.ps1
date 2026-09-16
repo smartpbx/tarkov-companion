@@ -228,23 +228,32 @@ function Wait-AutomationElement {
     return $null
 }
 
-function Wait-AutomationOffscreenElement {
+function Wait-AutomationOutsideViewportElement {
     param(
         [IntPtr] $WindowHandle,
         [string] $AutomationId,
         [int] $TimeoutSeconds = 15
     )
 
-    # Searching with IncludeOffscreen only proved that a peer existed somewhere in the raw tree.
-    # Narrow-layout evidence needs the peer itself to report that it is outside the viewport.
+    # Avalonia retains peers for content laid out below a scroll viewport, but its Windows UIA
+    # provider does not always set IsOffscreen for those clipped peers. Require either the native
+    # offscreen flag or a bounding rectangle with no intersection with the packaged window.
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
         try {
+            $Root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
             $Element = Find-AutomationElement `
                 -WindowHandle $WindowHandle `
                 -AutomationId $AutomationId `
                 -IncludeOffscreen $true
-            if ($null -ne $Element -and $Element.Current.IsOffscreen) { return $Element }
+            if ($null -ne $Root -and $null -ne $Element) {
+                $Viewport = $Root.Current.BoundingRectangle
+                $Bounds = $Element.Current.BoundingRectangle
+                $HorizontalOverlap = $Bounds.Right -gt $Viewport.Left -and $Bounds.Left -lt $Viewport.Right
+                $VerticalOverlap = $Bounds.Bottom -gt $Viewport.Top -and $Bounds.Top -lt $Viewport.Bottom
+                $IntersectsViewport = $Bounds.Width -gt 0 -and $Bounds.Height -gt 0 -and $HorizontalOverlap -and $VerticalOverlap
+                if ($Element.Current.IsOffscreen -or -not $IntersectsViewport) { return $Element }
+            }
         }
         catch [System.Windows.Automation.ElementNotAvailableException] {
         }
@@ -417,11 +426,11 @@ function Invoke-ShellInteraction {
                 throw "'$Description' did not expose expected element '$ExpectedId'."
             }
         }
-        foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOffscreenAutomationIds" -Default @())) {
-            if ($null -eq (Wait-AutomationOffscreenElement `
+        foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOutsideViewportAutomationIds" -Default @())) {
+            if ($null -eq (Wait-AutomationOutsideViewportElement `
                 -WindowHandle $WindowHandle `
                 -AutomationId $ExpectedId)) {
-                throw "'$Description' expected '$ExpectedId' to report UI Automation IsOffscreen=true within 15 seconds."
+                throw "'$Description' expected '$ExpectedId' outside the packaged window viewport within 15 seconds."
             }
         }
         foreach ($BoundsAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedBounds" -Default @())) {
@@ -960,7 +969,7 @@ $Shots.Add([pscustomobject]@{
             [pscustomobject]@{
                 action = "set-value"; description = "search a record beyond the first map page"
                 targetAutomationId = "v2-map-search"; targetControlType = "Edit"; value = "Potential loot 305"
-                expectedOffscreenAutomationIds = @("v2-map-list-dense-304-fdfa94e9")
+                expectedAutomationIds = @("v2-map-list-dense-304-fdfa94e9")
                 expectedNamePatterns = @(
                     [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 1 .* 1 matching details$' })
             }
@@ -975,7 +984,7 @@ $Shots.Add([pscustomobject]@{
         steps = @([pscustomobject]@{
             action = "assert"; description = "320 DIP map renderer at twice interface scale"
             expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in")
-            expectedOffscreenAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
+            expectedOutsideViewportAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
             expectedBounds = @(
                 [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 })
         })
