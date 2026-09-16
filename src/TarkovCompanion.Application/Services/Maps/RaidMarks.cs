@@ -40,5 +40,8 @@ public interface IRaidMarkStore
 
     Task MoveAsync(Guid id, double x, double y, CancellationToken cancellationToken = default);
 
+    /// <summary>Sets a mark's custom name, or clears it back to numbered/"Ping" when null or blank.</summary>
+    Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default);
+
     Task RemoveAsync(Guid id, CancellationToken cancellationToken = default);
 }

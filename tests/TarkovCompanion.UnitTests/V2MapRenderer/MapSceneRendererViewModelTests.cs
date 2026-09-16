@@ -225,6 +225,27 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void TryHitObjectAt_finds_the_object_under_a_point_without_selecting_it()
+    {
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            Point("waypoint", "Waypoint", MapSceneObjectKind.Waypoint, MapSceneTruthKind.UserAuthored, 50, 50),
+        ]));
+        var marker = Assert.Single(renderer.SpatialObjects);
+
+        // A right-click asks what it hit — used to decide whether to remove a mark — without
+        // the side effect TrySelectAt has of also changing what is selected.
+        Assert.True(renderer.TryHitObjectAt(
+            marker.AnchorLeft + (MapSceneRendererViewModel.MarkerExtent / 2),
+            marker.AnchorTop + (MapSceneRendererViewModel.MarkerExtent / 2),
+            out var objectId));
+        Assert.Equal("object:waypoint", objectId.Value);
+        Assert.False(renderer.HasSelection);
+
+        Assert.False(renderer.TryHitObjectAt(0, 0, out _));
+    }
+
+    [Fact]
     public void TryScenePointAt_unprojects_a_viewport_position_into_scene_space()
     {
         var renderer = Renderer(Scene());

@@ -39,7 +39,8 @@
              own DataContext is overridden to Renderer below, and a binding on the same element
              would resolve against that override instead of this page's view model. -->
         <ContentControl IsVisible="{Binding HasRenderer}">
-          <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked" />
+          <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked"
+                                     MarkerRightClicked="RendererMarkerRightClicked" />
         </ContentControl>
         <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}"
                 AutomationProperties.AutomationId="v2-raid-unavailable">
@@ -90,11 +91,22 @@
             <ItemsControl ItemsSource="{Binding Marks}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
-                    <TextBlock Classes="v2-body" Text="{Binding Label}" />
-                    <Button Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
-                            AutomationProperties.AutomationId="v2-raid-mark-remove" />
+                  <StackPanel Classes="v2-stack" Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                      <TextBlock Classes="v2-body" Text="{Binding Label}"
+                                 AutomationProperties.AutomationId="v2-raid-mark-label" />
+                      <Button Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mark-remove" />
+                    </StackPanel>
+                    <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanRename}">
+                      <TextBox Text="{Binding EditableName}" PlaceholderText="Name (blank = numbered)"
+                               MinWidth="140"
+                               AutomationProperties.AutomationId="v2-raid-mark-rename-input" />
+                      <Button Classes="v2-target" Content="Rename" Command="{Binding RenameCommand}"
+                              AutomationProperties.AutomationId="v2-raid-mark-rename" />
+                    </StackPanel>
                   </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

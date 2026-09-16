@@ -27,17 +27,50 @@ public sealed class RaidMapPickerItemViewModel(string mapId, string name, Func<s
 }
 
 /// <summary>One local mark, for the marks list beside the map.</summary>
-public sealed class RaidMarkRowViewModel(RaidMark mark, Func<Guid, Task> remove) : BindableViewModel
+/// <remarks>
+/// Its label is precomputed by <see cref="RaidCockpitViewModel.LabelMarksForMap"/> in the same
+/// pass that labels the scene object this mark also became, rather than recomputed here — see
+/// that method's remark on why a second pass is the wrong shape for this.
+/// </remarks>
+public sealed class RaidMarkRowViewModel : BindableViewModel
 {
-    public Guid Id { get; } = mark.Id;
+    private readonly Guid _id;
+    private readonly Func<Guid, string?, Task> _rename;
+    private string _editableName;
 
-    public string Label { get; } = string.IsNullOrWhiteSpace(mark.State.Label)
-        ? (mark.Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint")
-        : mark.State.Label!;
+    public RaidMarkRowViewModel(RaidMark mark, string label, Func<Guid, string?, Task> rename, Func<Guid, Task> remove)
+    {
+        _id = mark.Id;
+        _rename = rename;
+        Kind = mark.Kind;
+        Label = label;
+        _editableName = mark.State.Label ?? string.Empty;
+        RenameCommand = new DelegateCommand(() => _ = _rename(_id, EditableName));
+        RemoveCommand = new DelegateCommand(() => _ = remove(_id));
+    }
 
-    public string KindLabel { get; } = mark.Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint";
+    public Guid Id => _id;
 
-    public ICommand RemoveCommand { get; } = new DelegateCommand(() => _ = remove(mark.Id));
+    public RaidMarkKind Kind { get; }
+
+    /// <summary>The number, custom name, or "Ping" — whichever the map dot beside this row shows.</summary>
+    public string Label { get; }
+
+    public string KindLabel => Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint";
+
+    /// <summary>A ping is "look here now": it is never told apart from another ping by name.</summary>
+    public bool CanRename => Kind == RaidMarkKind.Waypoint;
+
+    /// <summary>The rename box's current text. Committing it empty clears back to the number.</summary>
+    public string EditableName
+    {
+        get => _editableName;
+        set => SetProperty(ref _editableName, value);
+    }
+
+    public ICommand RenameCommand { get; }
+
+    public ICommand RemoveCommand { get; }
 }
 
 /// <summary>
@@ -55,6 +88,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 {
     private static readonly MapSceneLayerId MarksLayerId = new("my-marks");
     private static readonly MapSceneBounds PlanBounds = new(0, 0, 100, 100);
+    private const string MarkIdPrefix = "mark:";
 
     private readonly MapViewModel _map;
     private readonly RaidPageViewModel _raid;
@@ -182,6 +216,33 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _ = PlaceMarkAsync(kindToPlace, model.Location.Id, floorId, point.X, point.Y);
     }
 
+    /// <summary>
+    /// The host calls this from a right-click that hit something on the plan. A ping or a
+    /// waypoint of ours is removed; anything else — an extract, a loot spawn, another map
+    /// object entirely — is left alone. A right-click that hit nothing never reaches here at
+    /// all (<c>MapSceneRendererView.MarkerRightClicked</c> only fires on a hit), so bare-map
+    /// right-click keeps whatever it already did, which is nothing.
+    /// </summary>
+    public void RemoveMarkAt(MapSceneObjectId objectId)
+    {
+        if (!TryParseMarkId(objectId, out var markId))
+        {
+            return;
+        }
+
+        _ = _marks.RemoveAsync(markId);
+    }
+
+    /// <summary>Whether a scene object id names one of ours, and which mark it is if so.</summary>
+    /// <remarks>Internal for direct coverage of "a right-click that hit an extract, a loot spawn,
+    /// or anything else that is not a mark of ours does nothing" — see the unit tests.</remarks>
+    internal static bool TryParseMarkId(MapSceneObjectId objectId, out Guid markId)
+    {
+        markId = Guid.Empty;
+        return objectId.Value.StartsWith(MarkIdPrefix, StringComparison.Ordinal) &&
+            Guid.TryParse(objectId.Value.AsSpan(MarkIdPrefix.Length), out markId);
+    }
+
     public void Dispose()
     {
         _map.PropertyChanged -= MapPropertyChanged;
@@ -287,13 +348,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var mapId = _map.RenderModel?.Location.Id;
         Marks = mapId is null
             ? []
-            : [.. _marks.Marks
-                .Where(mark => string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(mark => mark.CreatedUtc)
-                .Select(mark => new RaidMarkRowViewModel(mark, id => _marks.RemoveAsync(id)))];
+            : [.. LabelMarksForMap(_marks.Marks, mapId)
+                .OrderByDescending(item => item.Mark.CreatedUtc)
+                .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id)))];
         OnPropertyChanged(nameof(Marks));
         OnPropertyChanged(nameof(HasMarks));
     }
+
+    private Task RenameMarkAsync(Guid id, string? name) => _marks.RenameAsync(id, name);
 
     private async Task RebuildAsync()
     {
@@ -492,30 +554,67 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         string mapId,
         DateTimeOffset nowUtc)
     {
-        var forMap = marks
-            .Where(mark => string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
-        if (forMap.Length == 0)
+        var labeled = LabelMarksForMap(marks, mapId);
+        if (labeled.Count == 0)
         {
             return (null, []);
         }
 
         var layer = new MapSceneLayer(MarksLayerId, "My marks", 40, true);
-        var objects = forMap
-            .Select(mark => new MapSceneObject(
-                new($"mark:{mark.Id}"),
+        var objects = labeled
+            .Select(item => new MapSceneObject(
+                new($"{MarkIdPrefix}{item.Mark.Id}"),
                 MarksLayerId,
-                mark.Kind == RaidMarkKind.Ping ? MapSceneObjectKind.Ping : MapSceneObjectKind.Waypoint,
+                item.Mark.Kind == RaidMarkKind.Ping ? MapSceneObjectKind.Ping : MapSceneObjectKind.Waypoint,
                 MapSceneTruthKind.UserAuthored,
-                string.IsNullOrWhiteSpace(mark.State.Label)
-                    ? (mark.Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint")
-                    : mark.State.Label!,
+                item.Label,
                 null,
-                MapSceneGeometry.At(new(mark.State.X, mark.State.Y)),
-                mark.State.FloorId is null ? [] : [mark.State.FloorId],
+                MapSceneGeometry.At(new(item.Mark.State.X, item.Mark.State.Y)),
+                item.Mark.State.FloorId is null ? [] : [item.Mark.State.FloorId],
                 new DataProvenance("local-mark", nowUtc)))
             .ToArray();
         return (layer, objects);
+    }
+
+    /// <summary>
+    /// Every mark on a map, in placement order, paired with the label its scene object and its
+    /// row in the marks list must both show.
+    /// </summary>
+    /// <remarks>
+    /// Built in one pass over one order, the same reason <c>MapViewModel.UpdateGroupMarks</c>
+    /// numbers its own list inside the loop that draws it: a row numbered by a separate pass
+    /// over a separately filtered or sorted collection can drift from the dot it names the
+    /// moment one collection skips something the other kept. A waypoint with no custom name is
+    /// numbered among the waypoints on this map only; a ping is always "Ping" and never carries
+    /// a custom name — see <see cref="RaidMarkRowViewModel.CanRename"/>.
+    /// </remarks>
+    internal static IReadOnlyList<(RaidMark Mark, string Label)> LabelMarksForMap(
+        IReadOnlyList<RaidMark> marks,
+        string mapId)
+    {
+        var ordered = marks
+            .Where(mark => string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(mark => mark.CreatedUtc)
+            .ThenBy(mark => mark.Id)
+            .ToArray();
+        var result = new List<(RaidMark, string)>(ordered.Length);
+        var waypointNumber = 0;
+        foreach (var mark in ordered)
+        {
+            if (mark.Kind == RaidMarkKind.Ping)
+            {
+                result.Add((mark, "Ping"));
+                continue;
+            }
+
+            waypointNumber++;
+            var label = string.IsNullOrWhiteSpace(mark.State.Label)
+                ? waypointNumber.ToString(CultureInfo.InvariantCulture)
+                : mark.State.Label!;
+            result.Add((mark, label));
+        }
+
+        return result;
     }
 
     private void SetUnavailable(string reason)

@@ -38,4 +38,12 @@ public sealed partial class RaidCockpitView : UserControl
             cockpit.PlaceArmedMarkAt(point);
         }
     }
+
+    private void RendererMarkerRightClicked(object? sender, MapSceneObjectId objectId)
+    {
+        if (DataContext is RaidCockpitViewModel cockpit)
+        {
+            cockpit.RemoveMarkAt(objectId);
+        }
+    }
 }

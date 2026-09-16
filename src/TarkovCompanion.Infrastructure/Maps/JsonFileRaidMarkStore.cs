@@ -96,6 +96,34 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
             },
             cancellationToken);
 
+    public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default) =>
+        MutateAsync(
+            marks =>
+            {
+                var index = marks.FindIndex(mark => mark.Id == id);
+                if (index < 0)
+                {
+                    return;
+                }
+
+                var trimmed = string.IsNullOrWhiteSpace(label) ? null : label.Trim();
+                var normalized = trimmed is { Length: > MapMarkState.MaxLabelLength }
+                    ? trimmed[..MapMarkState.MaxLabelLength]
+                    : trimmed;
+                var current = marks[index];
+                marks[index] = current with
+                {
+                    State = new MapMarkState(
+                        current.State.MapId,
+                        current.State.FloorId,
+                        current.State.X,
+                        current.State.Y,
+                        normalized,
+                        current.State.ExpiresUtc),
+                };
+            },
+            cancellationToken);
+
     public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default) =>
         MutateAsync(marks => marks.RemoveAll(mark => mark.Id == id), cancellationToken);
 

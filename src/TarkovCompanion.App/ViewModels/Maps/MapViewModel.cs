@@ -311,7 +311,10 @@ public sealed record GroupMarkViewModel(
 
     public double DiamondRotation => 45;
 
-    public bool HasLabel => Label.Length > 0;
+    // A ping is "look here now", not a named place — and unlike a waypoint's number, nothing
+    // about it needs telling apart from another ping. It never draws text on the map, whatever
+    // Label happens to hold.
+    public bool HasLabel => !IsPing && Label.Length > 0;
 
     public Thickness LabelInset => new(0, (Extent / 2) + 2, 0, 0);
 }
@@ -5669,10 +5672,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // plan the group never received.
         _pending.Add(new(location.Id, position, isPing, DateTimeOffset.UtcNow));
         UpdateGroupMarks();
-        GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing)
-        {
-            Label = WaypointNaming.Describe(position, _mapFeatures, _selectedVariant?.Labels ?? []),
-        });
+        // No place-name label by default (WaypointNaming stays for whatever later wants it): a
+        // waypoint with none is numbered instead, in the same pass that draws the list beside
+        // the map, and a ping never shows one at all. Clayton asked for numbers over a guessed
+        // nearby place name.
+        GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
         return Task.CompletedTask;
     }
 
@@ -5690,8 +5694,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// Takes a mark off the map, if it is one that can be taken off.
     /// </summary>
     /// <remarks>
-    /// Waypoints only. A ping is gone in forty-five seconds whatever anybody does, and the
-    /// server has no endpoint for removing one because there was never a reason to want it.
+    /// A ping normally fades in forty-five seconds on its own, but the same right-click that
+    /// removes a waypoint also removes a ping early: whoever sent it looking here a minute ago
+    /// gets to say the group has moved on. The server removes either kind by id (see
+    /// <c>GroupMarks.Remove</c>).
     ///
     /// A pending mark carries id 0, which is not an id the server ever issues — it is the
     /// placeholder a mark wears between the gesture and the exchange that confirms it. Asking
@@ -5700,7 +5706,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     public void RemoveMark(GroupMarkViewModel? mark)
     {
-        if (mark is null || mark.IsPing)
+        if (mark is null)
         {
             return;
         }

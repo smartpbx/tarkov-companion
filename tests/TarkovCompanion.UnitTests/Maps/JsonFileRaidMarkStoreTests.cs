@@ -43,6 +43,28 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RenameSetsACustomLabelAndAnEmptyNameClearsItBackToNumbered()
+    {
+        var store = new JsonFileRaidMarkStore(StorePath);
+        var mark = await store.AddAsync(RaidMarkKind.Waypoint, "factory", null, 10, 10, label: null);
+        Assert.Null(Assert.Single(store.Marks).State.Label);
+
+        await store.RenameAsync(mark.Id, "Extract cache");
+        Assert.Equal("Extract cache", Assert.Single(store.Marks).State.Label);
+
+        await store.RenameAsync(mark.Id, "   ");
+        Assert.Null(Assert.Single(store.Marks).State.Label);
+
+        // Position and floor are untouched by a rename, the same guarantee MoveAsync gives for
+        // the label: each edits only the field it names.
+        await store.RenameAsync(mark.Id, "Rename again");
+        var renamed = Assert.Single(store.Marks);
+        Assert.Equal("Rename again", renamed.State.Label);
+        Assert.Equal(10, renamed.State.X);
+        Assert.Equal(10, renamed.State.Y);
+    }
+
+    [Fact]
     public async Task ChangedFiresForAddMoveAndRemove()
     {
         var store = new JsonFileRaidMarkStore(StorePath);
