@@ -110,6 +110,26 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Stale_profile_need_cannot_elevate_a_below_threshold_candidate()
+    {
+        var staleNeed = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.stale",
+            "Old quest context.",
+            CompleteStatus,
+            Provenance("stale-need", Now.AddDays(-120)));
+        var spawn = Spawn(
+            "customs-stale-need",
+            [Candidate("wire", "Wire", 10_000, [staleNeed])]);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Objects);
+        Assert.Contains(result.Diagnostics, item => item.Code == "spawn.below-threshold");
+    }
+
+    [Fact]
     public void Stale_last_known_snapshot_remains_renderable_and_says_that_it_is_stale()
     {
         var snapshot = Snapshot(
@@ -177,6 +197,26 @@ public sealed class HighValueLootLayerServiceTests
 
         Assert.Single(snapshot.Records);
         Assert.Equal(1, snapshot.Coverage.Published);
+    }
+
+    [Fact]
+    public void Snapshot_rejects_coverage_numbers_not_measured_from_its_records()
+    {
+        var record = Spawn("customs-measured", [Candidate("gpu", "Graphics card", 900_000)]);
+
+        var action = () => new LootSpawnSnapshot(
+            "snapshot-bad-coverage",
+            "dataset-1",
+            "customs",
+            "transform-1",
+            Now,
+            CompleteStatus,
+            new LootSpawnCoverage(1, 0, 0, 1),
+            Provenance("snapshot"),
+            [record]);
+
+        var exception = Assert.Throws<ArgumentException>(action);
+        Assert.Contains("measured", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static HighValueLootLayerResult Build(
