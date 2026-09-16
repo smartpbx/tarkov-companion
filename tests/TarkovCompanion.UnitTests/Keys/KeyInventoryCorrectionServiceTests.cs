@@ -110,6 +110,42 @@ public sealed class KeyInventoryCorrectionServiceTests
         Assert.Equal(8, first.RemainingUses.Value);
     }
 
+    [Fact]
+    public void UnresolvedRawFactCannotEnterAOneWayCorrectionPath()
+    {
+        var current = Inventory();
+        var unknownRemaining = new EvidencedValue<int?>(
+            "remaining-uses",
+            null,
+            new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Unknown),
+            current.RemainingUses.Provenance);
+        var unresolved = new KeyInventoryFacts(
+            current.ProfileScope,
+            current.ItemId,
+            current.TotalOwned,
+            current.FoundInRaidOwned,
+            current.DuplicateQuantity,
+            current.MaximumUses,
+            unknownRemaining);
+        var command = new KeyInventoryCorrectionCommand(
+            Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+            current.ProfileScope,
+            current.ItemId,
+            KeyInventoryCorrectionTarget.RemainingUses,
+            null,
+            5,
+            ObservedUtc.AddMinutes(1),
+            CorrectionOriginClass.User,
+            "reviewer");
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new KeyInventoryCorrectionService().Apply(unresolved, command));
+
+        Assert.Contains("reversible", error.Message, StringComparison.Ordinal);
+        Assert.Null(unresolved.RemainingUses.Value);
+        Assert.Empty(unresolved.RemainingUses.Corrections);
+    }
+
     private static KeyInventoryFacts Inventory()
     {
         var provenance = new EvidenceProvenance(

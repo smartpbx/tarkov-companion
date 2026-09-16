@@ -120,6 +120,48 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     }
 
     [Fact]
+    public void EntirelyUnresolvedInputsReturnUnknownReviewInsteadOfEmptyFacts()
+    {
+        var unknownStatus = new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Unknown);
+        var inventory = new KeyInventoryFacts(
+            Scope(),
+            "key-unknown",
+            Unknown<int>("total"),
+            Unknown<int>("fir"),
+            Unknown<int>("duplicates"),
+            Unknown<int>("maximum-uses"),
+            Unknown<int>("remaining-uses"));
+        var utility = new KeyUtilityFacts(
+            unknownStatus,
+            UnknownProvenance(),
+            [],
+            Unknown<KeyObtainability>("trader"),
+            Unknown<KeyObtainability>("flea"),
+            Unknown<long>("cost"),
+            Unknown<long>("loot"),
+            Unknown<bool>("unique"),
+            Unknown<double>("route-utility"),
+            Unknown<double>("route-risk"));
+        var request = new ProfileAwareKeyIntelligenceRequest(
+            KeyIntelligenceEntryPoint.ContextScreenshot,
+            inventory.ItemId,
+            ObservedUtc.AddMinutes(1),
+            inventory,
+            unknownStatus,
+            UnknownProvenance(),
+            [],
+            utility);
+
+        var result = new ProfileAwareKeyIntelligenceService().Evaluate(request, CancellationToken.None);
+
+        Assert.Equal(ResultCompleteness.Unknown, result.Status.Completeness);
+        Assert.Equal(KeyIntelligenceTier.Review, result.Tier);
+        Assert.Null(result.Score);
+        Assert.NotEmpty(result.MissingFacts);
+        Assert.Contains(result.Reasons, reason => reason.Code == "key.evidence.review-required");
+    }
+
+    [Fact]
     public void SourcedModelInputKeepsTheCombinedScoreModelledAndNeverLive()
     {
         var publicInput = PublicProvenance();

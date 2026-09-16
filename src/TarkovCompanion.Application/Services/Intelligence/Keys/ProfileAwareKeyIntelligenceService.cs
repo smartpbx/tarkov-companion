@@ -244,10 +244,19 @@ public sealed class ProfileAwareKeyIntelligenceService
         var complete = score is not null && missing.Count == 0 &&
                        request.RequirementsStatus.Completeness == ResultCompleteness.Complete &&
                        request.Utility.Status.Completeness == ResultCompleteness.Complete;
+        var completeness = complete
+            ? ResultCompleteness.Complete
+            : HasAnyDecisionFact(request)
+                ? ResultCompleteness.Partial
+                : ResultCompleteness.Unknown;
         var status = new ResultStatus(
-            complete ? ResultCompleteness.Complete : ResultCompleteness.Partial,
+            completeness,
             freshness,
-            complete ? "key.intelligence.complete" : "key.intelligence.review-required",
+            complete
+                ? "key.intelligence.complete"
+                : completeness == ResultCompleteness.Unknown
+                    ? "key.intelligence.unknown"
+                    : "key.intelligence.review-required",
             complete
                 ? "All score inputs are explicit and bounded."
                 : "Missing or incomplete facts remain visible in Learn Mode and keep stash planning conservative.");
@@ -579,6 +588,22 @@ public sealed class ProfileAwareKeyIntelligenceService
     private static T? Known<T>(EvidencedValue<T?> value)
         where T : struct =>
         value.Status.Completeness == ResultCompleteness.Complete ? value.Value : null;
+
+    private static bool HasAnyDecisionFact(ProfileAwareKeyIntelligenceRequest request) =>
+        request.Requirements.Any(requirement => requirement.Status.Completeness == ResultCompleteness.Complete) ||
+        request.Utility.Status.Completeness == ResultCompleteness.Complete ||
+        Known(request.Inventory.TotalOwned) is not null ||
+        Known(request.Inventory.FoundInRaidOwned) is not null ||
+        Known(request.Inventory.DuplicateQuantity) is not null ||
+        Known(request.Inventory.MaximumUses) is not null ||
+        Known(request.Inventory.RemainingUses) is not null ||
+        Known(request.Utility.TraderObtainability) is not null ||
+        Known(request.Utility.FleaObtainability) is not null ||
+        Known(request.Utility.AcquisitionCostRoubles) is not null ||
+        Known(request.Utility.ExpectedLootProxyRoubles) is not null ||
+        Known(request.Utility.UniqueAccess) is not null ||
+        Known(request.Utility.RouteUtility) is not null ||
+        Known(request.Utility.RouteRisk) is not null;
 
     private static FreshnessState Freshness(ProfileAwareKeyIntelligenceRequest request)
     {

@@ -82,6 +82,12 @@ public sealed class KeyInventoryCorrectionService
         ArgumentNullException.ThrowIfNull(command);
         ValidateScope(current, command.ProfileScope, command.ItemId);
         var field = Field(current, command.Target);
+        if (field.Value is null)
+        {
+            throw new InvalidOperationException(
+                "An unresolved key fact must be resolved through explicit review evidence; this reversible scalar correction path requires a prior value.");
+        }
+
         if (field.Value != command.ExpectedValue)
         {
             throw new InvalidOperationException("The key fact changed after this correction was prepared.");
