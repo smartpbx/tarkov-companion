@@ -44,6 +44,24 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task DurableAggregateSequenceIsRestoredBeforeFirstAcceptance()
+    {
+        var raidId = Guid.NewGuid();
+        var store = new SequenceHeadStore(raidId, 41);
+        await using var outbox = new RaidHistoryOutbox(
+            new RecordingHistory(),
+            timeProvider: new ManualTimeProvider(Epoch),
+            store: store,
+            jitter: new ExactJitter());
+
+        await outbox.AcceptAsync([RaidHistoryCommand.RecordState(raidId, Evidence())], default);
+        await outbox.FlushAsync(default);
+
+        Assert.Equal(42, Assert.Single(await store.ListAsync(default)).Item.AggregateSequence);
+        Assert.Equal(1, store.SequenceReadCount);
+    }
+
+    [Fact]
     public async Task StoreFailureIsReturnedBeforeTheWriteIsAcceptedAndPublishedAsHealth()
     {
         await using var outbox = new RaidHistoryOutbox(
@@ -676,6 +694,25 @@ public sealed class RaidHistoryOutboxRuntimeTests
             ImmutableArray<OutboxItem> items,
             CancellationToken cancellationToken) =>
             Task.FromException<ImmutableArray<OutboxEnqueueReceipt>>(new IOException("private store failure"));
+    }
+
+    private sealed class SequenceHeadStore(Guid raidId, long sequence) : DelegatingStore, IOutboxAggregateSequenceStore
+    {
+        private int _sequenceReadCount;
+
+        public int SequenceReadCount => Volatile.Read(ref _sequenceReadCount);
+
+        public Task<IReadOnlyDictionary<OutboxAggregateId, long>> ReadAggregateSequenceHeadsAsync(
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _sequenceReadCount);
+            return Task.FromResult<IReadOnlyDictionary<OutboxAggregateId, long>>(
+                new Dictionary<OutboxAggregateId, long>
+                {
+                    [new($"raid:{raidId:N}")] = sequence,
+                });
+        }
     }
 
     private sealed class AcknowledgementLosingStore : DelegatingStore

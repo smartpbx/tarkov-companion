@@ -122,6 +122,40 @@ public sealed class ProfilePersistenceTests
         }
     }
 
+    [Fact]
+    public async Task OversizedSaveCannotReplaceAPreviouslyReadableProfile()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"tarkov-profile-save-budget-{Guid.NewGuid():N}");
+        var profilePath = Path.Combine(directory, "profile.json");
+        try
+        {
+            using var service = new JsonFilePlayerProfileService(
+                new(profilePath, MaximumImportBytes: 4_096));
+            var original = CreateProfile();
+            await service.SaveAsync(original, CancellationToken.None);
+            var originalBytes = await File.ReadAllBytesAsync(profilePath);
+
+            var failure = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                service.SaveAsync(
+                    original with { Name = new string('x', 8_192) },
+                    CancellationToken.None));
+
+            Assert.Contains("Serialized profile", failure.Message, StringComparison.Ordinal);
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(profilePath));
+            var restored = await service.GetActiveAsync(CancellationToken.None);
+            Assert.Equal(original.Id, restored.Id);
+            Assert.Equal(original.Name, restored.Name);
+            Assert.Equal(original.ProfileGeneration, restored.ProfileGeneration);
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                ScratchDirectory.Remove(directory);
+            }
+        }
+    }
+
     private static PlayerProfile CreateProfile() => new(
         Guid.Parse("940d35d5-47a2-4a25-afb9-94145166d65b"),
         "Persistent profile",

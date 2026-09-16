@@ -9,8 +9,8 @@ public sealed record LoadoutItemFacts(
     string ItemId,
     string Name,
     ItemCategory Category,
-    long ApproximateCostRoubles,
-    double WeightKg,
+    long? ApproximateCostRoubles,
+    double? WeightKg,
     string? Caliber,
     IReadOnlySet<string> CompatibleWeaponItemIds,
     IReadOnlySet<string> CompatibleParentItemIds);
@@ -29,7 +29,7 @@ public sealed class LoadoutIntelligenceService
 
         _catalog = catalog.ToDictionary(x => x.ItemId, StringComparer.Ordinal);
         _ammoIntelligenceService = ammoIntelligenceService;
-        if (_catalog.Values.Any(x => x.ApproximateCostRoubles < 0 || x.WeightKg < 0))
+        if (_catalog.Values.Any(x => x.ApproximateCostRoubles is < 0 || x.WeightKg is < 0))
         {
             throw new ArgumentOutOfRangeException(nameof(catalog), "Loadout cost and weight cannot be negative.");
         }
@@ -76,15 +76,21 @@ public sealed class LoadoutIntelligenceService
             ? null
             : await _ammoIntelligenceService.GetAsync(selection.AmmunitionItemId, profile, cancellationToken).ConfigureAwait(false);
         var ammoTier = ammo?.Tier ?? "Unknown";
-        var totalCost = knownItems.Sum(x => x.ApproximateCostRoubles);
-        double? totalWeight = knownItems.Count == selectedIds.Length ? knownItems.Sum(x => x.WeightKg) : null;
+        long? totalCost = knownItems.Count == selectedIds.Length &&
+            knownItems.All(item => item.ApproximateCostRoubles is not null)
+                ? knownItems.Sum(item => item.ApproximateCostRoubles!.Value)
+                : null;
+        double? totalWeight = knownItems.Count == selectedIds.Length &&
+            knownItems.All(item => item.WeightKg is not null)
+                ? knownItems.Sum(item => item.WeightKg!.Value)
+                : null;
 
         if (ammo is not null && !ammo.ObtainableForProfile)
         {
             warnings.Add("The selected ammunition is not obtainable for the active profile rules.");
         }
 
-        if (ammoTier is "C" or "D" && totalCost >= 150_000)
+        if (ammoTier is "C" or "D" && totalCost is >= 150_000)
         {
             warnings.Add(FormattableString.Invariant($"{ammoTier}-tier ammunition is weak relative to this {totalCost:N0}-rouble kit."));
         }

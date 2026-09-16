@@ -11,6 +11,15 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory) : IQuestCatalog
 {
     private const string SourceKey = "json.tarkov.dev/tasks";
+    internal const string TaskCatalogSql = """
+        SELECT id, name, normalized_name, trader_id, min_player_level, faction_name,
+               primary_map_id, restartable, kappa_required, lightkeeper_required,
+               required_prestige_id, available_delay_seconds_min,
+               available_delay_seconds_max, source_game_modes_json, raw_json
+        FROM quest_catalog_tasks
+        WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language
+        ORDER BY id COLLATE BINARY;
+        """;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     public async Task<QuestCatalogSnapshot?> GetAsync(
@@ -118,15 +127,7 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, name, normalized_name, trader_id, min_player_level, faction_name,
-                   primary_map_id, restartable, kappa_required, lightkeeper_required,
-                   required_prestige_id, available_delay_seconds_min,
-                   available_delay_seconds_max, source_game_modes_json, raw_json
-            FROM quest_catalog_tasks
-            WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language
-            ORDER BY id COLLATE BINARY;
-            """;
+        command.CommandText = TaskCatalogSql;
         AddScope(command, sourceMode, language);
         var rows = new List<TaskRow>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

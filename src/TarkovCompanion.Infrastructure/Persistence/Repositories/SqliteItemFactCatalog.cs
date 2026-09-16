@@ -86,10 +86,11 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     /// true, not to satisfy a check.
     /// </para>
     /// <para>
-    /// Weight has no column of its own and is parsed out of <c>raw_json</c>, where the sync keeps
-    /// the upstream item's extra top-level fields. An item whose payload omits it reports 0, which
-    /// <c>LoadoutEvaluation</c> surfaces as an under-count of the kit; a dedicated
-    /// <c>items.weight</c> column would make this both cheaper and complete.
+    /// Current flea price and weight come from <c>item_metrics_v2</c>, whose nullable columns
+    /// deliberately distinguish an unknown fact from a measured zero. The upstream average and
+    /// base price remain fallbacks; trader resale value is not an acquisition cost. A kit total
+    /// is absent if any selected item lacks a usable price or weight; a partial sum would look
+    /// complete and understate the kit.
     /// </para>
     /// </remarks>
     public Task<IReadOnlyList<LoadoutItemFacts>> GetLoadoutFactsAsync(CancellationToken cancellationToken) =>
@@ -276,10 +277,12 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, name, category_type, last_low_price, avg_24h_price, base_price,
-                   properties_type, properties_json, raw_json
-            FROM items
-            ORDER BY id;
+            SELECT item.id, item.name, item.category_type,
+                   metric.flea_price_roubles, item.avg_24h_price, item.base_price,
+                   metric.weight_kg, item.properties_type, item.properties_json
+            FROM items AS item
+            LEFT JOIN item_metrics_v2 AS metric ON metric.item_id = item.id
+            ORDER BY item.id;
             """;
         var rows = new List<LoadoutRow>();
         var ammoItemIds = new HashSet<string>(StringComparer.Ordinal);
@@ -288,9 +291,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var itemId = reader.GetString(0);
-                var propertiesType = reader.IsDBNull(6) ? null : reader.GetString(6);
-                using var properties = reader.IsDBNull(7) ? null : TryParse(reader.GetString(7));
-                using var rawItem = reader.IsDBNull(8) ? null : TryParse(reader.GetString(8));
+                var propertiesType = reader.IsDBNull(7) ? null : reader.GetString(7);
+                using var properties = reader.IsDBNull(8) ? null : TryParse(reader.GetString(8));
                 var isAmmo = string.Equals(propertiesType, AmmoPropertiesType, StringComparison.Ordinal);
                 if (isAmmo)
                 {
@@ -304,7 +306,7 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
                     reader.GetString(1),
                     ParseCategory(reader.GetString(2)),
                     BestPriceRoubles(reader, 3, 4, 5),
-                    ReadWeightKg(rawItem?.RootElement),
+                    reader.IsDBNull(6) ? null : reader.GetDouble(6),
                     carriesCaliber ? ReadString(properties?.RootElement, "caliber") : null,
                     ReadAllowedAmmo(properties?.RootElement)));
             }
@@ -517,16 +519,6 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         return itemIds;
     }
 
-    /// <summary>Reads the upstream item weight, which has no column of its own yet.</summary>
-    /// <remarks>
-    /// TODO: read this from an <c>items.weight</c> column once one exists. Weight is a top-level
-    /// field of the upstream item, not part of <c>properties</c>, and survives into
-    /// <c>raw_json</c> only because the sync round-trips unmapped fields; a payload that omits it
-    /// yields 0 rather than an estimate.
-    /// </remarks>
-    private static double ReadWeightKg(JsonElement? rawItem) =>
-        ReadDouble(rawItem, "weight") is { } weight && weight > 0 ? weight : 0;
-
     /// <summary>Picks the rouble figure a player would actually pay for an item.</summary>
     /// <remarks>
     /// The most recent flea sale is what the item costs in practice, so it wins; the 24-hour
@@ -535,11 +527,10 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     /// the only figure a flea-banned item has. A non-positive column means "not priced", not
     /// "free", and falls through to the next source.
     /// </remarks>
-    private static long BestPriceRoubles(DbDataReader reader, int fleaOrdinal, int averageOrdinal, int baseOrdinal) =>
+    private static long? BestPriceRoubles(DbDataReader reader, int fleaOrdinal, int averageOrdinal, int baseOrdinal) =>
         PositivePrice(reader, fleaOrdinal) ??
         PositivePrice(reader, averageOrdinal) ??
-        PositivePrice(reader, baseOrdinal) ??
-        0;
+        PositivePrice(reader, baseOrdinal);
 
     private static long? PositivePrice(DbDataReader reader, int ordinal)
     {
@@ -619,8 +610,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         string Id,
         string Name,
         ItemCategory Category,
-        long CostRoubles,
-        double WeightKg,
+        long? CostRoubles,
+        double? WeightKg,
         string? Caliber,
         IReadOnlyList<string> AllowedAmmoItemIds);
 

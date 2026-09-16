@@ -6,12 +6,8 @@
 #
 # Format: <table> <reference> <reason>
 
-# Approved as Next 1 on #139: read the craft and barter data to answer "worth making" per
-# built station and "cheapest route" on every hideout and quest requirement row. The payload
-# already carries station, level, duration, tool inputs, trader and minTraderLevel.
-crafts               #139-Next-1   reader approved, not yet built
-craft_requirements   #139-Next-1   reader approved, not yet built
-craft_outputs        #139-Next-1   reader approved, not yet built
+# craft_requirements and craft_outputs are NOT here any more: SqliteCraftPlanningCatalog reads
+# both for the station and exact-craft planning paths.
 # barters, barter_requirements and barter_outputs are NOT here any more: SqliteBarterCatalog
 # reads all three, and leaving the excuse in place failed the stale check — which is the ratchet
 # working in the direction it was built for.

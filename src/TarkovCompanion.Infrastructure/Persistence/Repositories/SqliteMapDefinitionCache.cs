@@ -27,6 +27,11 @@ public sealed class SqliteMapDefinitionCache(
     SqliteConnectionFactory connectionFactory,
     TimeProvider? timeProvider = null) : IMapDefinitionCache
 {
+    internal const string MapCatalogSql =
+        "SELECT id, name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json FROM maps;";
+    internal const string MapExtractsSql =
+        "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, MapDefinition?> _byMap = new(StringComparer.OrdinalIgnoreCase);
@@ -85,8 +90,7 @@ public sealed class SqliteMapDefinitionCache(
 
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText =
-                "SELECT id, name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json FROM maps;";
+            command.CommandText = MapCatalogSql;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
@@ -141,7 +145,7 @@ public sealed class SqliteMapDefinitionCache(
         var rows = new List<(string Id, string Name, MapPoint? Position, string? Payload)>();
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+            command.CommandText = MapExtractsSql;
             command.Parameters.AddWithValue("$mapId", storedId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

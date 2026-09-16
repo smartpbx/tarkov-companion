@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
@@ -10,14 +12,96 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 public sealed class SqliteRaidHistoryService(
     SqliteConnectionFactory connectionFactory,
-    TimeProvider? timeProvider = null) : IRaidHistoryService
+    TimeProvider? timeProvider = null) : IRaidHistoryService, IRaidHistoryOperationStore
 {
+    internal const string RaidHistoryListSql = """
+        SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
+        FROM raids
+        ORDER BY COALESCE(start_utc, end_utc) DESC, id;
+        """;
+    internal const string MapTrailsSql = """
+        SELECT raid.id, raid.start_utc, event.payload_json
+        FROM raid_events AS event
+        JOIN raids AS raid ON raid.id = event.raid_id
+        WHERE event.type = 'position'
+          AND raid.id IN (
+              SELECT id FROM raids
+              WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
+              ORDER BY start_utc DESC
+              LIMIT $limit
+          )
+        ORDER BY raid.start_utc DESC, event.timestamp_utc, event.id;
+        """;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
     };
 
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly AsyncLocal<OperationTransaction?> _operation = new();
+
+    public async Task ApplyOnceAsync(
+        OperationId operationId,
+        OutboxCommandKind commandKind,
+        Guid raidId,
+        Func<CancellationToken, Task> apply,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(apply);
+        if (!operationId.IsDefined) throw new ArgumentException("An operation id is required.", nameof(operationId));
+        if (!Enum.IsDefined(commandKind)) throw new ArgumentOutOfRangeException(nameof(commandKind));
+        if (raidId == Guid.Empty) throw new ArgumentException("A raid id is required.", nameof(raidId));
+        if (_operation.Value is not null) throw new InvalidOperationException("Nested raid-history operations are not supported.");
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var exists = connection.CreateCommand())
+        {
+            exists.Transaction = transaction;
+            exists.CommandText = "SELECT command_kind, target_id FROM outbox_target_operations WHERE operation_id = $id;";
+            exists.Parameters.AddWithValue("$id", operationId.ToString());
+            await using var reader = await exists.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.GetValue(0) is not long storedKind ||
+                    reader.GetValue(1) is not string storedTarget ||
+                    !Guid.TryParseExact(storedTarget, "D", out var storedRaidId))
+                {
+                    throw new InvalidDataException("The raid-history operation ledger contains an invalid ownership tuple.");
+                }
+
+                if (storedKind != (int)commandKind || storedRaidId != raidId)
+                {
+                    throw new InvalidOperationException(
+                        "The outbox operation id is already bound to a different raid-history command.");
+                }
+
+                return;
+            }
+        }
+
+        _operation.Value = new(connection, transaction);
+        try
+        {
+            await apply(cancellationToken).ConfigureAwait(false);
+            await using var applied = connection.CreateCommand();
+            applied.Transaction = transaction;
+            applied.CommandText = """
+                INSERT INTO outbox_target_operations(operation_id, command_kind, target_id, applied_utc)
+                VALUES ($operation, $kind, $target, $applied);
+                """;
+            applied.Parameters.AddWithValue("$operation", operationId.ToString());
+            applied.Parameters.AddWithValue("$kind", (int)commandKind);
+            applied.Parameters.AddWithValue("$target", raidId.ToString("D"));
+            applied.Parameters.AddWithValue("$applied", Format(_timeProvider.GetUtcNow()));
+            await applied.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _operation.Value = null;
+        }
+    }
 
     public async Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken)
     {
@@ -29,12 +113,29 @@ public sealed class SqliteRaidHistoryService(
 
         var raidId = raid.Id == Guid.Empty ? Guid.NewGuid() : raid.Id;
         var now = _timeProvider.GetUtcNow();
-        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        if (_operation.Value is { } operation)
+        {
+            await StartCoreAsync(operation.Connection, operation.Transaction, raid with { Id = raidId }, now, cancellationToken).ConfigureAwait(false);
+            return raidId;
+        }
 
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await StartCoreAsync(connection, transaction, raid with { Id = raidId }, now, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return raidId;
+    }
+
+    private static async Task StartCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        RaidHistoryEntry raid,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         await using (var profile = connection.CreateCommand())
         {
-            profile.Transaction = (SqliteTransaction)transaction;
+            profile.Transaction = transaction;
             profile.CommandText = """
                 INSERT INTO player_profiles(id, name, game_mode, faction, level, created_utc, updated_utc)
                 VALUES ($id, 'Local profile', $mode, 'Unknown', 1, $now, $now)
@@ -48,17 +149,14 @@ public sealed class SqliteRaidHistoryService(
 
         await using (var command = connection.CreateCommand())
         {
-            command.Transaction = (SqliteTransaction)transaction;
+            command.Transaction = transaction;
             command.CommandText = """
                 INSERT INTO raids(id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes)
                 VALUES ($id, $profileId, $mapId, $mode, $startUtc, $endUtc, $outcome, $notes);
                 """;
-            BindRaid(command, raid with { Id = raidId });
+            BindRaid(command, raid);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return raidId;
     }
 
     public async Task RecordEventAsync(
@@ -71,8 +169,27 @@ public sealed class SqliteRaidHistoryService(
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
         ArgumentException.ThrowIfNullOrWhiteSpace(payloadJson);
         using var payload = JsonDocument.Parse(payloadJson);
+        if (_operation.Value is { } operation)
+        {
+            await RecordEventCoreAsync(operation.Connection, operation.Transaction, raidId, type, timestampUtc, payloadJson, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await RecordEventCoreAsync(connection, null, raidId, type, timestampUtc, payloadJson, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task RecordEventCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        Guid raidId,
+        string type,
+        DateTimeOffset timestampUtc,
+        string payloadJson,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO raid_events(raid_id, timestamp_utc, type, payload_json)
             VALUES ($raidId, $timestampUtc, $type, $payloadJson);
@@ -168,19 +285,7 @@ public sealed class SqliteRaidHistoryService(
         // The inner select picks the raids; the join then takes every position belonging to
         // them. Ordering by start descending and then by event time ascending gives newest
         // raid first with each raid's own points in the order they were taken.
-        command.CommandText = """
-            SELECT raid.id, raid.start_utc, event.payload_json
-            FROM raid_events AS event
-            JOIN raids AS raid ON raid.id = event.raid_id
-            WHERE event.type = 'position'
-              AND raid.id IN (
-                  SELECT id FROM raids
-                  WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
-                  ORDER BY start_utc DESC
-                  LIMIT $limit
-              )
-            ORDER BY raid.start_utc DESC, event.timestamp_utc, event.id;
-            """;
+        command.CommandText = MapTrailsSql;
         command.Parameters.AddWithValue("$mapId", mapId.Trim());
         command.Parameters.AddWithValue("$limit", limit);
 
@@ -294,8 +399,27 @@ public sealed class SqliteRaidHistoryService(
         string? notes,
         CancellationToken cancellationToken)
     {
+        if (_operation.Value is { } operation)
+        {
+            await EndCoreAsync(operation.Connection, operation.Transaction, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await EndCoreAsync(connection, null, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task EndCoreAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        Guid raidId,
+        DateTimeOffset endUtc,
+        string? outcome,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             UPDATE raids
             SET end_utc = $endUtc, outcome = $outcome, notes = $notes
@@ -315,11 +439,7 @@ public sealed class SqliteRaidHistoryService(
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
-            FROM raids
-            ORDER BY COALESCE(start_utc, end_utc) DESC, id;
-            """;
+        command.CommandText = RaidHistoryListSql;
         var entries = new List<RaidHistoryEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -400,4 +520,6 @@ public sealed class SqliteRaidHistoryService(
             ? value
             : $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
     }
+
+    private sealed record OperationTransaction(SqliteConnection Connection, SqliteTransaction Transaction);
 }

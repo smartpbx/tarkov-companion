@@ -12,3 +12,12 @@ public sealed class TarkovDevRequestException : Exception
 
     public HttpStatusCode? StatusCode { get; }
 }
+
+public sealed class TarkovDevResponseBudgetException(long maximumBytes)
+    : Exception($"The catalog response exceeded its {maximumBytes:N0}-byte budget.")
+{
+    public long MaximumBytes { get; } = maximumBytes;
+}
+
+public sealed class TarkovDevOfflineException()
+    : Exception("Catalog networking is disabled while the companion is offline.");

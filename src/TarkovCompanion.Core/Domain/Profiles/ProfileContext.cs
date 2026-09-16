@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace TarkovCompanion.Core.Domain.Profiles;
@@ -228,7 +230,13 @@ public enum ProfileLifecycle { Active, Archived }
 
 public sealed record ProfileRecord
 {
-    public ProfileRecord(ProfileContext context, string name, ProfileProgress progress, ProfileLifecycle lifecycle, DateTimeOffset updatedUtc)
+    public ProfileRecord(
+        ProfileContext context,
+        string name,
+        ProfileProgress progress,
+        ProfileLifecycle lifecycle,
+        DateTimeOffset updatedUtc,
+        string extensionJson = "{}")
     {
         if (!Enum.IsDefined(lifecycle)) throw new ArgumentOutOfRangeException(nameof(lifecycle));
         Context = context ?? throw new ArgumentNullException(nameof(context));
@@ -236,6 +244,13 @@ public sealed record ProfileRecord
         Progress = progress ?? throw new ArgumentNullException(nameof(progress));
         Lifecycle = lifecycle;
         UpdatedUtc = updatedUtc.ToUniversalTime();
+        using var extension = JsonDocument.Parse(extensionJson);
+        if (extension.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            throw new ArgumentException("Profile extension JSON must be an object.", nameof(extensionJson));
+        }
+
+        ExtensionJson = extension.RootElement.GetRawText();
     }
 
     public ProfileContext Context { get; }
@@ -243,6 +258,11 @@ public sealed record ProfileRecord
     public ProfileProgress Progress { get; }
     public ProfileLifecycle Lifecycle { get; }
     public DateTimeOffset UpdatedUtc { get; }
+    // The profile-context transfer format is frozen at v1 and serializes this Core record
+    // directly. Database-only forward fields must not silently change those canonical bytes;
+    // a future transfer format can carry them behind an explicit version bump.
+    [JsonIgnore]
+    public string ExtensionJson { get; }
 }
 
 /// <summary>
