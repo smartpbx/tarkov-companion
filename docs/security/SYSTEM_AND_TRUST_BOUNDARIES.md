@@ -272,8 +272,8 @@ the deployed boundary and its risks remain open. During #294 composition, a comp
 `PairingAttempt` or `SessionResumeAttempt` must enter this core only from #277's verified in-process
 handshake boundary. Raw HTTP must not be allowed to assert a completed aggregate. The request
 boundary must also derive each rate-limit source hash from the trusted immediate peer after the
-forwarded-header policy; callers must never supply that hash. Owner-recovery grant creation is an
-operator ceremony, not a public recovery endpoint. These composition obligations are tracked by
+forwarded-header policy; callers must never supply that hash. Owner-recovery grant creation is a
+trusted local/operator ceremony, not a public recovery endpoint. These composition obligations are tracked by
 RISK-PAIRED-AUTH-COMPOSITION.
 
 ### TB-8: Relay operator ↔ Relay
