@@ -1,0 +1,539 @@
+using System.Windows.Input;
+using TarkovCompanion.Application.Services.LootSpawns;
+using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.LootSpawns;
+using TarkovCompanion.Core.Domain.Maps.Scene;
+
+namespace TarkovCompanion.App.ViewModels.V2.MapRenderer;
+
+/// <summary>The desktop projection kept beside the canonical high-value scene objects.</summary>
+/// <remarks>
+/// Loot-specific facts do not fit in the shared scene object's compact detail string. Keeping
+/// the typed result beside the scene prevents the desktop from parsing prose or manufacturing
+/// values, floors, or positions. Filter changes are requests to the owner, which rebuilds the
+/// application result before publishing a new scene and panel together.
+/// </remarks>
+public sealed class HighValueLootLayerViewModel : BindableViewModel
+{
+    public const int PageSize = 50;
+
+    private readonly MapSceneRendererPresentation _presentation;
+    private readonly Action<HighValueLootLayerFilterState> _requestFilter;
+    private readonly Action<HighValueLootEntry> _select;
+    private HighValueLootLayerResult _result;
+    private HighValueLootLayerFilterState _filterState;
+    private IReadOnlyList<string> _availableCategories;
+    private IReadOnlyList<string> _availableFloors;
+    private bool _isLayerVisible;
+    private int _pageIndex;
+
+    public HighValueLootLayerViewModel(
+        HighValueLootLayerResult result,
+        HighValueLootLayerFilterState filterState,
+        IReadOnlyList<string>? availableCategories,
+        IReadOnlyList<string>? availableFloors,
+        bool isLayerVisible,
+        MapSceneRendererPresentation presentation,
+        Action<HighValueLootLayerFilterState> requestFilter,
+        Action<HighValueLootEntry> select)
+    {
+        _result = result ?? throw new ArgumentNullException(nameof(result));
+        _filterState = filterState ?? throw new ArgumentNullException(nameof(filterState));
+        _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
+        _requestFilter = requestFilter ?? throw new ArgumentNullException(nameof(requestFilter));
+        _select = select ?? throw new ArgumentNullException(nameof(select));
+        _availableCategories = NormalizeOptions(availableCategories ?? CategoriesFrom(result));
+        _availableFloors = NormalizeOptions(availableFloors ?? []);
+        _isLayerVisible = isLayerVisible;
+        PreviousPageCommand = new DelegateCommand(() => ChangePage(-1));
+        NextPageCommand = new DelegateCommand(() => ChangePage(1));
+        Rebuild();
+    }
+
+    public string Heading => Text("Map.Loot.Heading");
+    public string FilterHeading => Text("Map.Loot.Filters");
+    public string Legend => _result.CompactLegend;
+    public string StateMessage { get; private set; } = string.Empty;
+    public string CoverageLabel { get; private set; } = string.Empty;
+    public bool HasCoverage => !string.IsNullOrWhiteSpace(CoverageLabel);
+    public bool HasEntries => Rows.Count > 0;
+    public bool ShowsEmpty => _isLayerVisible && !HasEntries;
+    public string EmptyMessage => Text("Map.Loot.Empty");
+    public string ValueBasisLabel => Text("Map.Loot.ValueBasis");
+    public string MinimumTierLabel => Text("Map.Loot.MinimumTier");
+    public string ProfileRelevanceLabel => Text("Map.Loot.ProfileRelevance");
+    public string CategoryLabel => Text("Map.Loot.Category");
+    public string FloorLabel => Text("Map.Loot.Floor");
+    public string PreviousPageLabel => Text("Map.Action.Previous");
+    public string NextPageLabel => Text("Map.Action.Next");
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> ValueBasisChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> MinimumTierChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> ProfileRelevanceChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> CategoryChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootFilterChoiceViewModel> FloorChoices { get; private set; } = [];
+    public IReadOnlyList<HighValueLootEntryViewModel> Rows { get; private set; } = [];
+    public IReadOnlyList<HighValueLootEntry> AllEntries => _result.Entries;
+    public HighValueLootLayerFilterState FilterState => _filterState;
+    public IReadOnlySet<MapSceneObjectId> VisibleObjectIds { get; private set; } = new HashSet<MapSceneObjectId>();
+    public int FilteredCount { get; private set; }
+    public int PageCount => FilteredCount == 0 ? 0 : (FilteredCount + PageSize - 1) / PageSize;
+    public int PageNumber => PageCount == 0 ? 0 : _pageIndex + 1;
+    public string PageLabel => Format("Map.Loot.Page", PageNumber, PageCount, FilteredCount);
+    public bool CanGoToPreviousPage => _pageIndex > 0;
+    public bool CanGoToNextPage => _pageIndex + 1 < PageCount;
+    public ICommand PreviousPageCommand { get; }
+    public ICommand NextPageCommand { get; }
+
+    public event Action? ProjectionChanged;
+
+    public void SetLayerVisibility(bool isVisible, bool notifyProjection = true)
+    {
+        if (_isLayerVisible == isVisible)
+        {
+            return;
+        }
+
+        _isLayerVisible = isVisible;
+        _pageIndex = 0;
+        Rebuild();
+        RaiseAllChanged();
+        if (notifyProjection)
+        {
+            ProjectionChanged?.Invoke();
+        }
+    }
+
+    public void Present(
+        HighValueLootLayerResult result,
+        HighValueLootLayerFilterState filterState,
+        IReadOnlyList<string>? availableCategories,
+        IReadOnlyList<string>? availableFloors)
+    {
+        _result = result ?? throw new ArgumentNullException(nameof(result));
+        _filterState = filterState ?? throw new ArgumentNullException(nameof(filterState));
+        _availableCategories = NormalizeOptions(availableCategories ?? _availableCategories);
+        _availableFloors = NormalizeOptions(availableFloors ?? _availableFloors);
+        _pageIndex = 0;
+        Rebuild();
+        RaiseAllChanged();
+        ProjectionChanged?.Invoke();
+    }
+
+    private void ChangePage(int direction)
+    {
+        var next = Math.Clamp(_pageIndex + direction, 0, Math.Max(0, PageCount - 1));
+        if (next == _pageIndex)
+        {
+            return;
+        }
+
+        _pageIndex = next;
+        BuildRows();
+        RaisePageChanged();
+    }
+
+    private void Request(HighValueLootLayerFilterState state) => _requestFilter(state);
+
+    private void Rebuild()
+    {
+        StateMessage = DescribeState();
+        CoverageLabel = _result.Coverage is { } coverage
+            ? Format(
+                "Map.Loot.Coverage",
+                Number(coverage.Positioned),
+                Number(coverage.Published),
+                Number(coverage.FloorResolved),
+                Number(coverage.Unresolved))
+            : string.Empty;
+        BuildChoices();
+        BuildRows();
+    }
+
+    private void BuildChoices()
+    {
+        ValueBasisChoices = Enum.GetValues<LootSpawnValueBasis>()
+            .Select(basis => Choice(
+                $"basis-{basis}",
+                DescribeBasis(basis),
+                _filterState.Filter.ValueBasis == basis,
+                () => Request(_filterState.WithFilter(CloneFilter(valueBasis: basis)))))
+            .ToArray();
+        MinimumTierChoices = new[]
+            {
+                LootSpawnValueTier.Qualifying,
+                LootSpawnValueTier.Moderate,
+                LootSpawnValueTier.High,
+                LootSpawnValueTier.Exceptional,
+            }
+            .Select(tier => Choice(
+                $"tier-{tier}",
+                DescribeTier(tier),
+                _filterState.MinimumTier == tier,
+                () => Request(_filterState with { MinimumTier = tier })))
+            .ToArray();
+        ProfileRelevanceChoices =
+        [
+            Choice(
+                "profile-on",
+                Text("Map.Loot.ProfileIncluded"),
+                _filterState.Filter.IncludeProfileRelevant,
+                () => Request(_filterState.WithFilter(CloneFilter(includeProfileRelevant: true)))),
+            Choice(
+                "profile-off",
+                Text("Map.Loot.ProfileExcluded"),
+                !_filterState.Filter.IncludeProfileRelevant,
+                () => Request(_filterState.WithFilter(CloneFilter(includeProfileRelevant: false)))),
+        ];
+        CategoryChoices = new[] { string.Empty }.Concat(_availableCategories)
+            .Select(category => Choice(
+                string.IsNullOrEmpty(category) ? "category-all" : $"category-{category}",
+                string.IsNullOrEmpty(category) ? Text("Map.Loot.AllCategories") : category,
+                string.IsNullOrEmpty(category)
+                    ? _filterState.Filter.Categories.Count == 0
+                    : _filterState.Filter.Categories.Count == 1 &&
+                      string.Equals(_filterState.Filter.Categories[0], category, StringComparison.OrdinalIgnoreCase),
+                () => Request(_filterState.WithFilter(CloneFilter(
+                    categories: string.IsNullOrEmpty(category) ? [] : [category])))))
+            .ToArray();
+        FloorChoices = new[] { string.Empty }.Concat(_availableFloors)
+            .Select(floor => Choice(
+                string.IsNullOrEmpty(floor) ? "floor-all" : $"floor-{floor}",
+                string.IsNullOrEmpty(floor) ? Text("Map.Loot.AllFloors") : floor,
+                string.Equals(_filterState.Filter.FloorId ?? string.Empty, floor, StringComparison.OrdinalIgnoreCase),
+                () => Request(_filterState.WithFilter(CloneFilter(
+                    floorId: string.IsNullOrEmpty(floor) ? null : floor,
+                    replaceFloor: true)))))
+            .ToArray();
+    }
+
+    private void BuildRows()
+    {
+        if (!_isLayerVisible)
+        {
+            FilteredCount = 0;
+            Rows = [];
+            VisibleObjectIds = new HashSet<MapSceneObjectId>();
+            return;
+        }
+
+        var filtered = _result.Entries
+            .Where(entry => TierRank(entry.Tier) >= TierRank(_filterState.MinimumTier))
+            .OrderByDescending(entry => TierSortRank(entry.Tier))
+            .ThenByDescending(entry => entry.MaximumValue)
+            .ThenBy(entry => entry.Spawn.Label, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entry => entry.Spawn.SpawnId, StringComparer.Ordinal)
+            .ToArray();
+        FilteredCount = filtered.Length;
+        var pageCount = FilteredCount == 0 ? 0 : (FilteredCount + PageSize - 1) / PageSize;
+        _pageIndex = pageCount == 0 ? 0 : Math.Clamp(_pageIndex, 0, pageCount - 1);
+        Rows = filtered
+            .Skip(_pageIndex * PageSize)
+            .Take(PageSize)
+            .Select(entry => new HighValueLootEntryViewModel(
+                entry,
+                _filterState.Filter,
+                _presentation,
+                () => _select(entry)))
+            .ToArray();
+        VisibleObjectIds = filtered
+            .Where(entry => entry.SceneObjectId is not null)
+            .Select(entry => entry.SceneObjectId!.Value)
+            .ToHashSet();
+    }
+
+    private HighValueLootFilter CloneFilter(
+        LootSpawnValueBasis? valueBasis = null,
+        bool? includeProfileRelevant = null,
+        string? floorId = null,
+        bool replaceFloor = false,
+        IReadOnlyList<string>? categories = null) => new(
+        valueBasis ?? _filterState.Filter.ValueBasis,
+        _filterState.Filter.Thresholds,
+        _filterState.Filter.MaximumPriceAge,
+        _filterState.Filter.MaximumSourceAge,
+        _filterState.Filter.MinimumConfidence,
+        includeProfileRelevant ?? _filterState.Filter.IncludeProfileRelevant,
+        replaceFloor ? floorId : _filterState.Filter.FloorId,
+        _filterState.Filter.ItemIds,
+        categories ?? _filterState.Filter.Categories);
+
+    private HighValueLootFilterChoiceViewModel Choice(
+        string id,
+        string label,
+        bool isSelected,
+        Action select) => new(id, label, isSelected, select);
+
+    private string DescribeState()
+    {
+        if (!_isLayerVisible)
+        {
+            return Text("Map.Loot.LayerOff");
+        }
+
+        if (_result.Status.Completeness == ResultCompleteness.Unavailable)
+        {
+            return Text("Map.Loot.Unavailable");
+        }
+
+        if (_result.Entries.Count == 0)
+        {
+            return Text("Map.Loot.NoMatches");
+        }
+
+        if (_result.Status.Completeness == ResultCompleteness.Partial)
+        {
+            return Text("Map.Loot.Partial");
+        }
+
+        return Text("Map.Loot.Ready");
+    }
+
+    private string DescribeBasis(LootSpawnValueBasis basis) => Text($"Map.Loot.Basis.{basis}");
+
+    private string DescribeTier(LootSpawnValueTier tier) => Text($"Map.Loot.Tier.{tier}");
+
+    private static int TierRank(LootSpawnValueTier tier) => tier switch
+    {
+        LootSpawnValueTier.Exceptional => 5,
+        LootSpawnValueTier.High => 4,
+        LootSpawnValueTier.Moderate => 3,
+        LootSpawnValueTier.Qualifying or LootSpawnValueTier.ProfileRelevant => 2,
+        LootSpawnValueTier.Unknown => 1,
+        _ => 0,
+    };
+
+    private static int TierSortRank(LootSpawnValueTier tier) => tier == LootSpawnValueTier.ProfileRelevant
+        ? 6
+        : TierRank(tier);
+
+    private static IReadOnlyList<string> CategoriesFrom(HighValueLootLayerResult result) => result.Entries
+        .SelectMany(entry => entry.Spawn.Candidates)
+        .Select(candidate => candidate.Category)
+        .ToArray();
+
+    private static IReadOnlyList<string> NormalizeOptions(IReadOnlyList<string> values) => values
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Select(value => value.Trim())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Order(StringComparer.OrdinalIgnoreCase)
+        .ThenBy(value => value, StringComparer.Ordinal)
+        .ToArray();
+
+    private string Number(int value) => value.ToString("N0", _presentation.Culture);
+
+    private string Text(string key) => _presentation.Get(key);
+
+    private string Format(string key, params object?[] arguments) => _presentation.Format(key, arguments);
+
+    private void RaiseAllChanged()
+    {
+        foreach (var property in new[]
+                 {
+                     nameof(Legend), nameof(StateMessage), nameof(CoverageLabel), nameof(HasCoverage),
+                     nameof(ValueBasisChoices), nameof(MinimumTierChoices), nameof(ProfileRelevanceChoices),
+                     nameof(CategoryChoices), nameof(FloorChoices), nameof(Rows), nameof(HasEntries),
+                     nameof(ShowsEmpty), nameof(FilteredCount), nameof(PageCount), nameof(PageNumber),
+                     nameof(PageLabel), nameof(CanGoToPreviousPage), nameof(CanGoToNextPage),
+                 })
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private void RaisePageChanged()
+    {
+        foreach (var property in new[]
+                 {
+                     nameof(Rows), nameof(PageNumber), nameof(PageLabel),
+                     nameof(CanGoToPreviousPage), nameof(CanGoToNextPage),
+                 })
+        {
+            OnPropertyChanged(property);
+        }
+    }
+}
+
+public sealed record HighValueLootLayerFilterState
+{
+    public HighValueLootLayerFilterState(HighValueLootFilter filter, LootSpawnValueTier minimumTier)
+    {
+        Filter = filter ?? throw new ArgumentNullException(nameof(filter));
+        if (minimumTier is not (LootSpawnValueTier.Qualifying or LootSpawnValueTier.Moderate or
+            LootSpawnValueTier.High or LootSpawnValueTier.Exceptional))
+        {
+            throw new ArgumentOutOfRangeException(nameof(minimumTier));
+        }
+
+        MinimumTier = minimumTier;
+    }
+
+    public HighValueLootFilter Filter { get; init; }
+
+    public LootSpawnValueTier MinimumTier { get; init; }
+
+    public HighValueLootLayerFilterState WithFilter(HighValueLootFilter filter) => this with { Filter = filter };
+
+    public static HighValueLootLayerFilterState Default { get; } = new(
+        HighValueLootFilter.Default,
+        LootSpawnValueTier.Qualifying);
+}
+
+public sealed class HighValueLootFilterChoiceViewModel
+{
+    public HighValueLootFilterChoiceViewModel(string id, string label, bool isSelected, Action select)
+    {
+        Id = id;
+        Label = label;
+        IsSelected = isSelected;
+        SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
+    }
+
+    public string Id { get; }
+    public string Label { get; }
+    public bool IsSelected { get; }
+    public string AutomationId => $"v2-map-loot-filter-{MapRendererToken.From(Id)}";
+    public ICommand SelectCommand { get; }
+}
+
+public sealed class HighValueLootEntryViewModel
+{
+    public HighValueLootEntryViewModel(
+        HighValueLootEntry entry,
+        HighValueLootFilter filter,
+        MapSceneRendererPresentation presentation,
+        Action select)
+    {
+        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
+        ArgumentNullException.ThrowIfNull(filter);
+        var matchedCandidates = entry.Spawn.Candidates
+            .Where(candidate =>
+                (filter.ItemIds.Count == 0 || filter.ItemIds.Contains(candidate.ItemId, StringComparer.OrdinalIgnoreCase)) &&
+                (filter.Categories.Count == 0 || filter.Categories.Contains(candidate.Category, StringComparer.OrdinalIgnoreCase)))
+            .ToArray();
+        Label = entry.Spawn.Label;
+        TierLabel = presentation.Get($"Map.Loot.Tier.{entry.Tier}");
+        ValueLabel = DescribeValue(entry, presentation);
+        CandidateLabel = presentation.Format(
+            "Map.Loot.Candidates",
+            entry.HighValueCandidateCount.ToString("N0", presentation.Culture),
+            entry.MatchedCandidateCount.ToString("N0", presentation.Culture),
+            entry.ValueBasis);
+        LocationLabel = DescribeLocation(entry, presentation);
+        FloorLabel = entry.Spawn.Location.FloorIds.Count == 0
+            ? presentation.Get("Map.Loot.FloorUnknown")
+            : string.Join(", ", entry.Spawn.Location.FloorIds);
+        IsListOnly = entry.SceneObjectId is null;
+        ListOnlyLabel = IsListOnly ? presentation.Get("Map.Loot.ListOnly") : string.Empty;
+        HasProfileRelevance = entry.ProfileNeeds.Count > 0;
+        ProfileRelevanceLabel = HasProfileRelevance
+            ? string.Join(" · ", entry.ProfileNeeds.Take(3).Select(need => need.Explanation))
+            : string.Empty;
+        PossibleItemsLabel = JoinBounded(
+            matchedCandidates.Select(candidate => candidate.DisplayName),
+            8,
+            presentation,
+            "Map.Loot.MoreItems");
+        CategoriesLabel = string.Join(", ", matchedCandidates
+            .Select(candidate => candidate.Category)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase));
+        ProbabilityLabel = entry.Spawn.SpawnProbability.Value is { } probability
+            ? presentation.Format("Map.Loot.ProbabilityKnown", presentation.Percent(probability))
+            : presentation.Get("Map.Loot.ProbabilityUnknown");
+        RespawnLabel = string.IsNullOrWhiteSpace(entry.Spawn.RespawnBehavior.Value)
+            ? presentation.Get("Map.Loot.RespawnUnknown")
+            : entry.Spawn.RespawnBehavior.Value!;
+        AccessLabel = entry.Spawn.AccessNote ?? presentation.Get("Map.Loot.AccessUnknown");
+        MissingFactsLabel = entry.MissingFacts.Count == 0
+            ? string.Empty
+            : string.Join(" · ", entry.MissingFacts);
+        HasMissingFacts = entry.MissingFacts.Count > 0;
+        SourceLabel = presentation.Format(
+            "Map.Loot.Source",
+            entry.Spawn.Provenance.SourceIdentifier,
+            presentation.Instant(entry.Spawn.Provenance.EvidenceThroughUtc),
+            entry.Spawn.Provenance.Confidence.Score is { } score
+                ? presentation.Percent(score)
+                : presentation.Get("Map.Loot.ConfidenceUnknown"));
+        AutomationName = presentation.Format(
+            "Map.Loot.RowAutomation",
+            Label,
+            TierLabel,
+            ValueLabel,
+            LocationLabel,
+            ListOnlyLabel);
+        SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
+    }
+
+    public HighValueLootEntry Entry { get; }
+    public string Label { get; }
+    public string TierLabel { get; }
+    public string ValueLabel { get; }
+    public string CandidateLabel { get; }
+    public string LocationLabel { get; }
+    public string FloorLabel { get; }
+    public bool IsListOnly { get; }
+    public string ListOnlyLabel { get; }
+    public bool HasProfileRelevance { get; }
+    public string ProfileRelevanceLabel { get; }
+    public string PossibleItemsLabel { get; }
+    public string CategoriesLabel { get; }
+    public string ProbabilityLabel { get; }
+    public string RespawnLabel { get; }
+    public string AccessLabel { get; }
+    public bool HasMissingFacts { get; }
+    public string MissingFactsLabel { get; }
+    public string SourceLabel { get; }
+    public string AutomationName { get; }
+    public string AutomationId => $"v2-map-loot-row-{MapRendererToken.From(Entry.Spawn.SpawnId)}";
+    public ICommand SelectCommand { get; }
+
+    private static string DescribeValue(HighValueLootEntry entry, MapSceneRendererPresentation presentation)
+    {
+        if (entry.MaximumValue is null)
+        {
+            return presentation.Get("Map.Loot.ValueUnknown");
+        }
+
+        var maximum = entry.MaximumValue.Value.ToString("N0", presentation.Culture);
+        if (!entry.IsValueRangeComplete)
+        {
+            return presentation.Format("Map.Loot.ValuePartial", maximum, entry.ValueBasis);
+        }
+
+        if (entry.MinimumValue == entry.MaximumValue)
+        {
+            return presentation.Format("Map.Loot.ValueSingle", maximum, entry.ValueBasis);
+        }
+
+        return presentation.Format(
+            "Map.Loot.ValueRange",
+            entry.MinimumValue!.Value.ToString("N0", presentation.Culture),
+            maximum,
+            entry.ValueBasis);
+    }
+
+    private static string DescribeLocation(HighValueLootEntry entry, MapSceneRendererPresentation presentation) =>
+        entry.Spawn.Location.Precision switch
+        {
+            LootSpawnPrecision.ExactPoint => presentation.Get("Map.Loot.Precision.ExactPoint"),
+            LootSpawnPrecision.BoundedArea => presentation.Get("Map.Loot.Precision.BoundedArea"),
+            LootSpawnPrecision.RoomOrRegion => presentation.Get("Map.Loot.Precision.RoomOrRegion"),
+            LootSpawnPrecision.MapOnly => presentation.Get("Map.Loot.Precision.MapOnly"),
+            _ => throw new ArgumentOutOfRangeException(nameof(entry)),
+        };
+
+    private static string JoinBounded(
+        IEnumerable<string> values,
+        int maximum,
+        MapSceneRendererPresentation presentation,
+        string moreKey)
+    {
+        var materialized = values.ToArray();
+        var shown = string.Join(", ", materialized.Take(maximum));
+        return materialized.Length <= maximum
+            ? shown
+            : $"{shown} · {presentation.Format(moreKey, materialized.Length - maximum)}";
+    }
+}

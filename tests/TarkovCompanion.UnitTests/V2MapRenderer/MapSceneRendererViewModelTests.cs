@@ -1,6 +1,10 @@
 using System.Globalization;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
+using TarkovCompanion.App.Views.V2.MapRenderer;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.LootSpawns;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -314,6 +318,172 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Contains("Example map author", renderer.ReviewedAssetLabel, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void High_value_panel_keeps_typed_list_only_unknown_and_floor_states()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+
+        Assert.Equal(309, loot.AllEntries.Count);
+        Assert.Equal(50, loot.Rows.Count);
+        Assert.Contains("Potential spawns", loot.Legend, StringComparison.Ordinal);
+        Assert.Contains("positioned", loot.CoverageLabel, StringComparison.OrdinalIgnoreCase);
+
+        var mapOnly = loot.Rows.Single(row => row.Entry.Spawn.SpawnId == "map-only-cache");
+        Assert.True(mapOnly.IsListOnly);
+        Assert.Contains("location unknown", mapOnly.LocationLabel, StringComparison.OrdinalIgnoreCase);
+        mapOnly.SelectCommand.Execute(null);
+
+        Assert.True(renderer.HasLootSelection);
+        Assert.Null(renderer.SelectedObject);
+        Assert.Equal("map-only-cache", renderer.SelectedLootEntry?.Entry.Spawn.SpawnId);
+
+        var floorUnknown = loot.Rows.Single(row => row.Entry.Spawn.SpawnId == "floor-unresolved");
+        Assert.True(floorUnknown.IsListOnly);
+        Assert.Equal("Floor unknown", floorUnknown.FloorLabel);
+
+        var unknown = loot.Rows.Single(row => row.Entry.Spawn.SpawnId == "profile-only-unknown-value");
+        Assert.Contains("unknown", unknown.ValueLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.True(unknown.HasProfileRelevance);
+        Assert.Contains("expected value not calculated", unknown.ProbabilityLabel, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void High_value_filters_rebuild_the_canonical_result_and_tier_projection()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        var camera = renderer.Scene.View.Camera;
+        var floor = renderer.Scene.View.SelectedFloorId;
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+
+        loot.CategoryChoices.Single(choice => choice.Label == "medical").SelectCommand.Execute(null);
+
+        loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        Assert.Equal(2, loot.AllEntries.Count);
+        Assert.All(loot.AllEntries, entry =>
+            Assert.All(entry.Spawn.Candidates, candidate => Assert.Equal("medical", candidate.Category)));
+        Assert.Equal(camera, renderer.Scene.View.Camera);
+        Assert.Equal(floor, renderer.Scene.View.SelectedFloorId);
+
+        loot.CategoryChoices.Single(choice => choice.Label == "All categories").SelectCommand.Execute(null);
+        loot.MinimumTierChoices.Single(choice => choice.Label == "Exceptional").SelectCommand.Execute(null);
+
+        loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        Assert.Equal(2, loot.FilteredCount);
+        Assert.Single(loot.VisibleObjectIds);
+        Assert.All(loot.Rows, row => Assert.Equal("Exceptional", row.TierLabel));
+    }
+
+    [Fact]
+    public void High_value_value_profile_and_floor_controls_use_the_existing_filter_contract()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+
+        loot.ValueBasisChoices.Single(choice => choice.Label == "Profile utility").SelectCommand.Execute(null);
+
+        loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        var profileOnly = Assert.Single(loot.AllEntries);
+        Assert.Equal("profile-only-unknown-value", profileOnly.Spawn.SpawnId);
+
+        loot.ProfileRelevanceChoices.Single(choice => choice.Label == "Market value only")
+            .SelectCommand.Execute(null);
+        Assert.Empty(loot.AllEntries);
+
+        renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        loot.FloorChoices.Single(choice => choice.Label == "upper").SelectCommand.Execute(null);
+
+        var upper = Assert.Single(loot.AllEntries);
+        Assert.Equal("profile-only-unknown-value", upper.Spawn.SpawnId);
+        Assert.All(upper.Spawn.Location.FloorIds, floor => Assert.Equal("upper", floor));
+    }
+
+    [Fact]
+    public void Independent_high_value_layer_toggle_hides_both_markers_and_typed_rows()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        var layer = renderer.Layers.Single(item => item.Layer.Id == HighValueLootLayerService.LayerId);
+
+        layer.ToggleCommand.Execute(null);
+
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        Assert.Empty(loot.Rows);
+        Assert.Empty(loot.VisibleObjectIds);
+        Assert.DoesNotContain(renderer.SpatialObjects, item =>
+            item.SceneObject?.LayerId == HighValueLootLayerService.LayerId);
+        Assert.Contains("off", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void High_value_preset_keeps_orientation_camera_and_selected_spawn()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        var camera = renderer.Scene.View.Camera;
+        var floor = renderer.Scene.View.SelectedFloorId;
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        loot.Rows.Single(row => row.Entry.Spawn.SpawnId == "medical-exceptional")
+            .SelectCommand.Execute(null);
+
+        renderer.HighValueLootPresetCommand.Execute(null);
+
+        Assert.Equal(camera, renderer.Scene.View.Camera);
+        Assert.Equal(floor, renderer.Scene.View.SelectedFloorId);
+        Assert.Equal("medical-exceptional", renderer.SelectedLootEntry?.Entry.Spawn.SpawnId);
+        Assert.True(IsVisible(renderer, HighValueLootLayerService.LayerId));
+        Assert.True(IsVisible(renderer, new("extracts")));
+        Assert.True(IsVisible(renderer, new("companion-markers")));
+        Assert.False(IsVisible(renderer, new("estimates")));
+    }
+
+    [Fact]
+    public void High_value_preset_stops_after_an_owner_republishes_the_rejected_revision()
+    {
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
+            "Potential spawns · Data unavailable",
+            null,
+            null,
+            [],
+            [],
+            []);
+        var scene = Scene(includeHighValueLoot: true);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            () => Guid.Parse("20000000-0000-0000-0000-000000000319"),
+            highValueLoot: result);
+        var requestCount = 0;
+        renderer.ViewChangeRequested += _ =>
+        {
+            requestCount++;
+            renderer.Present(scene);
+        };
+
+        renderer.HighValueLootPresetCommand.Execute(null);
+
+        Assert.Equal(1, requestCount);
+        Assert.Same(scene, renderer.Scene);
+        Assert.Contains("changed", renderer.RendererNotice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void High_value_offline_gallery_has_an_explicit_unavailable_empty_state()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false, lootOffline: true).Renderer;
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+
+        Assert.Empty(loot.AllEntries);
+        Assert.True(loot.ShowsEmpty);
+        Assert.Contains("Offline", loot.Legend, StringComparison.Ordinal);
+        Assert.Contains("unavailable", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(renderer.Layers, layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
+    }
+
+    private static bool IsVisible(MapSceneRendererViewModel renderer, MapSceneLayerId layerId) =>
+        renderer.Scene.View.Layers.Single(state => state.LayerId == layerId).IsVisible;
+
     private static MapSceneRendererViewModel Renderer(MapSceneSnapshot scene, Func<Guid>? nextChangeId = null) =>
         new(scene, Presentation, nextChangeId);
 
@@ -322,10 +492,21 @@ public sealed class MapSceneRendererViewModelTests
         bool supportsFloorStack = false,
         bool interiorAvailable = false,
         MapSceneMode mode = MapSceneMode.Flat2D,
-        IReadOnlyList<MapSceneObject>? firstFloorObjects = null)
+        IReadOnlyList<MapSceneObject>? firstFloorObjects = null,
+        bool includeHighValueLoot = false)
     {
         var extracts = new MapSceneLayer(new("extracts"), "Extracts", 10, true);
         var loot = new MapSceneLayer(new("loot"), "Loot", 20, false);
+        IReadOnlyList<MapSceneLayer> layers = includeHighValueLoot
+            ? [extracts, loot, HighValueLootLayerService.Layer]
+            : [extracts, loot];
+        IReadOnlyList<MapSceneLayerState> layerStates = includeHighValueLoot
+            ? [
+                new(extracts.Id, true),
+                new(loot.Id, false),
+                new(HighValueLootLayerService.LayerId, false),
+            ]
+            : [new(extracts.Id, true), new(loot.Id, false)];
         var objects = firstFloorObjects ?? [Extract("crossroads", "Crossroads", "first", MapSceneOfferState.Unknown)];
         return new(
             revision,
@@ -338,8 +519,8 @@ public sealed class MapSceneRendererViewModelTests
                 MapSceneCapability.Available,
                 supportsFloorStack ? MapSceneCapability.Available : MapSceneCapability.Unavailable("No reviewed floor stack."),
                 interiorAvailable ? MapSceneCapability.Available : MapSceneCapability.Unavailable("No reviewed interior model.")),
-            new(mode, "first", new(50, 50, 1, 0, 0), [new(extracts.Id, true), new(loot.Id, false)]),
-            [extracts, loot],
+            new(mode, "first", new(50, 50, 1, 0, 0), layerStates),
+            layers,
             objects,
             [Asset()]);
     }

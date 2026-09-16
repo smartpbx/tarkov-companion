@@ -1,7 +1,9 @@
 using System.Windows.Input;
 using Avalonia.Media;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.LootSpawns;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -43,12 +45,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private string _clusterFilterLabel = string.Empty;
     private IReadOnlyList<MapSceneObject> _filteredListObjects = [];
     private string? _resolvedAssetKey;
+    private IReadOnlyDictionary<MapSceneLayerId, bool>? _lootPresetTargets;
+    private string? _selectedLootSpawnId;
+    private IReadOnlyList<string>? _lootCategories;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
         MapSceneRendererPresentation presentation,
         Func<Guid>? nextChangeId = null,
-        Func<MapSceneAsset, IImage?>? reviewedAssetResolver = null)
+        Func<MapSceneAsset, IImage?>? reviewedAssetResolver = null,
+        HighValueLootLayerResult? highValueLoot = null,
+        HighValueLootLayerFilterState? highValueLootFilterState = null,
+        IReadOnlyList<string>? highValueLootCategories = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
@@ -65,11 +73,30 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         PreviousPageCommand = new DelegateCommand(() => ChangePage(-1));
         NextPageCommand = new DelegateCommand(() => ChangePage(1));
         ClearClusterCommand = new DelegateCommand(ClearClusterFilter);
+        HighValueLootPresetCommand = new DelegateCommand(ApplyHighValueLootPreset);
+        _lootCategories = highValueLootCategories;
+        if (highValueLoot is not null)
+        {
+            EnsureHighValueLootMatchesScene(highValueLoot);
+            HighValueLoot = new(
+                highValueLoot,
+                highValueLootFilterState ?? HighValueLootLayerFilterState.Default,
+                highValueLootCategories,
+                scene.FloorIds,
+                IsLayerVisible(highValueLoot.Layer.Id),
+                presentation,
+                RequestHighValueLootFilter,
+                SelectHighValueLootEntry);
+            HighValueLoot.ProjectionChanged += HighValueLootProjectionChanged;
+        }
         RebuildAll();
     }
 
     /// <summary>Raised for the owner to apply through the canonical reducer and publish back.</summary>
     public event Action<MapSceneViewChange>? ViewChangeRequested;
+
+    /// <summary>The owner rebuilds the typed layer and canonical scene for this request.</summary>
+    public event Action<HighValueLootLayerFilterState>? HighValueLootFilterRequested;
 
     public MapSceneSnapshot Scene => _scene;
     public IReadOnlyList<MapSceneRendererModeViewModel> Modes { get; private set; } = [];
@@ -81,6 +108,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererGeometryViewModel> GeometryObjects { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
     public MapSceneRendererObjectViewModel? SelectedObject { get; private set; }
+    public HighValueLootEntryViewModel? SelectedLootEntry { get; private set; }
+    public HighValueLootLayerViewModel? HighValueLoot { get; }
     public IImage? BackgroundImage { get; private set; }
 
     public MapSceneViewChange? LastRequestedChange
@@ -115,6 +144,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public ICommand PreviousPageCommand { get; }
     public ICommand NextPageCommand { get; }
     public ICommand ClearClusterCommand { get; }
+    public ICommand HighValueLootPresetCommand { get; }
 
     public double CanvasWidth => _canvasWidth;
     public double CanvasHeight => _canvasHeight;
@@ -144,6 +174,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public string PreviousPageLabel => Text("Map.Action.Previous");
     public string NextPageLabel => Text("Map.Action.Next");
     public string ClearClusterLabel => Text("Map.Action.ClearCluster");
+    public string HighValueLootPresetLabel => Text("Map.Loot.Preset");
     public string PresentationLabel => Text("Map.Label.Presentation");
     public string FloorLabel => Text("Map.Label.Floor");
     public string MapPlanLabel => Text("Map.Label.Plan");
@@ -160,7 +191,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasListItems => ListItems.Count > 0;
     public bool ShowsEmptyMap => !HasSpatialObjects;
     public bool ShowsEmptyList => !HasListItems;
-    public bool HasSelection => SelectedObject is not null;
+    public bool HasSelection => SelectedObject is not null || SelectedLootEntry is not null;
+    public bool HasGenericSelection => SelectedObject is not null && SelectedLootEntry is null;
+    public bool HasLootSelection => SelectedLootEntry is not null;
+    public bool HasHighValueLoot => HighValueLoot is not null;
     public bool HasBackgroundImage => BackgroundImage is not null;
     public string EmptyMapMessage => Text("Map.Empty.Map");
     public string EmptyListMessage => Text("Map.Empty.List");
@@ -184,10 +218,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasClusterFilter => _clusterFilter is { Count: > 0 };
     public string ClusterFilterLabel => _clusterFilterLabel;
 
+    public void Present(
+        MapSceneSnapshot scene,
+        HighValueLootLayerResult highValueLoot,
+        HighValueLootLayerFilterState filterState,
+        IReadOnlyList<string>? availableCategories = null)
+    {
+        if (HighValueLoot is null)
+        {
+            throw new InvalidOperationException("This renderer was not created with a high-value loot layer.");
+        }
+
+        EnsureHighValueLootMatchesScene(scene, highValueLoot);
+        Present(scene);
+        _lootCategories = availableCategories ?? _lootCategories;
+        HighValueLoot.Present(highValueLoot, filterState, _lootCategories, scene.FloorIds);
+        RestoreLootSelection();
+    }
+
     /// <summary>Replaces the display only after the canonical owner accepted or refreshed it.</summary>
     public void Present(MapSceneSnapshot scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
+        var requestedRevision = _pendingRevision;
         var previous = _scene;
         var changedSceneIdentity = !string.Equals(previous.LocationId, scene.LocationId, StringComparison.Ordinal) ||
             !string.Equals(previous.VariantKey, scene.VariantKey, StringComparison.Ordinal);
@@ -206,10 +259,22 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         _scene = scene;
         _pendingRevision = null;
+        var presetRejected = _lootPresetTargets is not null && requestedRevision == scene.Revision;
+        if (presetRejected)
+        {
+            // A preset is a serialized series of ordinary revision-checked changes. If its
+            // owner republishes the same revision, the in-flight step was rejected; retrying
+            // synchronously would loop and applying the remaining steps would split the preset.
+            _lootPresetTargets = null;
+        }
+        HighValueLoot?.SetLayerVisibility(
+            IsLayerVisible(HighValueLootLayerService.LayerId),
+            notifyProjection: false);
         if (changedSceneIdentity ||
-            _selectedObjectId is { } selected && !_scene.VisibleObjects.Any(item => item.Id == selected))
+            _selectedObjectId is { } selected && !VisibleObjects().Any(item => item.Id == selected))
         {
             _selectedObjectId = null;
+            _selectedLootSpawnId = null;
         }
 
         if (changedSceneIdentity)
@@ -220,7 +285,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             _listPageIndex = 0;
         }
 
-        _rendererNotice = string.Empty;
+        _rendererNotice = presetRejected ? Text("Map.Loot.PresetConflict") : string.Empty;
         if (boundsChanged)
         {
             _projection = CreateProjection();
@@ -273,6 +338,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             visibleContentChanged,
             cameraChanged,
             changedSceneIdentity || assetsChanged || boundsChanged);
+        DispatchHighValueLootPresetChange();
     }
 
     /// <summary>Updates only the projection; it does not create a new canonical camera state.</summary>
@@ -326,12 +392,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        _lootPresetTargets = null;
         Request(new(MapSceneViewChangeKind.SetLayerVisibility, LayerId: layerId, IsVisible: isVisible));
     }
 
     public void SelectObject(MapSceneObjectId objectId)
     {
-        if (!_scene.VisibleObjects.Any(item => item.Id == objectId) || _selectedObjectId == objectId)
+        if (!VisibleObjects().Any(item => item.Id == objectId) || _selectedObjectId == objectId)
         {
             return;
         }
@@ -368,11 +435,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     public void ClearSelection()
     {
-        if (_selectedObjectId is null)
+        if (_selectedObjectId is null && _selectedLootSpawnId is null)
         {
             return;
         }
 
+        _selectedLootSpawnId = null;
         ApplySelection(null);
     }
 
@@ -513,6 +581,86 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         ViewChangeRequested?.Invoke(requested);
     }
 
+    private void ApplyHighValueLootPreset()
+    {
+        if (HighValueLoot is null || !_scene.Layers.Any(layer => layer.Id == HighValueLootLayerService.LayerId))
+        {
+            SetRendererNotice(Text("Map.Loot.Unavailable"));
+            return;
+        }
+
+        var preserve = _selectedObjectId is { } selected
+            ? _scene.Objects.Where(item => item.Id == selected).Select(item => item.LayerId).ToArray()
+            : [];
+        _lootPresetTargets = HighValueLootLayerPreset.Create(_scene.Layers, preserve)
+            .ToDictionary(state => state.LayerId, state => state.IsVisible);
+        DispatchHighValueLootPresetChange();
+    }
+
+    private void DispatchHighValueLootPresetChange()
+    {
+        if (_lootPresetTargets is null || _pendingRevision == _scene.Revision)
+        {
+            return;
+        }
+
+        var next = _scene.Layers
+            .OrderBy(layer => layer.ZIndex)
+            .Select(layer => new
+            {
+                layer.Id,
+                Current = IsLayerVisible(layer.Id),
+                Target = _lootPresetTargets[layer.Id],
+            })
+            .FirstOrDefault(item => item.Current != item.Target);
+        if (next is null)
+        {
+            _lootPresetTargets = null;
+            return;
+        }
+
+        Request(new(
+            MapSceneViewChangeKind.SetLayerVisibility,
+            LayerId: next.Id,
+            IsVisible: next.Target));
+    }
+
+    private void RequestHighValueLootFilter(HighValueLootLayerFilterState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (HighValueLootFilterRequested is null)
+        {
+            SetRendererNotice(Text("Map.Loot.FilterUnavailable"));
+            return;
+        }
+
+        HighValueLootFilterRequested.Invoke(state);
+    }
+
+    private void SelectHighValueLootEntry(HighValueLootEntry entry)
+    {
+        _selectedLootSpawnId = entry.Spawn.SpawnId;
+        if (entry.SceneObjectId is { } objectId && VisibleObjects().Any(item => item.Id == objectId))
+        {
+            ApplySelection(objectId);
+            return;
+        }
+
+        _selectedObjectId = null;
+        SelectedObject = null;
+        SelectedLootEntry = CreateLootEntry(entry);
+        RaiseSelectionChanged();
+    }
+
+    private void HighValueLootProjectionChanged()
+    {
+        var visibleObjects = RebuildProjectedObjects();
+        RebuildListItems();
+        BuildDenseSceneNotice(visibleObjects);
+        RestoreLootSelection();
+        RaisePresentChanged(false, false, false, true, false, false);
+    }
+
     private void RebuildAll()
     {
         _projection = CreateProjection();
@@ -554,7 +702,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()
     {
-        var visibleObjects = _scene.VisibleObjects;
+        var visibleObjects = VisibleObjects();
         GeometryObjects = _projection.IsUsable
             ? visibleObjects
                 .Where(item => item.Geometry.Kind != MapSceneGeometryKind.Point &&
@@ -569,6 +717,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         SelectedObject = _selectedObjectId is { } selected
             ? CreateSelectedObject(selected)
             : null;
+        if (_selectedLootSpawnId is null)
+        {
+            SelectedLootEntry = null;
+        }
         return visibleObjects;
     }
 
@@ -634,7 +786,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private void RebuildListItems()
     {
         var search = SearchText.Trim();
-        _filteredListObjects = _scene.VisibleObjects
+        _filteredListObjects = VisibleObjects()
             .Where(item => _clusterFilter is null || _clusterFilter.Contains(item.Id))
             .Where(item => search.Length == 0 || MatchesSearch(item, search))
             .ToArray();
@@ -676,13 +828,25 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         SelectedObject = next is { } selected ? CreateSelectedObject(selected) : null;
-        OnPropertyChanged(nameof(SelectedObject));
-        OnPropertyChanged(nameof(HasSelection));
+        var lootEntry = next is { } objectId
+            ? HighValueLootEntryFor(objectId)
+            : null;
+        if (lootEntry is not null)
+        {
+            _selectedLootSpawnId = lootEntry.Spawn.SpawnId;
+        }
+        else if (next is not null)
+        {
+            _selectedLootSpawnId = null;
+        }
+
+        SelectedLootEntry = lootEntry is null ? null : CreateLootEntry(lootEntry);
+        RaiseSelectionChanged();
     }
 
     private MapSceneRendererObjectViewModel? CreateSelectedObject(MapSceneObjectId selected)
     {
-        var item = _scene.VisibleObjects.FirstOrDefault(candidate => candidate.Id == selected);
+        var item = VisibleObjects().FirstOrDefault(candidate => candidate.Id == selected);
         return item is null
             ? null
             : MapSceneRendererObjectViewModel.ForObject(
@@ -775,6 +939,100 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private bool IsLayerVisible(MapSceneLayerId layerId) => _scene.View.Layers
         .FirstOrDefault(state => state.LayerId == layerId)?.IsVisible ??
         _scene.Layers.Single(layer => layer.Id == layerId).IsVisibleByDefault;
+
+    private IReadOnlyList<MapSceneObject> VisibleObjects()
+    {
+        var visible = _scene.VisibleObjects;
+        if (HighValueLoot is null)
+        {
+            return visible;
+        }
+
+        return visible
+            .Where(item => item.LayerId != HighValueLootLayerService.LayerId ||
+                           HighValueLoot.VisibleObjectIds.Contains(item.Id))
+            .ToArray();
+    }
+
+    private HighValueLootEntry? HighValueLootEntryFor(MapSceneObjectId objectId) => HighValueLoot is null
+        ? null
+        : HighValueLootResultEntries()
+            .FirstOrDefault(entry => entry.SceneObjectId == objectId);
+
+    private IReadOnlyList<HighValueLootEntry> HighValueLootResultEntries() => HighValueLoot?.AllEntries ?? [];
+
+    private HighValueLootEntryViewModel CreateLootEntry(HighValueLootEntry entry) => new(
+        entry,
+        HighValueLoot?.FilterState.Filter ?? HighValueLootFilter.Default,
+        _presentation,
+        () => SelectHighValueLootEntry(entry));
+
+    private void RestoreLootSelection()
+    {
+        if (_selectedLootSpawnId is null || HighValueLoot is null)
+        {
+            SelectedLootEntry = null;
+            RaiseSelectionChanged();
+            return;
+        }
+
+        var entry = HighValueLoot.AllEntries
+            .FirstOrDefault(candidate => string.Equals(
+                candidate.Spawn.SpawnId,
+                _selectedLootSpawnId,
+                StringComparison.Ordinal));
+        if (entry is null)
+        {
+            _selectedLootSpawnId = null;
+            _selectedObjectId = null;
+            SelectedObject = null;
+            SelectedLootEntry = null;
+        }
+        else
+        {
+            SelectedLootEntry = CreateLootEntry(entry);
+        }
+
+        RaiseSelectionChanged();
+    }
+
+    private void RaiseSelectionChanged()
+    {
+        OnPropertyChanged(nameof(SelectedObject));
+        OnPropertyChanged(nameof(SelectedLootEntry));
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(HasGenericSelection));
+        OnPropertyChanged(nameof(HasLootSelection));
+    }
+
+    private void EnsureHighValueLootMatchesScene(HighValueLootLayerResult result) =>
+        EnsureHighValueLootMatchesScene(_scene, result);
+
+    private static void EnsureHighValueLootMatchesScene(
+        MapSceneSnapshot scene,
+        HighValueLootLayerResult result)
+    {
+        if (!scene.Layers.Any(layer => layer == result.Layer))
+        {
+            throw new ArgumentException(
+                "The canonical scene must declare the exact high-value loot layer supplied beside it.",
+                nameof(result));
+        }
+
+        var sceneObjects = scene.Objects
+            .Where(item => item.LayerId == result.Layer.Id)
+            .OrderBy(item => item.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+        var resultObjects = result.Objects
+            .OrderBy(item => item.Id.Value, StringComparer.Ordinal)
+            .ToArray();
+        if (!sceneObjects.SequenceEqual(resultObjects))
+        {
+            throw new ArgumentException(
+                "The typed loot result and canonical scene must contain the same loot objects.",
+                nameof(result));
+        }
+    }
 
     private void SetRendererNotice(string value)
     {
@@ -886,7 +1144,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(ClusterMarkers));
             OnPropertyChanged(nameof(GeometryObjects));
             OnPropertyChanged(nameof(SelectedObject));
+            OnPropertyChanged(nameof(SelectedLootEntry));
             OnPropertyChanged(nameof(HasSelection));
+            OnPropertyChanged(nameof(HasGenericSelection));
+            OnPropertyChanged(nameof(HasLootSelection));
             OnPropertyChanged(nameof(HasSpatialObjects));
             OnPropertyChanged(nameof(ShowsEmptyMap));
             OnPropertyChanged(nameof(DenseSceneNotice));

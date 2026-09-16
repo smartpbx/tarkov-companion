@@ -34,7 +34,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             var options = services.GetService<AppCommandLine>();
             if (options?.MapRendererGallery == true)
             {
-                desktop.MainWindow = new MapSceneRendererGalleryWindow(options.MapRendererLargeText);
+                desktop.MainWindow = new MapSceneRendererGalleryWindow(
+                    options.MapRendererLargeText,
+                    options.MapRendererLootOffline);
             }
             else
             {

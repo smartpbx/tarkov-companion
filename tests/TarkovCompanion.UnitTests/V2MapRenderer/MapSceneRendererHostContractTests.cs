@@ -10,12 +10,16 @@ public sealed class MapSceneRendererHostContractTests
     {
         var ordinary = AppCommandLine.Parse(["--map-renderer-gallery"]);
         var largeText = AppCommandLine.Parse(["--map-renderer-gallery", "--map-renderer-large-text"]);
+        var offline = AppCommandLine.Parse(["--map-renderer-gallery", "--map-renderer-loot-offline"]);
 
         Assert.True(ordinary.MapRendererGallery);
         Assert.False(ordinary.MapRendererLargeText);
+        Assert.False(ordinary.MapRendererLootOffline);
         Assert.True(largeText.MapRendererGallery);
         Assert.True(largeText.MapRendererLargeText);
+        Assert.True(offline.MapRendererLootOffline);
         Assert.Empty(largeText.UnknownOptions);
+        Assert.Empty(offline.UnknownOptions);
     }
 
     [Fact]
@@ -31,9 +35,9 @@ public sealed class MapSceneRendererHostContractTests
             "MapRenderer",
             "MapSceneRendererGalleryWindow.axaml.cs");
 
-        Assert.Contains("new MapSceneRendererGalleryWindow(options.MapRendererLargeText)", app, StringComparison.Ordinal);
+        Assert.Contains("options.MapRendererLootOffline", app, StringComparison.Ordinal);
         Assert.Contains("public MapSceneRendererGalleryWindow()", galleryCode, StringComparison.Ordinal);
-        Assert.Contains(": this(largeText: false)", galleryCode, StringComparison.Ordinal);
+        Assert.Contains(": this(largeText: false, lootOffline: false)", galleryCode, StringComparison.Ordinal);
         Assert.Contains("<map:MapSceneRendererView DataContext=\"{Binding Renderer}\" />", gallery, StringComparison.Ordinal);
         Assert.Contains("MinWidth=\"320\"", gallery, StringComparison.Ordinal);
         Assert.Contains("ScaleX=\"{Binding InterfaceScale}\"", gallery, StringComparison.Ordinal);
@@ -93,8 +97,38 @@ public sealed class MapSceneRendererHostContractTests
         Assert.Contains("<ToggleButton Classes=\"v2-map-marker\"", view, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding ClusterMarkers}\"", view, StringComparison.Ordinal);
         Assert.Contains("<Button Classes=\"v2-map-marker cluster\"", view, StringComparison.Ordinal);
-        Assert.Contains("<ContentControl Content=\"{Binding SelectedObject}\">", view, StringComparison.Ordinal);
+        Assert.Contains("<ContentControl Content=\"{Binding SelectedObject}\"", view, StringComparison.Ordinal);
         Assert.DoesNotContain("{Binding SelectedObject.", view, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Renderer_exposes_high_value_preset_filters_list_and_typed_details_to_uia()
+    {
+        var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml");
+        var renderer = Read(
+            "src", "TarkovCompanion.App", "ViewModels", "V2", "MapRenderer", "MapSceneRendererViewModel.cs");
+        var loot = Read(
+            "src", "TarkovCompanion.App", "ViewModels", "V2", "MapRenderer", "HighValueLootLayerViewModel.cs");
+
+        foreach (var id in new[]
+                 {
+                     "v2-map-loot-preset", "v2-map-loot-heading", "v2-map-loot-legend",
+                     "v2-map-loot-state", "v2-map-loot-page-status", "v2-map-loot-page-next",
+                     "v2-map-loot-selection-live",
+                 })
+        {
+            Assert.Contains($"AutomationProperties.AutomationId=\"{id}\"", view, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("HighValueLootLayerPreset.Create", renderer, StringComparison.Ordinal);
+        Assert.Contains("requestedRevision == scene.Revision", renderer, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.PresetConflict", renderer, StringComparison.Ordinal);
+        Assert.Contains("HighValueLootFilterRequested", renderer, StringComparison.Ordinal);
+        Assert.Contains("VisibleObjectIds", renderer, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.ValueUnknown", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.FloorUnknown", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.ListOnly", loot, StringComparison.Ordinal);
+        Assert.DoesNotContain("v2-map-loot-waypoint", view, StringComparison.Ordinal);
     }
 
     [Fact]
