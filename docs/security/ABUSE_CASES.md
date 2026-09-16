@@ -44,7 +44,7 @@ proof; `tests/security/README.md` makes that distinction explicit. `→ Risk` is
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
-| ABUSE-REPORT-INCOMPLETE-REDACTION | Information disclosure / policy violation | ACT-12 | A player uses the ordinary Report Problem flow. `SupportBundle.Describe` inserts `Observation.Detail` verbatim, where current observation can include raw log/screenshot roots; its 120-line app-log tail can also carry raw roots, screenshot filenames, and X/Y/Z. `Redact` runs only on those tail lines and does not provide a whole-bundle allowlist. The relay accepts any non-empty body and persists it verbatim, so normal use can transmit prohibited diagnostic path segments and coordinates contrary to `docs/SAFETY.md`. | — | RISK-REPORT-REDACTION |
+| ABUSE-REPORT-INCOMPLETE-REDACTION | Information disclosure / policy violation | ACT-12 | A future desktop change adds an unallowlisted value to the ordinary report or a non-desktop caller submits an arbitrary body. The current desktop projection is closed and hostile-fixture tested, but the relay still accepts and persists any non-empty body, and the desktop sends without a separate confirmation preview. A regression or alternate caller can therefore retain prohibited diagnostic material unless the relay enforces the schema too. | `SupportBundleTests.HostileRuntimeAndLogTextCannotReachTheCompletePreview` | RISK-REPORT-REDACTION |
 
 ## TB-4 / TB-9: Report ingestion → metadata automation
 

@@ -17,16 +17,16 @@ namespace TarkovCompanion.GroupServer;
 /// machine and already trusted with a key, which is why it is here and not in the client: a
 /// desktop application filing issues would need a token on every player's disk.
 ///
-/// The client intentionally excludes game logs, the group key, and screenshot pixels, but its
-/// current field-by-field redaction is not a whole-payload guarantee. This component persists the
-/// submitted body unchanged; #281 and #310 own the client preview/filter and relay allowlist.
+/// The ordinary desktop submits a closed, bounded support projection. This component still accepts
+/// an arbitrary caller string and persists it unchanged; #281 and #310 own explicit desktop
+/// confirmation plus relay-side schema enforcement and lifecycle.
 /// </remarks>
 public sealed class ProblemReports(TimeProvider timeProvider)
 {
     /// <summary>The largest report that will be accepted.</summary>
     /// <remarks>
-    /// The client sends a log tail and a handful of facts, which is a few kilobytes. Sixty-four
-    /// is generous for that and small enough that nobody can post a book.
+    /// The ordinary client sends a bounded list of operational facts, which is a few kilobytes.
+    /// Sixty-four is generous for that and small enough that nobody can post a book.
     /// </remarks>
     public const int MaximumBytes = 64 * 1024;
 

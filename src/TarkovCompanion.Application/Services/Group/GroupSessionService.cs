@@ -853,10 +853,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// knows the relay's address and holds the key, and a second thing that did would be a
     /// second thing to keep in step.
     ///
-    /// Nothing is added to the report here and nothing is removed: whatever SupportBundle left
-    /// in, paths and coordinates included, reaches the relay and is kept there as sent
-    /// (RISK-REPORT-REDACTION). What comes back is a sentence for the player and, when GitHub
-    /// was reachable, a link.
+    /// Nothing is added to the report here and nothing is removed. The ordinary desktop caller
+    /// supplies SupportBundle's closed projection, but this transport still accepts a raw string
+    /// and the relay keeps it as sent. #310 owns server-side schema enforcement; until then an
+    /// alternate caller remains part of RISK-REPORT-REDACTION. What comes back is a sentence for
+    /// the player and, when GitHub was reachable, a link.
     ///
     /// Every failure ends by pointing at Copy diagnostics, because the whole point is that the
     /// person with the problem can get the report out — and a relay they cannot reach is one
