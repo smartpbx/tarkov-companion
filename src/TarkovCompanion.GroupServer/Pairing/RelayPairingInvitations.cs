@@ -208,7 +208,7 @@ public sealed class RelayPairingInvitations : IDisposable
 
     public RelayPairingResult<RelayPairingRoute> RouteFor(PairingAttemptId attemptId)
     {
-        Invitation invitation;
+        Invitation? invitation;
         lock (_gate)
         {
             ThrowIfDisposed();

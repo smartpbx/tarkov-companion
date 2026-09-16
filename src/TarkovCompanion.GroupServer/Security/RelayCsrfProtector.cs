@@ -106,7 +106,7 @@ public static class RelayCsrfProtector
             throw new FormatException("Only unpadded base64url is accepted.");
         }
 
-        var padding = value.Length % 4 switch
+        var padding = (value.Length % 4) switch
         {
             0 => string.Empty,
             2 => "==",

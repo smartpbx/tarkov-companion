@@ -5,37 +5,45 @@ public sealed class PairingAndCompatibilityTests
     [Fact]
     public async Task PairingIsSingleUseDesktopApprovedAndDeviceKeyBound()
     {
-        var attemptId = new PairingAttemptId(Guid.Parse("81000000-0000-0000-0000-000000000001"));
-        var offered = PairingStateMachine.Offer(attemptId, ProtocolTestData.Now);
-        var request = Request(attemptId);
-        var bound = PairingStateMachine.BindResolvedCode(offered, request, ProtocolTestData.Now.AddSeconds(1));
+        var offer = ProtocolTestData.GoldenRoot<PairingOffer>("handshake/pairing-offer.json");
+        var request = ProtocolTestData.GoldenRoot<PairingRequest>("handshake/pairing-request.json");
+        var reveal = ProtocolTestData.GoldenRoot<PairingNonceReveal>("handshake/pairing-nonce-reveal.json");
+        var challenge = ProtocolTestData.GoldenRoot<HandshakeChallenge>("handshake/pairing-challenge.json");
+        var proof = ProtocolTestData.GoldenRoot<DeviceKeyProof>("handshake/pairing-proof.json");
+        var offered = PairingStateMachine.Offer(
+            offer.AttemptId,
+            offer.DesktopIdentityKey,
+            offer.DesktopEphemeralKey,
+            reveal.DesktopNonceBase64Url,
+            ProtocolTestData.Now);
+        var bound = PairingStateMachine.BindResolvedCode(
+            offered,
+            request,
+            CompanionProtocolVersion.Current,
+            ProtocolTestData.Now.AddSeconds(10));
 
         Assert.Throws<InvalidOperationException>(() =>
-            PairingStateMachine.BindResolvedCode(bound, request, ProtocolTestData.Now.AddSeconds(2)));
+            PairingStateMachine.BindResolvedCode(
+                bound,
+                request,
+                CompanionProtocolVersion.Current,
+                ProtocolTestData.Now.AddSeconds(11)));
 
-        var challenge = new PairingChallenge(
-            "challenge-1",
-            attemptId,
-            request.DeviceKey.KeyId,
-            "Y2hhbGxlbmdl",
-            new EphemeralPublicKey(EphemeralKeyAlgorithm.EcdhP256, "ZGVza3RvcC1lcGhlbWVyYWw"),
-            ProtocolTestData.Now.AddSeconds(2),
-            ProtocolTestData.Now.AddMinutes(2));
-        var approved = PairingStateMachine.Approve(bound, challenge, ProtocolTestData.Now.AddSeconds(2));
-        var proof = new PairingProof("challenge-1", "c2lnbmF0dXJl");
+        var approved = PairingStateMachine.Approve(bound, challenge, challenge.IssuedUtc);
+        var completedUtc = challenge.IssuedUtc.AddSeconds(10);
 
         await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
             await PairingStateMachine.CompleteAsync(
                 approved,
                 proof,
                 new ProofVerifier(false),
-                ProtocolTestData.Now.AddSeconds(3)));
+                completedUtc));
 
         var completed = await PairingStateMachine.CompleteAsync(
             approved,
             proof,
             new ProofVerifier(true),
-            ProtocolTestData.Now.AddSeconds(3));
+            completedUtc);
 
         Assert.Equal(PairingAttemptStage.Completed, completed.Stage);
         Assert.Equal(request.DeviceKey.KeyId, completed.Challenge!.DeviceKeyId);
@@ -45,21 +53,17 @@ public sealed class PairingAndCompatibilityTests
     [Fact]
     public void PairingOfferExpiresWithinTenMinutes()
     {
-        var id = new PairingAttemptId(Guid.NewGuid());
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PairingAttempt(
-            id,
-            PairingAttemptStage.Offered,
-            ProtocolTestData.Now,
-            ProtocolTestData.Now.AddMinutes(11)));
+        var offer = ProtocolTestData.GoldenRoot<PairingOffer>("handshake/pairing-offer.json");
+        var reveal = ProtocolTestData.GoldenRoot<PairingNonceReveal>("handshake/pairing-nonce-reveal.json");
+        var attempt = PairingStateMachine.Offer(
+            offer.AttemptId,
+            offer.DesktopIdentityKey,
+            offer.DesktopEphemeralKey,
+            reveal.DesktopNonceBase64Url,
+            ProtocolTestData.Now);
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PairingChallenge(
-            "challenge-too-long",
-            id,
-            new DeviceKeyId("a2V5LXRodW1icHJpbnQ"),
-            "Y2hhbGxlbmdl",
-            new EphemeralPublicKey(EphemeralKeyAlgorithm.EcdhP256, "ZGVza3RvcC1lcGhlbWVyYWw"),
-            ProtocolTestData.Now,
-            ProtocolTestData.Now.AddMinutes(11)));
+        Assert.Equal(ProtocolTestData.Now.Add(ProtocolBounds.PairingLifetime), attempt.ExpiresUtc);
+        Assert.True(attempt.ExpiresUtc - attempt.OfferedUtc <= TimeSpan.FromMinutes(10));
     }
 
     [Fact]
@@ -105,7 +109,7 @@ public sealed class PairingAndCompatibilityTests
     [Fact]
     public void DeviceAndSessionTerminalStatesAreExplicitAndFinal()
     {
-        var key = Request(new PairingAttemptId(Guid.NewGuid())).DeviceKey;
+        var key = ProtocolTestData.GoldenRoot<PairingRequest>("handshake/pairing-request.json").DeviceKey;
         var device = new PairedDevice(
             ProtocolTestData.TabletDevice,
             "Tablet",
@@ -129,23 +133,12 @@ public sealed class PairingAndCompatibilityTests
             DeviceLifecycle.Expire(device, ProtocolTestData.Now.Add(ProtocolBounds.DeviceInactivityExpiry)).Status);
     }
 
-    private static PairingRequest Request(PairingAttemptId attemptId) => new(
-        attemptId,
-        "Tablet",
-        new DevicePublicKey(
-            new DeviceKeyId("a2V5LXRodW1icHJpbnQ"),
-            DeviceKeyAlgorithm.WebAuthnEs256,
-            "Y3JlZGVudGlhbC1pZA",
-            "Y29zZS1wdWJsaWMta2V5"),
-        new EphemeralPublicKey(EphemeralKeyAlgorithm.EcdhP256, "dGFibGV0LWVwaGVtZXJhbA"),
-        "Y2xpZW50LW5vbmNl");
-
     private sealed class ProofVerifier(bool result) : IDeviceKeyProofVerifier
     {
         public ValueTask<bool> VerifyAsync(
             DevicePublicKey deviceKey,
-            PairingChallenge challenge,
-            PairingProof proof,
+            HandshakeChallenge challenge,
+            DeviceKeyProof proof,
             CancellationToken cancellationToken) => ValueTask.FromResult(result);
     }
 }

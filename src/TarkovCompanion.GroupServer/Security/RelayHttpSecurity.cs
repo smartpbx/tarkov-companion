@@ -31,7 +31,7 @@ public static class RelaySessionCookie
         {
             Secure = true,
             HttpOnly = true,
-            SameSite = SameSiteMode.Strict,
+            SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
             Path = "/",
             IsEssential = true,
             Expires = expiresUtc,
@@ -43,7 +43,7 @@ public static class RelaySessionCookie
     {
         Secure = true,
         HttpOnly = true,
-        SameSite = SameSiteMode.Strict,
+        SameSite = Microsoft.AspNetCore.Http.SameSiteMode.Strict,
         Path = "/",
         IsEssential = true,
         Expires = DateTimeOffset.UnixEpoch,
@@ -137,7 +137,7 @@ public static class RelaySecurityHeaders
             : BrowserContentSecurityPolicy;
         response.Headers.XFrameOptions = "DENY";
         response.Headers.XContentTypeOptions = "nosniff";
-        response.Headers.ReferrerPolicy = "no-referrer";
+        response.Headers["Referrer-Policy"] = "no-referrer";
         response.Headers.CacheControl = "no-store, max-age=0";
         response.Headers.Pragma = "no-cache";
         response.Headers["Permissions-Policy"] = PermissionsPolicy;
