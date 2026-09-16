@@ -86,7 +86,7 @@ public sealed class StashScanWorkspaceViewModelTests
             new FakeItemFactCatalog([], []),
             new FakeRuntimeStateStore(RuntimeSnapshot()));
         await viewModel.LoadAsync();
-        viewModel.SelectedItem = Assert.Single(viewModel.Items);
+        viewModel.SelectedItem = Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer");
         viewModel.QuantityCorrection = "3";
 
         await ((AsyncDelegateCommand)viewModel.CorrectQuantityCommand).ExecuteAsync();
