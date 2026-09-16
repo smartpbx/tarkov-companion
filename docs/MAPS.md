@@ -25,6 +25,20 @@ For tarkov.dev interactive variants, the four published transform values are app
 
 If a map has no transform, or validation fails, the application returns a clear status and no marker. It never estimates, clamps, or borrows coordinates from another map. `fixtures/maps/training-ground.json` is a code-authored test map and is not distributable third-party artwork.
 
+## V2 shared scene
+
+V2 map renderers consume one platform-independent scene snapshot rather than translating the
+desktop canvas. The snapshot carries the selected map and floor, camera, layer state, stable
+object IDs, point/line/area/region geometry, transform version, typed fact semantics, and reviewed
+asset manifests. Its list alternative and hit testing use the same visibility state as the visual
+map. Flat 2D is the baseline; floor-stack and interior presentations are capabilities over the
+same scene, not separate sources of map truth.
+
+Historical estimates carry their observation window, data-through and generation times,
+coverage, calibration, transform version, model version, source, and confidence. Potential
+spawns remain potential. An interior asset is renderable only after its source, licence, hash,
+attribution, map/game version, and review time are present. See ADR 0015.
+
 ## Screenshot observations
 
 Normal EFT screenshot filenames are parsed as timestamp, X/Y/Z position, quaternion, optional in-game time, and duplicate index. The quaternion is normalized and converted to a compass heading; a zero quaternion and malformed or unsafe extension are rejected. Timestamp conversion uses the supplied local UTC offset because the filename itself has no zone.
