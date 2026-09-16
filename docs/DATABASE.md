@@ -4,6 +4,11 @@ Tarkov Companion stores public game data in a local SQLite database. The databas
 
 The cache is local application state. It never contains game process memory, intercepted traffic, user tokens, or captured screen images. Optional TarkovTracker tokens live only behind the Windows per-user protected-storage adapter, outside SQLite.
 
+Governed traffic artifacts also live outside SQLite, in a content-addressed local snapshot store.
+They contain only reviewed historical aggregates and model files, never raw private raid histories.
+Strict import, quarantine receipts, atomic head replacement, offline validation, and
+last-known-good rollback are specified in `docs/research/TRAFFIC_DATA.md`.
+
 ## Startup
 
 Run `SqliteMigrationRunner.ApplyAsync` before constructing repositories. `SqliteMigrationLedger` is the only ordered sequence: every identifier has one embedded upgrade fixture and one rollback fixture, and an unreserved filename is refused. The migration and its `schema_migrations` row commit in one transaction, so re-running the runner is idempotent. A database that contains an unknown newer-build migration and is also missing any known migration is left intact and refused as an unsafe sidegrade; a fully current database with additive newer migration rows remains readable and reports those rows.
