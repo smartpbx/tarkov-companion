@@ -404,18 +404,18 @@ public sealed class LootScanDecisionViewModel
                 return _text.OpportunityCostUnavailable;
             }
 
-            var field = recommendation.OpportunityCostRoubles;
+            var opportunityCost = recommendation.OpportunityCostRoubles;
             return recommendation.OpportunityCostLineage is { } lineage
                 ? Message(
                     _text.OpportunityCostLineageTemplate,
                     ("value", Roubles(value)),
-                    ("evidence", DescribeProvenance(field.Provenance)),
+                    ("evidence", DescribeProvenance(opportunityCost.Provenance)),
                     ("priceEvidence", DescribeProvenance(lineage.Price)),
                     ("footprintEvidence", DescribeProvenance(lineage.Footprint)))
                 : Message(
                     _text.OpportunityCostTemplate,
                     ("value", Roubles(value)),
-                    ("evidence", DescribeProvenance(field.Provenance)));
+                    ("evidence", DescribeProvenance(opportunityCost.Provenance)));
         }
     }
 
