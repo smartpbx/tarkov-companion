@@ -386,3 +386,8 @@ the concrete recognition pipeline, review UI, durable accepted-result handoff, a
 `ICaptureSessionService`, and the established `ScanUseCase`/HUD path remains authoritative. The
 bounded screenshot decoder from OCR PR #333 is also an integration dependency; its deadline,
 pixel cap, encoded-buffer lifetime, and per-attempt failure contract must survive reconciliation.
+
+Reviewed stash frames cross a separate pixel-free assembly boundary described in
+`docs/STASH_SCAN.md` and ADR 0018. That boundary deduplicates exact content, stitches only unique
+evidence-backed overlap, retains unresolved origins and failed ordinal gaps, and never invents
+closed nested-container contents. It does not change this checkpoint's composition ownership.

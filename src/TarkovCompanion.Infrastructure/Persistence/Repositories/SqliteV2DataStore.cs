@@ -15,7 +15,8 @@ public sealed record ObservedInventorySnapshot(
     string GameMode,
     DateTimeOffset RecordedUtc,
     bool IsCurrent,
-    RecognitionResultEnvelope<StashRecognition> Recognition);
+    RecognitionResultEnvelope<StashRecognition> Recognition,
+    string? DataSnapshotId = null);
 
 public sealed record RaidFieldHistoryRecord(
     long Id,
@@ -107,6 +108,7 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         ValidateInventoryRecognition(recognition);
         var stash = recognition.Result.Value!;
         var provenance = recognition.Result.Provenance;
+        var dataSnapshotId = ResolveInventoryDataSnapshotId(snapshot, stash);
         var nodes = ProjectInventoryNodes(stash);
         var payloadJson = SerializeContract(recognition, nameof(snapshot.Recognition));
 
@@ -129,7 +131,7 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
             """, cancellationToken,
             ("$id", Id(snapshot.SnapshotId)), ("$profile", Id(snapshot.ProfileId)),
             ("$generation", snapshot.Generation), ("$mode", snapshot.GameMode),
-            ("$dataSnapshot", stash.SnapshotId), ("$observed", Format(provenance.ObservedUtc)),
+            ("$dataSnapshot", dataSnapshotId), ("$observed", Format(provenance.ObservedUtc)),
             ("$recorded", Format(snapshot.RecordedUtc)), ("$source", provenance.SourceIdentifier),
             ("$producer", provenance.Producer.Version), ("$coverage", provenance.Coverage?.Fraction),
             ("$confidence", provenance.Confidence.Score), ("$current", snapshot.IsCurrent),
@@ -320,7 +322,15 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         }
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return new(row.SnapshotId, profileId, generation, gameMode, row.RecordedUtc, true, recognition);
+        return new(
+            row.SnapshotId,
+            profileId,
+            generation,
+            gameMode,
+            row.RecordedUtc,
+            true,
+            recognition,
+            row.DataSnapshotId);
     }
 
     public async Task AppendRaidFieldAsync(RaidFieldHistoryRecord record, CancellationToken cancellationToken)
@@ -897,7 +907,7 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         ValidateRequiredString(snapshot.GameMode, nameof(snapshot.GameMode));
     }
 
-    private static void ValidateInventoryRecognition(RecognitionResultEnvelope<StashRecognition> recognition)
+    internal static void ValidateInventoryRecognition(RecognitionResultEnvelope<StashRecognition> recognition)
     {
         ArgumentNullException.ThrowIfNull(recognition);
         if (recognition.Header.ContractVersion != V2ContractVersion.Current)
@@ -941,13 +951,37 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
 
     private static void ValidateInventorySource(EvidenceProvenance provenance, string parameterName)
     {
-        if (provenance.SourceClass is not (
-            EvidenceSourceClass.GameWrittenScreenshot or EvidenceSourceClass.ExternalVisiblePixels))
+        if (provenance.SourceClass is
+            EvidenceSourceClass.GameWrittenScreenshot or EvidenceSourceClass.ExternalVisiblePixels)
+        {
+            return;
+        }
+
+        // A whole-stash result combines several captures, so its honest root is a calculation.
+        // Permit that root only while every branch remains a calculation and every leaf remains
+        // user-triggered visible-pixel evidence. This rejects a mixed log, user, unknown, public,
+        // historical, or modelled lineage instead of laundering it through a derived wrapper.
+        if (provenance.SourceClass != EvidenceSourceClass.DerivedCalculation ||
+            provenance.Inputs.Count == 0 ||
+            provenance.Inputs.Any(input => !HasOnlyVisibleCaptureLeaves(input)))
         {
             throw new ArgumentException(
-                "Observed stash recognition must originate in a user-triggered visible capture.",
+                "Observed stash recognition must be visible-capture evidence or a calculation whose entire lineage has only visible-capture leaves.",
                 parameterName);
         }
+    }
+
+    private static bool HasOnlyVisibleCaptureLeaves(EvidenceProvenance provenance)
+    {
+        if (provenance.SourceClass is
+            EvidenceSourceClass.GameWrittenScreenshot or EvidenceSourceClass.ExternalVisiblePixels)
+        {
+            return provenance.Inputs.Count == 0;
+        }
+
+        return provenance.SourceClass == EvidenceSourceClass.DerivedCalculation &&
+               provenance.Inputs.Count > 0 &&
+               provenance.Inputs.All(HasOnlyVisibleCaptureLeaves);
     }
 
     private static void AddBounded(int count, ref int total, int maximum, string description)
@@ -1015,9 +1049,8 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         RawInventorySnapshot row,
         RecognitionResultEnvelope<StashRecognition> recognition)
     {
-        var stash = recognition.Result.Value!;
         var provenance = recognition.Result.Provenance;
-        if (!string.Equals(row.DataSnapshotId, stash.SnapshotId, StringComparison.Ordinal) ||
+        if (row.DataSnapshotId is null ||
             row.ObservedUtc != provenance.ObservedUtc ||
             !string.Equals(row.Source, provenance.SourceIdentifier, StringComparison.Ordinal) ||
             !string.Equals(row.ProducerVersion, provenance.Producer.Version, StringComparison.Ordinal) ||
@@ -1027,6 +1060,17 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         {
             throw new InvalidDataException("Persisted inventory metadata does not match its typed recognition evidence.");
         }
+    }
+
+    private static string ResolveInventoryDataSnapshotId(
+        ObservedInventorySnapshot snapshot,
+        StashRecognition stash)
+    {
+        // Compatibility: callers predating the explicit field used StashRecognition.SnapshotId
+        // as both identities. New stash scans always provide the catalog/economics snapshot id.
+        var value = snapshot.DataSnapshotId ?? stash.SnapshotId;
+        ValidateRequiredString(value, nameof(snapshot.DataSnapshotId));
+        return value.Trim();
     }
 
     private async Task SaveIntelligenceAsync(
