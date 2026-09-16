@@ -2,18 +2,21 @@ using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
-using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Infrastructure.Devices;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
@@ -29,6 +32,7 @@ using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
@@ -42,6 +46,7 @@ using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.Recognition;
+using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -531,6 +536,39 @@ public static class AppComposition
 
         services.AddSingleton<MainWindowViewModel>();
         services.AddSingleton<V2ShellViewModel>();
+
+        // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
+        // foundations and the small adapters that connect them to the shell and to each other.
+        // RaidObservationService already forwards every settled screenshot to ICaptureSessionService
+        // when one is registered (additively, alongside the existing V1 scan path); registering it
+        // here is what turns that on.
+        services.AddSingleton<ProfileRuntimeContextService>();
+        services.AddSingleton<IProfileRuntimeContextService>(provider =>
+            provider.GetRequiredService<ProfileRuntimeContextService>());
+        services.AddSingleton<IBackgroundWorkSupervisor>(_ => new BackgroundWorkSupervisor(timeProvider));
+        services.AddSingleton<ICaptureWorkScheduler>(provider =>
+            new SupervisedCaptureWorkScheduler(provider.GetRequiredService<IBackgroundWorkSupervisor>()));
+        services.AddSingleton(_ => new WorkspaceOrigin(
+            new WorkspaceId(Guid.NewGuid()),
+            new CompanionDeviceId(Guid.NewGuid()),
+            WorkspaceOriginKind.DesktopApplication,
+            "desktop"));
+        services.AddSingleton<CaptureRecognitionPipeline>();
+        services.AddSingleton<ICaptureSessionPipeline>(provider =>
+            provider.GetRequiredService<CaptureRecognitionPipeline>());
+        services.AddSingleton<InventoryGridReconstructor>();
+        services.AddSingleton<LootScanDecisionService>();
+        services.AddSingleton<LootScanCaptureHandoff>();
+        services.AddSingleton<ICaptureResultHandoff>(provider =>
+            provider.GetRequiredService<LootScanCaptureHandoff>());
+        services.AddSingleton<ICaptureSessionService>(provider => new CaptureSessionCoordinator(
+            provider.GetRequiredService<ICaptureWorkScheduler>(),
+            provider.GetRequiredService<ICaptureSessionPipeline>(),
+            provider.GetRequiredService<ICaptureResultHandoff>(),
+            provider.GetRequiredService<WorkspaceOrigin>(),
+            timeProvider));
+        services.AddSingleton<V2ShellCaptureBridge>();
+        services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {
