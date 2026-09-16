@@ -537,7 +537,9 @@ public sealed class LootScanDecisionServiceTests
     {
         var anchor = new GridCellAddress(0, 0);
         var directFlea = CatalogProvenance("direct-winning-flea");
-        var modelledTrader = ModelledProvenance(CatalogProvenance("modelled-losing-trader-input"));
+        var modelledTrader = ModelledProvenance(CatalogProvenance(
+            "modelled-losing-trader-input",
+            Now.AddMinutes(-10)));
         var evaluated = Recommendation(
             anchor,
             "loot",
@@ -1054,7 +1056,7 @@ public sealed class LootScanDecisionServiceTests
             Complete<bool?>("profile.wishlist", false, provenance),
             new RecommendationEventStateFacts(
                 null,
-                Complete<EventItemState?>("profile.event-state", null, provenance)),
+                Complete<EventItemState?>("profile.event-state", EventItemState.Unknown, provenance)),
             [new RecommendationNeed(
                 needId,
                 displayName,
@@ -1685,7 +1687,7 @@ public sealed class LootScanDecisionServiceTests
             Complete<bool?>("profile.wishlist", false, provenance),
             new RecommendationEventStateFacts(
                 null,
-                Complete<EventItemState?>("profile.event-state", null, provenance)),
+                Complete<EventItemState?>("profile.event-state", EventItemState.Unknown, provenance)),
             needs);
     }
 
