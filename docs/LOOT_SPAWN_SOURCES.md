@@ -31,20 +31,35 @@ The manifest records:
 - source class, stable identifier, reference, licence, confidence meaning, and producer;
 - per-map known, published, positioned, floor-resolved, and unresolved counts.
 
+The import context separately supplies the bounded source identities, references, licence terms,
+and confidence meanings that have completed review. A manifest cannot make itself trusted by
+labelling itself curated. Public structured bundles and item fields must name the exact canonical
+`json.tarkov.dev/{mode}/maps` and `json.tarkov.dev/{mode}/items` HTTPS endpoints respectively, and
+a public maps bundle cannot resolve candidate values through a different game mode's item catalog.
+
 The content records one snapshot per map and transform version. Each spawn has a stable ID,
 label, explicit location precision, explicit floor IDs, bounded geometry when known, and either
 one known item or an explicitly unweighted candidate pool. Probability and respawn behavior stay
 unknown because version 1 does not accept unsupported claims for either field. Candidate item
 metadata must resolve through a caller-supplied `json.tarkov.dev` catalog entry carrying public
-structured-data provenance. A bundle marked `publicStructuredData` must itself identify
-`json.tarkov.dev`; curated bundles retain their distinct source class and reference.
+structured-data provenance per value field, so unavailable, stale, ambiguous, or corrected prices
+are not flattened into a manufactured current value. A bundle marked `publicStructuredData` must
+itself identify `json.tarkov.dev`; curated bundles retain their distinct source class and reference.
 
 Unknown JSON fields are accepted for forward compatibility. Required fields, schema compatibility,
-content identity, timestamps, strings, collections, nesting, aggregate domain limits, unique IDs,
+exact-byte lowercase SHA-256 content identity, canonical strings, duplicate JSON members,
+timestamps, collections, nesting, aggregate domain limits, unique IDs,
 map/transform identity, floor IDs, geometry bounds, pool shape, item IDs, and measured coverage are
 validated before publication. A stale, future-dated, malformed, hash-mismatched, incompatible, or
 superseded attempt is quarantined and cannot replace the atomic last-known-good head. Cancellation
-does not publish or quarantine a partial attempt.
+does not publish or quarantine a partial attempt. The imported UTC time is retained separately from
+the manifest's generated and data-through times. One publication store is scoped to one reviewed
+source authority; a curated source cannot replace a primary-source head merely by carrying a later
+timestamp. A later bundle also cannot silently move data-through time backwards, drop a published
+map, or reduce its known, published, positioned, or floor-resolved counts.
+For candidate metadata that is joined from the separately evidenced item catalog, a later import
+cannot replace a matching spawn/item field with older evidence, and one import observation cannot
+claim two different current values for the same source generation.
 
 The current publication store is process-lifetime only and deliberately sits behind
 `ILootSpawnSourcePublicationStore`. Durable offline storage and application composition remain a

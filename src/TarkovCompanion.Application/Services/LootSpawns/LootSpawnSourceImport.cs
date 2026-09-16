@@ -1,24 +1,153 @@
+using System.Collections.Frozen;
+using System.Collections.ObjectModel;
+using System.Text;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.LootSpawns;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.Application.Services.LootSpawns;
 
-public sealed record LootSpawnItemCatalogEntry(
-    string ItemId,
-    string DisplayName,
-    string Category,
-    long? FleaGrossRoubles,
-    long? FleaNetRoubles,
-    long? BestTraderRoubles,
-    int? OccupiedSquares,
-    EvidenceProvenance Provenance);
+public sealed record LootSpawnItemCatalogEntry
+{
+    public LootSpawnItemCatalogEntry(
+        string itemId,
+        string displayName,
+        string category,
+        EvidencedValue<long?> fleaGrossRoubles,
+        EvidencedValue<long?> fleaNetRoubles,
+        EvidencedValue<long?> bestTraderRoubles,
+        EvidencedValue<int?> occupiedSquares)
+    {
+        ItemId = Required(itemId, nameof(itemId), 256);
+        DisplayName = Required(displayName, nameof(displayName), 256);
+        Category = Required(category, nameof(category), 128);
+        FleaGrossRoubles = fleaGrossRoubles ?? throw new ArgumentNullException(nameof(fleaGrossRoubles));
+        FleaNetRoubles = fleaNetRoubles ?? throw new ArgumentNullException(nameof(fleaNetRoubles));
+        BestTraderRoubles = bestTraderRoubles ?? throw new ArgumentNullException(nameof(bestTraderRoubles));
+        OccupiedSquares = occupiedSquares ?? throw new ArgumentNullException(nameof(occupiedSquares));
+    }
 
-public sealed record LootSpawnMapSourceDefinition(
-    string MapId,
-    string TransformVersion,
-    MapSceneBounds Bounds,
-    IReadOnlySet<string> FloorIds);
+    public string ItemId { get; }
+
+    public string DisplayName { get; }
+
+    public string Category { get; }
+
+    public EvidencedValue<long?> FleaGrossRoubles { get; }
+
+    public EvidencedValue<long?> FleaNetRoubles { get; }
+
+    public EvidencedValue<long?> BestTraderRoubles { get; }
+
+    public EvidencedValue<int?> OccupiedSquares { get; }
+
+    internal static string Required(string value, string parameterName, int maximumLength)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal) ||
+            !value.IsNormalized(NormalizationForm.FormC) ||
+            value.Length > maximumLength)
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+
+        return value;
+    }
+}
+
+public sealed record LootSpawnMapSourceDefinition
+{
+    public LootSpawnMapSourceDefinition(
+        string mapId,
+        string transformVersion,
+        MapSceneBounds bounds,
+        IReadOnlySet<string> floorIds)
+    {
+        MapId = LootSpawnItemCatalogEntry.Required(mapId, nameof(mapId), 128);
+        TransformVersion = LootSpawnItemCatalogEntry.Required(transformVersion, nameof(transformVersion), 128);
+        if (!double.IsFinite(bounds.MinimumX) || !double.IsFinite(bounds.MinimumY) ||
+            !double.IsFinite(bounds.MaximumX) || !double.IsFinite(bounds.MaximumY) ||
+            bounds.MaximumX <= bounds.MinimumX || bounds.MaximumY <= bounds.MinimumY)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds));
+        }
+
+        ArgumentNullException.ThrowIfNull(floorIds);
+        var copiedFloors = floorIds.Take(LootSpawnLocation.MaximumFloors + 1).ToArray();
+        if (copiedFloors.Length > LootSpawnLocation.MaximumFloors)
+        {
+            throw new ArgumentException("The reviewed map has too many floor identifiers.", nameof(floorIds));
+        }
+
+        foreach (var floorId in copiedFloors)
+        {
+            LootSpawnItemCatalogEntry.Required(floorId, nameof(floorIds), 96);
+        }
+
+        if (copiedFloors.Distinct(StringComparer.OrdinalIgnoreCase).Count() != copiedFloors.Length)
+        {
+            throw new ArgumentException("Reviewed floor identifiers must be unique without case aliases.", nameof(floorIds));
+        }
+
+        Bounds = bounds;
+        FloorIds = copiedFloors.ToFrozenSet(StringComparer.Ordinal);
+    }
+
+    public string MapId { get; }
+
+    public string TransformVersion { get; }
+
+    public MapSceneBounds Bounds { get; }
+
+    public IReadOnlySet<string> FloorIds { get; }
+}
+
+/// <summary>A source identity whose authority, terms, and confidence were reviewed out of band.</summary>
+public sealed record LootSpawnSourceAuthority
+{
+    public LootSpawnSourceAuthority(
+        EvidenceSourceClass sourceClass,
+        string sourceIdentifier,
+        string sourceReference,
+        string license,
+        EvidenceConfidence confidence)
+    {
+        if (sourceClass is not EvidenceSourceClass.PublicStructuredData and not EvidenceSourceClass.CuratedData)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceClass));
+        }
+
+        SourceClass = sourceClass;
+        SourceIdentifier = LootSpawnItemCatalogEntry.Required(sourceIdentifier, nameof(sourceIdentifier), 256);
+        SourceReference = LootSpawnItemCatalogEntry.Required(sourceReference, nameof(sourceReference), 1024);
+        License = LootSpawnItemCatalogEntry.Required(license, nameof(license), 256);
+        Confidence = confidence ?? throw new ArgumentNullException(nameof(confidence));
+    }
+
+    public EvidenceSourceClass SourceClass { get; }
+
+    public string SourceIdentifier { get; }
+
+    public string SourceReference { get; }
+
+    public string License { get; }
+
+    public EvidenceConfidence Confidence { get; }
+}
+
+/// <summary>The exact active-mode item catalog that may resolve bundle candidate IDs.</summary>
+public sealed record LootSpawnItemCatalogAuthority
+{
+    public LootSpawnItemCatalogAuthority(string sourceIdentifier, string sourceReference)
+    {
+        SourceIdentifier = LootSpawnItemCatalogEntry.Required(sourceIdentifier, nameof(sourceIdentifier), 256);
+        SourceReference = LootSpawnItemCatalogEntry.Required(sourceReference, nameof(sourceReference), 1024);
+    }
+
+    public string SourceIdentifier { get; }
+
+    public string SourceReference { get; }
+}
 
 public sealed record LootSpawnSourceDocuments
 {
@@ -35,12 +164,20 @@ public sealed record LootSpawnSourceDocuments
 
 public sealed record LootSpawnSourceImportContext
 {
+    public const int MaximumCatalogItems = 100_000;
+
+    public const int MaximumMaps = 64;
+
+    public const int MaximumSourceAuthorities = 32;
+
     public LootSpawnSourceImportContext(
         DateTimeOffset importedUtc,
         TimeSpan maximumSourceAge,
         IReadOnlyDictionary<string, LootSpawnItemCatalogEntry> items,
         IReadOnlyDictionary<string, LootSpawnMapSourceDefinition> maps,
-        IReadOnlySet<string> expectedMapIds)
+        IReadOnlySet<string> expectedMapIds,
+        LootSpawnItemCatalogAuthority itemCatalogAuthority,
+        IReadOnlyList<LootSpawnSourceAuthority> reviewedSourceAuthorities)
     {
         if (importedUtc == default || importedUtc.Offset != TimeSpan.Zero)
         {
@@ -52,11 +189,80 @@ public sealed record LootSpawnSourceImportContext
             throw new ArgumentOutOfRangeException(nameof(maximumSourceAge));
         }
 
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(maps);
+        ArgumentNullException.ThrowIfNull(expectedMapIds);
+        ArgumentNullException.ThrowIfNull(itemCatalogAuthority);
+        ArgumentNullException.ThrowIfNull(reviewedSourceAuthorities);
+
+        var copiedItems = items.Take(MaximumCatalogItems + 1).ToArray();
+        if (copiedItems.Length > MaximumCatalogItems)
+        {
+            throw new ArgumentException("The item catalog exceeds its import-context limit.", nameof(items));
+        }
+
+        var itemDictionary = new Dictionary<string, LootSpawnItemCatalogEntry>(copiedItems.Length, StringComparer.Ordinal);
+        foreach (var (key, value) in copiedItems)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            LootSpawnItemCatalogEntry.Required(key, nameof(items), 256);
+            if (!string.Equals(key, value.ItemId, StringComparison.Ordinal) || !itemDictionary.TryAdd(key, value))
+            {
+                throw new ArgumentException("Item catalog keys must uniquely equal their canonical item IDs.", nameof(items));
+            }
+        }
+
+        var copiedMaps = maps.Take(MaximumMaps + 1).ToArray();
+        if (copiedMaps.Length > MaximumMaps)
+        {
+            throw new ArgumentException("The map catalog exceeds its import-context limit.", nameof(maps));
+        }
+
+        var mapDictionary = new Dictionary<string, LootSpawnMapSourceDefinition>(copiedMaps.Length, StringComparer.Ordinal);
+        foreach (var (key, value) in copiedMaps)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            LootSpawnItemCatalogEntry.Required(key, nameof(maps), 128);
+            if (!string.Equals(key, value.MapId, StringComparison.Ordinal) || !mapDictionary.TryAdd(key, value))
+            {
+                throw new ArgumentException("Map catalog keys must uniquely equal their canonical map IDs.", nameof(maps));
+            }
+        }
+
+        var expected = expectedMapIds.Take(MaximumMaps + 1).ToArray();
+        if (expected.Length > MaximumMaps)
+        {
+            throw new ArgumentException("The supported-map set exceeds its import-context limit.", nameof(expectedMapIds));
+        }
+
+        var expectedSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var mapId in expected)
+        {
+            LootSpawnItemCatalogEntry.Required(mapId, nameof(expectedMapIds), 128);
+            if (!mapDictionary.ContainsKey(mapId) || !expectedSet.Add(mapId))
+            {
+                throw new ArgumentException("Every expected map must uniquely exist in the reviewed map catalog.", nameof(expectedMapIds));
+            }
+        }
+
+        var authorities = reviewedSourceAuthorities.Take(MaximumSourceAuthorities + 1).ToArray();
+        if (authorities.Length is < 1 or > MaximumSourceAuthorities || authorities.Any(value => value is null))
+        {
+            throw new ArgumentException("A bounded, non-empty reviewed source-authority set is required.", nameof(reviewedSourceAuthorities));
+        }
+
+        if (authorities.Distinct().Count() != authorities.Length)
+        {
+            throw new ArgumentException("Reviewed source authorities must be unique.", nameof(reviewedSourceAuthorities));
+        }
+
         ImportedUtc = importedUtc;
         MaximumSourceAge = maximumSourceAge;
-        Items = items ?? throw new ArgumentNullException(nameof(items));
-        Maps = maps ?? throw new ArgumentNullException(nameof(maps));
-        ExpectedMapIds = expectedMapIds ?? throw new ArgumentNullException(nameof(expectedMapIds));
+        Items = new ReadOnlyDictionary<string, LootSpawnItemCatalogEntry>(itemDictionary);
+        Maps = new ReadOnlyDictionary<string, LootSpawnMapSourceDefinition>(mapDictionary);
+        ExpectedMapIds = expectedSet.ToFrozenSet(StringComparer.Ordinal);
+        ItemCatalogAuthority = itemCatalogAuthority;
+        ReviewedSourceAuthorities = Array.AsReadOnly(authorities);
     }
 
     public DateTimeOffset ImportedUtc { get; }
@@ -68,36 +274,213 @@ public sealed record LootSpawnSourceImportContext
     public IReadOnlyDictionary<string, LootSpawnMapSourceDefinition> Maps { get; }
 
     public IReadOnlySet<string> ExpectedMapIds { get; }
+
+    public LootSpawnItemCatalogAuthority ItemCatalogAuthority { get; }
+
+    public IReadOnlyList<LootSpawnSourceAuthority> ReviewedSourceAuthorities { get; }
 }
 
-public sealed record LootSpawnMapSourceCoverage(
-    string MapId,
-    int KnownRecordCount,
-    int PublishedRecordCount,
-    int PositionedRecordCount,
-    int FloorResolvedRecordCount,
-    int UnresolvedRecordCount);
+public sealed record LootSpawnMapSourceCoverage
+{
+    public LootSpawnMapSourceCoverage(
+        string mapId,
+        int knownRecordCount,
+        int publishedRecordCount,
+        int positionedRecordCount,
+        int floorResolvedRecordCount,
+        int unresolvedRecordCount)
+    {
+        MapId = LootSpawnItemCatalogEntry.Required(mapId, nameof(mapId), 128);
+        if (knownRecordCount < 0 || publishedRecordCount < 0 || positionedRecordCount < 0 ||
+            floorResolvedRecordCount < 0 || unresolvedRecordCount < 0 ||
+            publishedRecordCount > knownRecordCount || positionedRecordCount > publishedRecordCount ||
+            floorResolvedRecordCount > positionedRecordCount ||
+            positionedRecordCount + unresolvedRecordCount != publishedRecordCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(knownRecordCount), "Coverage counts do not reconcile.");
+        }
 
-public sealed record LootSpawnSourceIdentity(
-    int SchemaVersion,
-    string DatasetVersion,
-    string ContentSha256,
-    DateTimeOffset GeneratedUtc,
-    DateTimeOffset DataThroughUtc,
-    EvidenceSourceClass SourceClass,
-    string SourceIdentifier,
-    string SourceReference,
-    string License,
-    EvidenceConfidence Confidence,
-    ProducerIdentity Producer);
+        KnownRecordCount = knownRecordCount;
+        PublishedRecordCount = publishedRecordCount;
+        PositionedRecordCount = positionedRecordCount;
+        FloorResolvedRecordCount = floorResolvedRecordCount;
+        UnresolvedRecordCount = unresolvedRecordCount;
+    }
 
-public sealed record LootSpawnSourceDiagnostic(string Code, string Detail, string? MapId = null);
+    public string MapId { get; }
 
-public sealed record LootSpawnSourceBundle(
-    LootSpawnSourceIdentity Identity,
-    IReadOnlyList<LootSpawnSnapshot> Snapshots,
-    IReadOnlyList<LootSpawnMapSourceCoverage> Coverage,
-    IReadOnlyList<LootSpawnSourceDiagnostic> Diagnostics);
+    public int KnownRecordCount { get; }
+
+    public int PublishedRecordCount { get; }
+
+    public int PositionedRecordCount { get; }
+
+    public int FloorResolvedRecordCount { get; }
+
+    public int UnresolvedRecordCount { get; }
+}
+
+public sealed record LootSpawnSourceIdentity
+{
+    public LootSpawnSourceIdentity(
+        int schemaVersion,
+        string datasetVersion,
+        string contentSha256,
+        DateTimeOffset generatedUtc,
+        DateTimeOffset dataThroughUtc,
+        DateTimeOffset importedUtc,
+        EvidenceSourceClass sourceClass,
+        string sourceIdentifier,
+        string sourceReference,
+        string license,
+        EvidenceConfidence confidence,
+        ProducerIdentity producer)
+    {
+        if (schemaVersion < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(schemaVersion));
+        }
+
+        DatasetVersion = LootSpawnItemCatalogEntry.Required(datasetVersion, nameof(datasetVersion), 128);
+        ContentSha256 = LootSpawnItemCatalogEntry.Required(contentSha256, nameof(contentSha256), 64);
+        if (ContentSha256.Length != 64 || ContentSha256.Any(value =>
+                !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))
+        {
+            throw new ArgumentException("A SHA-256 content identity is required.", nameof(contentSha256));
+        }
+
+        if (generatedUtc == default || dataThroughUtc == default || importedUtc == default ||
+            generatedUtc.Offset != TimeSpan.Zero || dataThroughUtc.Offset != TimeSpan.Zero ||
+            importedUtc.Offset != TimeSpan.Zero || dataThroughUtc > generatedUtc || generatedUtc > importedUtc)
+        {
+            throw new ArgumentException("Source identity timestamps must be ordered, non-default UTC values.", nameof(generatedUtc));
+        }
+
+        if (sourceClass is not EvidenceSourceClass.PublicStructuredData and not EvidenceSourceClass.CuratedData)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceClass));
+        }
+
+        SchemaVersion = schemaVersion;
+        GeneratedUtc = generatedUtc;
+        DataThroughUtc = dataThroughUtc;
+        ImportedUtc = importedUtc;
+        SourceClass = sourceClass;
+        SourceIdentifier = LootSpawnItemCatalogEntry.Required(sourceIdentifier, nameof(sourceIdentifier), 256);
+        SourceReference = LootSpawnItemCatalogEntry.Required(sourceReference, nameof(sourceReference), 1024);
+        License = LootSpawnItemCatalogEntry.Required(license, nameof(license), 256);
+        Confidence = confidence ?? throw new ArgumentNullException(nameof(confidence));
+        Producer = producer ?? throw new ArgumentNullException(nameof(producer));
+    }
+
+    public int SchemaVersion { get; }
+
+    public string DatasetVersion { get; }
+
+    public string ContentSha256 { get; }
+
+    public DateTimeOffset GeneratedUtc { get; }
+
+    public DateTimeOffset DataThroughUtc { get; }
+
+    public DateTimeOffset ImportedUtc { get; }
+
+    public EvidenceSourceClass SourceClass { get; }
+
+    public string SourceIdentifier { get; }
+
+    public string SourceReference { get; }
+
+    public string License { get; }
+
+    public EvidenceConfidence Confidence { get; }
+
+    public ProducerIdentity Producer { get; }
+}
+
+public sealed record LootSpawnSourceDiagnostic
+{
+    public LootSpawnSourceDiagnostic(string code, string detail, string? mapId = null)
+    {
+        Code = LootSpawnItemCatalogEntry.Required(code, nameof(code), 128);
+        Detail = LootSpawnItemCatalogEntry.Required(detail, nameof(detail), 1024);
+        MapId = mapId is null ? null : LootSpawnItemCatalogEntry.Required(mapId, nameof(mapId), 128);
+    }
+
+    public string Code { get; }
+
+    public string Detail { get; }
+
+    public string? MapId { get; }
+}
+
+public sealed record LootSpawnSourceBundle
+{
+    public const int MaximumDiagnostics = LootSpawnSourceImportContext.MaximumMaps * 2;
+
+    public LootSpawnSourceBundle(
+        LootSpawnSourceIdentity identity,
+        IReadOnlyList<LootSpawnSnapshot> snapshots,
+        IReadOnlyList<LootSpawnMapSourceCoverage> coverage,
+        IReadOnlyList<LootSpawnSourceDiagnostic> diagnostics)
+    {
+        Identity = identity ?? throw new ArgumentNullException(nameof(identity));
+        Snapshots = BoundedCopy(snapshots, LootSpawnSourceImportContext.MaximumMaps, nameof(snapshots));
+        Coverage = BoundedCopy(coverage, LootSpawnSourceImportContext.MaximumMaps, nameof(coverage));
+        Diagnostics = BoundedCopy(diagnostics, MaximumDiagnostics, nameof(diagnostics));
+
+        if (Snapshots.Select(value => value.SnapshotId).Distinct(StringComparer.Ordinal).Count() != Snapshots.Count ||
+            Snapshots.Select(value => value.MapId).Distinct(StringComparer.Ordinal).Count() != Snapshots.Count ||
+            Coverage.Select(value => value.MapId).Distinct(StringComparer.Ordinal).Count() != Coverage.Count ||
+            Snapshots.Any(value => !string.Equals(value.DatasetVersion, identity.DatasetVersion, StringComparison.Ordinal)) ||
+            !Snapshots.Select(value => value.MapId).ToHashSet(StringComparer.Ordinal)
+                .SetEquals(Coverage.Select(value => value.MapId)))
+        {
+            throw new ArgumentException("Bundle snapshots, coverage, and source identity do not reconcile.");
+        }
+
+        foreach (var snapshot in Snapshots)
+        {
+            var measured = Coverage.Single(value => string.Equals(value.MapId, snapshot.MapId, StringComparison.Ordinal));
+            if (snapshot.GeneratedUtc != identity.ImportedUtc ||
+                snapshot.Coverage.Published != measured.PublishedRecordCount ||
+                snapshot.Coverage.Positioned != measured.PositionedRecordCount ||
+                snapshot.Coverage.FloorResolved != measured.FloorResolvedRecordCount ||
+                snapshot.Coverage.Unresolved != measured.UnresolvedRecordCount ||
+                snapshot.Provenance.SourceClass != identity.SourceClass ||
+                !string.Equals(snapshot.Provenance.SourceIdentifier, identity.SourceIdentifier, StringComparison.Ordinal) ||
+                snapshot.Provenance.ObservedUtc != identity.ImportedUtc ||
+                snapshot.Provenance.DataThroughUtc != identity.DataThroughUtc ||
+                snapshot.Provenance.GeneratedUtc != identity.GeneratedUtc ||
+                snapshot.Provenance.Confidence != identity.Confidence ||
+                snapshot.Provenance.Producer != identity.Producer ||
+                !string.Equals(snapshot.Provenance.Reference, identity.SourceReference, StringComparison.Ordinal))
+            {
+                throw new ArgumentException("A bundle snapshot does not match its measured coverage or source identity.", nameof(snapshots));
+            }
+        }
+    }
+
+    public LootSpawnSourceIdentity Identity { get; }
+
+    public IReadOnlyList<LootSpawnSnapshot> Snapshots { get; }
+
+    public IReadOnlyList<LootSpawnMapSourceCoverage> Coverage { get; }
+
+    public IReadOnlyList<LootSpawnSourceDiagnostic> Diagnostics { get; }
+
+    private static IReadOnlyList<T> BoundedCopy<T>(IReadOnlyList<T> values, int maximum, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        var copied = values.Take(maximum + 1).ToArray();
+        if (copied.Length > maximum || copied.Any(value => value is null))
+        {
+            throw new ArgumentException("A source-bundle collection is invalid or oversized.", parameterName);
+        }
+
+        return Array.AsReadOnly(copied);
+    }
+}
 
 public enum LootSpawnSourceImportDisposition
 {

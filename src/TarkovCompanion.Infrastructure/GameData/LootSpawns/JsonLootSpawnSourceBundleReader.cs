@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -27,6 +28,9 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
     public const int MaximumJsonDepth = 32;
     public const int MaximumMaps = 64;
     public const int MaximumStringLength = 1024;
+    public const int MaximumBundleRecords = 32_768;
+    public const int MaximumBundleCandidates = 65_536;
+    public const int MaximumBundleGeometryPoints = 262_144;
 
     private static readonly JsonDocumentOptions DocumentOptions = new()
     {
@@ -71,6 +75,7 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         BoundDocument(documents.Content, MaximumContentBytes, "content");
 
         using var manifestDocument = JsonDocument.Parse(documents.Manifest, DocumentOptions);
+        ValidateJsonShape(manifestDocument.RootElement, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         var manifest = ReadManifest(manifestDocument.RootElement, context);
 
@@ -83,6 +88,7 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         }
 
         using var contentDocument = JsonDocument.Parse(documents.Content, DocumentOptions);
+        ValidateJsonShape(contentDocument.RootElement, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         var content = RequireObject(contentDocument.RootElement, "content");
         RequireSchema(content);
@@ -96,6 +102,9 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         var snapshots = new List<LootSpawnSnapshot>(snapshotElements.GetArrayLength());
         var seenMaps = new HashSet<string>(StringComparer.Ordinal);
         var seenSnapshots = new HashSet<string>(StringComparer.Ordinal);
+        long bundleRecordCount = 0;
+        long bundleCandidateCount = 0;
+        long bundleGeometryPointCount = 0;
         foreach (var snapshotElement in snapshotElements.EnumerateArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -126,6 +135,8 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
             var recordsElement = RequiredArray(snapshotObject, "records", LootSpawnSnapshot.MaximumRecords);
             var records = new List<LootSpawnRecord>(recordsElement.GetArrayLength());
             var seenRecords = new HashSet<string>(StringComparer.Ordinal);
+            long snapshotCandidateCount = 0;
+            long snapshotGeometryPointCount = 0;
             foreach (var recordElement in recordsElement.EnumerateArray())
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -138,6 +149,22 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
                 if (!seenRecords.Add(record.SpawnId))
                 {
                     throw Refused("record.id-duplicate", $"Map '{mapId}' repeats spawn id '{record.SpawnId}'.");
+                }
+
+                snapshotCandidateCount += record.Candidates.Count;
+                snapshotGeometryPointCount += record.Location.GeometryPoints?.Count ?? 0;
+                bundleRecordCount++;
+                bundleCandidateCount += record.Candidates.Count;
+                bundleGeometryPointCount += record.Location.GeometryPoints?.Count ?? 0;
+                if (snapshotCandidateCount > LootSpawnSnapshot.MaximumTotalCandidates ||
+                    snapshotGeometryPointCount > LootSpawnSnapshot.MaximumTotalGeometryPoints ||
+                    bundleRecordCount > MaximumBundleRecords ||
+                    bundleCandidateCount > MaximumBundleCandidates ||
+                    bundleGeometryPointCount > MaximumBundleGeometryPoints)
+                {
+                    throw Refused(
+                        "source.aggregate-budget-exceeded",
+                        "The loot-spawn source exceeds its snapshot or bundle record, candidate, or geometry budget.");
                 }
 
                 records.Add(record);
@@ -156,7 +183,7 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
                 manifest.DatasetVersion,
                 mapId,
                 transformVersion,
-                manifest.GeneratedUtc,
+                context.ImportedUtc,
                 new ResultStatus(completeness, FreshnessState.Current, completeness == ResultCompleteness.Partial
                     ? "loot-spawn-source.partial"
                     : "loot-spawn-source.current"),
@@ -215,12 +242,18 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         var precision = ParsePrecision(RequiredString(locationObject, "precision", 32));
         var floorElements = RequiredArray(locationObject, "floorIds", LootSpawnLocation.MaximumFloors);
         var floors = new List<string>(floorElements.GetArrayLength());
+        var seenFloors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var floorElement in floorElements.EnumerateArray())
         {
             var floor = RequiredStringValue(floorElement, "floorId", 96);
             if (!map.FloorIds.Contains(floor))
             {
                 throw Refused("location.floor-unknown", $"Spawn '{spawnId}' names unknown floor '{floor}'.");
+            }
+
+            if (!seenFloors.Add(floor))
+            {
+                throw Refused("location.floor-duplicate", $"Spawn '{spawnId}' repeats floor '{floor}'.");
             }
 
             floors.Add(floor);
@@ -251,15 +284,15 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
                 throw Refused("pool.item-unknown", $"Spawn '{spawnId}' names item '{itemId}' absent from json.tarkov.dev metadata.");
             }
 
-            ValidateItemMetadata(item);
+            ValidateItemMetadata(itemId, item, context);
             candidates.Add(new(
                 item.ItemId,
-                RequiredText(item.DisplayName, nameof(item.DisplayName), 256),
-                RequiredText(item.Category, nameof(item.Category), 128),
-                Evidenced("flea-gross", item.FleaGrossRoubles, item.Provenance),
-                Evidenced("flea-net", item.FleaNetRoubles, item.Provenance),
-                Evidenced("best-trader", item.BestTraderRoubles, item.Provenance),
-                Evidenced("occupied-squares", item.OccupiedSquares, item.Provenance)));
+                item.DisplayName,
+                item.Category,
+                item.FleaGrossRoubles,
+                item.FleaNetRoubles,
+                item.BestTraderRoubles,
+                item.OccupiedSquares));
         }
 
         if (candidates.Count == 0)
@@ -330,8 +363,9 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         var manifest = RequireObject(root, "manifest");
         RequireSchema(manifest);
         var datasetVersion = RequiredString(manifest, "datasetVersion", 128);
-        var contentSha256 = RequiredString(manifest, "contentSha256", 64).ToLowerInvariant();
-        if (contentSha256.Length != 64 || !contentSha256.All(Uri.IsHexDigit))
+        var contentSha256 = RequiredString(manifest, "contentSha256", 64);
+        if (contentSha256.Length != 64 || contentSha256.Any(value =>
+                !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))
         {
             throw Refused("manifest.hash-invalid", "The manifest content SHA-256 must be 64 hexadecimal characters.");
         }
@@ -367,6 +401,47 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         var sourceReference = RequiredString(source, "reference", MaximumStringLength);
         var license = RequiredString(source, "license", 256);
         var confidence = ReadConfidence(RequireObject(Required(source, "confidence"), "confidence"));
+        if (sourceClass == EvidenceSourceClass.PublicStructuredData &&
+            !IsCanonicalTarkovDevEndpoint(sourceIdentifier, sourceReference, "maps"))
+        {
+            throw Refused(
+                "manifest.source-reference-incompatible",
+                "Public structured loot-spawn locations must use the canonical json.tarkov.dev maps endpoint.");
+        }
+
+        if (!IsCanonicalTarkovDevEndpoint(
+                context.ItemCatalogAuthority.SourceIdentifier,
+                context.ItemCatalogAuthority.SourceReference,
+                "items"))
+        {
+            throw Refused(
+                "item.source-authority-incompatible",
+                "The import context must bind candidate metadata to one canonical json.tarkov.dev items endpoint.");
+        }
+
+        if (sourceClass == EvidenceSourceClass.PublicStructuredData &&
+            !string.Equals(
+                TarkovDevMode(sourceIdentifier, "maps"),
+                TarkovDevMode(context.ItemCatalogAuthority.SourceIdentifier, "items"),
+                StringComparison.Ordinal))
+        {
+            throw Refused(
+                "manifest.source-mode-mismatch",
+                "The maps bundle and candidate item catalog must use the same json.tarkov.dev game mode.");
+        }
+
+        if (!context.ReviewedSourceAuthorities.Any(authority =>
+                authority.SourceClass == sourceClass &&
+                string.Equals(authority.SourceIdentifier, sourceIdentifier, StringComparison.Ordinal) &&
+                string.Equals(authority.SourceReference, sourceReference, StringComparison.Ordinal) &&
+                string.Equals(authority.License, license, StringComparison.Ordinal) &&
+                authority.Confidence == confidence))
+        {
+            throw Refused(
+                "manifest.source-unreviewed",
+                "The loot-spawn source authority, terms, or confidence have not been reviewed for this import context.");
+        }
+
         var producerObject = RequireObject(Required(manifest, "producer"), "producer");
         var producer = new ProducerIdentity(
             RequiredString(producerObject, "name", 128),
@@ -404,6 +479,7 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
             contentSha256,
             generatedUtc,
             dataThroughUtc,
+            context.ImportedUtc,
             sourceClass,
             sourceIdentifier,
             sourceReference,
@@ -426,7 +502,7 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         manifest.Identity.GeneratedUtc,
         new EvidenceCoverage(
             coverage.PublishedRecordCount,
-            coverage.KnownRecordCount == 0 ? 0 : (double)coverage.PublishedRecordCount / coverage.KnownRecordCount,
+            coverage.KnownRecordCount == 0 ? null : (double)coverage.PublishedRecordCount / coverage.KnownRecordCount,
             $"{coverage.PublishedRecordCount.ToString(CultureInfo.InvariantCulture)} of " +
             $"{coverage.KnownRecordCount.ToString(CultureInfo.InvariantCulture)} known records for {coverage.MapId}"),
         manifest.Identity.SourceReference);
@@ -445,28 +521,131 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         }
     }
 
-    private static void ValidateItemMetadata(LootSpawnItemCatalogEntry item)
+    private static void ValidateItemMetadata(
+        string requestedItemId,
+        LootSpawnItemCatalogEntry item,
+        LootSpawnSourceImportContext context)
     {
-        if (item.Provenance is null || item.Provenance.SourceClass != EvidenceSourceClass.PublicStructuredData ||
-            !IsTarkovDevIdentifier(item.Provenance.SourceIdentifier))
+        if (!string.Equals(requestedItemId, item.ItemId, StringComparison.Ordinal))
         {
-            throw Refused("item.source-incompatible", $"Item '{item.ItemId}' does not carry json.tarkov.dev provenance.");
+            throw Refused("item.identity-mismatch", $"Item '{requestedItemId}' resolved to a different canonical item identity.");
+        }
+
+        ValidateItemField(item.ItemId, item.FleaGrossRoubles, "flea-gross", context);
+        ValidateItemField(item.ItemId, item.FleaNetRoubles, "flea-net", context);
+        ValidateItemField(item.ItemId, item.BestTraderRoubles, "best-trader", context);
+        ValidateItemField(item.ItemId, item.OccupiedSquares, "occupied-squares", context);
+    }
+
+    private static void ValidateItemField<T>(
+        string itemId,
+        EvidencedValue<T?> field,
+        string expectedFieldId,
+        LootSpawnSourceImportContext context)
+        where T : struct
+    {
+        if (!string.Equals(field.FieldId, expectedFieldId, StringComparison.Ordinal) ||
+            field.Provenance.SourceClass != EvidenceSourceClass.PublicStructuredData ||
+            !string.Equals(
+                field.Provenance.SourceIdentifier,
+                context.ItemCatalogAuthority.SourceIdentifier,
+                StringComparison.Ordinal) ||
+            !string.Equals(
+                field.Provenance.Reference,
+                context.ItemCatalogAuthority.SourceReference,
+                StringComparison.Ordinal))
+        {
+            throw Refused("item.source-incompatible", $"Item '{itemId}' field '{expectedFieldId}' does not carry canonical json.tarkov.dev provenance.");
+        }
+
+        ValidateProvenanceChronology(field.Provenance, context.ImportedUtc, itemId, expectedFieldId);
+        if (field.Candidates.Count > LootSpawnCandidate.MaximumEvidenceAlternatives ||
+            field.Corrections.Count > LootSpawnCandidate.MaximumEvidenceAlternatives ||
+            !IsBoundedOptional(field.Status.Code, 128) ||
+            !IsBoundedOptional(field.Status.Detail, MaximumStringLength) ||
+            field.Candidates.Any(candidate =>
+                !IsBoundedRequired(candidate.CandidateId, 256) ||
+                !IsBoundedRequired(candidate.DisplayName, 256)) ||
+            field.Corrections.Any(correction =>
+                correction.CorrectedUtc > context.ImportedUtc ||
+                !IsBoundedRequired(correction.OriginIdentifier, 256) ||
+                !IsBoundedOptional(correction.Reason, 512)))
+        {
+            throw Refused("item.evidence-invalid", $"Item '{itemId}' field '{expectedFieldId}' exceeds evidence bounds or contains a future correction.");
+        }
+
+        foreach (var candidate in field.Candidates)
+        {
+            ValidateProvenanceChronology(candidate.Provenance, context.ImportedUtc, itemId, expectedFieldId);
         }
     }
 
-    private static EvidencedValue<T?> Evidenced<T>(string fieldId, T? value, EvidenceProvenance provenance)
-        where T : struct => new(
-        fieldId,
-        value,
-        new ResultStatus(
-            value is null ? ResultCompleteness.Unknown : ResultCompleteness.Complete,
-            FreshnessState.Current,
-            value is null ? "item.value-unavailable" : "item.value-current"),
-        provenance);
+    private static void ValidateProvenanceChronology(
+        EvidenceProvenance provenance,
+        DateTimeOffset importedUtc,
+        string itemId,
+        string fieldId)
+    {
+        if (provenance.SourceClass == EvidenceSourceClass.Unknown ||
+            provenance.ObservedUtc > importedUtc ||
+            provenance.DataThroughUtc > importedUtc ||
+            provenance.GeneratedUtc > importedUtc ||
+            !IsBoundedRequired(provenance.SourceIdentifier, 256) ||
+            !IsBoundedOptional(provenance.Reference, MaximumStringLength) ||
+            !IsBoundedRequired(provenance.Producer.Name, 128) ||
+            !IsBoundedRequired(provenance.Producer.Version, 128) ||
+            !IsBoundedOptional(provenance.Producer.ModelVersion, 128) ||
+            !IsBoundedOptional(provenance.Confidence.CalibrationReference, 512) ||
+            !IsBoundedOptional(provenance.Coverage?.Description, MaximumStringLength))
+        {
+            throw Refused("item.evidence-invalid", $"Item '{itemId}' field '{fieldId}' carries unknown or future evidence.");
+        }
+
+        foreach (var input in provenance.Inputs)
+        {
+            ValidateProvenanceChronology(input, importedUtc, itemId, fieldId);
+        }
+    }
 
     private static bool IsTarkovDevIdentifier(string value) =>
-        string.Equals(value, "json.tarkov.dev", StringComparison.OrdinalIgnoreCase) ||
-        value.StartsWith("json.tarkov.dev/", StringComparison.OrdinalIgnoreCase);
+        string.Equals(value, "json.tarkov.dev", StringComparison.Ordinal) ||
+        value.StartsWith("json.tarkov.dev/", StringComparison.Ordinal);
+
+    private static bool IsCanonicalTarkovDevEndpoint(
+        string sourceIdentifier,
+        string? sourceReference,
+        string resource)
+    {
+        foreach (var mode in new[] { "regular", "pve", "pvp-season" })
+        {
+            if (string.Equals(sourceIdentifier, $"json.tarkov.dev/{mode}/{resource}", StringComparison.Ordinal) &&
+                string.Equals(sourceReference, $"https://json.tarkov.dev/{mode}/{resource}", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string? TarkovDevMode(string sourceIdentifier, string resource)
+    {
+        foreach (var mode in new[] { "regular", "pve", "pvp-season" })
+        {
+            if (string.Equals(sourceIdentifier, $"json.tarkov.dev/{mode}/{resource}", StringComparison.Ordinal))
+            {
+                return mode;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsBoundedRequired(string? value, int maximum) =>
+        !string.IsNullOrWhiteSpace(value) && value.Length <= maximum;
+
+    private static bool IsBoundedOptional(string? value, int maximum) =>
+        value is null || (!string.IsNullOrWhiteSpace(value) && value.Length <= maximum);
 
     private static LootSpawnPrecision ParsePrecision(string value) => value switch
     {
@@ -530,6 +709,35 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         }
     }
 
+    // JsonDocument deliberately permits duplicate object members. Reject them recursively before
+    // reading any claim: otherwise two conforming tools can hash the same bytes but disagree about
+    // which schema, source, timestamp, or coordinate the document asserts.
+    private static void ValidateJsonShape(JsonElement element, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!names.Add(property.Name))
+                {
+                    throw Refused("source.duplicate-property", $"JSON object member '{property.Name}' is repeated.");
+                }
+
+                ValidateJsonShape(property.Value, cancellationToken);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var value in element.EnumerateArray())
+            {
+                ValidateJsonShape(value, cancellationToken);
+            }
+        }
+    }
+
     private static JsonElement Required(JsonElement element, string propertyName) =>
         element.TryGetProperty(propertyName, out var value) && value.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined
             ? value
@@ -577,12 +785,18 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
         }
 
         var trimmed = value.Trim();
-        if (trimmed.Length > maximum)
+        if (!string.Equals(value, trimmed, StringComparison.Ordinal) ||
+            !value.IsNormalized(NormalizationForm.FormC))
+        {
+            throw Refused("source.string-noncanonical", $"'{name}' must not contain surrounding whitespace or non-canonical Unicode.");
+        }
+
+        if (value.Length > maximum)
         {
             throw Refused("source.string-oversized", $"'{name}' exceeds its {maximum.ToString(CultureInfo.InvariantCulture)} character limit.");
         }
 
-        return trimmed;
+        return value;
     }
 
     private static string? OptionalString(JsonElement element, string propertyName, int maximum)
