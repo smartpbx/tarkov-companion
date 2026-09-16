@@ -1032,12 +1032,12 @@ public sealed class StashScanAssembler
     {
         var values = new Dictionary<AbsoluteCell, ValueObservation>();
         var conflicts = new HashSet<AbsoluteCell>();
-        var incomplete = false;
+        var structurallyIncomplete = false;
         foreach (var region in regions)
         {
             if (region.Origin.Value is not { } origin)
             {
-                incomplete = true;
+                structurallyIncomplete = true;
                 continue;
             }
 
@@ -1046,7 +1046,7 @@ public sealed class StashScanAssembler
                 budget.Visit();
                 if (!TrySignature(cell, out var signature))
                 {
-                    incomplete = true;
+                    structurallyIncomplete = true;
                     continue;
                 }
 
@@ -1067,8 +1067,8 @@ public sealed class StashScanAssembler
                     values.Add(absolute, new ValueObservation(
                         signature,
                         current,
+                        completeValue,
                         valueEvidence?.Provenance));
-                    incomplete |= !completeValue;
                     continue;
                 }
 
@@ -1077,15 +1077,16 @@ public sealed class StashScanAssembler
                 {
                     values.Remove(absolute);
                     conflicts.Add(absolute);
-                    incomplete = true;
+                    structurallyIncomplete = true;
                     continue;
                 }
 
-                if (existing.Value is null && current is not null)
+                if (completeValue && (!existing.IsComplete || existing.Value is null))
                 {
                     values[absolute] = new ValueObservation(
                         signature,
                         current,
+                        true,
                         valueEvidence?.Provenance);
                 }
             }
@@ -1101,6 +1102,8 @@ public sealed class StashScanAssembler
                 affectedCells: 1));
         }
 
+        var incomplete = structurallyIncomplete ||
+                         values.Values.Any(value => value.Value is null || !value.IsComplete);
         long? total = 0;
         try
         {
@@ -1289,6 +1292,7 @@ public sealed class StashScanAssembler
     private readonly record struct ValueObservation(
         CellSignature Signature,
         long? Value,
+        bool IsComplete,
         EvidenceProvenance? Provenance);
 
     private sealed class AssemblyBudget(CancellationToken cancellationToken)

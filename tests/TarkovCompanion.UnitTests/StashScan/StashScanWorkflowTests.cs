@@ -20,6 +20,15 @@ public sealed class StashScanWorkflowTests
         "Pvp");
 
     [Fact]
+    public void CaptureBoundLeavesRoomForTwoMaximumAssemblyRootsInAComparison()
+    {
+        Assert.Equal(
+            EvidenceProvenance.MaxInputCount,
+            2 + (2 * StashScanBounds.MaximumCaptures));
+        Assert.True(EvidenceProvenance.MaxInputDepth >= 3);
+    }
+
+    [Fact]
     public void OrderedOverlappingFramesStitchWithoutDoubleCounting()
     {
         var first = Frame(
@@ -60,6 +69,57 @@ public sealed class StashScanWorkflowTests
         Assert.Empty(result.Report.Issues);
         Assert.Equal(EvidenceSourceClass.DerivedCalculation, result.Recognition.Result.Provenance.SourceClass);
         Assert.Equal(2, result.Recognition.Result.Provenance.Inputs.Count);
+    }
+
+    [Fact]
+    public void MissingThenCompleteOverlappingValueUsesTheFinalReconciledObservation()
+    {
+        var missing = Frame(
+            0,
+            'a',
+            Grid(Cell(0, "item-a")),
+            confirmsStart: true,
+            totalCells: 3);
+        var complete = Frame(
+            1,
+            'b',
+            Grid(Cell(0, "item-a")),
+            origin: new GridCellAddress(0, 0),
+            values: Values((0, 25)),
+            totalCells: 3);
+
+        var result = new StashScanAssembler().Assemble(Request(missing, complete));
+
+        Assert.Equal(25L, result.Recognition.Result.Value!.TotalKnownValueRoubles.Value);
+        Assert.Equal(
+            ResultCompleteness.Complete,
+            result.Recognition.Result.Value.TotalKnownValueRoubles.Status.Completeness);
+        Assert.Equal(ResultCompleteness.Complete, result.Report.Status.Completeness);
+    }
+
+    [Fact]
+    public void AllMissingOverlappingValuesKeepTheKnownTotalPartial()
+    {
+        var first = Frame(
+            0,
+            'a',
+            Grid(Cell(0, "item-a")),
+            confirmsStart: true,
+            totalCells: 3);
+        var second = Frame(
+            1,
+            'b',
+            Grid(Cell(0, "item-a")),
+            origin: new GridCellAddress(0, 0),
+            totalCells: 3);
+
+        var result = new StashScanAssembler().Assemble(Request(first, second));
+
+        Assert.Equal(0L, result.Recognition.Result.Value!.TotalKnownValueRoubles.Value);
+        Assert.Equal(
+            ResultCompleteness.Partial,
+            result.Recognition.Result.Value.TotalKnownValueRoubles.Status.Completeness);
+        Assert.Equal(ResultCompleteness.Partial, result.Report.Status.Completeness);
     }
 
     [Fact]
@@ -358,7 +418,8 @@ public sealed class StashScanWorkflowTests
         IReadOnlyList<string>? closedContainers = null,
         string? artifactId = null,
         CaptureContextMetadata? context = null,
-        string containerPath = "stash")
+        string containerPath = "stash",
+        int totalCells = 4)
     {
         var provenance = ScreenshotProvenance(ordinal);
         return new StashScanCaptureFrame(
@@ -378,7 +439,7 @@ public sealed class StashScanWorkflowTests
                 grid,
                 [],
                 []),
-            Complete<int?>(4, provenance, "container.total"),
+            Complete<int?>(totalCells, provenance, "container.total"),
             confirmsStart,
             origin is null ? null : DirectOrigin(origin.Value.Row),
             values,
