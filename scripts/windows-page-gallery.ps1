@@ -228,6 +228,31 @@ function Wait-AutomationElement {
     return $null
 }
 
+function Wait-AutomationOffscreenElement {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId,
+        [int] $TimeoutSeconds = 15
+    )
+
+    # Searching with IncludeOffscreen only proved that a peer existed somewhere in the raw tree.
+    # Narrow-layout evidence needs the peer itself to report that it is outside the viewport.
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Element = Find-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId $AutomationId `
+                -IncludeOffscreen $true
+            if ($null -ne $Element -and $Element.Current.IsOffscreen) { return $Element }
+        }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $Deadline)
+    return $null
+}
+
 function Get-InteractionProperty {
     param([AllowNull()] [object] $Object, [string] $Name, [AllowNull()] [object] $Default = $null)
 
@@ -370,11 +395,10 @@ function Invoke-ShellInteraction {
             }
         }
         foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOffscreenAutomationIds" -Default @())) {
-            if ($null -eq (Wait-AutomationElement `
+            if ($null -eq (Wait-AutomationOffscreenElement `
                 -WindowHandle $WindowHandle `
-                -AutomationId $ExpectedId `
-                -IncludeOffscreen $true)) {
-                throw "'$Description' did not expose expected element '$ExpectedId', including outside the viewport."
+                -AutomationId $ExpectedId)) {
+                throw "'$Description' expected '$ExpectedId' to report UI Automation IsOffscreen=true within 15 seconds."
             }
         }
         foreach ($BoundsAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedBounds" -Default @())) {
