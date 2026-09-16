@@ -174,7 +174,8 @@ leaves the stale one standing.
     GET /health   ->   {"status":"ok","protocol":1,"version":"1.0.548", ...}
 
 No key required. `protocol` is the number described above; `version` and `commit` say which
-build is answering.
+build is answering. The current response also includes start time and aggregate room/member
+counts, so it is not a minimal liveness-only route.
 
 ## Who may have a room
 
@@ -274,9 +275,11 @@ typed, then every word starting a word of the name.
   the raw value. Registering a room stores hashes and labels. Direct HTTP or a compromised relay
   can still expose the reusable credential; #304 and #310 own its replacement.
 
-The state directory contains `marks.json` waypoints, the `rooms.json` registry, submitted
-`reports/*.md`, and updater status stamps. They survive a restart on purpose. Live member
-positions and pings remain memory-only and are not written as movement history.
+The relay state directory contains `marks.json` waypoints, the `rooms.json` registry, submitted
+`reports/*.md`, and the transient `UPDATE_NOW` request. They survive a restart on purpose except
+for that request, which the updater consumes. Authenticated updater history and status are kept in
+separate root-owned directories. Live member positions and pings remain memory-only and are not
+written as movement history.
 
 ## Which version everything speaks
 
