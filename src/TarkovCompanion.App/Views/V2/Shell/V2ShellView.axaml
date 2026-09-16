@@ -2,7 +2,19 @@
              x:DataType="vm:V2ShellViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
+             xmlns:stashViews="using:TarkovCompanion.App.Views.V2.StashScan"
+             xmlns:debriefVm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
+             xmlns:debriefViews="using:TarkovCompanion.App.Views.V2.Debrief">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
+      <stashViews:StashScanWorkspaceView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type debriefVm:DebriefWorkspaceViewModel}">
+      <debriefViews:DebriefWorkspaceView />
+    </DataTemplate>
+  </UserControl.DataTemplates>
   <UserControl.Styles>
     <!-- Reserve the selected outline in every state. Changing border geometry while a
          destination moves between rows can make WrapPanel and its Grid parent remeasure each
@@ -399,6 +411,7 @@
             </StackPanel>
           </ScrollViewer>
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a

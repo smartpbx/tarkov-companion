@@ -7,10 +7,12 @@ internal static class V2ShellTestData
 {
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
+    // "History" left this list when the V2 rough stash+debrief package pointed the Debrief route
+    // at its own V2 workspace instead of hosting the V1 History page.
     public static readonly string[] V1Destinations =
     [
         "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
-        "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings",
+        "Flea", "Quests", "Hideout", "Events", "Loadout", "Settings",
     ];
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>

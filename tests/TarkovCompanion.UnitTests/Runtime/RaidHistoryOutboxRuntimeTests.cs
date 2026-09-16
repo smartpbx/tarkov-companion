@@ -599,6 +599,21 @@ public sealed class RaidHistoryOutboxRuntimeTests
             return Task.CompletedTask;
         }
 
+        public Task CorrectAsync(
+            Guid raidId,
+            string? outcome,
+            string? notes,
+            CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                _types.Add("correct");
+                _entries.Add($"{raidId:N}|{outcome}|{notes}");
+            }
+
+            return Task.CompletedTask;
+        }
+
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 
