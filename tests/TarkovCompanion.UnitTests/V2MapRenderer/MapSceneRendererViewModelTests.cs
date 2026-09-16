@@ -633,7 +633,7 @@ public sealed class MapSceneRendererViewModelTests
         Assert.False(IsVisible(renderer, new("estimates")));
         Assert.False(IsVisible(renderer, HighValueLootLayerService.LayerId));
         Assert.True(IsVisible(renderer, new("hazards")));
-        Assert.Contains("Earlier confirmed layer changes remain applied", renderer.RendererNotice,
+        Assert.Contains("Earlier layer changes remain applied", renderer.RendererNotice,
             StringComparison.Ordinal);
     }
 
