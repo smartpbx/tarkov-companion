@@ -130,6 +130,7 @@ public sealed record TrafficModelBuildReport
     public bool LeakageCheckPassed { get; }
 }
 
+/// <summary>A detached manifest signature; signing UTC is informational and is not signed metadata.</summary>
 public sealed record TrafficArtifactSignature
 {
     public TrafficArtifactSignature(

@@ -65,27 +65,24 @@ public interface ITrafficArtifactSignatureVerifier
 
 public sealed class EcdsaTrafficArtifactSignatureVerifier : ITrafficArtifactSignatureVerifier, IDisposable
 {
-    private readonly IReadOnlyDictionary<string, ECDsa> _trustedKeys;
+    private readonly IReadOnlyDictionary<string, TrustedKey> _trustedKeys;
 
     public EcdsaTrafficArtifactSignatureVerifier(IReadOnlyDictionary<string, byte[]> subjectPublicKeyInfoByKeyId)
     {
         ArgumentNullException.ThrowIfNull(subjectPublicKeyInfoByKeyId);
-        var keys = new Dictionary<string, ECDsa>(StringComparer.Ordinal);
+        var keys = new Dictionary<string, TrustedKey>(StringComparer.Ordinal);
         try
         {
             foreach (var pair in subjectPublicKeyInfoByKeyId)
             {
                 var keyId = RequireKeyId(pair.Key);
                 ArgumentNullException.ThrowIfNull(pair.Value);
-                var key = ECDsa.Create();
-                key.ImportSubjectPublicKeyInfo(pair.Value, out var bytesRead);
-                if (bytesRead != pair.Value.Length || key.KeySize != 256)
+                var key = ImportTrustedKey(pair.Value, nameof(subjectPublicKeyInfoByKeyId));
+                if (!keys.TryAdd(keyId, key))
                 {
                     key.Dispose();
-                    throw new ArgumentException("Traffic signing keys must be exact P-256 public keys.", nameof(subjectPublicKeyInfoByKeyId));
+                    throw new ArgumentException("Traffic signing key ids must be unique.", nameof(subjectPublicKeyInfoByKeyId));
                 }
-
-                keys.Add(keyId, key);
             }
 
             if (keys.Count == 0)
@@ -116,10 +113,9 @@ public sealed class EcdsaTrafficArtifactSignatureVerifier : ITrafficArtifactSign
             return false;
         }
 
-        return key.VerifyHash(
+        return key.Verify(
             manifestSha256,
-            Convert.FromBase64String(signature.SignatureBase64),
-            DSASignatureFormat.Rfc3279DerSequence);
+            Convert.FromBase64String(signature.SignatureBase64));
     }
 
     public void Dispose()
@@ -140,6 +136,54 @@ public sealed class EcdsaTrafficArtifactSignatureVerifier : ITrafficArtifactSign
         }
 
         return keyId;
+    }
+
+    private static TrustedKey ImportTrustedKey(byte[] subjectPublicKeyInfo, string parameterName)
+    {
+        var key = ECDsa.Create();
+        try
+        {
+            key.ImportSubjectPublicKeyInfo(subjectPublicKeyInfo, out var bytesRead);
+            if (bytesRead != subjectPublicKeyInfo.Length || key.KeySize != 256)
+            {
+                throw new ArgumentException("Traffic signing keys must be exact P-256 public keys.", parameterName);
+            }
+
+            return new TrustedKey(key);
+        }
+        catch
+        {
+            key.Dispose();
+            throw;
+        }
+    }
+
+    /// <remarks>
+    /// <see cref="ECDsa"/> does not promise concurrent instance safety. Package downloads may be
+    /// validated in parallel, so each trusted key serializes verification and disposal rather than
+    /// sharing an unguarded native handle.
+    /// </remarks>
+    private sealed class TrustedKey(ECDsa key) : IDisposable
+    {
+        private readonly object _gate = new();
+        private ECDsa? _key = key;
+
+        public bool Verify(ReadOnlySpan<byte> hash, ReadOnlySpan<byte> signature)
+        {
+            lock (_gate)
+            {
+                var current = _key ?? throw new ObjectDisposedException(nameof(TrustedKey));
+                return current.VerifyHash(hash, signature, DSASignatureFormat.Rfc3279DerSequence);
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                Interlocked.Exchange(ref _key, null)?.Dispose();
+            }
+        }
     }
 }
 
@@ -196,7 +240,7 @@ public sealed class TrafficModelPackageImporter
                 return Rejected(TrafficModelImportDisposition.Quarantined, receiptHash, "package-integrity-mismatch");
             }
 
-            if (signature.SignedUtc < manifest.GeneratedUtc || !_signatureVerifier.Verify(manifestHashBytes, signature))
+            if (!_signatureVerifier.Verify(manifestHashBytes, signature))
             {
                 return Rejected(TrafficModelImportDisposition.Quarantined, receiptHash, "signature-invalid");
             }

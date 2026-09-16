@@ -1,5 +1,7 @@
+using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using TarkovCompanion.Core.Domain.Strategy.Data;
 using TarkovCompanion.Infrastructure.Strategy.Datasets;
@@ -8,12 +10,14 @@ return await RunAsync(args).ConfigureAwait(false);
 
 static async Task<int> RunAsync(string[] arguments)
 {
+    byte[]? privateKeyPem = null;
     try
     {
         var options = ParseArguments(arguments);
         var requestBytes = await ReadBoundedAsync(options["--request"], 16 * 1024 * 1024).ConfigureAwait(false);
         var artifact = await ReadBoundedAsync(options["--artifact"], 64 * 1024 * 1024).ConfigureAwait(false);
-        var privateKeyPem = await ReadBoundedAsync(options["--private-key"], 64 * 1024).ConfigureAwait(false);
+        privateKeyPem = await ReadBoundedAsync(options["--private-key"], 64 * 1024).ConfigureAwait(false);
+        RejectDuplicateProperties(requestBytes, "build request");
         var request = JsonSerializer.Deserialize<TrafficModelBuildRequest>(requestBytes, TrafficDataJson.Options)
                       ?? throw new InvalidDataException("The build request was null.");
         var signedUtc = DateTimeOffset.ParseExact(
@@ -23,24 +27,13 @@ static async Task<int> RunAsync(string[] arguments)
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         var build = TrafficModelBuilder.Build(request, artifact);
 
-        using var key = ECDsa.Create();
-        key.ImportFromPem(System.Text.Encoding.UTF8.GetString(privateKeyPem));
-        if (key.KeySize != 256)
-        {
-            throw new InvalidDataException("Traffic manifests require an ECDSA P-256 private key.");
-        }
-
         var manifestHash = SHA256.HashData(build.ManifestJson);
         var signature = new TrafficArtifactSignature(
             TrafficSignatureAlgorithm.EcdsaP256Sha256,
             options["--key-id"],
             Convert.ToHexStringLower(manifestHash),
-            Convert.ToBase64String(key.SignHash(manifestHash, DSASignatureFormat.Rfc3279DerSequence)),
+            Convert.ToBase64String(SignManifestHash(manifestHash, privateKeyPem!)),
             signedUtc);
-        if (signature.SignedUtc < build.Manifest.GeneratedUtc)
-        {
-            throw new InvalidDataException("The explicit signing time cannot predate model generation.");
-        }
 
         var output = Path.GetFullPath(options["--output"]);
         if (Directory.Exists(output) && Directory.EnumerateFileSystemEntries(output).Any())
@@ -63,6 +56,13 @@ static async Task<int> RunAsync(string[] arguments)
     {
         Console.Error.WriteLine(exception.Message);
         return 1;
+    }
+    finally
+    {
+        if (privateKeyPem is not null)
+        {
+            CryptographicOperations.ZeroMemory(privateKeyPem);
+        }
     }
 }
 
@@ -103,13 +103,123 @@ static Dictionary<string, string> ParseArguments(string[] arguments)
 static async Task<byte[]> ReadBoundedAsync(string path, int maximumBytes)
 {
     var fullPath = Path.GetFullPath(path);
-    var length = new FileInfo(fullPath).Length;
-    if (length is <= 0 || length > maximumBytes)
+    await using var stream = new FileStream(
+        fullPath,
+        FileMode.Open,
+        FileAccess.Read,
+        FileShare.Read,
+        bufferSize: 16 * 1024,
+        FileOptions.Asynchronous | FileOptions.SequentialScan);
+    var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+    try
     {
-        throw new InvalidDataException($"Input is outside its {maximumBytes}-byte bound.");
+        using var destination = new MemoryStream(capacity: Math.Min(maximumBytes, 64 * 1024));
+        try
+        {
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length)).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (destination.Length + read > maximumBytes)
+                {
+                    throw new InvalidDataException($"Input exceeds its {maximumBytes}-byte bound.");
+                }
+
+                destination.Write(buffer, 0, read);
+            }
+
+            if (destination.Length == 0)
+            {
+                throw new InvalidDataException("Input cannot be empty.");
+            }
+
+            return destination.ToArray();
+        }
+        finally
+        {
+            if (destination.TryGetBuffer(out var contents))
+            {
+                CryptographicOperations.ZeroMemory(contents.AsSpan());
+            }
+        }
+    }
+    finally
+    {
+        CryptographicOperations.ZeroMemory(buffer);
+        ArrayPool<byte>.Shared.Return(buffer);
+    }
+}
+
+static byte[] SignManifestHash(ReadOnlySpan<byte> manifestHash, ReadOnlySpan<byte> privateKeyPem)
+{
+    var characters = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(privateKeyPem.Length));
+    try
+    {
+        var count = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true)
+            .GetChars(privateKeyPem, characters);
+        using var key = ECDsa.Create();
+        key.ImportFromPem(characters.AsSpan(0, count));
+        if (key.KeySize != 256)
+        {
+            throw new InvalidDataException("Traffic manifests require an ECDSA P-256 private key.");
+        }
+
+        return key.SignHash(manifestHash, DSASignatureFormat.Rfc3279DerSequence);
+    }
+    finally
+    {
+        Array.Clear(characters);
+        ArrayPool<char>.Shared.Return(characters);
+    }
+}
+
+static void RejectDuplicateProperties(ReadOnlySpan<byte> bytes, string description)
+{
+    var reader = new Utf8JsonReader(bytes, new JsonReaderOptions
+    {
+        AllowTrailingCommas = false,
+        CommentHandling = JsonCommentHandling.Disallow,
+        MaxDepth = TrafficDataJson.MaxDepth,
+    });
+    var containers = new Stack<HashSet<string>?>();
+    while (reader.Read())
+    {
+        switch (reader.TokenType)
+        {
+            case JsonTokenType.StartObject:
+                containers.Push(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                break;
+            case JsonTokenType.StartArray:
+                containers.Push(null);
+                break;
+            case JsonTokenType.EndObject:
+            case JsonTokenType.EndArray:
+                if (containers.Count == 0)
+                {
+                    throw new InvalidDataException($"The {description} has an invalid container boundary.");
+                }
+
+                containers.Pop();
+                break;
+            case JsonTokenType.PropertyName:
+                var name = reader.GetString()!;
+                if (containers.Count == 0 || containers.Peek() is not { } properties || !properties.Add(name))
+                {
+                    throw new InvalidDataException($"The {description} contains a duplicate property.");
+                }
+
+                break;
+        }
     }
 
-    return await File.ReadAllBytesAsync(fullPath).ConfigureAwait(false);
+    if (containers.Count != 0)
+    {
+        throw new InvalidDataException($"The {description} has an unterminated container.");
+    }
 }
 
 static async Task WriteNewAsync(string path, byte[] bytes)

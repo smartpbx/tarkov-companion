@@ -79,6 +79,32 @@ public sealed class TrafficSnapshotStore : IDisposable
                 return Result(imported, state);
             }
 
+            if (state is not null)
+            {
+                var current = await ImportStoredAsync(state.CurrentReceiptSha256, requiredScope: null, cancellationToken)
+                    .ConfigureAwait(false);
+                if (current.IsAccepted && HasSameSignedManifest(imported, current))
+                {
+                    return Result(current, state) with { ReasonCode = "already-current-manifest" };
+                }
+
+                foreach (var receipt in new[] { state.CurrentReceiptSha256, state.LastKnownGoodReceiptSha256 }
+                             .Distinct(StringComparer.Ordinal))
+                {
+                    var installed = string.Equals(receipt, state.CurrentReceiptSha256, StringComparison.Ordinal)
+                        ? current
+                        : await ImportStoredAsync(receipt, requiredScope: null, cancellationToken).ConfigureAwait(false);
+                    if (!installed.IsAccepted || DowngradeReason(imported, installed) is not { } reason)
+                    {
+                        continue;
+                    }
+
+                    var refused = RefusedInstall(imported, reason);
+                    await WriteQuarantineReceiptAsync(refused, cancellationToken).ConfigureAwait(false);
+                    return Result(refused, state);
+                }
+            }
+
             var target = VersionDirectory(imported.ReceiptSha256);
             if (Directory.Exists(target))
             {
@@ -429,6 +455,47 @@ public sealed class TrafficSnapshotStore : IDisposable
         state?.CurrentReceiptSha256,
         state?.LastKnownGoodReceiptSha256,
         imported.Publication);
+
+    private static string? DowngradeReason(
+        TrafficModelImportResult candidate,
+        TrafficModelImportResult installed)
+    {
+        var candidateManifest = candidate.Publication!.Manifest;
+        var installedManifest = installed.Publication!.Manifest;
+        if (candidateManifest.DataThroughUtc < installedManifest.DataThroughUtc)
+        {
+            return "snapshot-data-through-regression";
+        }
+
+        if (candidateManifest.GeneratedUtc < installedManifest.GeneratedUtc)
+        {
+            return "snapshot-generation-regression";
+        }
+
+        return candidateManifest.GeneratedUtc == installedManifest.GeneratedUtc &&
+               !HasSameSignedManifest(candidate, installed)
+            ? "snapshot-generation-conflict"
+            : null;
+    }
+
+    private static bool HasSameSignedManifest(
+        TrafficModelImportResult left,
+        TrafficModelImportResult right) =>
+        left.ManifestJson!.AsSpan().SequenceEqual(right.ManifestJson!);
+
+    private static TrafficModelImportResult RefusedInstall(
+        TrafficModelImportResult imported,
+        string reasonCode) =>
+        new(
+            TrafficModelImportDisposition.Quarantined,
+            imported.ReceiptSha256,
+            reasonCode,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
 
     private static void ValidateState(SnapshotState state)
     {

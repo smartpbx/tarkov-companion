@@ -26,7 +26,15 @@ observation class, and evaluated prediction. No submission differs from explicit
 Feedback changes are append-only. Corrections point to the immediately prior revision and retain
 source and consent; revocation is a terminal value-free event. Deletion removes the complete local
 private chain. Published datasets, reports, models, and predictions are immutable. Changed or
-revoked input appears only through a newly built version.
+revoked input appears only through a newly built version. The private journal uses expected-revision
+appends, strict bounded restart parsing, an exclusive writer lease, and atomic file replacement; it
+has no enumeration or export surface, and deletion retains no journal tombstone.
+
+Normal installation is monotonic in the signed manifest's data-through and generation timestamps.
+It refuses conflicting content at one generation and replay of an older valid package without
+moving either installed head; explicit rollback is the authorized downgrade path. The detached
+signature envelope's signing timestamp is informational because the manifest signature does not
+bind that field, so freshness decisions never use it.
 
 Partition assignment hashes a complete correlation-group id with a versioned policy and public
 salt. Train, tune, and held-out shares are positive basis-point ranges. Imported labels are

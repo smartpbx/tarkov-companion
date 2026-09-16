@@ -156,6 +156,17 @@ public sealed class TrafficDataContractTests
     }
 
     [Fact]
+    public void PartitionSharesCannotWrapThroughIntOverflow()
+    {
+        Assert.Throws<ArgumentException>(() => new TrafficPartitionPolicy(
+            "overflow-policy",
+            "fixture-salt",
+            int.MaxValue,
+            int.MaxValue,
+            10_002));
+    }
+
+    [Fact]
     public void CompatibilityDoesNotAcceptUnknownOrWildcardCells()
     {
         Assert.Throws<ArgumentException>(() => new TrafficCompatibilityScope(

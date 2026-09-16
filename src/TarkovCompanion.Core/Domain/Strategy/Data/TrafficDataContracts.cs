@@ -616,8 +616,9 @@ public sealed record TrafficPartitionPolicy
         int tuneBasisPoints,
         int heldOutBasisPoints)
     {
+        var totalBasisPoints = (long)trainBasisPoints + tuneBasisPoints + heldOutBasisPoints;
         if (trainBasisPoints <= 0 || tuneBasisPoints <= 0 || heldOutBasisPoints <= 0 ||
-            trainBasisPoints + tuneBasisPoints + heldOutBasisPoints != TrafficDataBounds.PartitionBasisPoints)
+            totalBasisPoints != TrafficDataBounds.PartitionBasisPoints)
         {
             throw new ArgumentException("Partition shares must be positive and total 10,000 basis points.");
         }

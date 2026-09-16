@@ -62,6 +62,13 @@ and time cannot run backwards. Local deletion removes the complete private chain
 revocation causes a later aggregate/model build with new versions; it never edits a published
 dataset, model, prediction, or report in place.
 
+`PrivateTrafficFeedbackStore` is the local journal boundary. It holds an exclusive process lease,
+accepts corrections, revocations, and deletion only against the expected durable revision, and
+atomically replaces one strict JSON document capped at 16 MiB and 4,096 histories. Restart parsing
+rejects unknown or duplicate properties and malformed chains. Deletion rewrites the journal without
+the complete history or a tombstone, and the store deliberately exposes no enumeration or export
+operation. It is not part of a distributable model package.
+
 Aggregation must remove the local profile id and retain only a sufficiently broad named
 region/corridor and compatibility cohort. The distributable schema has nowhere to store identity,
 exact coordinates, or current-raid state, and each distributable aggregate cell requires at least
@@ -142,7 +149,11 @@ it does not preserve the hostile body.
 Verified packages are staged beneath the local snapshot root and moved into a content-addressed
 version directory before one atomic state-file replacement publishes the new head. The previous
 verified current head becomes last known good. A refused or incompatible package cannot move
-either head. Startup revalidates the current package entirely from local files; if it is corrupt,
+either head. Normal installs refuse signed-manifest data-through or generation regression and
+conflicting content at an identical generation before staging. Explicit rollback remains the
+authorized downgrade path. The detached envelope's `SignedUtc` is informational rather than a
+freshness authority because the manifest signature does not bind it. Startup revalidates the
+current package entirely from local files; if it is corrupt,
 the store revalidates and atomically selects last known good. Explicit rollback uses the same path.
 No network access is required to load or roll back an installed snapshot.
 
@@ -159,7 +170,9 @@ never generalize from another map, game version, mode, wipe, or cohort.
 ## Verification gate
 
 Unit coverage fixes source/consent/use rules, explicit unknown feedback, full correction and
-revocation chains, immutable caller collections, deterministic group assignment, partition/count
+revocation chains, concurrent journal revisions, deletion and hostile restart parsing, immutable
+caller collections, deterministic group assignment, partition/count
 reconciliation, strict hostile-field rejection, signature/integrity checks, compatibility
-refusal, quarantine head preservation, order-independent builds, and last-known-good rollback.
+refusal, downgrade replay/conflict refusal, quarantine head preservation, order-independent builds,
+and last-known-good rollback.
 GitHub Actions is the required execution gate; no local .NET workload is evidence for integration.

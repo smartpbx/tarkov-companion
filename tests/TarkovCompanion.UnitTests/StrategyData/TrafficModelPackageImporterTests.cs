@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -95,6 +96,38 @@ public sealed class TrafficModelPackageImporterTests
     }
 
     [Fact]
+    public async Task ConcurrentImportsShareATrustedSignatureKeySafely()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var verifier = Verifier(key);
+        var importer = new TrafficModelPackageImporter(verifier);
+        var package = Package(key, "2026.09.16", "artifact-one");
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
+            importer.ImportAsync(package.Streams(), Scope, TestContext.Current.CancellationToken)));
+
+        Assert.All(results, result => Assert.True(result.IsAccepted));
+    }
+
+    [Fact]
+    public async Task DetachedSigningTimestampIsInformationalRatherThanAFreshnessAuthority()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var verifier = Verifier(key);
+        var importer = new TrafficModelPackageImporter(verifier);
+        var package = Package(key, "2026.09.16", "artifact-one");
+        var envelope = JsonNode.Parse(package.Signature)!;
+        envelope["signedUtc"] = Now.AddYears(-1).ToString("O", CultureInfo.InvariantCulture);
+
+        var result = await importer.ImportAsync(
+            (package with { Signature = Encoding.UTF8.GetBytes(envelope.ToJsonString()) }).Streams(),
+            Scope,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsAccepted);
+    }
+
+    [Fact]
     public async Task RefusedInstallCannotMoveCurrentOrLastKnownGoodHeads()
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
@@ -139,7 +172,7 @@ public sealed class TrafficModelPackageImporterTests
                 Scope,
                 TestContext.Current.CancellationToken);
             var second = await store.InstallAsync(
-                Package(key, "2026.09.17", "artifact-two").Streams(),
+                Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1)).Streams(),
                 Scope,
                 TestContext.Current.CancellationToken);
             await File.WriteAllTextAsync(
@@ -175,7 +208,7 @@ public sealed class TrafficModelPackageImporterTests
             using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
             var first = Package(key, "2026.09.16", "artifact-one");
             var installed = await store.InstallAsync(first.Streams(), Scope, TestContext.Current.CancellationToken);
-            var second = Package(key, "2026.09.17", "artifact-two");
+            var second = Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1));
             var inspected = await importer.ImportAsync(second.Streams(), Scope, TestContext.Current.CancellationToken);
             Assert.True(inspected.IsAccepted);
             var occupied = Path.Combine(root, "versions", inspected.ReceiptSha256);
@@ -201,6 +234,117 @@ public sealed class TrafficModelPackageImporterTests
     }
 
     [Fact]
+    public async Task ReplayedOlderPackageCannotReplaceCurrentButExplicitRollbackCan()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var verifier = Verifier(key);
+        var importer = new TrafficModelPackageImporter(verifier);
+        var root = Path.Combine(Path.GetTempPath(), $"traffic-store-{Guid.NewGuid():N}");
+        try
+        {
+            using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
+            var older = Package(key, "2026.09.16", "artifact-one");
+            var first = await store.InstallAsync(older.Streams(), Scope, TestContext.Current.CancellationToken);
+            var second = await store.InstallAsync(
+                Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1)).Streams(),
+                Scope,
+                TestContext.Current.CancellationToken);
+            var statePath = Path.Combine(root, "snapshot-state.json");
+            var stateBeforeReplay = await File.ReadAllBytesAsync(statePath, TestContext.Current.CancellationToken);
+
+            var replayed = await store.InstallAsync(older.Streams(), Scope, TestContext.Current.CancellationToken);
+
+            Assert.Equal(TrafficModelImportDisposition.Quarantined, replayed.Disposition);
+            Assert.Equal("snapshot-data-through-regression", replayed.ReasonCode);
+            Assert.Equal(second.CurrentReceiptSha256, replayed.CurrentReceiptSha256);
+            Assert.Equal(first.CurrentReceiptSha256, replayed.LastKnownGoodReceiptSha256);
+            Assert.Equal(
+                stateBeforeReplay,
+                await File.ReadAllBytesAsync(statePath, TestContext.Current.CancellationToken));
+
+            var rolledBack = await store.RollbackAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal("explicit-rollback", rolledBack.ReasonCode);
+            Assert.Equal(first.CurrentReceiptSha256, rolledBack.CurrentReceiptSha256);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ConflictingContentAtTheSameGenerationCannotReplaceCurrent()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var verifier = Verifier(key);
+        var importer = new TrafficModelPackageImporter(verifier);
+        var root = Path.Combine(Path.GetTempPath(), $"traffic-store-{Guid.NewGuid():N}");
+        try
+        {
+            using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
+            var installed = await store.InstallAsync(
+                Package(key, "2026.09.16", "artifact-one").Streams(),
+                Scope,
+                TestContext.Current.CancellationToken);
+
+            var refused = await store.InstallAsync(
+                Package(key, "2026.09.17", "artifact-two").Streams(),
+                Scope,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
+            Assert.Equal("snapshot-generation-conflict", refused.ReasonCode);
+            Assert.Equal(installed.CurrentReceiptSha256, refused.CurrentReceiptSha256);
+            Assert.Equal(installed.LastKnownGoodReceiptSha256, refused.LastKnownGoodReceiptSha256);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task GeneratedTimeRegressionIsRefusedWhenDataThroughDoesNotRegress()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var verifier = Verifier(key);
+        var importer = new TrafficModelPackageImporter(verifier);
+        var root = Path.Combine(Path.GetTempPath(), $"traffic-store-{Guid.NewGuid():N}");
+        try
+        {
+            using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
+            var installed = await store.InstallAsync(
+                Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-2)).Streams(),
+                Scope,
+                TestContext.Current.CancellationToken);
+
+            var refused = await store.InstallAsync(
+                Package(key, "2026.09.16", "artifact-one").Streams(),
+                Scope,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
+            Assert.Equal("snapshot-generation-regression", refused.ReasonCode);
+            Assert.Equal(installed.CurrentReceiptSha256, refused.CurrentReceiptSha256);
+            Assert.Equal(installed.LastKnownGoodReceiptSha256, refused.LastKnownGoodReceiptSha256);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void BuilderAssignmentIsStableAndDoesNotTrustInputOrder()
     {
         var forward = UnsignedBuild("2026.09.16", "artifact-one", reverse: false);
@@ -213,16 +357,21 @@ public sealed class TrafficModelPackageImporterTests
             Assert.Equal(TrafficPartitioner.Assign(record.PartitionGroupId, Policy), record.Partition));
     }
 
-    private static SignedPackage Package(ECDsa key, string version, string artifactText)
+    private static SignedPackage Package(
+        ECDsa key,
+        string version,
+        string artifactText,
+        DateTimeOffset? generatedUtc = null,
+        DateTimeOffset? dataThroughUtc = null)
     {
-        var build = UnsignedBuild(version, artifactText, reverse: false);
+        var build = UnsignedBuild(version, artifactText, reverse: false, generatedUtc, dataThroughUtc);
         var manifestHash = SHA256.HashData(build.ManifestJson);
         var signature = new TrafficArtifactSignature(
             TrafficSignatureAlgorithm.EcdsaP256Sha256,
             "fixture-key",
             Convert.ToHexStringLower(manifestHash),
             Convert.ToBase64String(key.SignHash(manifestHash, DSASignatureFormat.Rfc3279DerSequence)),
-            Now.AddMinutes(1));
+            build.Manifest.GeneratedUtc.AddMinutes(1));
         return new SignedPackage(
             build.DatasetJson,
             build.ReportJson,
@@ -231,8 +380,15 @@ public sealed class TrafficModelPackageImporterTests
             build.Artifact);
     }
 
-    private static TrafficModelBuildResult UnsignedBuild(string version, string artifactText, bool reverse)
+    private static TrafficModelBuildResult UnsignedBuild(
+        string version,
+        string artifactText,
+        bool reverse,
+        DateTimeOffset? generatedUtc = null,
+        DateTimeOffset? dataThroughUtc = null)
     {
+        generatedUtc ??= Now;
+        dataThroughUtc ??= Now.AddDays(-2);
         var provenance = Historical();
         var source = new TrafficDatasetSource(
             "fixture-aggregate",
@@ -272,8 +428,8 @@ public sealed class TrafficModelPackageImporterTests
                 "traffic-dataset",
                 version,
                 TrafficDatasetVisibility.DistributableAggregate,
-                Now.AddDays(-2),
-                Now,
+                dataThroughUtc.Value,
+                generatedUtc.Value,
                 "traffic-transform-2",
                 "traffic-runtime",
                 $"traffic-model-{version}",
