@@ -412,6 +412,8 @@
           </ScrollViewer>
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
+          <TextBlock Grid.Row="1" Classes="v2-body" IsVisible="{Binding ShowsLootScanEmpty}" Text="{Binding LootScanEmptyLabel}" />
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a

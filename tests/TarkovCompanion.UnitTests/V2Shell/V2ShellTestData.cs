@@ -7,11 +7,15 @@ internal static class V2ShellTestData
 {
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
-    // "History" left this list when the V2 rough stash+debrief package pointed the Debrief route
-    // at its own V2 workspace instead of hosting the V1 History page.
+    /// <summary>
+    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Scanner" is deliberately absent:
+    /// the Loot route now hosts the real <c>LootScanView</c> instead (package 1, #282). "History" is
+    /// deliberately absent too: the Debrief route now hosts the real <c>DebriefWorkspaceView</c>
+    /// instead (package 3). Neither v1 page is reachable through the V2 shell any more.
+    /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
+        "Raid", "Squad", "Group", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "Settings",
     ];
 
