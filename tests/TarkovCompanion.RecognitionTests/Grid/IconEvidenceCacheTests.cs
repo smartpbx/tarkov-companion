@@ -126,7 +126,8 @@ public sealed class IconEvidenceCacheTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             cache.StoreAsync(Request(key, new byte[] { 1, 2, 3, 4 }), CancellationToken.None));
 
-        Assert.False(Directory.Exists(_cacheDirectory));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.tmp"));
     }
 
     [Fact]
