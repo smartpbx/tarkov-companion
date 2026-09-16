@@ -4,6 +4,11 @@ Tarkov Companion stores public game data in a local SQLite database. The databas
 
 The cache is local application state. It never contains game process memory, intercepted traffic, user tokens, or captured screen images. Optional TarkovTracker tokens live only behind the Windows per-user protected-storage adapter, outside SQLite.
 
+Governed traffic artifacts also live outside SQLite, in a content-addressed local snapshot store.
+They contain only reviewed historical aggregates and model files, never raw private raid histories.
+Strict import, quarantine receipts, atomic head replacement, offline validation, and
+last-known-good rollback are specified in `docs/research/TRAFFIC_DATA.md`.
+
 ## Startup
 
 Run `SqliteMigrationRunner.ApplyAsync` before constructing repositories. `SqliteMigrationLedger` is the only ordered sequence: every identifier has one embedded upgrade fixture and one rollback fixture, and an unreserved filename is refused. The migration and its `schema_migrations` row commit in one transaction, so re-running the runner is idempotent. A database that contains an unknown newer-build migration and is also missing any known migration is left intact and refused as an unsafe sidegrade; a fully current database with additive newer migration rows remains readable and reports those rows.
@@ -87,6 +92,20 @@ fields available to later planners.
 Raid summaries and events continue to use the existing `raids` and `raid_events` tables. `raid_field_history` keeps manual values and external observations as distinct immutable evidence with nullable observation time/confidence and explicit source. CSV and JSON export read persisted summaries; no capture bytes or screen images enter the database.
 
 `SqliteProfileWorkspaceStore` implements the V2 profile workspace compare-and-swap contract across a workspace head, immutable identity/generation context, and normalized progress collections. Reads hold one SQLite snapshot across the head and every normalized child table, so a concurrent replacement cannot produce a mixed-revision workspace. `observed_inventory_snapshots` and `observed_inventory_nodes` store bounded, acyclic nested stash/container/item evidence, nullable unknown measurements, source/version/coverage/confidence, and exact forward-compatible JSON. Saving a current snapshot atomically retires the prior current snapshot in the same profile/generation/mode scope.
+
+Full-stash assembly may persist a `DerivedCalculation` recognition root only when every internal
+lineage node is derived and every leaf is a user-triggered screenshot or external visible-pixel
+capture. Direct visible-capture roots remain valid; mixed unknown, user, log, public, historical,
+or modelled lineage is rejected. Snapshot lifecycle uses the same tables: deletion promotes the
+newest surviving snapshot in the exact scope, while explicit retention dry-run/execution targets
+only non-current rows older than the supplied UTC cutoff.
+
+For guided stash scans, `observed_inventory_snapshots.data_snapshot_id` is the catalog/economics
+publication requested by the scan; it is not the recognition payload's `StashRecognition.SnapshotId`.
+The column already existed, so this correction needs no schema migration. The durable inventory
+adapter retains source compatibility for older callers that omit the new optional contract field:
+only those callers fall back to the recognition snapshot id when writing. Every read returns the
+stored column explicitly, and guided stash records require it.
 
 `craft_history` records nullable historical cost/yield/output evidence. Its schema rejects non-canonical history identifiers, negative or non-finite facts, empty source/time text, and SQLite dynamic-type substitutions before readers need to quarantine them. `loadout_plans` uses exact-next revision compare-and-swap and retains extension JSON. Model snapshot writes accept only the frozen typed `HistoricalIntelligence<T>` and `ModelledIntelligence<T>` evidence contracts, then verify every persisted source/time/coverage/confidence/model-version field against the canonical lineage carried by that envelope. Modelled evidence is the prediction contract; there is no live presentation path. Named calibration references stay in canonical JSON, while the legacy numeric `calibration` column remains `NULL` rather than inventing a lossy number. Queries require the exact nullable profile, generation, and game-mode context. `retention_policies` keeps Debug Capture explicit and disabled by default; captures themselves are never persisted unless that separately reviewed feature is enabled. Local user history has no implicit retention period: a missing policy or a `NULL` `data_retention_days` value preserves it.
 

@@ -63,6 +63,38 @@ fact about the quest they are on.
    too few comparable items are priced to rank it. Telling somebody the wrong reason is how they
    stop believing the right ones.
 
+## High-value loot planning
+
+The desktop map can carry the typed high-value-loot result beside the canonical scene. Its
+everyday identity is the compact `Potential spawns · Updated <date>` legend. The independent
+layer toggle and the one-action **High-value loot only** preset use the same revision-checked map
+state as every other renderer action. The preset keeps extracts, companion position/orientation,
+routes, pings, waypoints, visible hazards, any visible safety/context layers selected by the host,
+and the layer containing the current selection; it does not reset the camera, floor, or selected
+spawn. Its ordinary layer changes are serialized rather than atomic. A later revision conflict
+leaves earlier confirmed changes in place, stops the remainder, and displays a review-and-retry
+notice.
+
+The desktop filters value basis, minimum displayed tier, profile relevance, category, and floor.
+Value-basis, profile, category, and floor changes send a unique request bound to the expected map,
+transform, and scene revision, then ask the owning application service to rebuild the typed result
+before the host republishes its canonical scene. Minimum tier is a deterministic
+presentation filter over the service-assigned tier. The accessible paged list includes map-only
+and unresolved-floor records that cannot truthfully become markers. Selection progressively
+discloses possible items and categories, value range and basis, profile reasons, precision, access
+notes, dataset and transform versions, source class and producer, observed/data-through/generated
+times, confidence and calibration meaning, source coverage, plus unknown probability, respawn,
+value, floor, or location states. Per-square amounts retain their unit, while profile-utility mode
+says that market value was not used instead of calling it unknown. Host-provided category and floor
+option streams are read to a fixed ceiling and render at most 12 named choices plus the all-choice;
+the UI announces when more are
+available instead of creating an unbounded control list.
+
+The current shared map command contract can change presentation, floor, layer visibility, and
+camera only. It has no waypoint/planning-stop creation command, so this slice does not display a
+button that cannot complete a revision-checked handoff. Adding that action requires a canonical
+desktop/tablet map-command contract rather than a renderer-local waypoint.
+
 ## Key intelligence
 
 Key scoring is explicit and inspectable. The weighted Core score combines:
