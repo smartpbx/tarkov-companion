@@ -7,6 +7,7 @@
     <ProjectReference Include="../../src/TarkovCompanion.App/TarkovCompanion.App.csproj" />
     <ProjectReference Include="../../src/TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
     <ProjectReference Include="../../src/TarkovCompanion.Application/TarkovCompanion.Application.csproj" />
+    <ProjectReference Include="../../src/TarkovCompanion.CompanionProtocol/TarkovCompanion.CompanionProtocol.csproj" />
     <!-- The group key decides who shares a room with whom, so its rules are worth testing
          in the same suite as everything else rather than only at run time. -->
     <ProjectReference Include="../../src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj" />
