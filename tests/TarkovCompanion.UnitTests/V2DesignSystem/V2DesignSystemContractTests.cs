@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using TarkovCompanion.App.Themes.V2;
 using TarkovCompanion.App.Views.V2.Primitives;
+using TarkovCompanion.Core.Abstractions.V2;
 using static TarkovCompanion.UnitTests.V2DesignSystem.V2DesignSystemFiles;
 
 namespace TarkovCompanion.UnitTests.V2DesignSystem;
@@ -338,7 +339,7 @@ public sealed class V2DesignSystemContractTests
         var styleSelectors = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").Select(style => Attr(style, "Selector")).OfType<string>().ToArray();
         Assert.All(availability.Keys, id => Assert.Contains($"Panel.v2-availability-{id} > Rectangle.v2-badge-outline", styleSelectors));
 
-        var badges = elements.Where(element => Classes(element).Contains("v2-badge")).ToArray();
+        var badges = elements.Where(element => Classes(element).Any(name => name.StartsWith("v2-availability-", StringComparison.Ordinal))).ToArray();
         Assert.NotEmpty(badges);
         foreach (var badge in badges)
         {
@@ -446,6 +447,178 @@ public sealed class V2DesignSystemContractTests
     }
 
     [Fact]
+    public void OperationalSemanticsSplitIndependentFactsAndCoverTheCanonicalCaptureContract()
+    {
+        using var manifest = ReadJson(ManifestPath);
+        var root = manifest.RootElement;
+        var english = ReadStrings(EnglishStringsPath);
+        var glyphKeys = KeysOf(ReadXaml(TokensPath));
+        var evidence = root.GetProperty("evidence");
+        var evidencePresentation = evidence.GetProperty("presentation");
+        var operations = root.GetProperty("operations");
+        var capture = operations.GetProperty("capture");
+        var device = operations.GetProperty("pairedDevice");
+
+        Assert.Equal("1.1.0", root.GetProperty("version").GetString());
+        Assert.Equal(V2PrimitiveContracts.EvidenceClasses, Strings(evidence, "classes"));
+        Assert.Equal(V2PrimitiveContracts.EvidenceClasses, Ids(evidencePresentation.GetProperty("classes")));
+        string[] compactIdentities = ["potential", "historical", "freshness", "confidence", "coverage", "degraded", "sharing"];
+        Assert.Equal(compactIdentities, Strings(evidencePresentation, "compactIdentities"));
+        var compactFacts = evidencePresentation.GetProperty("compactFacts");
+        string[] compactFactIds = ["freshness", "confidence", "coverage", "degraded", "sharing"];
+        Assert.Equal(compactFactIds, Ids(compactFacts));
+        var confidence = ById(compactFacts, "confidence");
+        Assert.Contains(confidence.GetProperty("wordingKey").GetString()!, english.Keys);
+        Assert.Contains("V2.Glyph." + Pascal(confidence.GetProperty("glyph").GetString()!), glyphKeys);
+        Assert.Equal("dotted", confidence.GetProperty("pattern").GetString());
+        var detailFields = Strings(evidencePresentation, "detailsFields").ToArray();
+        Assert.All(Strings(evidence, "requiredWhenMaterial"), field => Assert.Contains(field, detailFields));
+        Assert.Contains("history", detailFields);
+
+        var escalation = evidencePresentation.GetProperty("escalation");
+        string[] escalationLevels = ["compact", "inline", "banner"];
+        Assert.Equal(escalationLevels, escalation.EnumerateObject().Select(level => level.Name));
+        var escalationTriggers = escalation.EnumerateObject().SelectMany(level => StringValues(level.Value)).ToArray();
+        Assert.NotEmpty(escalationTriggers);
+        Assert.Equal(escalationTriggers.Length, escalationTriggers.Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains("decisionChangingUncertainty", StringValues(escalation.GetProperty("inline")));
+        Assert.Contains("currentSharing", StringValues(escalation.GetProperty("inline")));
+        Assert.Contains("securityFailure", StringValues(escalation.GetProperty("banner")));
+
+        var captureStages = capture.GetProperty("stages");
+        var captureOutcomes = capture.GetProperty("outcomes");
+        Assert.Equal(V2PrimitiveContracts.CaptureProgressStages, Ids(captureStages));
+        Assert.Equal(V2PrimitiveContracts.CaptureOutcomes, Ids(captureOutcomes));
+        Assert.Equal(V2PrimitiveContracts.CaptureActions, Ids(capture.GetProperty("actions")));
+        Assert.Equal(V2PrimitiveContracts.CaptureIntents, Strings(capture, "intentIds"));
+        Assert.Equal(V2PrimitiveContracts.CaptureIntents, Ids(capture.GetProperty("intents")));
+        Assert.Equal(Enum.GetNames<ScanIntent>().Select(Camel), V2PrimitiveContracts.CaptureIntents);
+        Assert.Equal(V2PrimitiveContracts.PairedUnavailableCaptureIntents, Strings(capture, "intentUnavailableOnPairedDevice"));
+        var unavailableIntents = capture.GetProperty("intents").EnumerateArray()
+            .Where(intent => !intent.GetProperty("pairedRequest").GetBoolean())
+            .Select(intent => intent.GetProperty("id").GetString()!);
+        Assert.Equal(V2PrimitiveContracts.PairedUnavailableCaptureIntents, unavailableIntents);
+        Assert.All(capture.GetProperty("intents").EnumerateArray(), intent =>
+            Assert.Contains(intent.GetProperty("wordingKey").GetString()!, english.Keys));
+        string[] captureFacts = ["intent", "purpose", "ordinal", "total", "initiatingContext"];
+        Assert.Equal(captureFacts, Strings(capture, "requiredFacts"));
+        Assert.Equal(
+            Enum.GetNames<CaptureSessionStage>(),
+            captureStages.EnumerateArray().SelectMany(stage => Strings(stage, "sourceStages")));
+        var captureLegacy = captureStages.EnumerateArray().Concat(captureOutcomes.EnumerateArray())
+            .Where(value => value.TryGetProperty("legacyState", out _))
+            .Select(value => value.GetProperty("legacyState").GetString()!)
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(V2PrimitiveContracts.CaptureStages.Order(StringComparer.Ordinal), captureLegacy);
+
+        Assert.Equal(V2PrimitiveContracts.DeviceModes, Ids(device.GetProperty("modes")));
+        Assert.Equal(V2PrimitiveContracts.DeviceControlStates, Ids(device.GetProperty("control")));
+        Assert.Equal(V2PrimitiveContracts.DeviceConnectivityStates, Ids(device.GetProperty("connectivity")));
+        Assert.Equal(V2PrimitiveContracts.DeviceAcknowledgementStates, Ids(device.GetProperty("acknowledgement")));
+        Assert.Equal(V2PrimitiveContracts.SharingScopes, Ids(device.GetProperty("sharingScopes")));
+        Assert.Equal(V2PrimitiveContracts.RecoveryActions, Ids(device.GetProperty("recoveryActions")));
+        string[] protocolModes = ["Follow", "ControlPending", "Control", "Independent"];
+        Assert.Equal(protocolModes, device.GetProperty("modes").EnumerateArray().SelectMany(mode => Strings(mode, "protocolModes")));
+        var deviceLegacy = new[] { "modes", "connectivity", "acknowledgement" }
+            .SelectMany(group => device.GetProperty(group).EnumerateArray())
+            .Where(value => value.TryGetProperty("legacyState", out _))
+            .Select(value => value.GetProperty("legacyState").GetString()!)
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(V2PrimitiveContracts.DeviceStates.Order(StringComparer.Ordinal), deviceLegacy);
+
+        var semanticGroups = new[]
+        {
+            evidencePresentation.GetProperty("classes"), captureStages, captureOutcomes,
+            device.GetProperty("modes"), device.GetProperty("control"), device.GetProperty("connectivity"),
+            device.GetProperty("acknowledgement"), device.GetProperty("sharingScopes"),
+        };
+        foreach (var group in semanticGroups)
+        {
+            var values = group.EnumerateArray().ToArray();
+            Assert.Equal(values.Length, values.Select(value => value.GetProperty("id").GetString()!).Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(
+                values.Length,
+                values.Select(value => $"{value.GetProperty("glyph").GetString()}:{value.GetProperty("pattern").GetString()}").Distinct(StringComparer.Ordinal).Count());
+            Assert.All(values, value =>
+            {
+                Assert.Contains(value.GetProperty("wordingKey").GetString()!, english.Keys);
+                Assert.Contains("V2.Glyph." + Pascal(value.GetProperty("glyph").GetString()!), glyphKeys);
+                Assert.Contains(value.GetProperty("pattern").GetString()!, new[] { "solid", "dashed", "dotted", "dashDot" });
+            });
+        }
+
+        foreach (var actions in new[] { capture.GetProperty("actions"), device.GetProperty("recoveryActions") })
+        {
+            Assert.All(actions.EnumerateArray(), action => Assert.Contains(action.GetProperty("wordingKey").GetString()!, english.Keys));
+        }
+    }
+
+    [Fact]
+    public void OperationalGalleryExamplesExposeLocalizedFactsActionsAndOrderedCaptureRows()
+    {
+        using var manifest = ReadJson(ManifestPath);
+        var root = manifest.RootElement;
+        var english = ReadStrings(EnglishStringsPath);
+        var elements = ReadXaml(GalleryPath).Descendants().ToArray();
+        var evidenceClasses = root.GetProperty("evidence").GetProperty("presentation").GetProperty("classes");
+        var compactFacts = root.GetProperty("evidence").GetProperty("presentation").GetProperty("compactFacts");
+        var device = root.GetProperty("operations").GetProperty("pairedDevice");
+        var capture = root.GetProperty("operations").GetProperty("capture");
+
+        AssertSemanticExample(ById(elements, "v2-credibility-historical"), ById(evidenceClasses, "historical"));
+        AssertSemanticExample(
+            elements.Single(element => Classes(element).Contains("v2-credibility-confidence")),
+            ById(compactFacts, "confidence"));
+        AssertSemanticExample(
+            elements.Single(element => Classes(element).Contains("v2-device-sharing-paired")),
+            ById(device.GetProperty("sharingScopes"), "pairedDevices"));
+        AssertSemanticExample(
+            elements.Single(element => Classes(element).Contains("v2-capture-stage-review")),
+            ById(capture.GetProperty("stages"), "review"));
+        AssertSemanticExample(
+            elements.Single(element => Classes(element).Contains("v2-capture-stage-processing")),
+            ById(capture.GetProperty("stages"), "processing"));
+
+        var deviceCard = ById(elements, "v2-paired-device");
+        var deviceName = english[ResourceKey(Attr(deviceCard, "AutomationProperties.Name"))];
+        foreach (var key in new[]
+                 {
+                     "V2.String.Device.Mode.ControlPending", "V2.String.Device.Control.Pending",
+                     "V2.String.Device.Connectivity.Reconnecting", "V2.String.Device.Acknowledgement.Lagging",
+                     "V2.String.Device.Sharing.PairedDevices",
+                 })
+        {
+            Assert.Contains(english[key], deviceName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var progress = ById(elements, "v2-capture-progress");
+        Assert.Equal("Control", Attr(progress, "AutomationProperties.AccessibilityView"));
+        var rows = progress.Elements().Where(element => Classes(element).Contains("v2-capture-row")).ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.All(rows, row =>
+        {
+            Assert.Equal("Control", Attr(row, "AutomationProperties.AccessibilityView"));
+            var name = english[ResourceKey(Attr(row, "AutomationProperties.Name"))];
+            var visibleWords = row.Descendants(AvaloniaXmlns + "TextBlock")
+                .Select(text => ResourceKey(Attr(text, "Text")))
+                .Where(english.ContainsKey)
+                .Select(key => english[key]);
+            Assert.All(visibleWords, word => Assert.Contains(word, name, StringComparison.OrdinalIgnoreCase));
+        });
+
+        var actionKeys = capture.GetProperty("actions").EnumerateArray()
+            .Select(action => action.GetProperty("wordingKey").GetString()!)
+            .Concat(device.GetProperty("recoveryActions").EnumerateArray().Select(action => action.GetProperty("wordingKey").GetString()!))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var id in new[] { "v2-device-reconnect", "v2-capture-correct", "v2-capture-context" })
+        {
+            var action = ById(elements, id);
+            Assert.Contains(ResourceKey(Attr(action, "Content")), actionKeys);
+            Assert.Contains("v2-touch-target", Classes(action));
+        }
+    }
+
+    [Fact]
     public void TypeStylesUseTheirLevelTokensAndDensityOnlyChangesWhitespace()
     {
         var tokens = ReadXaml(TokensPath).Elements()
@@ -526,6 +699,12 @@ public sealed class V2DesignSystemContractTests
         Assert.All(cases, item => Assert.Contains(item.GetProperty("effectiveWidth").GetString()!, widths));
         Assert.Contains(cases, item => item.GetProperty("effectiveWidth").GetString() == "narrow");
         Assert.Contains(cases, item => Strings(item, "mustShow").Contains("focusRing"));
+
+        var motionVariants = Strings(root, "motionVariants").ToArray();
+        Assert.Equal(Strings(manifest.RootElement.GetProperty("variants"), "motion").Where(value => value != "system"), motionVariants);
+        Assert.Equal(motionVariants.Order(StringComparer.Ordinal), cases.Select(item => item.GetProperty("motion").GetString()!).Distinct().Order(StringComparer.Ordinal));
+        Assert.Contains(cases, item => item.GetProperty("surface").GetString() == "desktop");
+        Assert.Contains(cases, item => item.GetProperty("surface").GetString() == "tablet");
 
         // Every token a case must show names gallery automation ids. The matrix once asked for
         // stacked cards, a table overflow affordance, and an ordered data alternative that the
@@ -637,8 +816,17 @@ public sealed class V2DesignSystemContractTests
 
         // The status automation name was once an English sentence inside the platform-neutral manifest.
         var statusTemplate = manifest.RootElement.GetProperty("status").GetProperty("composition").GetProperty("automationTemplate").GetString()!;
-        Assert.Contains(statusTemplate, ids);
-        Assert.DoesNotContain("{", statusTemplate, StringComparison.Ordinal);
+        var operations = manifest.RootElement.GetProperty("operations");
+        var operationalTemplates = new[]
+        {
+            operations.GetProperty("capture").GetProperty("automationTemplate").GetString()!,
+            operations.GetProperty("pairedDevice").GetProperty("automationTemplate").GetString()!,
+        };
+        Assert.All(operationalTemplates.Prepend(statusTemplate), template =>
+        {
+            Assert.Contains(template, ids);
+            Assert.DoesNotContain("{", template, StringComparison.Ordinal);
+        });
 
         foreach (var template in templates)
         {
@@ -797,6 +985,23 @@ public sealed class V2DesignSystemContractTests
         }
 
         return names.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static string[] Ids(JsonElement array) =>
+        array.EnumerateArray().Select(item => item.GetProperty("id").GetString()!).ToArray();
+
+    private static IEnumerable<string> StringValues(JsonElement array) =>
+        array.EnumerateArray().Select(item => item.GetString()!);
+
+    private static JsonElement ById(JsonElement array, string id) =>
+        array.EnumerateArray().Single(item => item.GetProperty("id").GetString() == id);
+
+    private static void AssertSemanticExample(XElement example, JsonElement semantic)
+    {
+        var texts = example.Descendants(AvaloniaXmlns + "TextBlock").Select(text => Attr(text, "Text")).OfType<string>().ToArray();
+        Assert.Contains($"{{DynamicResource {semantic.GetProperty("wordingKey").GetString()}}}", texts);
+        Assert.Contains($"{{DynamicResource V2.Glyph.{Pascal(semantic.GetProperty("glyph").GetString()!)}}}", texts);
+        AssertPattern(semantic.GetProperty("pattern").GetString()!, example.Elements(AvaloniaXmlns + "Rectangle").Single());
     }
 
     private static XElement ById(IEnumerable<XElement> elements, string automationId) =>
