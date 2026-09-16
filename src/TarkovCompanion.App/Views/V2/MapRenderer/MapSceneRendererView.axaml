@@ -1,0 +1,204 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.MapRenderer.MapSceneRendererView"
+             x:DataType="vm:MapSceneRendererViewModel"
+             Focusable="True"
+             KeyDown="RendererKeyDown"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer">
+  <UserControl.Styles>
+    <Style Selector="Button.v2-map-choice">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
+    </Style>
+    <Style Selector="Button.v2-map-choice.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-map-marker">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+    </Style>
+    <Style Selector="Button.v2-map-marker.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    </Style>
+    <Style Selector="TextBlock.v2-map-offered">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.v2-map-not-offered">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="Opacity" Value="0.72" />
+    </Style>
+    <Style Selector="TextBlock.v2-map-offer-unknown">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
+    <Style Selector="Border.v2-map-grid">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12" Margin="{DynamicResource V2.Space.Xl.Inset}">
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-2" Text="{Binding LocationLabel}" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-label" Text="{Binding VariantLabel}" />
+      </StackPanel>
+      <Button Grid.Column="1" Classes="v2-target" Command="{Binding FitPlanCommand}"
+              AutomationProperties.AutomationId="v2-map-fit" Content="Fit plan" />
+    </Grid>
+
+    <StackPanel Grid.Row="1" Spacing="8">
+      <WrapPanel ItemSpacing="8" LineSpacing="8" AutomationProperties.Name="Map presentation">
+        <ItemsControl ItemsSource="{Binding Modes}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MapSceneRendererModeViewModel">
+              <Button Classes="v2-map-choice" Classes.selected="{Binding IsSelected}" IsEnabled="{Binding IsAvailable}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      AutomationProperties.HelpText="{Binding UnavailableReason}"
+                      Content="{Binding Label}" Command="{Binding SelectCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </WrapPanel>
+      <Border Classes="v2-card" IsVisible="{Binding ShowsThreeDimensionalFallback}">
+        <TextBlock Classes="v2-body" Text="{Binding ThreeDimensionalFallback}" />
+      </Border>
+      <Border Classes="v2-card" IsVisible="{Binding HasRendererNotice}">
+        <TextBlock Classes="v2-body" Text="{Binding RendererNotice}" />
+      </Border>
+      <StackPanel Spacing="4" IsVisible="{Binding HasFloorStack}">
+        <TextBlock Classes="v2-label" Text="Floor" />
+        <ItemsControl ItemsSource="{Binding Floors}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
+              <Button Classes="v2-map-choice" Classes.selected="{Binding IsSelected}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      Content="{Binding Id}" Command="{Binding SelectCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </StackPanel>
+
+    <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12" MinHeight="360">
+      <Border Grid.Column="0" Classes="v2-map-grid" Padding="8" ClipToBounds="True"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.Name="Map plan">
+        <Viewbox Stretch="Uniform">
+          <Grid Width="1000" Height="700">
+            <Border Background="{DynamicResource V2.Brush.SurfaceRaised}" />
+            <Grid RowDefinitions="*,*,*,*" ColumnDefinitions="*,*,*,*,*" IsHitTestVisible="False" Opacity="0.65">
+              <Border Grid.Column="1" Grid.RowSpan="4" Width="1" HorizontalAlignment="Left" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Column="2" Grid.RowSpan="4" Width="1" HorizontalAlignment="Left" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Column="3" Grid.RowSpan="4" Width="1" HorizontalAlignment="Left" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Column="4" Grid.RowSpan="4" Width="1" HorizontalAlignment="Left" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Row="1" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Row="2" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top" Background="{DynamicResource V2.Brush.Border}" />
+              <Border Grid.Row="3" Grid.ColumnSpan="5" Height="1" VerticalAlignment="Top" Background="{DynamicResource V2.Brush.Border}" />
+            </Grid>
+            <TextBlock Margin="20" Classes="v2-label" Text="2D plan • touch a marker for details" IsHitTestVisible="False" />
+            <ItemsControl ItemsSource="{Binding SpatialObjects}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <Button Classes="v2-map-marker" Classes.selected="{Binding IsSelected}"
+                          Canvas.Left="{Binding AnchorX}" Canvas.Top="{Binding AnchorY}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.HelpText="{Binding KindLabel}"
+                          Content="{Binding MarkerGlyph}" Command="{Binding SelectCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Width="380" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="v2-card" IsVisible="{Binding ShowsEmptyMap}">
+              <TextBlock Classes="v2-body" Text="{Binding EmptyMapMessage}" TextAlignment="Center" />
+            </Border>
+          </Grid>
+        </Viewbox>
+      </Border>
+
+      <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12">
+          <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="{Binding SelectedObject.Label}" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-body" Text="{Binding SelectedObject.Detail}" IsVisible="{Binding SelectedObject.HasDetail}" />
+              <WrapPanel ItemSpacing="8" LineSpacing="8">
+                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.KindLabel}" />
+                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.FactionLabel}" />
+                <TextBlock Classes="v2-label" Classes.v2-map-offered="{Binding SelectedObject.IsOffered}" Classes.v2-map-not-offered="{Binding SelectedObject.IsKnownNotOffered}" Classes.v2-map-offer-unknown="{Binding SelectedObject.IsOfferUnknown}" Text="{Binding SelectedObject.OfferedLabel}" />
+                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.TruthLabel}" />
+              </WrapPanel>
+              <Button Classes="v2-target" Content="Clear selection" Command="{Binding ClearSelectionCommand}" />
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-card">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Layers" AutomationProperties.HeadingLevel="2" />
+              <ItemsControl ItemsSource="{Binding Layers}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:MapSceneRendererLayerViewModel">
+                    <Button Classes="v2-map-choice" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding ToggleLabel}"
+                            Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <Border Grid.Row="3" Classes="v2-card">
+      <StackPanel Spacing="8">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Visible details" AutomationProperties.HeadingLevel="2" />
+          <Button Grid.Column="1" Classes="v2-target" Content="Previous" Command="{Binding FocusPreviousObjectCommand}" />
+          <Button Grid.Column="2" Classes="v2-target" Content="Next" Command="{Binding FocusNextObjectCommand}" />
+        </Grid>
+        <TextBlock Classes="v2-label" IsVisible="{Binding ShowsEmptyList}" Text="{Binding EmptyListMessage}" />
+        <ItemsControl ItemsSource="{Binding ListItems}" IsVisible="{Binding HasListItems}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:MapSceneRendererListItemViewModel">
+              <Button Classes="v2-map-choice" Classes.selected="{Binding IsSelected}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      Command="{Binding SelectCommand}">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="v2-body" Text="{Binding Label}" />
+                  <TextBlock Classes="v2-label" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
+                  <WrapPanel ItemSpacing="8" LineSpacing="4">
+                    <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding FactionLabel}" />
+                    <TextBlock Classes="v2-label" Classes.v2-map-offered="{Binding IsOffered}" Classes.v2-map-not-offered="{Binding IsKnownNotOffered}" Classes.v2-map-offer-unknown="{Binding IsOfferUnknown}" Text="{Binding OfferedLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding TruthLabel}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
