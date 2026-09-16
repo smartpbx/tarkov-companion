@@ -508,14 +508,37 @@ public sealed class LootScanDecisionService
                 "Recommendation reasons are not in the deterministic order defined by the active ruleset.");
         }
 
+        var dominant = canonicalOrder[0];
+        if (!IsActionConsistent(dominant.Rule, advice.Action))
+        {
+            return RecommendationGate.Invalid(
+                "recommendation.action-mismatch",
+                "The recommendation action does not match its highest-precedence reason.");
+        }
+
         if (!TryValidateProvenance(
                 decision.Provenance,
                 evaluatedUtc,
-                MaximumRecommendationAge(advice),
+                MaximumAge(dominant.Rule, dominant.Reason.Code),
                 includeInputs: false,
                 budget,
                 ref candidateVisits,
                 out var failure))
+        {
+            return RecommendationGate.FromEvidenceFailure(failure);
+        }
+
+        // The decision root carries the dominant rule's expiry. Its mixed input tree still has to
+        // be current-or-past and trustworthy, but each reason below owns its semantic TTL. Applying
+        // the root TTL recursively would expire durable profile facts or keep volatile facts alive.
+        if (!TryValidateProvenance(
+                decision.Provenance,
+                evaluatedUtc,
+                maximumAge: null,
+                includeInputs: true,
+                budget,
+                ref candidateVisits,
+                out failure))
         {
             return RecommendationGate.FromEvidenceFailure(failure);
         }
@@ -583,8 +606,10 @@ public sealed class LootScanDecisionService
             foreach (var correction in opportunityCost.Corrections)
             {
                 budget.Visit(ref candidateVisits);
-                if (correction.CorrectedUtc > evaluatedUtc ||
-                    evaluatedUtc - correction.CorrectedUtc > _policy.MaximumPriceAge)
+                // A correction revises the value but has no provenance of its own. The original
+                // price lineage therefore remains the conservative age clock; a correction cannot
+                // renew old evidence, and only a correction from the future is invalid by itself.
+                if (correction.CorrectedUtc > evaluatedUtc)
                 {
                     return RecommendationGate.FromEvidenceFailure(ProvenanceFailure.Expired);
                 }
@@ -597,7 +622,7 @@ public sealed class LootScanDecisionService
     private bool TryValidateProvenance(
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge,
+        TimeSpan? maximumAge,
         bool includeInputs,
         RecommendationWorkBudget budget,
         ref int candidateVisits,
@@ -690,16 +715,51 @@ public sealed class LootScanDecisionService
         return band is "low" or "moderate" or "high" or "exceptional";
     }
 
-    private TimeSpan MaximumAge(ExplainableRecommendationRule rule, string code)
+    private static bool IsActionConsistent(
+        ExplainableRecommendationRule dominantRule,
+        RecommendationAction action) => dominantRule switch
+    {
+        // An explicit rule may intentionally select any contract action. Actions the Loot Scan
+        // surface cannot execute are still accepted as authentic advice and projected to REVIEW.
+        ExplainableRecommendationRule.ExplicitOverride => true,
+        ExplainableRecommendationRule.EventAllergy => action == RecommendationAction.AvoidConsume,
+        ExplainableRecommendationRule.EventUntested or ExplainableRecommendationRule.EvidenceQuality =>
+            action == RecommendationAction.Review,
+        ExplainableRecommendationRule.EventSafe => action == RecommendationAction.UseSoon,
+        ExplainableRecommendationRule.ProtectedItem or
+        ExplainableRecommendationRule.CurrentFoundInRaidQuest or
+        ExplainableRecommendationRule.CurrentQuest or
+        ExplainableRecommendationRule.FutureQuest or
+        ExplainableRecommendationRule.Hideout or
+        ExplainableRecommendationRule.CraftOrBarter or
+        ExplainableRecommendationRule.SpecialistUtility or
+        ExplainableRecommendationRule.Pin or
+        ExplainableRecommendationRule.Wishlist or
+        ExplainableRecommendationRule.Scarcity => action == RecommendationAction.Take,
+        ExplainableRecommendationRule.Economics =>
+            action is RecommendationAction.Take or RecommendationAction.Leave,
+        _ => false,
+    };
+
+    private TimeSpan? MaximumAge(ExplainableRecommendationRule rule, string code)
     {
         if (code.StartsWith("raid.", StringComparison.Ordinal))
         {
             return MaximumVolatileRaidRecommendationAge;
         }
 
-        return rule == ExplainableRecommendationRule.Economics
-            ? _policy.MaximumPriceAge
-            : _policy.MaximumInventoryAge;
+        return rule switch
+        {
+            ExplainableRecommendationRule.EventAllergy or
+            ExplainableRecommendationRule.ExplicitOverride or
+            ExplainableRecommendationRule.ProtectedItem or
+            ExplainableRecommendationRule.Pin or
+            ExplainableRecommendationRule.Wishlist or
+            ExplainableRecommendationRule.EventUntested or
+            ExplainableRecommendationRule.EventSafe => null,
+            ExplainableRecommendationRule.Economics => _policy.MaximumPriceAge,
+            _ => _policy.MaximumInventoryAge,
+        };
     }
 
     private static int PlanningPriority(
@@ -784,9 +844,9 @@ public sealed class LootScanDecisionService
                 ? null
                 : ReliableValue(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge);
             var protectedReliable = policy is not null &&
-                IsReliable(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true);
+                IsReliable(policy.ProtectedItem, request.EvaluatedUtc, maximumAge: null, requireComplete: true);
             var pinnedReliable = policy is not null &&
-                IsReliable(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true);
+                IsReliable(policy.Pinned, request.EvaluatedUtc, maximumAge: null, requireComplete: true);
             var disposition = policy switch
             {
                 null => CapacityItemDisposition.Unresolved,
@@ -857,8 +917,20 @@ public sealed class LootScanDecisionService
 
         var useFlea = flea.HasValue && (!trader.HasValue || flea.Value >= trader.Value);
         var total = useFlea ? flea!.Value : trader!.Value;
-        var price = useFlea ? economics.FleaNetRoubles : economics.TraderRoubles;
-        var provenanceInputs = new[] { price.Provenance, economics.OccupiedSquares.Provenance };
+        // Selecting the better price is itself a comparison. Preserve every reliable price that
+        // participated, including the losing source, then the independently observed footprint.
+        var provenanceInputs = new List<EvidenceProvenance>(3);
+        if (flea.HasValue)
+        {
+            provenanceInputs.Add(economics.FleaNetRoubles.Provenance);
+        }
+
+        if (trader.HasValue)
+        {
+            provenanceInputs.Add(economics.TraderRoubles.Provenance);
+        }
+
+        provenanceInputs.Add(economics.OccupiedSquares.Provenance);
         if (provenanceInputs.Any(ContainsModelledEstimate))
         {
             return new(
@@ -919,18 +991,19 @@ public sealed class LootScanDecisionService
     private bool IsReliable<T>(
         EvidencedValue<T> field,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge,
+        TimeSpan? maximumAge,
         bool requireComplete = false) =>
         (!requireComplete || field.Status.Completeness == ResultCompleteness.Complete) &&
         (field.Status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial) &&
         field.Candidates.Count == 0 &&
         field.Status.Freshness == FreshnessState.Current &&
+        !HasFutureCorrection(field, evaluatedUtc) &&
         IsReliableProvenance(field.Provenance, evaluatedUtc, maximumAge);
 
     private bool IsReliableProvenance(
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge)
+        TimeSpan? maximumAge)
     {
         var pending = new Stack<EvidenceProvenance>();
         pending.Push(provenance);
@@ -973,16 +1046,22 @@ public sealed class LootScanDecisionService
     private static bool IsStaleOrExpired<T>(
         EvidencedValue<T> field,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge) =>
+        TimeSpan? maximumAge) =>
         field.Status.Freshness == FreshnessState.Stale ||
+        HasFutureCorrection(field, evaluatedUtc) ||
         IsOutsideTimeWindow(field.Provenance, evaluatedUtc, maximumAge);
+
+    private static bool HasFutureCorrection<T>(
+        EvidencedValue<T> field,
+        DateTimeOffset evaluatedUtc) =>
+        field.Corrections.Any(correction => correction.CorrectedUtc > evaluatedUtc);
 
     private static bool IsOutsideTimeWindow(
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge) =>
+        TimeSpan? maximumAge) =>
         provenance.EvidenceThroughUtc > evaluatedUtc ||
-        evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge;
+        maximumAge is { } age && evaluatedUtc - provenance.EvidenceThroughUtc > age;
 
     private static bool ContainsModelledEstimate(EvidenceProvenance provenance) =>
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
@@ -1077,8 +1156,8 @@ public sealed class LootScanDecisionService
                  !IsRecommendationTemporallyCurrent(item.Recommendation, decision, request.EvaluatedUtc)) ||
                 EconomicsIsStale(item.Economics)) ||
             request.CarriedPolicies.Any(policy =>
-                IsStaleOrExpired(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
-                IsStaleOrExpired(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
+                IsStaleOrExpired(policy.ProtectedItem, request.EvaluatedUtc, maximumAge: null) ||
+                IsStaleOrExpired(policy.Pinned, request.EvaluatedUtc, maximumAge: null) ||
                 IsStaleOrExpired(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge));
     }
 
@@ -1137,16 +1216,15 @@ public sealed class LootScanDecisionService
             evaluatedUtc,
             MaximumRecommendationAge(advice));
 
-    private TimeSpan MaximumRecommendationAge(RecommendationDecision advice)
+    private TimeSpan? MaximumRecommendationAge(RecommendationDecision advice)
     {
-        if (advice.Reasons.Any(reason => reason.Code.StartsWith("raid.", StringComparison.Ordinal)))
+        var dominant = advice.Reasons[0];
+        if (TryMapRule(dominant, out var rule))
         {
-            return MaximumVolatileRaidRecommendationAge;
+            return MaximumAge(rule, dominant.Code);
         }
 
-        return IsEconomicLootAdvice(advice)
-            ? _policy.MaximumPriceAge
-            : _policy.MaximumInventoryAge;
+        return _policy.MaximumInventoryAge;
     }
 
     private static bool IsEconomicLootAdvice(RecommendationDecision advice)
