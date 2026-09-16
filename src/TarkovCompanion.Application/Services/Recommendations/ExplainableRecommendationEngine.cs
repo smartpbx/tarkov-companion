@@ -62,6 +62,16 @@ public sealed class ExplainableRecommendationEngine(
         {
             decisionInputs.Add(trustedExplicitAction.Provenance);
         }
+        else if (!HasClaim(profile.ExplicitAction))
+        {
+            // Optional means no rule was configured, not that an absent rule is irrelevant. The
+            // lower-precedence answer depends on that negative fact just as it depends on false
+            // protection and pin values.
+            decisionInputs.Add(CombineProvenance(
+                "recommendation.profile.override.absent",
+                request.EvaluatedUtc,
+                [profile.ExplicitAction.Provenance]));
+        }
 
         if (explicitAction is { } overridden)
         {
@@ -75,11 +85,11 @@ public sealed class ExplainableRecommendationEngine(
         }
 
         var eventEvidence = InspectEventState(
-            profile.EventState,
+            profile.EventState.State,
             request,
             evidenceIssues,
             "profile.event-state-untrusted",
-            "Event-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
+            "Event-item state is ambiguous, stale, incomplete, below the confidence threshold, or not a user-confirmed outcome.");
         var eventState = eventEvidence?.Value;
         if (eventEvidence is { } trustedEventState)
         {
@@ -257,7 +267,7 @@ public sealed class ExplainableRecommendationEngine(
                 RecommendationReasonCategory.Economics,
                 $"economics.{economic.SourceCode}.{economic.Band.ToString().ToLowerInvariant()}",
                 EconomicExplanation(economic),
-                economic.CalculationProvenance));
+                economic.ExplanationProvenance));
             sensitivities.Add(new(
                 "price-or-footprint-updated",
                 "A newer net price or corrected footprint can move the item into another value-per-square band.",
@@ -949,6 +959,14 @@ public sealed class ExplainableRecommendationEngine(
             request.EvaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
+        var fleaRole = CombineProvenance(
+            $"recommendation.economic-price.flea-net.{(flea.IsReliable ? "available" : "unavailable")}",
+            request.EvaluatedUtc,
+            [flea.Assessment.Provenance]);
+        var traderRole = CombineProvenance(
+            $"recommendation.economic-price.trader.{(trader.IsReliable ? "available" : "unavailable")}",
+            request.EvaluatedUtc,
+            [trader.Assessment.Provenance]);
 
         if (!footprint.IsReliable)
         {
@@ -979,12 +997,15 @@ public sealed class ExplainableRecommendationEngine(
 
         if (!flea.IsReliable && !trader.IsReliable)
         {
-            var assessment = NewerAssessment(flea.Assessment, trader.Assessment);
             AddIssue(
                 issues,
                 "economics.price-missing",
                 "No current trustworthy flea net or trader value is available; gross value is not treated as net.",
-                assessment);
+                CombineProvenance(
+                    "recommendation.economic-price.unavailable",
+                    request.EvaluatedUtc,
+                    [fleaRole, traderRole]),
+                WorstFreshness([flea.Assessment.Freshness, trader.Assessment.Freshness]));
             return null;
         }
 
@@ -1000,17 +1021,13 @@ public sealed class ExplainableRecommendationEngine(
         var trustedFootprint = footprint.Trusted!;
         var footprintValue = trustedFootprint.Value;
         var valuePerSquare = value / footprintValue;
-        // Selecting the better sale channel compares both trustworthy prices. Keeping only the
-        // winner would overstate decision confidence and hide the fact that could flip the channel.
-        var comparedPrices = new[] { flea.Trusted, trader.Trusted }
-            .OfType<TrustedValue<long>>()
-            .Select(candidate => candidate.Provenance)
-            .Distinct()
-            .ToArray();
+        // Selecting a sale channel depends on both price fields: either two compared figures or
+        // one figure and the explicit absence/unreliability of the other. The named wrappers keep
+        // both roles distinct even when a single catalog snapshot backs both fields.
         var priceRole = CombineProvenance(
             $"recommendation.economic-price.{(useFlea ? "flea-net" : "trader")}",
             request.EvaluatedUtc,
-            comparedPrices);
+            [fleaRole, traderRole]);
         var footprintRole = CombineProvenance(
             "recommendation.economic-footprint",
             request.EvaluatedUtc,
@@ -1019,6 +1036,28 @@ public sealed class ExplainableRecommendationEngine(
             "recommendation.value-per-square",
             request.EvaluatedUtc,
             [priceRole, footprintRole]);
+        var explanationInputs = new List<EvidenceProvenance> { calculation };
+        AddExplanationInput(
+            explanationInputs,
+            gross.Trusted,
+            "recommendation.economic-detail.flea-gross",
+            request.EvaluatedUtc);
+        AddExplanationInput(
+            explanationInputs,
+            fee.Trusted,
+            "recommendation.economic-detail.flea-fee",
+            request.EvaluatedUtc);
+        AddExplanationInput(
+            explanationInputs,
+            condition.Trusted,
+            "recommendation.economic-detail.condition",
+            request.EvaluatedUtc);
+        var explanationProvenance = explanationInputs.Count == 1
+            ? calculation
+            : CombineProvenance(
+                "recommendation.economic-explanation",
+                request.EvaluatedUtc,
+                explanationInputs);
         return new(
             value,
             footprintValue,
@@ -1033,7 +1072,23 @@ public sealed class ExplainableRecommendationEngine(
             condition.Trusted?.Value,
             priceRole,
             footprintRole,
-            calculation);
+            calculation,
+            explanationProvenance);
+    }
+
+    private static void AddExplanationInput<T>(
+        ICollection<EvidenceProvenance> inputs,
+        TrustedValue<T>? value,
+        string sourceIdentifier,
+        DateTimeOffset evaluatedUtc)
+        where T : struct
+    {
+        if (value is null)
+        {
+            return;
+        }
+
+        inputs.Add(CombineProvenance(sourceIdentifier, evaluatedUtc, [value.Provenance]));
     }
 
     private (EvidencedValue<long?> Cost, OpportunityCostLineage? Lineage) CreateOpportunityCost(
@@ -1342,6 +1397,37 @@ public sealed class ExplainableRecommendationEngine(
             evaluatedUtc,
             maximumAge,
             allowPartial);
+
+        // An unresolved candidate is the evidence that makes a field ambiguous. Preserve every
+        // candidate in the decision lineage instead of reporting ambiguity with only the selected
+        // value's provenance and an overstated confidence score.
+        if (field.Candidates.Count > 0 && field.Corrections.Count == 0)
+        {
+            var candidateAssessments = field.Candidates
+                .Select(candidate => AssessEvidence(
+                    field.Status,
+                    candidate.Provenance,
+                    evaluatedUtc,
+                    maximumAge,
+                    allowPartial))
+                .ToArray();
+            var ambiguityProvenance = CombineProvenance(
+                $"recommendation.evidence-ambiguity.{field.FieldId}",
+                evaluatedUtc,
+                new[] { provenance }
+                    .Concat(candidateAssessments.Select(candidate => candidate.Provenance))
+                    .ToArray());
+            return new EvidenceInspection<T>(
+                null,
+                new ReliabilityAssessment(
+                    false,
+                    EvidenceFailure.Ambiguous,
+                    WorstFreshness(candidateAssessments
+                        .Select(candidate => candidate.Freshness)
+                        .Prepend(assessment.Freshness)),
+                    ambiguityProvenance));
+        }
+
         if (!assessment.IsReliable)
         {
             return new EvidenceInspection<T>(null, assessment);
@@ -1354,10 +1440,9 @@ public sealed class ExplainableRecommendationEngine(
                 assessment with { IsReliable = false, Failure = EvidenceFailure.Missing });
         }
 
-        // Candidates describe the original ambiguity. An append-only correction selects the
-        // current value without erasing that history; without a correction the ambiguity remains.
-        if ((field.Candidates.Count > 0 && field.Corrections.Count == 0) ||
-            field.Candidates.Count > MaximumEvidenceEntries ||
+        // An append-only correction selects the current value without erasing the original
+        // candidates. Collection bounds are also checked before evaluation in AddEvidenceTimes.
+        if (field.Candidates.Count > MaximumEvidenceEntries ||
             field.Corrections.Count > MaximumEvidenceEntries)
         {
             return new EvidenceInspection<T>(
@@ -1402,6 +1487,11 @@ public sealed class ExplainableRecommendationEngine(
             return new(false, EvidenceFailure.Stale, FreshnessState.Stale, provenance);
         }
 
+        if (ContainsUnknownSource(provenance))
+        {
+            return new(false, EvidenceFailure.Unauthoritative, FreshnessState.Current, provenance);
+        }
+
         if (!MeetsConfidence(provenance))
         {
             return new(false, EvidenceFailure.LowConfidence, FreshnessState.Current, provenance);
@@ -1438,14 +1528,14 @@ public sealed class ExplainableRecommendationEngine(
     private bool MeetsConfidence(EvidenceProvenance provenance) =>
         provenance.Confidence.Score is { } score && score >= _policy.MinimumEvidenceConfidence;
 
-    private static ReliabilityAssessment NewerAssessment(
-        ReliabilityAssessment left,
-        ReliabilityAssessment right) =>
-        left.Provenance.EvidenceThroughUtc >= right.Provenance.EvidenceThroughUtc ? left : right;
-
     private static FreshnessState DecisionFreshness(IEnumerable<EvidenceIssue> issues)
     {
-        var freshness = issues.Select(issue => issue.Freshness).ToArray();
+        return WorstFreshness(issues.Select(issue => issue.Freshness));
+    }
+
+    private static FreshnessState WorstFreshness(IEnumerable<FreshnessState> values)
+    {
+        var freshness = values.ToArray();
         if (freshness.Contains(FreshnessState.Stale))
         {
             return FreshnessState.Stale;
@@ -1499,12 +1589,17 @@ public sealed class ExplainableRecommendationEngine(
         }
 
         var containsModel = distinctInputs.Any(ContainsModelledEstimate);
+        var containsUnknown = distinctInputs.Any(ContainsUnknownSource);
         var scores = distinctInputs.Select(input => input.Confidence.Score).ToArray();
         var confidence = containsModel
-            ? new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min(score => score ?? 0))
-            : scores.All(score => score is not null)
-                ? new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min()!.Value)
-                : EvidenceConfidence.Unscored;
+            ? new EvidenceConfidence(
+                EvidenceConfidenceKind.ProviderScore,
+                containsUnknown ? 0 : scores.Min(score => score ?? 0))
+            : containsUnknown
+                ? EvidenceConfidence.Unscored
+                : scores.All(score => score is not null)
+                    ? new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min()!.Value)
+                    : EvidenceConfidence.Unscored;
         var producer = new ProducerIdentity(
             "Tarkov Companion recommendation engine",
             ExplainableRecommendationPolicy.CurrentRulesetVersion,
@@ -1543,6 +1638,10 @@ public sealed class ExplainableRecommendationEngine(
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
 
+    private static bool ContainsUnknownSource(EvidenceProvenance provenance) =>
+        provenance.SourceClass == EvidenceSourceClass.Unknown ||
+        provenance.Inputs.Any(ContainsUnknownSource);
+
     private static int ProvenanceDepth(EvidenceProvenance provenance) =>
         1 + (provenance.Inputs.Count == 0 ? 0 : provenance.Inputs.Max(ProvenanceDepth));
 
@@ -1560,7 +1659,7 @@ public sealed class ExplainableRecommendationEngine(
         AddEvidenceTimes(request.Profile.ProtectedItem, provenances, correctionTimes);
         AddEvidenceTimes(request.Profile.Pinned, provenances, correctionTimes);
         AddEvidenceTimes(request.Profile.Wishlist, provenances, correctionTimes);
-        AddEvidenceTimes(request.Profile.EventState, provenances, correctionTimes);
+        AddEvidenceTimes(request.Profile.EventState.State, provenances, correctionTimes);
         AddEvidenceTimes(request.CandidateFoundInRaid, provenances, correctionTimes);
         AddEvidenceTimes(request.Economics.FleaGrossRoubles, provenances, correctionTimes);
         AddEvidenceTimes(request.Economics.FleaFeeRoubles, provenances, correctionTimes);
@@ -1737,5 +1836,6 @@ public sealed class ExplainableRecommendationEngine(
         double? ConditionFraction,
         EvidenceProvenance PriceRole,
         EvidenceProvenance FootprintRole,
-        EvidenceProvenance CalculationProvenance);
+        EvidenceProvenance CalculationProvenance,
+        EvidenceProvenance ExplanationProvenance);
 }

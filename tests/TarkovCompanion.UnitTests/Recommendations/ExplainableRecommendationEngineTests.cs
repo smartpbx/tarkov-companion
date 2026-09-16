@@ -17,6 +17,12 @@ public sealed class ExplainableRecommendationEngineTests
         "wipe-2026-09",
         "pvp");
 
+    private static readonly RecommendationEventScope EventScope = new(
+        Scope,
+        "event-autumn-2026",
+        "event-rules-1",
+        "item-a");
+
     [Fact]
     public void SafetyProtectionNeedsAndPinsStayAheadOfEconomics()
     {
@@ -176,16 +182,50 @@ public sealed class ExplainableRecommendationEngineTests
     }
 
     [Fact]
+    public void EventStateScopeMustMatchTheRecommendationProfileEventVersionAndItem()
+    {
+        var otherProfile = new InventoryProfileScope(
+            Guid.Parse("74000000-0000-0000-0000-000000000099"),
+            Scope.Generation,
+            Scope.GameMode);
+        var mismatches = new[]
+        {
+            new RecommendationEventScope(otherProfile, EventScope.EventId, EventScope.EventRulesetVersion, EventScope.ItemId),
+            new RecommendationEventScope(Scope, "another-event", EventScope.EventRulesetVersion, EventScope.ItemId),
+            new RecommendationEventScope(Scope, EventScope.EventId, "event-rules-2", EventScope.ItemId),
+            new RecommendationEventScope(Scope, EventScope.EventId, EventScope.EventRulesetVersion, "another-item"),
+        };
+
+        foreach (var mismatch in mismatches)
+        {
+            var facts = new RecommendationEventStateFacts(
+                mismatch,
+                Complete<EventItemState?>(
+                    "profile.event",
+                    EventItemState.Allergic,
+                    Provenance("scoped-event-outcome", sourceClass: EvidenceSourceClass.UserEntered)));
+
+            Assert.Throws<ArgumentException>(() => Request(profile: Profile(eventFacts: facts)));
+        }
+    }
+
+    [Fact]
     public void MissingPriceOrFootprintProducesReviewNotAZeroValuation()
     {
-        var missingPrice = new ExplainableRecommendationEngine().Evaluate(Request(
-            economics: Economics(fleaNet: null, trader: null, squares: 2))).Decision.Value!;
+        var missingPriceResult = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: null, trader: null, squares: 2)));
+        var missingPrice = missingPriceResult.Decision.Value!;
         var missingFootprint = new ExplainableRecommendationEngine().Evaluate(Request(
             economics: Economics(fleaNet: 100_000, trader: 80_000, squares: null))).Decision.Value!;
+        var missingPriceSources = Flatten(missingPriceResult.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
 
         Assert.Equal(V2Action.Review, missingPrice.Action);
         Assert.Null(missingPrice.OpportunityCostRoubles.Value);
         Assert.Contains(missingPrice.Reasons, reason => reason.Code == "economics.price-missing");
+        Assert.Contains("fixture://economics.flea-net", missingPriceSources);
+        Assert.Contains("fixture://economics.trader", missingPriceSources);
         Assert.Equal(V2Action.Review, missingFootprint.Action);
         Assert.Null(missingFootprint.OpportunityCostRoubles.Value);
         Assert.Contains(missingFootprint.Reasons, reason => reason.Code == "economics.footprint-missing");
@@ -486,6 +526,17 @@ public sealed class ExplainableRecommendationEngineTests
             EconomicValueBand.Exceptional,
             EconomicValueBand.High,
             EconomicValueBand.Exceptional));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RecommendationEventScope(
+            Scope,
+            new string('x', RecommendationEventScope.MaximumIdentifierLength + 1),
+            "event-rules-1",
+            "item-a"));
+        Assert.Throws<ArgumentException>(() => new RecommendationEventStateFacts(
+            null,
+            Complete<EventItemState?>(
+                "profile.event",
+                EventItemState.Safe,
+                Provenance("unscoped-event-outcome", sourceClass: EvidenceSourceClass.UserEntered))));
         Assert.Equal("recommendation-274.2", ExplainableRecommendationPolicy.CurrentRulesetVersion);
     }
 
@@ -642,6 +693,7 @@ public sealed class ExplainableRecommendationEngineTests
     {
         var result = new ExplainableRecommendationEngine().Evaluate(Request(
             profile: Profile(
+                explicitProvenance: Provenance("override-absent", confidence: 0.81),
                 protectedProvenance: Provenance("protection-false", confidence: 0.77),
                 pinnedProvenance: Provenance("pin-false", confidence: 0.78),
                 wishlistProvenance: Provenance("wishlist-false", confidence: 0.79),
@@ -658,6 +710,7 @@ public sealed class ExplainableRecommendationEngineTests
             .ToHashSet(StringComparer.Ordinal);
 
         Assert.Equal(V2Action.SellOnFlea, result.Decision.Value!.Action);
+        Assert.Contains("fixture://override-absent", sources);
         Assert.Contains("fixture://protection-false", sources);
         Assert.Contains("fixture://pin-false", sources);
         Assert.Contains("fixture://wishlist-false", sources);
@@ -665,6 +718,128 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Contains("fixture://flea-compared", sources);
         Assert.Contains("fixture://trader-compared", sources);
         Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void EconomicDecisionLineageIncludesAnUnavailableComparedChannel()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: null,
+                squares: 2,
+                fleaNetProvenance: Provenance("flea-present", confidence: 0.96),
+                traderProvenance: Provenance("trader-unavailable", confidence: 0.76))));
+        var sources = Flatten(result.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToArray();
+
+        Assert.Equal(V2Action.SellOnFlea, result.Decision.Value!.Action);
+        Assert.Contains("fixture://flea-present", sources);
+        Assert.Contains("fixture://trader-unavailable", sources);
+        Assert.Contains("recommendation.economic-price.flea-net.available", sources);
+        Assert.Contains("recommendation.economic-price.trader.unavailable", sources);
+        Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void SharedPriceEvidenceKeepsNamedRolesAndProducesDeterministicLineage()
+    {
+        var shared = Provenance("shared-price-snapshot");
+        var request = Request(economics: Economics(
+            fleaNet: 100_000,
+            trader: 80_000,
+            squares: 2,
+            fleaNetProvenance: shared,
+            traderProvenance: shared));
+        var engine = new ExplainableRecommendationEngine();
+        var first = engine.Evaluate(request);
+        var second = engine.Evaluate(request);
+        var sources = Flatten(first.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToArray();
+
+        Assert.Equal(first.Decision.Provenance, second.Decision.Provenance);
+        Assert.Single(sources, source => source == "recommendation.economic-price.flea-net.available");
+        Assert.Single(sources, source => source == "recommendation.economic-price.trader.available");
+        Assert.Equal(2, sources.Count(source => source == "fixture://shared-price-snapshot"));
+    }
+
+    [Fact]
+    public void EconomicExplanationLineageIncludesGrossFeeAndConditionFacts()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: 80_000,
+                squares: 2,
+                grossProvenance: Provenance("flea-gross-detail", confidence: 0.79),
+                feeProvenance: Provenance("flea-fee-detail", confidence: 0.78),
+                conditionProvenance: Provenance("condition-detail", confidence: 0.76))));
+        var sources = Flatten(result.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Contains("flea gross", result.Decision.Value!.Reasons.Single(reason =>
+            reason.Category == RecommendationReasonCategory.Economics).Explanation, StringComparison.Ordinal);
+        Assert.Contains("fixture://flea-gross-detail", sources);
+        Assert.Contains("fixture://flea-fee-detail", sources);
+        Assert.Contains("fixture://condition-detail", sources);
+        Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void AmbiguityLineageIncludesEveryCandidateAndItsConfidence()
+    {
+        var ambiguousFlea = new EvidencedValue<long?>(
+            "economics.flea-net",
+            100_000,
+            CompleteStatus,
+            Provenance("flea-primary", confidence: 0.97),
+            candidates:
+            [
+                new EvidenceCandidate<long?>(
+                    "lower-price",
+                    "Lower price",
+                    10_000,
+                    Provenance("flea-candidate", confidence: 0.76)),
+            ]);
+        var economics = new RecommendationEconomics(
+            Complete<long?>("economics.flea-gross", 120_000),
+            Complete<long?>("economics.flea-fee", 20_000),
+            ambiguousFlea,
+            Unknown<long?>("economics.trader", Provenance("trader-missing")),
+            Complete<int?>("economics.squares", 1),
+            Complete<double?>("economics.condition", 1));
+
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(economics: economics));
+        var sources = Flatten(result.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Contains("fixture://flea-primary", sources);
+        Assert.Contains("fixture://flea-candidate", sources);
+        Assert.Contains("recommendation.evidence-ambiguity.economics.flea-net", sources);
+        Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void UnknownSourceCannotBecomeTrustedScarcityThroughAConfidenceScore()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            scarcity: Scarcity(
+                RecommendationObtainabilityBand.Scarce,
+                provenance: Provenance(
+                    "unknown-source-scarcity",
+                    confidence: 1,
+                    sourceClass: EvidenceSourceClass.Unknown))));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "scarcity.untrusted");
+        Assert.DoesNotContain(result.Decision.Value.Reasons, reason =>
+            reason.Code == "scarcity.obtainability.scarce");
+        Assert.Equal(EvidenceConfidenceKind.Unscored, result.Decision.Provenance.Confidence.Kind);
     }
 
     [Fact]
@@ -955,7 +1130,8 @@ public sealed class ExplainableRecommendationEngineTests
         economics ?? Economics(),
         scarcity ?? Scarcity(RecommendationObtainabilityBand.Available),
         inventory,
-        raidContext: raidContext);
+        raidContext: raidContext,
+        eventScope: EventScope);
 
     private static RecommendationScarcityFacts Scarcity(
         RecommendationObtainabilityBand? band,
@@ -1008,19 +1184,22 @@ public sealed class ExplainableRecommendationEngineTests
         EvidenceProvenance? wishlistProvenance = null,
         EvidenceProvenance? eventProvenance = null,
         EvidencedValue<bool?>? protectedField = null,
-        EvidencedValue<EventItemState?>? eventField = null) => new(
+        EvidencedValue<EventItemState?>? eventField = null,
+        RecommendationEventStateFacts? eventFacts = null) => new(
         CompleteStatus,
         Provenance("profile"),
         explicitAction is { } action
             ? Complete<V2Action?>("profile.override", action, explicitProvenance)
-            : Unknown<V2Action?>("profile.override"),
+            : Unknown<V2Action?>("profile.override", explicitProvenance),
         protectedField ?? Complete<bool?>("profile.protected", protectedItem, protectedProvenance),
         Complete<bool?>("profile.pinned", pinned, pinnedProvenance),
         Complete<bool?>("profile.wishlist", wishlist, wishlistProvenance),
-        eventField ?? Complete<EventItemState?>(
-            "profile.event",
-            eventState,
-            eventProvenance ?? Provenance("profile.event", sourceClass: EvidenceSourceClass.UserEntered)),
+        eventFacts ?? new RecommendationEventStateFacts(
+            EventScope,
+            eventField ?? Complete<EventItemState?>(
+                "profile.event",
+                eventState,
+                eventProvenance ?? Provenance("profile.event", sourceClass: EvidenceSourceClass.UserEntered))),
         needs ?? []);
 
     private static RecommendationNeed Need(
@@ -1046,13 +1225,16 @@ public sealed class ExplainableRecommendationEngineTests
         int? squares = 2,
         EvidenceProvenance? fleaNetProvenance = null,
         EvidenceProvenance? traderProvenance = null,
-        EvidenceProvenance? squaresProvenance = null) => new(
-        Optional("economics.flea-gross", fleaNet is null ? null : fleaNet + 20_000),
-        Optional<long>("economics.flea-fee", fleaNet is null ? null : 20_000),
+        EvidenceProvenance? squaresProvenance = null,
+        EvidenceProvenance? grossProvenance = null,
+        EvidenceProvenance? feeProvenance = null,
+        EvidenceProvenance? conditionProvenance = null) => new(
+        Optional("economics.flea-gross", fleaNet is null ? null : fleaNet + 20_000, grossProvenance),
+        Optional<long>("economics.flea-fee", fleaNet is null ? null : 20_000, feeProvenance),
         Optional("economics.flea-net", fleaNet, fleaNetProvenance),
         Optional("economics.trader", trader, traderProvenance),
         Optional("economics.squares", squares, squaresProvenance),
-        Complete<double?>("economics.condition", 1));
+        Complete<double?>("economics.condition", 1, conditionProvenance));
 
     private static ObservedInventoryEvidenceSnapshot Inventory(
         int? total,

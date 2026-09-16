@@ -81,6 +81,69 @@ public sealed record RecommendationRaidContext
     public EvidencedValue<RecommendationRaidRisk?> Risk { get; }
 }
 
+/// <summary>
+/// The identity boundary for one seasonal event-item state. The profile generation carries the
+/// wipe/season boundary; event and ruleset identifiers prevent a confirmed outcome from being
+/// reused by another event with the same item.
+/// </summary>
+public sealed record RecommendationEventScope
+{
+    public const int MaximumIdentifierLength = 256;
+
+    public RecommendationEventScope(
+        InventoryProfileScope profileScope,
+        string eventId,
+        string eventRulesetVersion,
+        string itemId)
+    {
+        ProfileScope = profileScope ?? throw new ArgumentNullException(nameof(profileScope));
+        EventId = RequiredIdentifier(eventId, nameof(eventId));
+        EventRulesetVersion = RequiredIdentifier(eventRulesetVersion, nameof(eventRulesetVersion));
+        ItemId = RequiredIdentifier(itemId, nameof(itemId));
+    }
+
+    public InventoryProfileScope ProfileScope { get; }
+
+    public string EventId { get; }
+
+    public string EventRulesetVersion { get; }
+
+    public string ItemId { get; }
+
+    private static string RequiredIdentifier(string value, string parameterName)
+    {
+        var normalized = V2ContractGuard.Required(value, parameterName);
+        return normalized.Length <= MaximumIdentifierLength
+            ? normalized
+            : throw new ArgumentOutOfRangeException(
+                parameterName,
+                $"An event-scope identifier cannot exceed {MaximumIdentifierLength} characters.");
+    }
+}
+
+/// <summary>An event state together with the exact profile/event/item boundary that produced it.</summary>
+public sealed record RecommendationEventStateFacts
+{
+    public RecommendationEventStateFacts(
+        RecommendationEventScope? scope,
+        EvidencedValue<EventItemState?> state)
+    {
+        State = V2ContractGuard.Defined(state, nameof(state));
+        if (State.Value is { } currentState && currentState != EventItemState.Unknown && scope is null)
+        {
+            throw new ArgumentException(
+                "An applicable or confirmed event-item state must carry its profile, event, and item scope.",
+                nameof(scope));
+        }
+
+        Scope = scope;
+    }
+
+    public RecommendationEventScope? Scope { get; }
+
+    public EvidencedValue<EventItemState?> State { get; }
+}
+
 /// <summary>A requirement before compatible observed holdings are allocated to it.</summary>
 public sealed record RecommendationNeed
 {
@@ -149,7 +212,7 @@ public sealed record RecommendationProfileFacts
         EvidencedValue<bool?> protectedItem,
         EvidencedValue<bool?> pinned,
         EvidencedValue<bool?> wishlist,
-        EvidencedValue<EventItemState?> eventState,
+        RecommendationEventStateFacts eventState,
         IReadOnlyList<RecommendationNeed> needs)
     {
         Status = status ?? throw new ArgumentNullException(nameof(status));
@@ -158,7 +221,7 @@ public sealed record RecommendationProfileFacts
         ProtectedItem = protectedItem ?? throw new ArgumentNullException(nameof(protectedItem));
         Pinned = pinned ?? throw new ArgumentNullException(nameof(pinned));
         Wishlist = wishlist ?? throw new ArgumentNullException(nameof(wishlist));
-        EventState = V2ContractGuard.Defined(eventState, nameof(eventState));
+        EventState = eventState ?? throw new ArgumentNullException(nameof(eventState));
         ArgumentNullException.ThrowIfNull(needs);
         var copied = needs
             .Select(need => need ?? throw new ArgumentException("Needs cannot contain null.", nameof(needs)))
@@ -189,7 +252,7 @@ public sealed record RecommendationProfileFacts
 
     public EvidencedValue<bool?> Wishlist { get; }
 
-    public EvidencedValue<EventItemState?> EventState { get; }
+    public RecommendationEventStateFacts EventState { get; }
 
     public IReadOnlyList<RecommendationNeed> Needs { get; }
 }
@@ -258,7 +321,8 @@ public sealed record ExplainableRecommendationRequest
         RecommendationScarcityFacts scarcity,
         ObservedInventoryEvidenceSnapshot? inventory = null,
         CaptureSessionId? captureSessionId = null,
-        RecommendationRaidContext? raidContext = null)
+        RecommendationRaidContext? raidContext = null,
+        RecommendationEventScope? eventScope = null)
     {
         RecommendationId = V2ContractGuard.Required(recommendationId, nameof(recommendationId));
         ItemId = V2ContractGuard.Required(itemId, nameof(itemId));
@@ -275,6 +339,23 @@ public sealed record ExplainableRecommendationRequest
             ? V2ContractGuard.Defined(session, nameof(captureSessionId))
             : null;
         RaidContext = raidContext;
+        if (eventScope is { } suppliedEventScope &&
+            (suppliedEventScope.ProfileScope != ProfileScope ||
+             !string.Equals(suppliedEventScope.ItemId, ItemId, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "The event scope must belong to the recommendation profile and item.",
+                nameof(eventScope));
+        }
+
+        if (profile.EventState.Scope != eventScope)
+        {
+            throw new ArgumentException(
+                "The event-item state must match the recommendation event scope exactly.",
+                nameof(profile));
+        }
+
+        EventScope = eventScope;
     }
 
     public string RecommendationId { get; }
@@ -302,4 +383,6 @@ public sealed record ExplainableRecommendationRequest
     public CaptureSessionId? CaptureSessionId { get; }
 
     public RecommendationRaidContext? RaidContext { get; }
+
+    public RecommendationEventScope? EventScope { get; }
 }
