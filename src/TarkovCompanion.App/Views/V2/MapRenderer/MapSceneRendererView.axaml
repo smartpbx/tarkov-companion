@@ -21,7 +21,7 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker">
+    <Style Selector="ToggleButton.v2-map-marker, Button.v2-map-marker">
       <Setter Property="Width" Value="48" />
       <Setter Property="Height" Value="48" />
       <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
@@ -37,7 +37,7 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.cluster">
+    <Style Selector="Button.v2-map-marker.cluster">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
@@ -196,7 +196,7 @@
                                        Stroke="{DynamicResource V2.Brush.Action}"
                                        Fill="{DynamicResource V2.Brush.Info}" />
 
-            <ItemsControl ItemsSource="{Binding SpatialObjects}"
+            <ItemsControl ItemsSource="{Binding PointMarkers}"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
@@ -204,7 +204,6 @@
                   <!-- The generated ContentPresenter stays at the Canvas origin in Avalonia.
                        Position inside the template, where the transform is applied to the real control. -->
                   <ToggleButton Classes="v2-map-marker"
-                                Classes.cluster="{Binding IsCluster}"
                                 Classes.historical="{Binding IsHistorical}"
                                 Classes.local-observed="{Binding IsLocalObserved}"
                                 Classes.team-observed="{Binding IsTeamObserved}"
@@ -239,6 +238,35 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <!-- A cluster opens a list; it does not retain a toggled state. Keeping it a Button
+                 also exposes the Invoke pattern used by packaged Windows UI Automation. -->
+            <ItemsControl ItemsSource="{Binding ClusterMarkers}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <Button Classes="v2-map-marker cluster"
+                          RenderTransformOrigin="50%,50%"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding AutomationName}"
+                          AutomationProperties.HelpText="{Binding Detail}"
+                          Command="{Binding SelectCommand}">
+                    <Button.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
+                        <RotateTransform Angle="{Binding MarkerUprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </Button.RenderTransform>
+                    <Grid Width="40" Height="40" IsHitTestVisible="False">
+                      <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Text="{Binding MarkerGlyph}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </Canvas>
 
           <Border Canvas.Left="12" Canvas.Top="12" Classes="v2-card" Padding="8" IsHitTestVisible="False">
@@ -268,27 +296,38 @@
         <StackPanel Spacing="12">
           <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="{Binding SelectedObject.Label}"
-                         AutomationProperties.AutomationId="v2-map-selection-live"
-                         AutomationProperties.AccessibilityView="Control"
-                         AutomationProperties.LiveSetting="Polite"
-                         AutomationProperties.Name="{Binding SelectedObject.AutomationName}"
-                         AutomationProperties.HeadingLevel="2" />
-              <TextBlock Classes="v2-body" Text="{Binding SelectedObject.Detail}"
-                         IsVisible="{Binding SelectedObject.HasDetail}" TextWrapping="Wrap" />
-              <WrapPanel ItemSpacing="8" LineSpacing="8">
-                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.KindLabel}" />
-                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.FactionLabel}" />
-                <TextBlock Classes="v2-label" IsVisible="{Binding SelectedObject.HasOfferStatus}"
-                           Classes.v2-map-offered="{Binding SelectedObject.IsOffered}"
-                           Classes.v2-map-not-offered="{Binding SelectedObject.IsKnownNotOffered}"
-                           Classes.v2-map-offer-unknown="{Binding SelectedObject.IsOfferUnknown}"
-                           Text="{Binding SelectedObject.OfferedLabel}" />
-                <TextBlock Classes="v2-label" Text="{Binding SelectedObject.TruthLabel}" />
-              </WrapPanel>
-              <TextBlock Classes="v2-label" Text="{Binding SelectedObject.EvidenceLabel}" TextWrapping="Wrap" />
-              <TextBlock Classes="v2-label" Text="{Binding SelectedObject.EstimateLabel}"
-                         IsVisible="{Binding SelectedObject.HasEstimate}" TextWrapping="Wrap" />
+              <!-- A hidden border still evaluates bindings. Instantiate the typed detail
+                   template only when a selected object exists, so a normal empty selection
+                   cannot emit one binding fault per nested property. -->
+              <ContentControl Content="{Binding SelectedObject}">
+                <ContentControl.ContentTemplate>
+                  <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                    <StackPanel Spacing="8">
+                      <TextBlock Classes="v2-heading-3" Text="{Binding Label}"
+                                 AutomationProperties.AutomationId="v2-map-selection-live"
+                                 AutomationProperties.AccessibilityView="Control"
+                                 AutomationProperties.LiveSetting="Polite"
+                                 AutomationProperties.Name="{Binding AutomationName}"
+                                 AutomationProperties.HeadingLevel="2" />
+                      <TextBlock Classes="v2-body" Text="{Binding Detail}"
+                                 IsVisible="{Binding HasDetail}" TextWrapping="Wrap" />
+                      <WrapPanel ItemSpacing="8" LineSpacing="8">
+                        <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding FactionLabel}" />
+                        <TextBlock Classes="v2-label" IsVisible="{Binding HasOfferStatus}"
+                                   Classes.v2-map-offered="{Binding IsOffered}"
+                                   Classes.v2-map-not-offered="{Binding IsKnownNotOffered}"
+                                   Classes.v2-map-offer-unknown="{Binding IsOfferUnknown}"
+                                   Text="{Binding OfferedLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding TruthLabel}" />
+                      </WrapPanel>
+                      <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding EstimateLabel}"
+                                 IsVisible="{Binding HasEstimate}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ContentControl.ContentTemplate>
+              </ContentControl>
               <Button Classes="v2-target" Content="{Binding ClearSelectionLabel}"
                       AutomationProperties.AutomationId="v2-map-clear-selection"
                       AutomationProperties.Name="{Binding ClearSelectionLabel}"

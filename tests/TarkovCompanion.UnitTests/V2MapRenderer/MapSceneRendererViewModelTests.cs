@@ -171,6 +171,9 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Equal(MapSceneRendererViewModel.ListPageSize, renderer.ListItems.Count);
         Assert.True(renderer.HasDenseSceneNotice);
         Assert.Contains(renderer.SpatialObjects, item => item.IsCluster);
+        Assert.All(renderer.PointMarkers, item => Assert.False(item.IsCluster));
+        Assert.All(renderer.ClusterMarkers, item => Assert.True(item.IsCluster));
+        Assert.Equal(renderer.SpatialObjects.Count, renderer.PointMarkers.Count + renderer.ClusterMarkers.Count);
 
         renderer.NextPageCommand.Execute(null);
         Assert.Equal(2, renderer.ListPageNumber);

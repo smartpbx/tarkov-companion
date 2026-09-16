@@ -76,6 +76,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererFloorViewModel> Floors { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
+    public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers { get; private set; } = [];
+    public IReadOnlyList<MapSceneRendererObjectViewModel> ClusterMarkers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererGeometryViewModel> GeometryObjects { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
     public MapSceneRendererObjectViewModel? SelectedObject { get; private set; }
@@ -562,6 +564,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .ToArray()
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
+        PointMarkers = SpatialObjects.Where(item => !item.IsCluster).ToArray();
+        ClusterMarkers = SpatialObjects.Where(item => item.IsCluster).ToArray();
         SelectedObject = _selectedObjectId is { } selected
             ? CreateSelectedObject(selected)
             : null;
@@ -878,6 +882,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         if (visibleContent)
         {
             OnPropertyChanged(nameof(SpatialObjects));
+            OnPropertyChanged(nameof(PointMarkers));
+            OnPropertyChanged(nameof(ClusterMarkers));
             OnPropertyChanged(nameof(GeometryObjects));
             OnPropertyChanged(nameof(SelectedObject));
             OnPropertyChanged(nameof(HasSelection));
@@ -922,7 +928,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     {
         foreach (var propertyName in new[]
                  {
-                     nameof(SpatialObjects), nameof(GeometryObjects), nameof(SelectedObject), nameof(HasSpatialObjects),
+                     nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(GeometryObjects),
+                     nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
                      nameof(MapWidth), nameof(MapHeight), nameof(MessageWidth), nameof(EmptyMessageWidth), nameof(StatusLeft),
                      nameof(StatusTop), nameof(EmptyLeft), nameof(EmptyTop), nameof(CameraPreTranslateX),

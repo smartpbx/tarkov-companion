@@ -85,6 +85,19 @@ public sealed class MapSceneRendererHostContractTests
     }
 
     [Fact]
+    public void Renderer_uses_invokable_clusters_and_defers_nullable_selection_bindings()
+    {
+        var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml");
+
+        Assert.Contains("ItemsSource=\"{Binding PointMarkers}\"", view, StringComparison.Ordinal);
+        Assert.Contains("<ToggleButton Classes=\"v2-map-marker\"", view, StringComparison.Ordinal);
+        Assert.Contains("ItemsSource=\"{Binding ClusterMarkers}\"", view, StringComparison.Ordinal);
+        Assert.Contains("<Button Classes=\"v2-map-marker cluster\"", view, StringComparison.Ordinal);
+        Assert.Contains("<ContentControl Content=\"{Binding SelectedObject}\">", view, StringComparison.Ordinal);
+        Assert.DoesNotContain("{Binding SelectedObject.", view, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Renderer_reflow_and_presentation_do_not_use_machine_ambient_choices()
     {
         var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml.cs");
