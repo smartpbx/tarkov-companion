@@ -353,12 +353,18 @@ desktop or tablet code sets explicitly, never a browser attaching an ambient cre
 which only defends against that ambient attachment, does not apply here.
 
 **First live payload: marks.** A mark a tablet places or removes reaches the desktop's own local
-mark store (`IRaidMarkStore`) through this transport today: the tablet's `UpsertMarkCommand`/
-`DeleteMarkCommand`, sealed inside a `ClientCommandEnvelope`, is applied through the existing,
-already-tested `DesktopCompanionAuthority.ApplyCommandAsync`, and `RelayMarksBridge` reconciles the
-result into the desktop's map. The other direction — a mark the desktop already had, or places
-locally, reaching the tablet — and the tablet page's own frame sealing/opening are deferred; see
-the package PR's "Deferred to polish".
+mark store (`IRaidMarkStore`) through this transport: the tablet's `UpsertMarkCommand`/
+`DeleteMarkCommand`, sealed inside a `ClientCommandEnvelope` by `Tablet/relay-crypto.js` (a byte-
+exact port of `PairingCryptography`'s nonce/AAD encoding and AES-256-GCM sealing, checked against
+`Golden/crypto`'s independent vector and a real cross-language round trip — see
+`RelayCryptoInteropTests`), is applied through the existing, already-tested
+`DesktopCompanionAuthority.ApplyCommandAsync`, and `RelayMarksBridge` reconciles the result into
+the desktop's map. The tablet fetches its own bearer secret from the same bounded pairing mailbox
+`established` came through (`POST`/`GET /v2/companion/pairing/relay-session/{attemptId}`), since
+the desktop only learns it from `POST /v2/companion/relay/devices`'s response after `established`
+has already been handed over. The other direction — a mark the desktop already had, or places
+locally, reaching the tablet — is still deferred; see the v2r-tablet-marks-sync package PR's
+"Deferred to polish".
 
 ## Which version everything speaks
 
