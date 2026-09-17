@@ -55,6 +55,49 @@ public sealed class V2ShellHostContractTests
     }
 
     [Fact]
+    public void A_global_problem_has_exactly_one_presentation_in_the_shell()
+    {
+        // V2 rough package 20: the shell drew the surface state twice — a compact banner under
+        // the top bar and an identical card in the page body below it. On Raid the second copy
+        // cost the map roughly 400px of height on a 1080-high window.
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+
+        Assert.Equal(1, shell.Split("AutomationProperties.AutomationId=\"v2-shell-surface-state\"", StringSplitOptions.None).Length - 1);
+        Assert.Contains("IsVisible=\"{Binding ShowsSurfaceBanner}\"", shell, StringComparison.Ordinal);
+        // One line: the detail, the recovery actions, a dismiss. No remainder sub-line, no dashed
+        // outline, and it never wraps to a second row.
+        Assert.Contains("Text=\"{Binding SurfaceBannerText}\"", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-surface-state-dismiss", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("v2-banner-outline", shell, StringComparison.Ordinal);
+        // The rest of the story lives behind the status pill instead.
+        Assert.Contains("v2-shell-health-surface", shell, StringComparison.Ordinal);
+        Assert.Contains("IsVisible=\"{Binding ShowsHealthSurface}\"", shell, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_raid_map_draws_icons_and_never_a_placeholder_question_mark()
+    {
+        // V2 rough package 20: Clayton's Streets screenshot showed "P/S ?", "arrow ?" and "S ?"
+        // in yellow boxes over the plan — text glyphs and letter badges, not markers.
+        var map = File.ReadAllText(V2ShellTestData.RepositoryPath(
+            "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml"));
+        var raid = File.ReadAllText(V2ShellTestData.RepositoryPath(
+            "src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"));
+
+        Assert.Contains("IsVisible=\"{Binding ShowsMarkerIcon}\"", map, StringComparison.Ordinal);
+        Assert.Contains("{DynamicResource V2.Icon.Exit}", map, StringComparison.Ordinal);
+        Assert.Contains("IsVisible=\"{Binding HasMarkerNumber}\"", map, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"{Binding FactionGlyph}\"", map, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text=\"{Binding OfferGlyph}\"", map, StringComparison.Ordinal);
+        // The four-sentence dense-scene notice is a chip with its wording in a tooltip.
+        Assert.Contains("Text=\"{Binding DenseSceneChip}\"", map, StringComparison.Ordinal);
+        Assert.Contains("ToolTip.Tip=\"{Binding DenseSceneNotice}\"", map, StringComparison.Ordinal);
+        // Every mark has a visible Remove, whether or not any marks exist yet.
+        Assert.Contains("v2-raid-mark-remove", raid, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsVisible=\"{Binding HasMarks}\"", raid, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Capture_context_persistence_and_suggestions_are_real_bound_shell_surfaces()
     {
         // V2 rough package 17: search and suggestions moved into the Intel workspace view, which

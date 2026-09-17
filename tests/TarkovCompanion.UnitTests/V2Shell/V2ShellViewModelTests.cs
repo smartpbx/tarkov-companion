@@ -491,6 +491,44 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Equal(string.Empty, shell.IntelVerdictHeadline);
     }
 
+    [Fact]
+    public async Task A_global_problem_is_one_dismissible_line_and_comes_back_for_a_new_problem()
+    {
+        // V2 rough package 20: the shell drew this twice, and on Raid the second copy pushed the
+        // map down the page. One banner, and the detail is behind the status pill.
+        var runtime = new TestRuntimeStore(V2ShellTestData.Snapshot()
+            .WithData(DataAvailability.Error, 0, null));
+        await using var shell = CreateShell(runtime: runtime);
+        shell.GoTo(V2Routes.Raid);
+
+        Assert.True(shell.ShowsSurfaceBanner);
+        Assert.True(shell.ShowsHealthSurface);
+        Assert.Equal(shell.Surface.Detail, shell.SurfaceBannerText);
+        Assert.NotEmpty(shell.RecoveryActions);
+        // The banner is the line alone; the remainder ("Local pages ... still work") is not in it.
+        Assert.DoesNotContain(shell.SurfaceRemainder, shell.SurfaceBannerText, StringComparison.Ordinal);
+
+        shell.DismissSurfaceBannerCommand.Execute(null);
+
+        Assert.False(shell.ShowsSurfaceBanner);
+        // Dismissing hides the line, not the problem: the pill still tells the whole story.
+        Assert.True(shell.ShowsHealthSurface);
+        Assert.True(shell.ShowsStatePresenter);
+
+        // The same problem, restated, stays dismissed.
+        runtime.Update(snapshot => snapshot.WithData(DataAvailability.Error, 0, null));
+        Assert.False(shell.ShowsSurfaceBanner);
+
+        // A different problem is a new thing to say, so the line comes back.
+        runtime.Update(snapshot => snapshot.WithData(DataAvailability.Unavailable, 0, null) with { IsOffline = true });
+        Assert.True(shell.ShowsSurfaceBanner);
+
+        // And once everything is fine, there is nothing to show at all.
+        runtime.Update(snapshot => snapshot.WithData(DataAvailability.Current, 5000, V2ShellTestData.Now) with { IsOffline = false });
+        Assert.False(shell.ShowsSurfaceBanner);
+        Assert.False(shell.ShowsHealthSurface);
+    }
+
     private V2ShellViewModel CreateShell(
         TestRuntimeStore? runtime = null,
         Func<V2ShellPreviewState, CancellationToken, Task>? save = null,

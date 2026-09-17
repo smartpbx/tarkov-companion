@@ -104,7 +104,11 @@ public sealed class MapSceneRendererViewModelTests
 
         Assert.Equal(("P", "✓"), (pmc.FactionGlyph, pmc.OfferGlyph));
         Assert.Equal(("S", "×"), (scav.FactionGlyph, scav.OfferGlyph));
-        Assert.Equal(("P/S", "?"), (shared.FactionGlyph, shared.OfferGlyph));
+        // V2 rough package 20: an unknown offer state says nothing rather than drawing a "?" —
+        // the marker's own border colour carries "offer unknown", and the words are still in the
+        // accessible name below.
+        Assert.Equal(("P/S", string.Empty), (shared.FactionGlyph, shared.OfferGlyph));
+        Assert.Contains("Unknown", shared.AutomationName, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(("◎", "L"), (local.MarkerGlyph, local.TruthGlyph));
         Assert.Equal(("◉", "T"), (team.MarkerGlyph, team.TruthGlyph));
         Assert.Equal(("≈", "H"), (historical.MarkerGlyph, historical.TruthGlyph));
@@ -1018,8 +1022,198 @@ public sealed class MapSceneRendererViewModelTests
     private static bool IsVisible(MapSceneRendererViewModel renderer, MapSceneLayerId layerId) =>
         renderer.Scene.View.Layers.Single(state => state.LayerId == layerId).IsVisible;
 
-    private static MapSceneRendererViewModel Renderer(MapSceneSnapshot scene, Func<Guid>? nextChangeId = null) =>
-        new(scene, Presentation, nextChangeId);
+    // ---- V2 rough package 20 ----
+
+    [Fact]
+    public void Plan_keeps_the_artwork_shape_instead_of_being_stretched_to_the_scene_box()
+    {
+        // Every scene uses the same normalized 0-100 box, so without the artwork's own shape a
+        // wide map and a tall one both drew as the same square.
+        var renderer = Renderer(Scene(), artwork: new Size(1600, 400));
+        renderer.SetViewportSize(1200, 800);
+
+        Assert.Equal(4d, renderer.MapWidth / renderer.MapHeight, 3);
+        Assert.True(renderer.MapWidth <= 1200, "The plan is contained, never cropped by the fit.");
+        Assert.True(renderer.MapHeight <= 800, "The plan is contained, never cropped by the fit.");
+        // Centred in the viewport, both ways.
+        Assert.Equal(renderer.MapLeft, 1200 - renderer.MapLeft - renderer.MapWidth, 3);
+        Assert.Equal(renderer.MapTop, 800 - renderer.MapTop - renderer.MapHeight, 3);
+    }
+
+    [Theory]
+    [InlineData(1600, 400)]
+    [InlineData(400, 1600)]
+    [InlineData(1024, 1024)]
+    public void Plan_fits_inside_every_viewport_it_is_given_at_its_own_aspect(double artworkWidth, double artworkHeight)
+    {
+        var renderer = Renderer(Scene(), artwork: new Size(artworkWidth, artworkHeight));
+        foreach (var (width, height) in new[] { (1200d, 700d), (3200d, 800d), (620d, 900d) })
+        {
+            renderer.SetViewportSize(width, height);
+
+            Assert.Equal(artworkWidth / artworkHeight, renderer.MapWidth / renderer.MapHeight, 3);
+            Assert.True(renderer.MapWidth <= width + 0.001);
+            Assert.True(renderer.MapHeight <= height + 0.001);
+        }
+    }
+
+    [Fact]
+    public void Dragging_moves_the_plan_one_to_one_and_commits_one_camera_when_it_ends()
+    {
+        var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000320"));
+        renderer.SetViewportSize(1200, 800);
+        var published = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += published.Add;
+        var restX = renderer.CameraPostTranslateX;
+        var restY = renderer.CameraPostTranslateY;
+
+        renderer.BeginPan();
+        renderer.UpdatePan(40, -25);
+
+        // The plan tracks the pointer exactly, and nothing has reached the scene yet.
+        Assert.Equal(restX + 40, renderer.CameraPostTranslateX, 3);
+        Assert.Equal(restY - 25, renderer.CameraPostTranslateY, 3);
+        Assert.True(renderer.IsPanning);
+        Assert.Empty(published);
+
+        renderer.UpdatePan(80, -50);
+        Assert.Equal(restX + 80, renderer.CameraPostTranslateX, 3);
+        Assert.Empty(published);
+
+        renderer.CommitPan();
+
+        var change = Assert.Single(published);
+        Assert.Equal(MapSceneViewChangeKind.SetCamera, change.Kind);
+        Assert.False(renderer.IsPanning);
+        Assert.Equal(restX, renderer.CameraPostTranslateX, 3);
+        Assert.Equal(restY, renderer.CameraPostTranslateY, 3);
+    }
+
+    [Fact]
+    public void An_abandoned_drag_puts_the_plan_back_and_changes_no_camera()
+    {
+        var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000321"));
+        renderer.SetViewportSize(1200, 800);
+        var published = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += published.Add;
+        var restX = renderer.CameraPostTranslateX;
+
+        renderer.BeginPan();
+        renderer.UpdatePan(120, 0);
+        renderer.CancelPan();
+
+        Assert.Empty(published);
+        Assert.Equal(restX, renderer.CameraPostTranslateX, 3);
+    }
+
+    [Fact]
+    public void Wheel_zoom_keeps_the_place_under_the_pointer_under_the_pointer()
+    {
+        var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000322"));
+        renderer.SetViewportSize(1200, 800);
+        MapSceneViewChange? published = null;
+        renderer.ViewChangeRequested += change => published = change;
+        Assert.True(renderer.TryScenePointAt(900, 250, out var before));
+
+        renderer.RequestZoomAt(1, 900, 250);
+
+        var camera = Assert.IsType<MapSceneViewChange>(published).Camera;
+        Assert.NotNull(camera);
+        Assert.True(camera.Value.Zoom > renderer.Scene.View.Camera.Zoom);
+        // Apply the requested camera and ask again where that viewport point is now.
+        var applied = MapSceneViewReducer.Apply(renderer.Scene, published!);
+        renderer.Present(applied.Scene);
+        Assert.True(renderer.TryScenePointAt(900, 250, out var after));
+        Assert.Equal(before.X, after.X, 1);
+        Assert.Equal(before.Y, after.Y, 1);
+    }
+
+    [Fact]
+    public void A_camera_change_is_never_refused_for_an_in_flight_change()
+    {
+        // The host applies nothing here, so the revision never moves: the guard that refuses a
+        // second change while one is in flight used to stall every later pan and zoom.
+        var renderer = Renderer(Scene(), () => Guid.NewGuid());
+        renderer.SetViewportSize(1200, 800);
+        var published = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += published.Add;
+
+        renderer.RequestZoom(1);
+        renderer.RequestZoom(1);
+        renderer.RequestPan(30, 30);
+
+        Assert.Equal(3, published.Count);
+        Assert.False(renderer.HasRendererNotice);
+    }
+
+    [Fact]
+    public void No_marker_ever_renders_a_question_mark_for_something_unknown()
+    {
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            Extract("unknown-offer", "Unknown", "first", MapSceneOfferState.Unknown, MapFeatureFaction.Unknown),
+        ]));
+
+        var marker = Assert.Single(renderer.PointMarkers);
+        Assert.Equal(MapSceneMarkerIcon.Extract, marker.Icon);
+        Assert.True(marker.IsExtractIcon);
+        Assert.DoesNotContain("?", marker.MarkerGlyph, StringComparison.Ordinal);
+        Assert.DoesNotContain("?", marker.TruthGlyph, StringComparison.Ordinal);
+        Assert.DoesNotContain("?", marker.FactionGlyph, StringComparison.Ordinal);
+        Assert.DoesNotContain("?", marker.OfferGlyph, StringComparison.Ordinal);
+        // Unknown still reaches assistive technology, as words rather than a glyph.
+        Assert.False(string.IsNullOrWhiteSpace(marker.AutomationName));
+    }
+
+    [Fact]
+    public void A_numbered_waypoint_draws_its_number_and_everything_else_draws_an_icon()
+    {
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            Point("wp", "3", MapSceneObjectKind.Waypoint, MapSceneTruthKind.UserAuthored, 30, 40),
+            Point("ping", "Ping", MapSceneObjectKind.Ping, MapSceneTruthKind.UserAuthored, 60, 40),
+        ]));
+
+        var waypoint = renderer.PointMarkers.Single(item => item.Key == "object:wp");
+        var ping = renderer.PointMarkers.Single(item => item.Key == "object:ping");
+        Assert.True(waypoint.HasMarkerNumber);
+        Assert.False(waypoint.ShowsMarkerIcon);
+        Assert.Equal("3", waypoint.MarkerGlyph);
+        Assert.True(ping.ShowsMarkerIcon);
+        Assert.True(ping.IsPingIcon);
+    }
+
+    [Fact]
+    public void The_dense_scene_notice_is_a_chip_with_the_wording_behind_it()
+    {
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            // Outside the scene's own 0-100 bounds, which is what makes this list-only.
+            Point("far", "Far", MapSceneObjectKind.Lock, MapSceneTruthKind.StaticReference, 140, 50),
+        ]));
+
+        Assert.True(renderer.HasDenseSceneNotice);
+        Assert.Equal("1 off-plan", renderer.DenseSceneChip);
+        Assert.Contains("outside reviewed bounds", renderer.DenseSceneNotice, StringComparison.Ordinal);
+        Assert.True(renderer.DenseSceneChip.Length < renderer.DenseSceneNotice.Length / 4);
+    }
+
+    private static MapSceneRendererViewModel Renderer(
+        MapSceneSnapshot scene,
+        Func<Guid>? nextChangeId = null,
+        Size? artwork = null) => artwork is { } size
+        ? new(scene, Presentation, nextChangeId, _ => new TestArtwork(size))
+        : new(scene, Presentation, nextChangeId);
+
+    /// <summary>Stands in for decoded map artwork; only its shape matters to the projection.</summary>
+    private sealed class TestArtwork(Size size) : IImage
+    {
+        public Size Size { get; } = size;
+
+        public void Draw(DrawingContext context, Rect sourceRect, Rect destRect)
+        {
+        }
+    }
 
     private static MapSceneSnapshot Scene(
         long revision = 7,
