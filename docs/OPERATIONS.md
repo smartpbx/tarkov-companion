@@ -47,6 +47,7 @@ configured. Until then, signed desktop builds use the verified offline path in `
 | --- | --- |
 | `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
 | `rooms.json` | The registered room hashes, with their labels and creation times. |
+| `relay-devices.json` | The paired-device registry (v2r-relay-owner): the owner and paired devices' key thumbprints, session/channel ids, and lifecycle audit trail. No private key material and no plaintext bearer credential — only its digest. Checksummed with one independently verified backup; see `VerifiedRelayRegistryStore`. |
 | `reports/*.md` | Problem reports exactly as sent, with no expiry. |
 | `UPDATE_NOW` | The panel's transient request for the root-owned updater to run. |
 
