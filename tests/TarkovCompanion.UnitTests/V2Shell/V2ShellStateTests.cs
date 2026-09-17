@@ -105,7 +105,7 @@ public sealed class V2ShellStateTests
         Assert.Equal(V2SurfaceStateKind.Empty, stash.Kind);
         Assert.Contains(stash.Recovery, action => action.Id == "open-capture");
         Assert.Equal(V2SurfaceStateKind.Empty, tablet.Kind);
-        Assert.Equal(V2Routes.Team, Assert.Single(tablet.Recovery).Route);
+        Assert.Equal("manage-pairing", Assert.Single(tablet.Recovery).Id);
         Assert.Equal(V2SurfaceStateKind.Ready, debrief.Kind);
     }
 

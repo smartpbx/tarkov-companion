@@ -128,7 +128,7 @@ public static class V2ShellText
         ["V2.Shell.Detail.NotSharing"] = "Off: nothing is shared",
         ["V2.Shell.Detail.GameData"] = "{0:N0} items · synced {1}",
         ["V2.Shell.Detail.NoStashScan"] = "No stash scan yet",
-        ["V2.Shell.Detail.NoTablet"] = "No paired tablet. Pairing is not in this build.",
+        ["V2.Shell.Detail.NoTablet"] = "No paired tablet yet",
         ["V2.Shell.Detail.OfflineCached"] = "Offline. Using {0:N0} cached items synced {1}",
         ["V2.Shell.Detail.UndatedData"] = "{0:N0} items with no sync time",
         ["V2.Shell.Detail.StaleData"] = "Game data synced {0}",
@@ -166,6 +166,7 @@ public static class V2ShellText
 
         ["V2.Shell.Action.OpenCapture"] = "Open Capture",
         ["V2.Shell.Action.OpenTeam"] = "Open Team",
+        ["V2.Shell.Action.ManagePairing"] = "Pair a tablet",
         ["V2.Shell.Action.SyncNow"] = "Sync now",
         ["V2.Shell.Action.OpenSetup"] = "Open Setup",
         ["V2.Shell.Action.OpenReadiness"] = "Open {0}",
