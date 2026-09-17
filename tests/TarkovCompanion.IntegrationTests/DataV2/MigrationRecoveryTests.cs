@@ -10,8 +10,8 @@ public sealed class MigrationRecoveryTests
     public async Task LedgerHasPairedUpgradeAndRollbackFixturesAndFreshDatabaseAppliesAll()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(12, SqliteMigrationLedger.Entries.Count);
-        Assert.Equal("0012_task_wiki_link", SqliteMigrationLedger.Entries[^1].Id);
+        Assert.Equal(13, SqliteMigrationLedger.Entries.Count);
+        Assert.Equal("0013_task_objective_task_scoped_keys", SqliteMigrationLedger.Entries[^1].Id);
         Assert.All(SqliteMigrationLedger.Entries, entry =>
         {
             var fixture = SqliteMigrationRunner.ReadFixture(entry.Id);
@@ -20,14 +20,14 @@ public sealed class MigrationRecoveryTests
             Assert.EndsWith(";", fixture.UpgradeSql.TrimEnd(), StringComparison.Ordinal);
             Assert.EndsWith(";", fixture.RollbackSql.TrimEnd(), StringComparison.Ordinal);
         });
-        Assert.Equal(12, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
+        Assert.Equal(13, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
 
-        var rollback = SqliteMigrationRunner.ReadFixture("0012_task_wiki_link").RollbackSql;
+        var rollback = SqliteMigrationRunner.ReadFixture("0013_task_objective_task_scoped_keys").RollbackSql;
         await using var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = rollback;
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
-        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('quest_catalog_tasks') WHERE name = 'wiki_url';";
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('task_objective_items') WHERE name = 'task_id';";
         Assert.Equal(0L, await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
     }
 
@@ -377,6 +377,12 @@ public sealed class MigrationRecoveryTests
             INSERT INTO http_response_cache(cache_key, body_json, cached_utc, etag, last_modified)
             VALUES ('legacy-before-v2', '{"data":{"fixture":true}}', '2026-09-15T00:00:00Z', '"fixture"', '2026-09-15T00:00:00Z');
             """,
+        "0013_task_objective_task_scoped_keys" => """
+            INSERT INTO tasks(id, name, source_json) VALUES ('rollback-task', 'Rollback task', '{}');
+            INSERT INTO task_objectives(id, task_id, type, description) VALUES ('rollback-objective', 'rollback-task', 'giveItem', 'Fixture');
+            INSERT INTO task_objective_items(objective_id, item_id, count, found_in_raid_required)
+            VALUES ('rollback-objective', 'rollback-item', 1, 0);
+            """,
         _ => string.Empty,
     };
 
@@ -386,6 +392,7 @@ public sealed class MigrationRecoveryTests
         "0009_drop_unread_map_tables" => "SELECT COUNT(*) FROM map_spawns WHERE id = 'spawn';",
         "0010_drop_quest_catalog_orphans" => "SELECT COUNT(*) FROM quest_catalog_orphans WHERE external_id = 'lost-task';",
         "0011_v2_data_platform" => "SELECT COUNT(*) FROM http_response_cache WHERE cache_key = 'legacy-before-v2';",
+        "0013_task_objective_task_scoped_keys" => "SELECT COUNT(*) FROM task_objective_items WHERE objective_id = 'rollback-objective';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 
@@ -441,6 +448,9 @@ public sealed class MigrationRecoveryTests
                 debug_capture_enabled, data_retention_days, updated_utc)
             VALUES ('rollback', 0, NULL, 0, 30, '2026-09-15T00:00:00Z');
             """,
+        "0013_task_objective_task_scoped_keys" =>
+            "INSERT INTO task_objective_items(task_id, objective_id, item_id, count, found_in_raid_required) " +
+            "VALUES ('rollback-task', 'rollback-objective', 'rollback-item-2', 2, 0);",
         _ => string.Empty,
     };
 
@@ -458,6 +468,7 @@ public sealed class MigrationRecoveryTests
         "0010_drop_quest_catalog_orphans" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';",
         "0011_v2_data_platform" => "SELECT COUNT(*) FROM pragma_table_info('http_response_cache') WHERE name = 'body_json';",
         "0012_task_wiki_link" => "SELECT COUNT(*) FROM pragma_table_info('quest_catalog_tasks') WHERE name = 'wiki_url';",
+        "0013_task_objective_task_scoped_keys" => "SELECT COUNT(*) FROM pragma_table_info('task_objective_items') WHERE name = 'task_id';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 
@@ -472,9 +483,14 @@ public sealed class MigrationRecoveryTests
 
     private sealed class ThrowAtFault(SqliteMigrationFaultPoint point, Exception exception) : ISqliteMigrationFaultInjector
     {
+        // BeforeBackup fires once per run, named for the *last* pending destructive migration
+        // (the backup filename it verifies) — that was 0011 until 0013 became pending too.
+        // BeforeMigration/BeforeMigrationCommit fire per applied migration and still hit 0011
+        // first, since it stays earliest in ledger order.
         public ValueTask InjectAsync(SqliteMigrationFaultPoint actual, string? migrationId, string databasePath, CancellationToken cancellationToken)
         {
-            if (actual == point && (migrationId is null || migrationId == "0011_v2_data_platform")) throw exception;
+            if (actual == point && (migrationId is null ||
+                migrationId is "0011_v2_data_platform" or "0013_task_objective_task_scoped_keys")) throw exception;
             return ValueTask.CompletedTask;
         }
     }

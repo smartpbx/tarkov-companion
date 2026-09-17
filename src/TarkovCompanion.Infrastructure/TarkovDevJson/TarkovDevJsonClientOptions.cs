@@ -22,7 +22,12 @@ public sealed record TarkovDevJsonClientOptions
 
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(12);
 
-    public long MaximumResponseBytes { get; init; } = 16L * 1024 * 1024;
+    // The live items catalog alone is ~16.7 MB, and the translated merge (the raw document
+    // re-parsed with per-language text substituted in) runs another 3-5% over that — 16 MiB
+    // left the merge with no headroom at all and refused every "items" refresh on 2026-09-17.
+    // 32 MiB keeps the same protective ceiling against a runaway payload while giving the
+    // catalog room to grow before this has to move again.
+    public long MaximumResponseBytes { get; init; } = 32L * 1024 * 1024;
 
     public int MaximumJsonDepth { get; init; } = 32;
 

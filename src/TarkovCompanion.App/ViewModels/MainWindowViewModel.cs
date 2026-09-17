@@ -2311,10 +2311,17 @@ public sealed class SettingsPageViewModel : PageViewModel
     {
         try
         {
+            // Constructed and called before ApplicationStartupCoordinator.InitializeAsync has
+            // necessarily applied migrations, so this used to query retention_policies too
+            // early on a fresh data folder — an unobserved SqliteException, since the caller
+            // discards this task. Wait for the same gate the data refresh and profile bootstrap
+            // use, and catch broadly below so a future early-query bug logs instead of crashing
+            // the process from the finalizer thread.
+            await _startupCoordinator.DatabaseReadyAsync(CancellationToken.None).ConfigureAwait(true);
             ApplyRetention(await _retentionSettings.GetAsync(CancellationToken.None).ConfigureAwait(true));
             RetentionStatus = DescribeRetention();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception)
         {
             RetentionStatus = $"Unreadable · {exception.Message}";
         }

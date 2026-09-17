@@ -1022,9 +1022,33 @@ public sealed class CacheAndHostileInputTests
     }
 
     [Fact]
-    public async Task ObjectiveIdsThatCollideAcrossTasksAreRefusedBeforeCachePublication()
+    public async Task ObjectiveIdsThatCollideAcrossTasksAreAcceptedAndCached()
     {
+        // json.tarkov.dev reuses one objective id for the same underlying objective shared by
+        // several tasks — seen live on 2026-09-17 with '6391d9ba4b15ca31f76bc325' on three
+        // separate tasks — and refusing the whole "tasks" endpoint over it emptied the app.
+        // Objective ids are unique within their own task (still enforced); not across tasks.
         const string json = "{\"data\":{\"tasks\":{\"a\":{\"id\":\"a\",\"name\":\"A\",\"objectives\":[{\"id\":\"shared\",\"type\":\"giveItem\"}]},\"b\":{\"id\":\"b\",\"name\":\"B\",\"objectives\":[{\"id\":\"shared\",\"type\":\"giveItem\"}]} }}}";
+        var cache = new InMemoryTarkovDevResponseCache();
+        await using var client = Client(
+            new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(json) }),
+            cache,
+            maximumBytes: 4096);
+
+        var response = await client.GetTasksAsync(
+            GameMode.Regular,
+            "en",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("shared", Assert.Single(response.Data.Tasks["a"].Objectives).Id);
+        Assert.Equal("shared", Assert.Single(response.Data.Tasks["b"].Objectives).Id);
+        Assert.NotNull(await cache.GetAsync("regular/tasks", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task DuplicateObjectiveIdWithinTheSameTaskIsStillRefused()
+    {
+        const string json = "{\"data\":{\"tasks\":{\"a\":{\"id\":\"a\",\"name\":\"A\",\"objectives\":[{\"id\":\"dup\",\"type\":\"giveItem\"},{\"id\":\"dup\",\"type\":\"giveItem\"}]}}}}";
         var cache = new InMemoryTarkovDevResponseCache();
         await using var client = Client(
             new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(json) }),
