@@ -144,9 +144,11 @@
             <TextBlock Classes="v2-label" Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
           </StackPanel>
           <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" />
-          <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center">
+          <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
+               scene exists (the page gallery fails on any binding fault). -->
+          <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center" DataContext="{Binding Renderer}">
             <TextBlock Classes="v2-label" Text="Map layers" />
-            <ItemsControl ItemsSource="{Binding Renderer.Layers}"
+            <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding Layers}"
                           AutomationProperties.AccessibilityView="Control"
                           AutomationProperties.Name="Map layers">
               <ItemsControl.ItemsPanel>
@@ -311,7 +313,9 @@
           <!-- Collapsed: the value-basis/tier/floor loot filter used to be its own always-open
                card in the map renderer's own side panel (now hidden in this embedding). It is a
                refinement on the High-value loot layer, not something every raid needs open. -->
-          <Border Classes="v2-card v2-raid-section" Padding="4" IsVisible="{Binding Renderer.HasHighValueLoot}">
+          <Panel DataContext="{Binding Renderer}">
+          <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section" Padding="4"
+                  IsVisible="{Binding HasHighValueLoot}">
           <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch" IsExpanded="False">
             <Expander.Header>
               <StackPanel Orientation="Horizontal" Spacing="10">
@@ -321,7 +325,7 @@
                 <TextBlock Classes="v2-heading-3" Text="High-value loot filters" VerticalAlignment="Center" />
               </StackPanel>
             </Expander.Header>
-            <ContentControl Content="{Binding Renderer.HighValueLoot}">
+            <ContentControl Content="{Binding HighValueLoot}">
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
                   <StackPanel Classes="v2-stack">
@@ -360,6 +364,7 @@
             </ContentControl>
           </Expander>
           </Border>
+          </Panel>
         </StackPanel>
       </ScrollViewer>
     </Border>

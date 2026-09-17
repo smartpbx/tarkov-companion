@@ -44,7 +44,25 @@ internal static class Program
                 .UseSkia()
                 .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
                 .WithInterFont()
+                // Binding and layout warnings are exactly what the Windows page gallery fails on;
+                // printing them here lets a Linux run catch the same faults before CI does.
+                .LogToTextWriter(Console.Out, Avalonia.Logging.LogEventLevel.Warning, Avalonia.Logging.LogArea.Binding, Avalonia.Logging.LogArea.Layout)
                 .SetupWithoutStarting();
+
+            if (options.MapRendererGallery)
+            {
+                var gallery = new TarkovCompanion.App.Views.V2.MapRenderer.MapSceneRendererGalleryWindow(
+                    options.MapRendererLargeText, options.MapRendererLootOffline) { Width = width, Height = height };
+                gallery.Show();
+                Pump(40);
+                var ids = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(gallery)
+                    .Select(Avalonia.Automation.AutomationProperties.GetAutomationId)
+                    .Where(id => id is not null && (id.Contains("cluster", StringComparison.Ordinal) || id is "v2-map-zoom-in" or "v2-map-loot-preset"))
+                    .Distinct();
+                Console.WriteLine("Automation ids: " + string.Join(", ", ids));
+                SaveFrame(gallery, outputPath, width, height);
+                return 0;
+            }
 
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             V2ShellViewModel? shell = null;
@@ -104,14 +122,7 @@ internal static class Program
             window.Width = width;
             Pump(10);
 
-            using var frame = window.CaptureRenderedFrame()
-                ?? throw new InvalidOperationException("The headless platform produced no frame.");
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
-            using (var stream = File.Create(outputPath))
-            {
-                frame.Save(stream, new PngBitmapEncoderOptions());
-            }
-            Console.WriteLine($"Saved {outputPath} ({width}x{height}).");
+            SaveFrame(window, outputPath, width, height);
             return 0;
         }
         finally
@@ -125,6 +136,19 @@ internal static class Program
                 // Best effort: this is a throwaway temp directory for one render.
             }
         }
+    }
+
+    private static void SaveFrame(Window window, string outputPath, int width, int height)
+    {
+        using var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("The headless platform produced no frame.");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
+        using (var stream = File.Create(outputPath))
+        {
+            frame.Save(stream, new PngBitmapEncoderOptions());
+        }
+
+        Console.WriteLine($"Saved {outputPath} ({width}x{height}).");
     }
 
     private static void Pump(int turns)
