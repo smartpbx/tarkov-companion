@@ -1,9 +1,11 @@
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.UnitTests.V2Shell;
@@ -395,17 +397,52 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Contains("item-ledx", shell.Router.CurrentAddress, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Selecting_an_item_resolves_the_intel_card_from_the_intel_service()
+    {
+        var intel = new FakeItemIntelService();
+        await using var shell = CreateShell(intel: intel);
+        shell.GoTo(V2Routes.Items);
+        shell.UpdatePlannedSuggestions([new("item-ledx", "LEDX", "Private Clinic", "Find one in raid")]);
+        var planned = Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned);
+
+        planned.OpenCommand.Execute(null);
+
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+        Assert.False(shell.IntelIsNotFound);
+        Assert.Equal("LEDX (fake)", shell.IntelDescription);
+        Assert.Contains(shell.IntelFacts, fact => fact.Label == "Short name" && fact.Value == "LEDX");
+        Assert.True(shell.IntelHasWikiLink);
+    }
+
+    [Fact]
+    public async Task Selecting_an_unknown_item_shows_not_found_instead_of_stale_facts()
+    {
+        await using var shell = CreateShell(intel: new FakeItemIntelService());
+        shell.GoTo(V2Routes.Items);
+        shell.UpdatePlannedSuggestions([new("item-unknown", "Unknown", "Somewhere", "Reason")]);
+        var planned = Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned);
+
+        planned.OpenCommand.Execute(null);
+
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+        Assert.True(shell.IntelIsNotFound);
+        Assert.Empty(shell.IntelFacts);
+    }
+
     private V2ShellViewModel CreateShell(
         TestRuntimeStore? runtime = null,
         Func<V2ShellPreviewState, CancellationToken, Task>? save = null,
-        Func<CancellationToken, Task>? reset = null) =>
+        Func<CancellationToken, Task>? reset = null,
+        IItemIntelService? intel = null) =>
         new(
             V2ShellMode.VariantB,
             _config,
             runtime ?? new TestRuntimeStore(V2ShellTestData.Snapshot()),
             _clock,
             save,
-            reset);
+            reset,
+            intel);
 
     private static WorkspaceOrigin Origin() => new(
         new WorkspaceId(Guid.Parse("10000000-0000-0000-0000-000000000267")),
@@ -422,6 +459,24 @@ public sealed class V2ShellViewModelTests : IDisposable
         }
 
         Assert.True(condition());
+    }
+
+    private sealed class FakeItemIntelService : IItemIntelService
+    {
+        public Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult(itemId == "item-ledx"
+                ? new V2ItemIntelResult(
+                    V2IntelKind.Item,
+                    itemId,
+                    "LEDX (fake)",
+                    "LEDX",
+                    "https://escapefromtarkov.fandom.com/wiki/LEDX",
+                    ItemCategory.Medicine,
+                    1,
+                    1,
+                    true,
+                    new V2IntelValueFacts(45000, "Flea", 1, 1, 0))
+                : V2ItemIntelResult.NotFound(itemId));
     }
 
     private sealed class TestRuntimeStore(ApplicationRuntimeSnapshot current) : IRuntimeStateStore
