@@ -31,6 +31,49 @@
       <teamViews:TeamWorkspaceView />
     </DataTemplate>
   </UserControl.DataTemplates>
+  <UserControl.Resources>
+    <!-- V2 rough package 15: small vector rail icons — Rectangle/Ellipse shapes, not a font
+         glyph. Shared between the rail's destinations and its Setup gear so both draw the same
+         way. Purely decorative: AccessibilityView="Raw", and the button around it always carries
+         the real accessible Name (Label). -->
+    <DataTemplate x:Key="V2RailIconTemplate" x:DataType="vm:V2ShellDestinationViewModel">
+      <Grid Width="18" Height="18" AutomationProperties.AccessibilityView="Raw">
+        <Grid IsVisible="{Binding IsRaid}">
+          <Ellipse Width="14" Height="14" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
+          <Ellipse Width="5" Height="5" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+        </Grid>
+        <Grid IsVisible="{Binding IsIntel}">
+          <Rectangle Width="12" Height="16" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1" RadiusY="1" />
+          <StackPanel Width="7" Spacing="3">
+            <Rectangle Height="1.4" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+            <Rectangle Height="1.4" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+            <Rectangle Height="1.4" Width="4" HorizontalAlignment="Left" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+          </StackPanel>
+        </Grid>
+        <Grid IsVisible="{Binding IsPlan}">
+          <Rectangle Width="13" Height="16" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1" RadiusY="1" />
+          <Rectangle Width="6" Height="3" VerticalAlignment="Top" Margin="0,-1,0,0"
+                     Fill="{DynamicResource V2.Brush.TextPrimary}" RadiusX="1" RadiusY="1" />
+        </Grid>
+        <Grid IsVisible="{Binding IsTeam}">
+          <Ellipse Width="10" Height="10" Margin="0,0,7,0"
+                   Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
+          <Ellipse Width="10" Height="10" Margin="7,0,0,0"
+                   Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
+        </Grid>
+        <Grid IsVisible="{Binding IsDebrief}">
+          <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom">
+            <Rectangle Width="4" Height="8" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+            <Rectangle Width="4" Height="14" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+            <Rectangle Width="4" Height="11" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
+          </StackPanel>
+        </Grid>
+        <Grid IsVisible="{Binding IsSetup}">
+          <Ellipse Width="15" Height="15" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="2.5" />
+        </Grid>
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
   <UserControl.Styles>
     <!-- Reserve the selected outline in every state. Changing border geometry while a
          destination moves between rows can make WrapPanel and its Grid parent remeasure each
@@ -94,10 +137,6 @@
     </Style>
     <Style Selector="Border.v2-status-pill:not(.v2-availability-ready)">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
-    </Style>
-    <Style Selector="TextBlock.v2-rail-glyph">
-      <Setter Property="Width" Value="20" />
-      <Setter Property="TextAlignment" Value="Center" />
     </Style>
     <!-- Secondary in-workspace routes (Loot decision under Raid, Hideout under Plan, ...) read as
          a slim tab strip rather than a bordered button box. -->
@@ -204,10 +243,18 @@
                   AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
                   Content="{Binding SetupDestination.DisplayLabel}"
                   Command="{Binding SetupDestination.NavigateCommand}" />
-          <Button Grid.Column="8" Classes="v2-target" Padding="8,4"
+          <Button Grid.Column="8" Classes="v2-target v2-icon-btn"
                   AutomationProperties.AutomationId="v2-shell-capture"
                   AutomationProperties.Name="{Binding CaptureLabel}" Command="{Binding CaptureCommand}">
-            <TextBlock Classes="v2-glyph" Text="■" AutomationProperties.AccessibilityView="Raw" />
+            <!-- A small camera outline: body + viewfinder bump + lens. -->
+            <Grid Width="18" Height="14" AutomationProperties.AccessibilityView="Raw">
+              <Rectangle Width="18" Height="12" VerticalAlignment="Bottom"
+                         Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1.5" RadiusY="1.5" />
+              <Rectangle Width="6" Height="3" VerticalAlignment="Top" HorizontalAlignment="Center"
+                         Fill="{DynamicResource V2.Brush.TextPrimary}" />
+              <Ellipse Width="6" Height="6" Margin="0,2,0,0"
+                       Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
+            </Grid>
           </Button>
           <Button Grid.Column="9" Classes="v2-target" Padding="0"
                   AutomationProperties.AutomationId="v2-shell-health"
@@ -379,8 +426,8 @@
                             AutomationProperties.ItemStatus="{Binding SelectionDescription}"
                             Command="{Binding NavigateCommand}">
                       <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Classes="v2-glyph v2-rail-glyph" Text="{Binding Glyph}"
-                                   AutomationProperties.AccessibilityView="Raw" />
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource V2RailIconTemplate}"
+                                        AutomationProperties.AccessibilityView="Raw" />
                         <TextBlock Text="{Binding Label}" />
                       </StackPanel>
                     </Button>
@@ -394,8 +441,8 @@
                     AutomationProperties.Name="{Binding SetupDestination.Label}"
                     AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
                     Command="{Binding SetupDestination.NavigateCommand}">
-              <TextBlock Classes="v2-glyph v2-rail-glyph" Text="{Binding SetupDestination.Glyph}"
-                         AutomationProperties.AccessibilityView="Raw" />
+              <ContentControl Content="{Binding SetupDestination}" ContentTemplate="{StaticResource V2RailIconTemplate}"
+                              AutomationProperties.AccessibilityView="Raw" />
             </Button>
           </Grid>
         </Border>
@@ -411,19 +458,19 @@
           <ScrollViewer Grid.Row="0" Grid.RowSpan="{Binding ShellBodyRowSpan}"
                         HorizontalScrollBarVisibility="Disabled">
             <StackPanel Classes="v2-page">
-              <!-- The rail already names the current destination; the page heading stays only
-                   for the accessibility contract (every page focuses its H1) and shares this one
-                   compact row with the section tabs instead of taking a row of its own — a
-                   heading and its own first tab said the same word twice. It draws no focus box
-                   at rest: landing here is a navigation courtesy, not something a sighted user
-                   asked for. -->
-              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-              <TextBlock Grid.Column="0" x:Name="PageHeading" Classes="v2-label" VerticalAlignment="Center"
+              <!-- The rail already names the current destination, and the section tabs (when a
+                   route has any) repeat it as their own first tab — a visible heading here said
+                   the same word a third time. It stays in the tree, off-screen, only for the
+                   accessibility contract (every page focuses its H1); a screen reader still gets
+                   its name, and it draws no focus box, because nothing about landing here was a
+                   sighted user's own action. -->
+              <TextBlock x:Name="PageHeading" Classes="v2-label"
+                         Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
                          Focusable="True" FocusAdorner="{x:Null}"
                          AutomationProperties.AutomationId="v2-shell-page-heading"
                          AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" />
 
-              <Border Grid.Column="1" Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
+              <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
                       AutomationProperties.AccessibilityView="Control"
                       AutomationProperties.AutomationId="v2-shell-sections"
                       AutomationProperties.LandmarkType="Navigation"
@@ -443,7 +490,6 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </Border>
-              </Grid>
 
               <Border Classes="v2-card" IsVisible="{Binding ShowsReadinessTarget}">
                 <StackPanel Classes="v2-stack">

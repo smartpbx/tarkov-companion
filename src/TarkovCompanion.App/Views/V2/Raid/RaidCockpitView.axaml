@@ -18,7 +18,7 @@
         <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself: that element's
              own DataContext is overridden to Renderer below, and a binding on the same element
              would resolve against that override instead of this page's view model. -->
-        <ContentControl IsVisible="{Binding HasRenderer}">
+        <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
           <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked"
                                      MarkerRightClicked="RendererMarkerRightClicked" />
         </ContentControl>
@@ -28,32 +28,46 @@
         </Border>
 
         <!-- Bottom-left, not top-left: the renderer's own presentation-mode/floor pill floats at
-             the map's top-left edge, and stacking both there collided. -->
-        <Border Classes="v2-card" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12">
-          <WrapPanel Classes="v2-toolbar" ItemSpacing="8" LineSpacing="8"
-                     AutomationProperties.AccessibilityView="Control"
-                     AutomationProperties.Name="Raid map controls">
-            <Button Classes="v2-target" Content="Ping" Command="{Binding PlacePingCommand}"
-                    Classes.selected="{Binding IsPlacingPing}"
-                    AutomationProperties.AutomationId="v2-raid-place-ping" />
-            <Button Classes="v2-target" Content="Waypoint" Command="{Binding PlaceWaypointCommand}"
-                    Classes.selected="{Binding IsPlacingWaypoint}"
-                    AutomationProperties.AutomationId="v2-raid-place-waypoint" />
-            <Button Classes="v2-target" Content="Cancel" Command="{Binding CancelPlacingCommand}"
+             the map's top-left edge, and stacking both there collided. No card behind the group
+             itself — a small floating icon-toggle group, like the renderer's own zoom/fit. -->
+        <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Spacing="8">
+          <StackPanel Orientation="Horizontal" Spacing="8"
+                      AutomationProperties.AccessibilityView="Control"
+                      AutomationProperties.Name="Raid map controls">
+            <ToggleButton Classes="v2-target v2-icon-btn" Content="●" Command="{Binding PlacePingCommand}"
+                          IsChecked="{Binding IsPlacingPing, Mode=OneWay}"
+                          AutomationProperties.AutomationId="v2-raid-place-ping"
+                          AutomationProperties.Name="Ping" ToolTip.Tip="Ping" />
+            <ToggleButton Classes="v2-target v2-icon-btn" Content="◆" Command="{Binding PlaceWaypointCommand}"
+                          IsChecked="{Binding IsPlacingWaypoint, Mode=OneWay}"
+                          AutomationProperties.AutomationId="v2-raid-place-waypoint"
+                          AutomationProperties.Name="Waypoint" ToolTip.Tip="Waypoint" />
+            <Button Classes="v2-target v2-icon-btn" Content="×" Command="{Binding CancelPlacingCommand}"
                     IsVisible="{Binding IsPlacingMark}"
-                    AutomationProperties.AutomationId="v2-raid-cancel-placing" />
-            <TextBlock Classes="v2-label" Text="Click the map to place it"
-                       IsVisible="{Binding IsPlacingMark}" VerticalAlignment="Center" />
-          </WrapPanel>
-        </Border>
+                    AutomationProperties.AutomationId="v2-raid-cancel-placing"
+                    AutomationProperties.Name="Cancel" ToolTip.Tip="Cancel" />
+          </StackPanel>
+          <TextBlock Classes="v2-label" Text="Click the map to place it"
+                     IsVisible="{Binding IsPlacingMark}" />
+        </StackPanel>
       </Grid>
 
       <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Classes="v2-stack" Spacing="12">
 
-          <!-- The bottom strip is the one place TimeLeft draws now; repeating it here duplicated
-               "Unknown / No raid start observed" in two places at once. -->
-          <TextBlock Classes="v2-heading-2" Text="Raid plan" />
+          <!-- Header card: map + raid clock. Mode isn't available at this view model's level
+               (it's a shell-level concept, already in the top bar); the bottom strip is the one
+               place TimeLeft repeats, as the timer, not the full raid-status sentence. -->
+          <Border Classes="v2-card">
+            <StackPanel Classes="v2-stack">
+              <TextBlock Classes="v2-heading-2" Text="Raid plan" />
+              <TextBlock Classes="v2-body" Text="{Binding Renderer.LocationLabel}" IsVisible="{Binding HasRenderer}" />
+              <StackPanel Orientation="Horizontal" Spacing="4">
+                <TextBlock Classes="v2-glyph" Text="◷" AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock Classes="v2-label" Text="{Binding TimeLeft}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
 
           <Border Classes="v2-card" IsVisible="{Binding HasExtracts}">
             <StackPanel Classes="v2-stack">
@@ -75,9 +89,36 @@
             </StackPanel>
           </Border>
 
-          <Border Classes="v2-card">
+          <!-- A single muted line, not a card: this is routine provenance (the design system's
+               progressive-disclosure floor), not a decision-changing message. -->
+          <TextBlock Classes="v2-label" Text="{Binding TrafficLayerNotice}" TextWrapping="Wrap" />
+
+          <Border Classes="v2-card" IsVisible="{Binding HasMarks}">
             <StackPanel Classes="v2-stack">
-              <TextBlock Classes="v2-label" Text="{Binding TrafficLayerNotice}" TextWrapping="Wrap" />
+              <TextBlock Classes="v2-heading-3" Text="My marks" />
+              <ItemsControl ItemsSource="{Binding Marks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
+                    <StackPanel Classes="v2-stack" Spacing="4">
+                      <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                        <TextBlock Classes="v2-body" Text="{Binding Label}"
+                                   AutomationProperties.AutomationId="v2-raid-mark-label" />
+                        <Button Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                                AutomationProperties.AutomationId="v2-raid-mark-remove" />
+                      </StackPanel>
+                      <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
+                      <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanRename}">
+                        <TextBox Text="{Binding EditableName}" PlaceholderText="Name (blank = numbered)"
+                                 MinWidth="140"
+                                 AutomationProperties.AutomationId="v2-raid-mark-rename-input" />
+                        <Button Classes="v2-target" Content="Rename" Command="{Binding RenameCommand}"
+                                AutomationProperties.AutomationId="v2-raid-mark-rename" />
+                      </StackPanel>
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Border>
 
@@ -123,35 +164,6 @@
               </ContentControl.ContentTemplate>
             </ContentControl>
           </Expander>
-
-          <Border Classes="v2-card" IsVisible="{Binding HasMarks}">
-            <StackPanel Classes="v2-stack">
-              <TextBlock Classes="v2-heading-3" Text="My marks" />
-              <ItemsControl ItemsSource="{Binding Marks}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
-                    <StackPanel Classes="v2-stack" Spacing="4">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
-                        <TextBlock Classes="v2-body" Text="{Binding Label}"
-                                   AutomationProperties.AutomationId="v2-raid-mark-label" />
-                        <Button Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
-                                AutomationProperties.AutomationId="v2-raid-mark-remove" />
-                      </StackPanel>
-                      <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
-                      <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanRename}">
-                        <TextBox Text="{Binding EditableName}" PlaceholderText="Name (blank = numbered)"
-                                 MinWidth="140"
-                                 AutomationProperties.AutomationId="v2-raid-mark-rename-input" />
-                        <Button Classes="v2-target" Content="Rename" Command="{Binding RenameCommand}"
-                                AutomationProperties.AutomationId="v2-raid-mark-rename" />
-                      </StackPanel>
-                    </StackPanel>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </Border>
         </StackPanel>
       </ScrollViewer>
     </Grid>
@@ -163,7 +175,7 @@
       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <TextBlock Classes="v2-glyph" Text="◷" AutomationProperties.AccessibilityView="Raw" />
-          <TextBlock Classes="v2-body" Text="{Binding TimeLeft}" VerticalAlignment="Center" />
+          <TextBlock Classes="v2-label" Text="{Binding TimeLeft}" VerticalAlignment="Center" />
           <TextBlock Classes="v2-label" Text="{Binding TimeLeftDetail}" VerticalAlignment="Center" />
         </StackPanel>
         <ItemsControl Grid.Column="1" HorizontalAlignment="Right" ItemsSource="{Binding Renderer.Layers}"

@@ -94,6 +94,16 @@ internal static class Program
             // the map scene's own async asset resolution to settle after data arrives.
             Pump(20);
 
+            // The map canvas sizes itself from PlanViewport.Bounds via a SizeChanged handler.
+            // At larger widths that handler's first firing can land before the window's own
+            // layout has settled at its final requested size, leaving the canvas sized to an
+            // earlier, smaller pass. A nudge-and-restore forces one more SizeChanged once
+            // everything else (map data, the details-panel toggle) has already settled.
+            window.Width = width - 1;
+            Pump(5);
+            window.Width = width;
+            Pump(10);
+
             using var frame = window.CaptureRenderedFrame()
                 ?? throw new InvalidOperationException("The headless platform produced no frame.");
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);

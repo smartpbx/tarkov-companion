@@ -2747,16 +2747,16 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
     public string Label => V2ShellText.Get(_definition.LabelKey);
     public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
     /// <summary>A decorative rail icon. Purely visual — the automation name is <see cref="Label"/>.</summary>
-    public string Glyph =>
-        // Restricted to the Geometric Shapes/Arrows Unicode blocks: the gear and print glyphs
-        // this used before (Miscellaneous Symbols) had no covering font and rendered as tofu.
-        Route == V2Routes.Raid ? "▲" :
-        Route == V2Routes.Items ? "▤" :
-        Route == V2Routes.Plan ? "▥" :
-        Route == V2Routes.Team ? "●" :
-        Route == V2Routes.Debrief ? "▬" :
-        Route == V2Routes.Setup ? "○" :
-        "○";
+    // Decorative rail icons are small vector shapes built directly in the view (Rectangle/
+    // Ellipse, not a font glyph — a Unicode dingbat from an uncovered font block rendered as
+    // tofu the first time this shipped). Each of these selects exactly one shape; the
+    // accessible name is always Label, never the icon.
+    public bool IsRaid => Route == V2Routes.Raid;
+    public bool IsIntel => Route == V2Routes.Items;
+    public bool IsPlan => Route == V2Routes.Plan;
+    public bool IsTeam => Route == V2Routes.Team;
+    public bool IsDebrief => Route == V2Routes.Debrief;
+    public bool IsSetup => Route == V2Routes.Setup;
     public string AutomationId => V2ShellFocusTargets.Destination(Route);
     public string SelectionDescription => IsCurrent
         ? V2ShellText.Get("V2.Shell.Nav.Current")

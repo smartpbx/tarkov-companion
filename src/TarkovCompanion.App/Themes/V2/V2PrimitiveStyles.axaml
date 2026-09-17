@@ -261,6 +261,20 @@
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
     <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
   </Style>
+  <!-- A small floating icon-only control: map zoom/fit, the loot preset toggle, Raid's
+       Ping/Waypoint/Cancel. No card behind the group itself; each button carries its own bounds. -->
+  <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
+    <Setter Property="Width" Value="{DynamicResource V2.Target.Touch}" />
+    <Setter Property="Height" Value="{DynamicResource V2.Target.Touch}" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+  </Style>
+  <Style Selector="ToggleButton.v2-icon-btn:checked">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
 
   <!-- Focus and error borders. Fluent 12.1.2 draws a TextBox border on Border#PART_BorderElement and
        a Button border on ContentPresenter#PART_ContentPresenter. Its TextBox :pointerover/:focus and

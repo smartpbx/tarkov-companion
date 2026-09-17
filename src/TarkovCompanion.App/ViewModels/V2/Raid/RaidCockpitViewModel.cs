@@ -569,7 +569,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // search/layers/selection/loot-filter column would just be a second, narrower
                 // copy of the same map beside it. Loot filtering stays reachable through
                 // Renderer.HighValueLoot in this page's own right panel.
-                showsDetailsPanel: false);
+                showsDetailsPanel: false,
+                // The Raid workspace's map card is its own fixed frame around the plan, like
+                // docs/design/v2/v2-raid-intelligence-concept.png: it fills edge to edge rather
+                // than letterboxing when its aspect ratio does not match the plan's own.
+                fillsViewport: true);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             Renderer = renderer;

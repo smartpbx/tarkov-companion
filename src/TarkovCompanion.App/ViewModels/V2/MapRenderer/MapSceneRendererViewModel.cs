@@ -87,6 +87,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly IReadOnlySet<MapSceneLayerId> _lootPresetPreservedLayers;
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
+    private readonly bool _fillsViewport;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
@@ -97,11 +98,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         HighValueLootLayerFilterState? highValueLootFilterState = null,
         IReadOnlyList<string>? highValueLootCategories = null,
         IReadOnlyList<MapSceneLayerId>? highValueLootPresetPreservedLayers = null,
-        bool showsDetailsPanel = true)
+        bool showsDetailsPanel = true,
+        bool fillsViewport = false)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         ShowsDetailsPanel = showsDetailsPanel;
+        _fillsViewport = fillsViewport;
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
         _reviewedAssetResolver = reviewedAssetResolver;
         _lootPresetPreservedLayers = CreateLootPresetPreserveSet(scene, highValueLootPresetPreservedLayers);
@@ -240,6 +243,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasSpatialObjects => SpatialObjects.Count > 0 || GeometryObjects.Count > 0;
     public bool HasListItems => ListItems.Count > 0;
     public bool ShowsEmptyMap => !HasSpatialObjects;
+    /// <summary>A host with its own fixed frame around the map (the Raid workspace) keeps this
+    /// message out of the plan's centre; ShowsDetailsPanel doubles as that "full chrome" flag.</summary>
+    public bool ShowsEmptyMapMessage => ShowsEmptyMap && ShowsDetailsPanel;
     public bool ShowsEmptyList => !HasListItems;
     public bool HasSelection => SelectedObject is not null || SelectedLootEntry is not null;
     public bool HasGenericSelection => SelectedObject is not null && SelectedLootEntry is null;
@@ -1375,7 +1381,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
-    private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset);
+    private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport);
 
     private static bool Equivalent<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) =>
         left.Count == right.Count && left.SequenceEqual(right);
@@ -1838,7 +1844,12 @@ public sealed class MapSceneProjection
     private readonly double _canvasWidth;
     private readonly double _canvasHeight;
 
-    public MapSceneProjection(MapSceneBounds bounds, double canvasWidth, double canvasHeight, double inset)
+    public MapSceneProjection(
+        MapSceneBounds bounds,
+        double canvasWidth,
+        double canvasHeight,
+        double inset,
+        bool fillCanvas = false)
     {
         _bounds = bounds;
         _canvasWidth = canvasWidth;
@@ -1847,10 +1858,14 @@ public sealed class MapSceneProjection
         var boundsHeight = bounds.Height;
         var finiteBounds = double.IsFinite(boundsWidth) && double.IsFinite(boundsHeight) &&
             boundsWidth > 0 && boundsHeight > 0;
+        // "Contain" (the default) never crops the plan, at the cost of letterboxing when the
+        // viewport's aspect ratio does not match the plan's. A host with its own fixed frame
+        // around the map (the Raid workspace) instead asks to "cover": fill the viewport edge to
+        // edge, cropping the plan's own overflow — PlanViewport already clips to its bounds.
+        var widthScale = Math.Max(1, canvasWidth - (inset * 2)) / boundsWidth;
+        var heightScale = Math.Max(1, canvasHeight - (inset * 2)) / boundsHeight;
         var tentativeScale = finiteBounds
-            ? Math.Min(
-                Math.Max(1, canvasWidth - (inset * 2)) / boundsWidth,
-                Math.Max(1, canvasHeight - (inset * 2)) / boundsHeight)
+            ? fillCanvas ? Math.Max(widthScale, heightScale) : Math.Min(widthScale, heightScale)
             : double.NaN;
         IsUsable = double.IsFinite(tentativeScale) && tentativeScale > 0;
         if (!IsUsable)
