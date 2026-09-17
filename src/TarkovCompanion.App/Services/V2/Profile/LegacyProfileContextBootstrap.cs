@@ -25,6 +25,9 @@ public sealed class LegacyProfileContextBootstrap(
     IPlayerProfileService legacyProfiles,
     ProfileContextService profiles,
     RuntimeOptions runtimeOptions,
+    // Optional so every test that builds this by hand keeps compiling; the desktop composition
+    // always supplies the real coordinator.
+    ApplicationStartupCoordinator? startupCoordinator = null,
     ILogger<LegacyProfileContextBootstrap>? logger = null)
 {
     private readonly ILogger<LegacyProfileContextBootstrap> _logger = logger ?? NullLogger<LegacyProfileContextBootstrap>.Instance;
@@ -33,6 +36,15 @@ public sealed class LegacyProfileContextBootstrap(
     {
         try
         {
+            // App.axaml.cs fires this before MainWindowViewModel.InitializeAsync has run the
+            // database feature, so this used to query profile_workspaces before its migration
+            // had been applied on a fresh data folder. Wait for the same gate every other
+            // startup consumer awaits instead.
+            if (startupCoordinator is not null)
+            {
+                await startupCoordinator.DatabaseReadyAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             var workspace = await profiles.GetAsync(cancellationToken).ConfigureAwait(false);
             if (workspace.Profiles.Count > 0)
             {
