@@ -68,6 +68,17 @@ A host merges one dictionary, `Themes/V2/V2Resources.axaml`, which combines:
 `V2DesignSystemContractTests` fails if a manifest token has no resource or a resource has no
 manifest token, so the lists above and the manifest cannot drift apart silently.
 
+Two style sheets sit on top of those resources, both merged by `App.axaml`:
+
+| File | Holds |
+| --- | --- |
+| `V2PrimitiveStyles.axaml` | the #266 primitive contract: every value a token, every Button border on the Fluent template part, checked by the contract tests |
+| `V2WorkspaceStyles.axaml` | workspace building blocks a concept-shaped page needs — `v2-pane`, `v2-context-panel`, `v2-section`, `v2-primary`/`v2-outline`/`v2-plain` buttons and `v2-chip` (with `v2-selected`) |
+
+The split exists because a ghost button's transparent background has no token to take, which the
+primitive contract rightly refuses. Use the workspace classes rather than restyling buttons per
+view; `V2Icons.axaml` holds the outline icon geometry those pages draw.
+
 ### Tokens
 
 | Group | Roles |
