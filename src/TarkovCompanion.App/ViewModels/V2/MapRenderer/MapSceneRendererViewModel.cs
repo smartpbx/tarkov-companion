@@ -87,6 +87,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly IReadOnlySet<MapSceneLayerId> _lootPresetPreservedLayers;
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
+    private readonly bool _fillsViewport;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
@@ -96,10 +97,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         HighValueLootLayerResult? highValueLoot = null,
         HighValueLootLayerFilterState? highValueLootFilterState = null,
         IReadOnlyList<string>? highValueLootCategories = null,
-        IReadOnlyList<MapSceneLayerId>? highValueLootPresetPreservedLayers = null)
+        IReadOnlyList<MapSceneLayerId>? highValueLootPresetPreservedLayers = null,
+        bool showsDetailsPanel = true,
+        bool fillsViewport = false)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
+        ShowsDetailsPanel = showsDetailsPanel;
+        _fillsViewport = fillsViewport;
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
         _reviewedAssetResolver = reviewedAssetResolver;
         _lootPresetPreservedLayers = CreateLootPresetPreserveSet(scene, highValueLootPresetPreservedLayers);
@@ -140,9 +145,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The owner rebuilds the typed layer and canonical scene for this request.</summary>
     public event Action<HighValueLootFilterRequest>? HighValueLootFilterRequested;
 
+    /// <summary>False when a host (the Raid workspace) already shows search/layers/selection/loot
+    /// filters in its own context panel, so this renderer's own details column would just repeat
+    /// them beside a narrower map.</summary>
+    public bool ShowsDetailsPanel { get; }
     public MapSceneSnapshot Scene => _scene;
     public IReadOnlyList<MapSceneRendererModeViewModel> Modes { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererFloorViewModel> Floors { get; private set; } = [];
+    /// <summary>The floor a compact selector shows as chosen; null only before the scene has any.</summary>
+    public MapSceneRendererFloorViewModel? SelectedFloor => Floors.FirstOrDefault(floor => floor.IsSelected);
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers { get; private set; } = [];
@@ -232,6 +243,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasSpatialObjects => SpatialObjects.Count > 0 || GeometryObjects.Count > 0;
     public bool HasListItems => ListItems.Count > 0;
     public bool ShowsEmptyMap => !HasSpatialObjects;
+    /// <summary>A host with its own fixed frame around the map (the Raid workspace) keeps this
+    /// message out of the plan's centre; ShowsDetailsPanel doubles as that "full chrome" flag.</summary>
+    public bool ShowsEmptyMapMessage => ShowsEmptyMap && ShowsDetailsPanel;
     public bool ShowsEmptyList => !HasListItems;
     public bool HasSelection => SelectedObject is not null || SelectedLootEntry is not null;
     public bool HasGenericSelection => SelectedObject is not null && SelectedLootEntry is null;
@@ -1299,6 +1313,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(Floors));
             OnPropertyChanged(nameof(HasFloorFilters));
             OnPropertyChanged(nameof(HasFloors));
+            OnPropertyChanged(nameof(SelectedFloor));
         }
         if (layers) OnPropertyChanged(nameof(Layers));
         if (visibleContent)
@@ -1366,7 +1381,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
-    private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset);
+    private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport);
 
     private static bool Equivalent<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) =>
         left.Count == right.Count && left.SequenceEqual(right);
@@ -1432,6 +1447,8 @@ public sealed class MapSceneRendererFloorViewModel
     }
 
     public string Id { get; }
+    /// <summary>A human floor name for the compact selector, e.g. "ground" → "Ground".</summary>
+    public string Name => MapRendererToken.Humanize(Id);
     public bool IsSelected { get; }
     public string AutomationId => $"v2-map-floor-{MapRendererToken.From(Id)}";
     public ICommand SelectCommand { get; }
@@ -1827,7 +1844,12 @@ public sealed class MapSceneProjection
     private readonly double _canvasWidth;
     private readonly double _canvasHeight;
 
-    public MapSceneProjection(MapSceneBounds bounds, double canvasWidth, double canvasHeight, double inset)
+    public MapSceneProjection(
+        MapSceneBounds bounds,
+        double canvasWidth,
+        double canvasHeight,
+        double inset,
+        bool fillCanvas = false)
     {
         _bounds = bounds;
         _canvasWidth = canvasWidth;
@@ -1836,10 +1858,14 @@ public sealed class MapSceneProjection
         var boundsHeight = bounds.Height;
         var finiteBounds = double.IsFinite(boundsWidth) && double.IsFinite(boundsHeight) &&
             boundsWidth > 0 && boundsHeight > 0;
+        // "Contain" (the default) never crops the plan, at the cost of letterboxing when the
+        // viewport's aspect ratio does not match the plan's. A host with its own fixed frame
+        // around the map (the Raid workspace) instead asks to "cover": fill the viewport edge to
+        // edge, cropping the plan's own overflow — PlanViewport already clips to its bounds.
+        var widthScale = Math.Max(1, canvasWidth - (inset * 2)) / boundsWidth;
+        var heightScale = Math.Max(1, canvasHeight - (inset * 2)) / boundsHeight;
         var tentativeScale = finiteBounds
-            ? Math.Min(
-                Math.Max(1, canvasWidth - (inset * 2)) / boundsWidth,
-                Math.Max(1, canvasHeight - (inset * 2)) / boundsHeight)
+            ? fillCanvas ? Math.Max(widthScale, heightScale) : Math.Min(widthScale, heightScale)
             : double.NaN;
         IsUsable = double.IsFinite(tentativeScale) && tentativeScale > 0;
         if (!IsUsable)
@@ -1904,6 +1930,18 @@ public sealed class MapSceneProjection
 
 internal static class MapRendererToken
 {
+    /// <summary>A raw floor id ("ground", "2nd-floor") as a short human label ("Ground", "2nd floor").</summary>
+    public static string Humanize(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var spaced = value.Replace('-', ' ').Replace('_', ' ');
+        return char.ToUpperInvariant(spaced[0]) + spaced[1..];
+    }
+
     public static string From(string value)
     {
         var normalized = new string(value.ToLowerInvariant()

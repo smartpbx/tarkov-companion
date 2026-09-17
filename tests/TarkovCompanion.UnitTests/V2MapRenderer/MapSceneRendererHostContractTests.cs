@@ -154,9 +154,12 @@ public sealed class MapSceneRendererHostContractTests
         var presentation = Read("src", "TarkovCompanion.App", "ViewModels", "V2", "MapRenderer", "MapSceneRendererPresentation.cs");
         var renderer = Read("src", "TarkovCompanion.App", "ViewModels", "V2", "MapRenderer", "MapSceneRendererViewModel.cs");
 
-        Assert.Contains("NarrowHeaderWidth = 600", view, StringComparison.Ordinal);
-        Assert.Contains("CompactWidth = 860", view, StringComparison.Ordinal);
+        // The width-driven compact reflow for hosts with a details column never ran (the view's
+        // x:Name fields were unassigned) and was removed with the layout-cycle fix; reflow now
+        // applies once, only for a host without a details column.
         Assert.Contains("RendererBody.ColumnDefinitions", view, StringComparison.Ordinal);
+        Assert.Contains("ShowsDetailsPanel: false", view, StringComparison.Ordinal);
+        Assert.Contains("_appliedLayoutMode == Mode", view, StringComparison.Ordinal);
         Assert.DoesNotContain("ToLocalTime", presentation, StringComparison.Ordinal);
         Assert.DoesNotContain("CurrentCulture", presentation, StringComparison.Ordinal);
         Assert.DoesNotContain("CurrentCulture", renderer, StringComparison.Ordinal);

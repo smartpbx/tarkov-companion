@@ -85,6 +85,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private bool _captureShortcutEnabled = true;
     private bool _surfaceInitialized;
     private bool _disposed;
+    // V2 rough package 15 (shell chrome + Raid workspace): the #265 scaffold chrome (variant
+    // labels, Back/Forward, address bar, pin/copy, the Commands button) confused Clayton as
+    // production UI. It stays wired for --developer-mode diagnostics and the Windows page
+    // gallery script (which now passes that flag for the scenarios that exercise it) rather than
+    // being deleted outright.
+    private readonly bool _developerMode;
     private V2WidthClass _widthClass = V2WidthClass.Expanded;
     private V2ShellWindowPlacement? _window;
     private V2NavigationContinuity _continuity = V2NavigationContinuity.Desktop;
@@ -151,7 +157,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             debrief,
             plan,
             hideout,
-            team)
+            team,
+            options.DeveloperMode)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
     }
@@ -170,7 +177,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
-        TeamWorkspaceViewModel? team = null)
+        TeamWorkspaceViewModel? team = null,
+        bool developerMode = false)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -187,7 +195,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             debrief,
             plan,
             hideout,
-            team)
+            team,
+            developerMode)
     {
     }
 
@@ -207,9 +216,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
-        TeamWorkspaceViewModel? team = null)
+        TeamWorkspaceViewModel? team = null,
+        bool developerMode = false)
     {
         _lifetimeToken = _lifetime.Token;
+        _developerMode = developerMode;
         _runtime = runtime;
         _stashScan = stashScan;
         _debrief = debrief;
@@ -358,8 +369,15 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public IReadOnlyList<V2ShellSuggestionFilterViewModel> SuggestionFilters { get; }
     public IReadOnlyList<V2BrowseCategoryViewModel> BrowseCategories { get; }
     public string AppName => V2ShellText.Get("V2.Shell.AppName");
+    public string AppTag => V2ShellText.Get("V2.Shell.Tag");
     public string ProvisionalLabel => V2ShellText.Get("V2.Shell.Provisional");
     public string VariantName => V2ShellText.Get(Variant.NameKey);
+    /// <summary>Whether the #265 A/B scaffold chrome (variant labels, Back/Forward, the address
+    /// bar, Pin/Copy, the Commands button) draws. False for every normal launch; true only under
+    /// --developer-mode, which the Windows page gallery script now requests for the scenarios
+    /// that still exercise this chrome.</summary>
+    public bool IsDeveloperMode => _developerMode;
+    public bool ShowsScaffoldChrome => IsDeveloperMode;
     public string NavigationRegionName => V2ShellText.Get("V2.Shell.Region.Navigation");
     public string ContextRegionName => V2ShellText.Get("V2.Shell.Region.Context");
     public string SectionRegionName => V2ShellText.Get("V2.Shell.Region.Sections");
@@ -451,6 +469,25 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         CultureInfo.CurrentCulture,
         _clock.GetLocalNow().ToString("t", CultureInfo.CurrentCulture));
     public string RaidContextLabel => FormatRaidContext(_runtime.Current.Raid, _clock.GetUtcNow());
+    /// <summary>The top bar's compact raid clock chip, e.g. "In raid · 12:34 left".</summary>
+    public string RaidClockLabel => FormatRaidClock(_runtime.Current.Raid, _clock.GetUtcNow());
+    /// <summary>The top bar's compact mode chip, without the "Profile:" prefix a diagnostic
+    /// reader needs but a glanceable header does not.</summary>
+    public string TopBarModeLabel => Router.Context.ProfileName is { } profile
+        ? V2ShellText.Format(
+            "V2.Shell.Context.ModeCompact",
+            CultureInfo.CurrentCulture,
+            profile,
+            Router.Context.ProfileMode ?? V2ShellText.Get("V2.Shell.Context.UnknownMode"))
+        : V2ShellText.Get("V2.Shell.Context.NoProfileCompact");
+    /// <summary>"Data updated 12 min ago", from the same freshness signal the readiness/health
+    /// surface already reasons about.</summary>
+    public string DataFreshnessLabel => FormatDataFreshness(_runtime.Current.Data.UpdatedUtc, _clock.GetUtcNow());
+    /// <summary>The Raid workspace, typed for the top bar's map selector. The chrome otherwise
+    /// treats <see cref="RaidCockpit"/> as opaque content so the view carries no Raid-specific
+    /// type dependency; the map selector is the one place the header needs to reach into it.</summary>
+    public RaidCockpitViewModel? RaidCockpitWorkspace => RaidCockpit as RaidCockpitViewModel;
+    public bool ShowsMapSelector => RaidCockpitWorkspace is not null;
     public string PlanContextLabel => Router.Context.PlanId is { } plan
         ? V2ShellText.Format(
             "V2.Shell.Context.Plan",
@@ -515,7 +552,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             Readiness.UnconfirmedCount),
         _ => V2ShellText.Get("V2.Shell.Health.Clear"),
     };
-    public string Title => V2ShellText.Format("V2.Shell.WindowTitle", CultureInfo.CurrentCulture, CurrentHeading, ProvisionalLabel);
+    public string Title => IsDeveloperMode
+        ? V2ShellText.Format("V2.Shell.WindowTitle", CultureInfo.CurrentCulture, CurrentHeading, ProvisionalLabel)
+        : V2ShellText.Format("V2.Shell.WindowTitleClean", CultureInfo.CurrentCulture, CurrentHeading);
     public string DialogAutomationName => ActiveDialog switch
     {
         V2ShellDialogKind.Capture => CaptureHeading,
@@ -653,7 +692,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public V2WidthClass WidthClass { get => _widthClass; private set => SetProperty(ref _widthClass, value); }
     public string WidthClassLabel => WidthClass.ToString();
     public bool UsesCompactDensity => WidthClass is V2WidthClass.Narrow or V2WidthClass.Compact;
-    public bool UsesRailNavigation => V2ShellAdaptation.UsesRail(Variant, WidthClass);
+    // V2 rough package 15 (shell chrome + Raid workspace): the concept renders (docs/design/v2)
+    // always show a left rail, and Clayton flagged the row-navigation "workflow hub" look as the
+    // provisional #265 scaffold, not the intended design. #265 still owns which variant's
+    // destination *labels* ship; this only fixes the layout at Standard+ width to the rail every
+    // variant's data can render, rather than branching on the variant's declared style.
+    public bool UsesRailNavigation => WidthClass >= V2WidthClass.Standard;
     public bool UsesRowNavigation => !UsesRailNavigation;
     public bool ShowsHeaderSetup => Variant.SetupPlacement == V2SetupPlacement.HeaderLink;
     public bool ShowsSeparatedSetup => Variant.SetupPlacement == V2SetupPlacement.LabelledRailSection;
@@ -724,6 +768,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool SurfaceIsPartial => Surface.Kind == V2SurfaceStateKind.Partial;
     public bool SurfaceIsDenied => Surface.Kind == V2SurfaceStateKind.Denied;
     public bool SurfaceIsFailed => Surface.Kind == V2SurfaceStateKind.Failed;
+    public bool SurfaceIsDangerTone => SurfaceIsFailed || SurfaceIsOffline || SurfaceIsDenied;
+    public bool SurfaceIsWarningTone => !SurfaceIsDangerTone;
     public bool SurfacePatternDashed => Surface.Policy.Border == "dashed";
     public bool SurfacePatternDotted => Surface.Policy.Border == "dotted";
     public bool SurfacePatternDouble => Surface.Policy.Border == "double";
@@ -2113,6 +2159,62 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         return V2ShellText.Format("V2.Shell.Context.RaidOnMap", CultureInfo.CurrentCulture, map, state);
     }
 
+    /// <summary>The top bar's clock chip: state and remaining/elapsed time, without the map (the
+    /// map selector names it separately).</summary>
+    private string FormatRaidClock(RaidSnapshot raid, DateTimeOffset nowUtc)
+    {
+        var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        if (raid.State == RaidLifecycleState.InRaid &&
+            raid.RaidClock is { } observedRemaining &&
+            raid.RaidClockReadUtc is { } readUtc)
+        {
+            var age = nowUtc - readUtc;
+            var remaining = observedRemaining - (age < TimeSpan.Zero ? TimeSpan.Zero : age);
+            return V2ShellText.Format(
+                "V2.Shell.Context.ClockRemaining",
+                CultureInfo.CurrentCulture,
+                state,
+                FormatDuration(remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining));
+        }
+
+        if (raid.StartedUtc is { } started && raid.State == RaidLifecycleState.InRaid)
+        {
+            var elapsed = nowUtc - started;
+            return V2ShellText.Format(
+                "V2.Shell.Context.ClockElapsed",
+                CultureInfo.CurrentCulture,
+                state,
+                FormatDuration(elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed));
+        }
+
+        return state;
+    }
+
+    /// <summary>"Data updated 12 min ago", from the same freshness the Health dialog already
+    /// reasons about; never a live per-second clock, so it does not itself invalidate.</summary>
+    private string FormatDataFreshness(DateTimeOffset? updatedUtc, DateTimeOffset nowUtc)
+    {
+        if (updatedUtc is not { } updated)
+        {
+            return V2ShellText.Get("V2.Shell.DataFreshness.Unknown");
+        }
+
+        var age = nowUtc - updated;
+        if (age < TimeSpan.Zero)
+        {
+            age = TimeSpan.Zero;
+        }
+
+        return age < TimeSpan.FromMinutes(1)
+            ? V2ShellText.Get("V2.Shell.DataFreshness.JustNow")
+            : V2ShellText.Format("V2.Shell.DataFreshness.Ago", CultureInfo.CurrentCulture, FormatApproximateAge(age));
+    }
+
+    private static string FormatApproximateAge(TimeSpan age) =>
+        age < TimeSpan.FromHours(1)
+            ? V2ShellText.Format("V2.Shell.DataFreshness.Minutes", CultureInfo.CurrentCulture, (int)age.TotalMinutes)
+            : V2ShellText.Format("V2.Shell.DataFreshness.Hours", CultureInfo.CurrentCulture, (int)age.TotalHours);
+
     private static string FormatDuration(TimeSpan duration)
     {
         var totalHours = Math.Max(0, (int)duration.TotalHours);
@@ -2182,6 +2284,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(ReadinessTargetDetail), nameof(ReadinessTargetAutomationName),
             nameof(ProfileContextLabel), nameof(LocalTimeLabel), nameof(RaidContextLabel), nameof(PlanContextLabel),
             nameof(TeamContextLabel), nameof(DeviceContextLabel), nameof(SelectionContextLabel),
+            nameof(RaidClockLabel), nameof(TopBarModeLabel), nameof(DataFreshnessLabel),
+            nameof(RaidCockpitWorkspace), nameof(ShowsMapSelector),
             nameof(CaptureWatchingStatus), nameof(CapturePrior), nameof(CaptureReference), nameof(CaptureLabel),
             nameof(ShowsSuggestions), nameof(FilteredSuggestionItems), nameof(HasSuggestions), nameof(HasNoSuggestions),
             nameof(PersistenceFailure), nameof(HasPersistenceFailure), nameof(PersistenceRetryPending),
@@ -2642,6 +2746,17 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
     public V2RouteId Route => _definition.Route;
     public string Label => V2ShellText.Get(_definition.LabelKey);
     public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
+    /// <summary>A decorative rail icon. Purely visual — the automation name is <see cref="Label"/>.</summary>
+    // Decorative rail icons are small vector shapes built directly in the view (Rectangle/
+    // Ellipse, not a font glyph — a Unicode dingbat from an uncovered font block rendered as
+    // tofu the first time this shipped). Each of these selects exactly one shape; the
+    // accessible name is always Label, never the icon.
+    public bool IsRaid => Route == V2Routes.Raid;
+    public bool IsIntel => Route == V2Routes.Items;
+    public bool IsPlan => Route == V2Routes.Plan;
+    public bool IsTeam => Route == V2Routes.Team;
+    public bool IsDebrief => Route == V2Routes.Debrief;
+    public bool IsSetup => Route == V2Routes.Setup;
     public string AutomationId => V2ShellFocusTargets.Destination(Route);
     public string SelectionDescription => IsCurrent
         ? V2ShellText.Get("V2.Shell.Nav.Current")

@@ -79,93 +79,136 @@
     </Style>
     <Style Selector="Border.v2-map-grid">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <!-- A segmented control, not radio buttons: flat, joined, no per-item circle. -->
+    <Style Selector="ToggleButton.v2-segment">
+      <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
+    </Style>
+    <Style Selector="ToggleButton.v2-segment:checked">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- Floating controls over the map: a translucent surface so the plan still reads beneath. -->
+    <Style Selector="Border.v2-map-float">
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="Opacity" Value="0.96" />
+    </Style>
+    <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
     </Style>
   </UserControl.Styles>
 
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-  <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="12" Margin="12">
-    <Grid x:Name="RendererHeader" Grid.Row="0" ColumnDefinitions="*,Auto" RowDefinitions="Auto"
-          ColumnSpacing="12" RowSpacing="8">
-      <StackPanel x:Name="RendererTitle" Spacing="4">
-        <TextBlock Classes="v2-heading-2" Text="{Binding LocationLabel}"
-                   AutomationProperties.HeadingLevel="1" />
-        <TextBlock Classes="v2-label" Text="{Binding VariantLabel}" TextWrapping="Wrap" />
-      </StackPanel>
-      <WrapPanel x:Name="RendererCommands" Grid.Column="1" ItemSpacing="8" LineSpacing="8">
-        <Button Classes="v2-target" Command="{Binding ZoomOutCommand}"
-                AutomationProperties.AutomationId="v2-map-zoom-out"
-                AutomationProperties.Name="{Binding ZoomOutLabel}" Content="−" />
-        <Button Classes="v2-target" Command="{Binding ZoomInCommand}"
-                AutomationProperties.AutomationId="v2-map-zoom-in"
-                AutomationProperties.Name="{Binding ZoomInLabel}" Content="+" />
-        <Button Classes="v2-target" Command="{Binding FitPlanCommand}"
-                AutomationProperties.AutomationId="v2-map-fit"
-                AutomationProperties.Name="{Binding FitPlanLabel}"
-                Content="{Binding FitPlanLabel}" />
-        <Button Classes="v2-target" Command="{Binding HighValueLootPresetCommand}"
-                IsVisible="{Binding HasHighValueLoot}"
-                AutomationProperties.AutomationId="v2-map-loot-preset"
-                AutomationProperties.Name="{Binding HighValueLootPresetLabel}"
-                Content="{Binding HighValueLootPresetLabel}" />
-      </WrapPanel>
-    </Grid>
-
-    <StackPanel Grid.Row="1" Spacing="8">
-      <ItemsControl ItemsSource="{Binding Modes}" AutomationProperties.Name="{Binding PresentationLabel}">
-        <ItemsControl.ItemsPanel>
-          <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-        </ItemsControl.ItemsPanel>
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:MapSceneRendererModeViewModel">
-            <RadioButton Classes="v2-map-choice" GroupName="v2-map-mode"
-                         IsChecked="{Binding IsSelected, Mode=OneWay}" IsEnabled="{Binding IsAvailable}"
-                         AutomationProperties.AutomationId="{Binding AutomationId}"
-                         AutomationProperties.Name="{Binding Label}"
-                         AutomationProperties.HelpText="{Binding UnavailableReason}"
-                         Content="{Binding Label}" Command="{Binding SelectCommand}" />
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-      <TextBlock Classes="v2-body" IsVisible="{Binding ShowsModeFallback}"
-                 AutomationProperties.AutomationId="v2-map-mode-fallback"
-                 AutomationProperties.AccessibilityView="Control"
-                 AutomationProperties.Name="{Binding ModeFallbackNotice}"
-                 Text="{Binding ModeFallbackNotice}" TextWrapping="Wrap" />
-      <TextBlock Classes="v2-body" IsVisible="{Binding HasRendererNotice}"
-                 AutomationProperties.AutomationId="v2-map-live-assertive"
-                 AutomationProperties.AccessibilityView="Control"
-                 AutomationProperties.LiveSetting="Assertive"
-                 AutomationProperties.Name="{Binding RendererNotice}"
-                 Text="{Binding RendererNotice}" TextWrapping="Wrap" />
-      <TextBlock Classes="v2-label" IsVisible="{Binding HasDenseSceneNotice}"
-                 AutomationProperties.AutomationId="v2-map-live-polite"
-                 AutomationProperties.AccessibilityView="Control"
-                 AutomationProperties.LiveSetting="Polite"
-                 AutomationProperties.Name="{Binding DenseSceneNotice}"
-                 Text="{Binding DenseSceneNotice}" TextWrapping="Wrap" />
-      <StackPanel Spacing="4" IsVisible="{Binding HasFloorFilters}">
-        <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
-        <ItemsControl ItemsSource="{Binding Floors}">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" x:Name="RendererScroll">
+  <Grid>
+    <!-- V2 rough package 15: the map fills the whole area edge to edge; presentation, zoom and
+         the floor selector float compactly over its corners instead of taking their own rows
+         above it. RendererHeader/RendererTitle/RendererCommands keep their internal shape (the
+         code-behind's responsive layout still targets them by name); only where they sit moved. -->
+    <!-- One compact floating pill: presentation mode as a segmented control, then the floor
+         selector. No card behind the zoom/fit/loot group on the other corner — see below. -->
+    <!-- The floating controls sit over the plan's column only, never over the details column. -->
+    <Grid x:Name="RendererOverlay" ZIndex="1" ColumnDefinitions="2*,*" ColumnSpacing="12">
+    <Panel Grid.Column="0">
+    <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Classes="v2-card v2-map-float" MaxWidth="560">
+      <StackPanel Spacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="8">
+        <ItemsControl ItemsSource="{Binding Modes}" AutomationProperties.Name="{Binding PresentationLabel}">
           <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="0" /></ItemsPanelTemplate>
           </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
-              <RadioButton Classes="v2-map-choice" GroupName="v2-map-floor"
-                           IsChecked="{Binding IsSelected, Mode=OneWay}"
-                           AutomationProperties.AutomationId="{Binding AutomationId}"
-                           AutomationProperties.Name="{Binding Id}"
-                           Content="{Binding Id}" Command="{Binding SelectCommand}" />
+            <DataTemplate x:DataType="vm:MapSceneRendererModeViewModel">
+              <ToggleButton Classes="v2-segment" IsChecked="{Binding IsSelected, Mode=OneWay}" IsEnabled="{Binding IsAvailable}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            AutomationProperties.HelpText="{Binding UnavailableReason}"
+                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
+        <!-- A compact selector rather than a row of radio buttons with raw layer ids: only the
+             floor actually visible in the ComboBox needs an id, so the closed control shows the
+             human floor name instead. The label stays for assistive technology only. -->
+        <ComboBox MinWidth="130" ItemsSource="{Binding Floors}" IsVisible="{Binding HasFloorFilters}"
+                  SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
+                  SelectionChanged="FloorSelectionChanged"
+                  ToolTip.Tip="{Binding FloorLabel}"
+                  AutomationProperties.AutomationId="v2-map-floor-picker"
+                  AutomationProperties.Name="{Binding FloorLabel}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        </WrapPanel>
+        <TextBlock Classes="v2-body" IsVisible="{Binding ShowsModeFallback}"
+                   AutomationProperties.AutomationId="v2-map-mode-fallback"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.Name="{Binding ModeFallbackNotice}"
+                   Text="{Binding ModeFallbackNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-body" IsVisible="{Binding HasRendererNotice}"
+                   AutomationProperties.AutomationId="v2-map-live-assertive"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.LiveSetting="Assertive"
+                   AutomationProperties.Name="{Binding RendererNotice}"
+                   Text="{Binding RendererNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasDenseSceneNotice}"
+                   AutomationProperties.AutomationId="v2-map-live-polite"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.Name="{Binding DenseSceneNotice}"
+                   Text="{Binding DenseSceneNotice}" TextWrapping="Wrap" />
       </StackPanel>
-    </StackPanel>
+    </Border>
 
-    <Grid x:Name="RendererBody" Grid.Row="2" ColumnDefinitions="2*,*" RowDefinitions="*"
+    <!-- No enclosing card: a small vertical group of icon-only buttons at the map's right edge.
+         RendererHeader/RendererTitle/RendererCommands keep their shape (the code-behind's
+         responsive layout still targets them by name); the location title hides with the rest of
+         this renderer's own chrome in a compact embedding (ShowsDetailsPanel). -->
+    <Grid x:Name="RendererHeader" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12"
+          ColumnDefinitions="*,Auto" RowDefinitions="Auto" ColumnSpacing="12" RowSpacing="8">
+      <StackPanel x:Name="RendererTitle" Spacing="4" IsVisible="{Binding ShowsDetailsPanel}">
+        <Border Classes="v2-card" Opacity="0.97">
+          <TextBlock Classes="v2-heading-3" Text="{Binding LocationLabel}"
+                     AutomationProperties.HeadingLevel="1" Margin="{DynamicResource V2.Space.Sm.Inset}" />
+        </Border>
+      </StackPanel>
+      <StackPanel x:Name="RendererCommands" Grid.Column="1" Spacing="8">
+        <Button Classes="v2-target v2-icon-btn" Command="{Binding ZoomOutCommand}"
+                AutomationProperties.AutomationId="v2-map-zoom-out"
+                AutomationProperties.Name="{Binding ZoomOutLabel}" ToolTip.Tip="{Binding ZoomOutLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Minus}" />
+        </Button>
+        <Button Classes="v2-target v2-icon-btn" Command="{Binding ZoomInCommand}"
+                AutomationProperties.AutomationId="v2-map-zoom-in"
+                AutomationProperties.Name="{Binding ZoomInLabel}" ToolTip.Tip="{Binding ZoomInLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Plus}" />
+        </Button>
+        <Button Classes="v2-target v2-icon-btn" Command="{Binding FitPlanCommand}"
+                AutomationProperties.AutomationId="v2-map-fit"
+                AutomationProperties.Name="{Binding FitPlanLabel}" ToolTip.Tip="{Binding FitPlanLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Fit}" />
+        </Button>
+        <Button Classes="v2-target v2-icon-btn" Command="{Binding HighValueLootPresetCommand}"
+                IsVisible="{Binding HasHighValueLoot}"
+                AutomationProperties.AutomationId="v2-map-loot-preset"
+                AutomationProperties.Name="{Binding HighValueLootPresetLabel}" ToolTip.Tip="{Binding HighValueLootPresetLabel}">
+          <!-- A gem, not "$": this shows the high-value loot layer, named in the tooltip. -->
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
+        </Button>
+      </StackPanel>
+    </Grid>
+    </Panel>
+    </Grid>
+
+    <Grid x:Name="RendererBody" ColumnDefinitions="2*,*" RowDefinitions="*"
           ColumnSpacing="12" RowSpacing="12" MinHeight="280">
       <Border x:Name="PlanViewport" Grid.Column="0" Classes="v2-map-grid" Padding="0"
               MinHeight="280" ClipToBounds="True"
@@ -192,7 +235,7 @@
             <Border Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
                     Width="{Binding MapWidth}" Height="{Binding MapHeight}"
                     Background="{DynamicResource V2.Brush.SurfaceRaised}"
-                    BorderBrush="{DynamicResource V2.Brush.Border}" BorderThickness="1">
+                    BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1">
               <Image Source="{Binding BackgroundImage}" IsVisible="{Binding HasBackgroundImage}" Stretch="Fill" />
             </Border>
 
@@ -274,7 +317,8 @@
             </ItemsControl>
           </Canvas>
 
-          <Border Canvas.Left="12" Canvas.Top="12" Classes="v2-card" Padding="8" IsHitTestVisible="False">
+          <Border Canvas.Left="12" Canvas.Top="12" Classes="v2-card" Padding="8" IsHitTestVisible="False"
+                  IsVisible="{Binding ShowsDetailsPanel}">
             <StackPanel Spacing="2">
               <TextBlock Classes="v2-label" Text="{Binding ModeLabel}" />
               <TextBlock Classes="v2-label" Text="{Binding ReviewedAssetLabel}"
@@ -291,13 +335,14 @@
                      Text="{Binding BackgroundStatus}" TextWrapping="Wrap" TextAlignment="Center" />
 
           <TextBlock Canvas.Left="{Binding EmptyLeft}" Canvas.Top="{Binding EmptyTop}"
-                     Width="{Binding EmptyMessageWidth}" Classes="v2-body"
-                     IsVisible="{Binding ShowsEmptyMap}"
+                     Width="{Binding EmptyMessageWidth}" Classes="v2-label"
+                     IsVisible="{Binding ShowsEmptyMapMessage}"
                      Text="{Binding EmptyMapMessage}" TextWrapping="Wrap" TextAlignment="Center" />
         </Canvas>
       </Border>
 
-      <ScrollViewer x:Name="DetailsPanel" Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+      <ScrollViewer x:Name="DetailsPanel" Grid.Column="1" HorizontalScrollBarVisibility="Disabled"
+                    IsVisible="{Binding ShowsDetailsPanel}">
         <StackPanel Spacing="12">
           <Border Classes="v2-card" IsVisible="{Binding HasHighValueLoot}">
             <ScrollViewer MaxHeight="340" HorizontalScrollBarVisibility="Disabled">

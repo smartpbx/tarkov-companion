@@ -10,7 +10,8 @@
              xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:planViews="using:TarkovCompanion.App.Views.V2.Plan"
              xmlns:teamVm="using:TarkovCompanion.App.ViewModels.V2.Team"
-             xmlns:teamViews="using:TarkovCompanion.App.Views.V2.Team">
+             xmlns:teamViews="using:TarkovCompanion.App.Views.V2.Team"
+             xmlns:raidVm="using:TarkovCompanion.App.ViewModels.V2.Raid">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
@@ -30,6 +31,22 @@
       <teamViews:TeamWorkspaceView />
     </DataTemplate>
   </UserControl.DataTemplates>
+  <UserControl.Resources>
+    <!-- V2 rough package 15: outline rail icons (Themes/V2/V2Icons.axaml), not a font
+         glyph. Shared between the rail's destinations and its Setup gear so both draw the same
+         way. Purely decorative: AccessibilityView="Raw", and the button around it always carries
+         the real accessible Name (Label). -->
+    <DataTemplate x:Key="V2RailIconTemplate" x:DataType="vm:V2ShellDestinationViewModel">
+      <Panel Width="24" Height="24" AutomationProperties.AccessibilityView="Raw">
+        <Path Classes="v2-icon" IsVisible="{Binding IsRaid}" Data="{DynamicResource V2.Icon.Map}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsIntel}" Data="{DynamicResource V2.Icon.Document}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsPlan}" Data="{DynamicResource V2.Icon.Clipboard}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsTeam}" Data="{DynamicResource V2.Icon.People}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsDebrief}" Data="{DynamicResource V2.Icon.Chart}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsSetup}" Data="{DynamicResource V2.Icon.Gear}" />
+      </Panel>
+    </DataTemplate>
+  </UserControl.Resources>
   <UserControl.Styles>
     <!-- Reserve the selected outline in every state. Changing border geometry while a
          destination moves between rows can make WrapPanel and its Grid parent remeasure each
@@ -65,6 +82,110 @@
     <Style Selector="Rectangle.v2-pattern-double">
       <Setter Property="StrokeThickness" Value="4" />
     </Style>
+
+    <!-- V2 rough package 15 (shell chrome + Raid workspace): a single slim top bar, the design
+         concepts' left rail, and a compact global-problem banner, replacing the #265 scaffold's
+         stacked header/nav/address rows. -->
+    <Style Selector="Border.v2-topbar">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="20,0,12,0" />
+      <Setter Property="Height" Value="60" />
+    </Style>
+    <Style Selector="Rectangle.v2-topbar-sep">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ComboBox.v2-topbar-map">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Border.v2-topbar-tag">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="Border.v2-status-pill">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,6" />
+    </Style>
+    <Style Selector="Border.v2-status-pill TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-status-pill.v2-availability-ready TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Button.v2-topbar-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="Border.v2-status-pill.v2-availability-ready">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-status-pill:not(.v2-availability-ready)">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- Secondary in-workspace routes (Loot decision under Raid, Hideout under Plan, ...) read as
+         a slim tab strip rather than a bordered button box. -->
+    <Style Selector="Border.v2-tabbar">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="Button.v2-tab">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0,0,0,2" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="4,6" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-tab.selected">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.v2-tab.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- The rail: flat rows, not bordered boxes. Selection is a tinted background plus a left
+         accent bar, like docs/design/v2's concept renders. -->
+    <Style Selector="Button.v2-rail-item">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="3,0,0,0" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="19,0,12,0" />
+      <Setter Property="Height" Value="60" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    </Style>
+    <Style Selector="Button.v2-rail-item.selected TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-rail-item.selected Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-rail-item.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-rail-gear">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Margin" Value="12,12,12,16" />
+      <Setter Property="Padding" Value="10" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Button.v2-rail-gear.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
   </UserControl.Styles>
 
   <Grid x:Name="ShellRoot"
@@ -74,10 +195,96 @@
     <!-- Disabling the application layer while the one dialog host is open keeps keyboard focus
          inside that dialog without creating a second window or runtime graph. -->
     <Grid IsEnabled="{Binding HasNoDialog}" RowDefinitions="Auto,Auto,Auto,*">
-      <Border Grid.Row="0" Classes="v2-card" CornerRadius="0" Padding="{DynamicResource V2.Space.Md.Inset}">
+      <Border Grid.Row="0" Classes="v2-topbar"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.ControlTypeOverride="ToolBar"
+              AutomationProperties.Name="{Binding AppName}">
+        <!-- Left to right like the concepts: name, map, mode, raid clock, data freshness; then
+             search/setup/capture and the status pill at the far right. -->
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="16">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Classes="v2-heading-3" FontSize="20" Text="{Binding AppName}" />
+            <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
+              <TextBlock Classes="v2-label" Text="{Binding AppTag}" />
+            </Border>
+          </StackPanel>
+          <Rectangle Grid.Column="1" Classes="v2-topbar-sep" IsVisible="{Binding ShowsMapSelector}" />
+          <ComboBox Grid.Column="2" Classes="v2-topbar-map" MinWidth="120" VerticalAlignment="Center"
+                     IsVisible="{Binding ShowsMapSelector}"
+                     ItemsSource="{Binding RaidCockpitWorkspace.MapPicker}"
+                     SelectedItem="{Binding RaidCockpitWorkspace.SelectedMap, Mode=OneWay}"
+                     SelectionChanged="TopBarMapSelectionChanged"
+                     AutomationProperties.AutomationId="v2-shell-topbar-map"
+                     AutomationProperties.Name="Switch map">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="raidVm:RaidMapPickerItemViewModel">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <Rectangle Grid.Column="3" Classes="v2-topbar-sep" />
+          <TextBlock Grid.Column="4" Classes="v2-label" VerticalAlignment="Center"
+                     AutomationProperties.AutomationId="v2-shell-topbar-mode"
+                     Text="{Binding TopBarModeLabel}" />
+          <Rectangle Grid.Column="5" Classes="v2-topbar-sep" />
+          <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
+            <TextBlock Classes="v2-body" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-clock"
+                       Text="{Binding RaidClockLabel}" />
+          </StackPanel>
+          <Rectangle Grid.Column="7" Classes="v2-topbar-sep" />
+          <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" /></Viewbox>
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
+                       Text="{Binding DataFreshnessLabel}" />
+          </StackPanel>
+          <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">
+            <TextBox Classes="v2-field-input" MinWidth="160" Width="180"
+                     Text="{Binding SearchText}"
+                     PlaceholderText="{Binding SearchPlaceholder}"
+                     AutomationProperties.AutomationId="v2-shell-header-search"
+                     AutomationProperties.Name="{Binding SearchLabel}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-header-search-open"
+                    Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
+          </StackPanel>
+          <Button Grid.Column="11" Classes="v2-target v2-destination"
+                  Classes.selected="{Binding SetupDestination.IsCurrent}"
+                  IsVisible="{Binding ShowsHeaderSetup}"
+                  AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
+                  AutomationProperties.Name="{Binding SetupDestination.Label}"
+                  AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                  Content="{Binding SetupDestination.DisplayLabel}"
+                  Command="{Binding SetupDestination.NavigateCommand}" />
+          <Button Grid.Column="12" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-shell-capture" ToolTip.Tip="{Binding CaptureLabel}"
+                  AutomationProperties.Name="{Binding CaptureLabel}" Command="{Binding CaptureCommand}">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
+          </Button>
+          <Button Grid.Column="13" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-shell-health"
+                  AutomationProperties.Name="{Binding HealthLabel}" Command="{Binding HealthCommand}">
+            <Border Classes="v2-status-pill" Classes.v2-availability-ready="{Binding SurfaceIsReady}">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Ellipse Width="10" Height="10" VerticalAlignment="Center" IsVisible="{Binding SurfaceIsReady}"
+                         Fill="{DynamicResource V2.Brush.Success}" AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}" IsVisible="{Binding !SurfaceIsReady}"
+                           AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock Classes="v2-body" Text="{Binding SurfaceTitle}" />
+              </StackPanel>
+            </Border>
+          </Button>
+        </Grid>
+      </Border>
+
+      <!-- The #265 A/B scaffold's own chrome: variant/provisional labels, the raw context-field
+           strip, Back/Forward, the address bar, Pin/Copy, and the Commands palette. Clayton judged
+           this "100x worse" than V1 and nothing like docs/design/v2; it stays reachable only under
+           the developer-mode flag for diagnostics and the Windows page gallery script (which now
+           passes that flag for the scenarios that still exercise it), never in the normal launch. -->
+      <Border Grid.Row="1" Classes="v2-card" CornerRadius="0" IsVisible="{Binding ShowsScaffoldChrome}"
+              Padding="{DynamicResource V2.Space.Md.Inset}">
         <StackPanel Classes="v2-stack">
           <StackPanel Classes="v2-stack">
-            <TextBlock Classes="v2-heading-1" Text="{Binding AppName}" />
             <TextBlock Classes="v2-label" Text="{Binding VariantName}" />
             <TextBlock Classes="v2-label" Text="{Binding ProvisionalLabel}" />
           </StackPanel>
@@ -108,125 +315,144 @@
                     AutomationProperties.Name="{Binding BackLabel}" Content="{Binding BackLabel}" Command="{Binding BackCommand}" />
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-forward"
                     AutomationProperties.Name="{Binding ForwardLabel}" Content="{Binding ForwardLabel}" Command="{Binding ForwardCommand}" />
-            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">
-              <TextBox Classes="v2-field-input" MinWidth="180" Width="200"
-                       Text="{Binding SearchText}"
-                       PlaceholderText="{Binding SearchPlaceholder}"
-                       AutomationProperties.AutomationId="v2-shell-header-search"
-                       AutomationProperties.Name="{Binding SearchLabel}" />
-              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-header-search-open"
-                      Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
-            </StackPanel>
-            <Button Classes="v2-target v2-destination"
-                    Classes.selected="{Binding SetupDestination.IsCurrent}"
-                    IsVisible="{Binding ShowsHeaderSetup}"
-                    AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
-                    AutomationProperties.Name="{Binding SetupDestination.Label}"
-                    AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
-                    Content="{Binding SetupDestination.DisplayLabel}"
-                    Command="{Binding SetupDestination.NavigateCommand}" />
-            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-capture"
-                    AutomationProperties.Name="{Binding CaptureLabel}" Content="{Binding CaptureLabel}" Command="{Binding CaptureCommand}" />
-            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-health"
-                    AutomationProperties.Name="{Binding HealthLabel}" Content="{Binding HealthLabel}" Command="{Binding HealthCommand}" />
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-palette"
                     AutomationProperties.Name="{Binding PaletteLabel}" Content="{Binding PaletteLabel}" Command="{Binding PaletteCommand}" />
           </WrapPanel>
-          <Border Classes="v2-card" IsVisible="{Binding HasPersistenceFailure}"
-                  AutomationProperties.AccessibilityView="Control"
-                  AutomationProperties.AutomationId="v2-shell-persistence-failure"
-                  AutomationProperties.Name="{Binding PersistenceFailure}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-              <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding PersistenceFailure}" />
-              <Button Grid.Column="1" Classes="v2-target"
-                      AutomationProperties.AutomationId="v2-shell-persistence-retry"
-                      Content="{Binding PersistenceRetryLabel}" IsEnabled="{Binding CanRetryPersistence}"
-                      Command="{Binding RetryPersistenceCommand}" />
-            </Grid>
-          </Border>
-        </StackPanel>
-      </Border>
-
-      <!-- Variant B declares a workflow row. Variant A moves to this same labelled row only when
-           the measured content width can no longer hold its declared rail. -->
-      <Border Grid.Row="1" Classes="v2-card" CornerRadius="0" IsVisible="{Binding UsesRowNavigation}"
-              AutomationProperties.AccessibilityView="Control"
-              AutomationProperties.LandmarkType="Navigation"
-              AutomationProperties.Name="{Binding NavigationRegionName}">
-        <StackPanel Classes="v2-stack">
-          <ItemsControl ItemsSource="{Binding PrimaryDestinations}"
-                        AutomationProperties.AutomationId="v2-shell-navigation-row">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
-                <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
-                        AutomationProperties.AutomationId="{Binding AutomationId}"
-                        AutomationProperties.Name="{Binding Label}"
-                        AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                        Content="{Binding DisplayLabel}" Command="{Binding NavigateCommand}" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsSeparatedSetup}">
-            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding SetupSectionLabel}" />
-            <Button Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
-                    AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
-                    AutomationProperties.Name="{Binding SetupDestination.Label}"
-                    AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
-                    Content="{Binding SetupDestination.DisplayLabel}" Command="{Binding SetupDestination.NavigateCommand}" />
-          </StackPanel>
-        </StackPanel>
-      </Border>
-
-      <Border Grid.Row="2" Classes="v2-card" CornerRadius="0" Padding="{DynamicResource V2.Space.Sm.Inset}">
-        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" RowSpacing="8">
-          <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AddressLabel}" />
-          <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding CurrentAddress}"
-                   AutomationProperties.AutomationId="v2-shell-address" AutomationProperties.Name="{Binding AddressLabel}" />
-          <Button Grid.Column="2" Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-open"
-                  Content="{Binding OpenAddressLabel}" Command="{Binding AddressCommand}" />
-          <WrapPanel Grid.Row="1" Grid.ColumnSpan="3" Classes="v2-toolbar">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AddressLabel}" />
+            <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding CurrentAddress}"
+                     AutomationProperties.AutomationId="v2-shell-address" AutomationProperties.Name="{Binding AddressLabel}" />
+            <Button Grid.Column="2" Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-open"
+                    Content="{Binding OpenAddressLabel}" Command="{Binding AddressCommand}" />
+          </Grid>
+          <WrapPanel Classes="v2-toolbar">
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-pin"
                     Content="{Binding PinLabel}" Command="{Binding PinCommand}" />
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-copy"
                     Content="{Binding CopyAddressLabel}" Command="{Binding CopyAddressCommand}" />
           </WrapPanel>
-        </Grid>
+        </StackPanel>
       </Border>
 
-      <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
-        <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
-        <Border Grid.Column="0" Width="240" Classes="v2-shell-rail" IsVisible="{Binding UsesRailNavigation}"
+      <StackPanel Grid.Row="2" Spacing="{DynamicResource V2.Space.Sm.Gap}">
+        <!-- Variant B declares a workflow row. Variant A moves to this same labelled row only when
+             the measured content width can no longer hold its declared rail. -->
+        <Border Classes="v2-card" CornerRadius="0" IsVisible="{Binding UsesRowNavigation}"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.LandmarkType="Navigation"
                 AutomationProperties.Name="{Binding NavigationRegionName}">
-          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Classes="v2-stack">
-              <ItemsControl ItemsSource="{Binding PrimaryDestinations}"
-                            AutomationProperties.AutomationId="v2-shell-navigation-rail">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
-                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                            Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
-                            AutomationProperties.AutomationId="{Binding AutomationId}"
-                            AutomationProperties.Name="{Binding Label}"
-                            AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                            Content="{Binding DisplayLabel}" Command="{Binding NavigateCommand}" />
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-              <Border Height="1" Background="{DynamicResource V2.Brush.Border}" />
-              <TextBlock Classes="v2-label" Text="{Binding SetupSectionLabel}" />
-              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                      Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
+          <StackPanel Classes="v2-stack">
+            <ItemsControl ItemsSource="{Binding PrimaryDestinations}"
+                          AutomationProperties.AutomationId="v2-shell-navigation-row">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
+                  <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                          Content="{Binding DisplayLabel}" Command="{Binding NavigateCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsSeparatedSetup}">
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding SetupSectionLabel}" />
+              <Button Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
                       AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                       AutomationProperties.Name="{Binding SetupDestination.Label}"
                       AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
                       Content="{Binding SetupDestination.DisplayLabel}" Command="{Binding SetupDestination.NavigateCommand}" />
             </StackPanel>
-          </ScrollViewer>
+          </StackPanel>
+        </Border>
+
+        <!-- A global problem (a failed endpoint refresh, an unavailable surface) reads as one
+             compact banner here, never a large card that pushes the workspace — the Raid map
+             included — down the page. -->
+        <Panel Classes="v2-banner" IsVisible="{Binding ShowsStatePresenter}"
+               Classes.v2-tone-warning="{Binding SurfaceIsWarningTone}"
+               Classes.v2-tone-danger="{Binding SurfaceIsDangerTone}"
+               AutomationProperties.AccessibilityView="Control"
+               AutomationProperties.AutomationId="v2-shell-surface-state"
+               AutomationProperties.Name="{Binding SurfaceAutomationName}">
+          <Rectangle Classes="v2-banner-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+          <StackPanel Classes="v2-banner-content">
+            <StackPanel Classes="v2-banner-tone">
+              <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{Binding SurfaceGlyph}" />
+              <TextBlock Classes="v2-label" Text="{Binding SurfaceTitle}" />
+            </StackPanel>
+            <TextBlock Classes="v2-body" Text="{Binding Surface.Detail}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding SurfaceRemainder}" />
+            <ItemsControl ItemsSource="{Binding RecoveryActions}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2RecoveryActionViewModel">
+                  <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding InvokeCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Panel>
+
+        <Border Classes="v2-card" IsVisible="{Binding HasPersistenceFailure}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-shell-persistence-failure"
+                AutomationProperties.Name="{Binding PersistenceFailure}">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding PersistenceFailure}" />
+            <Button Grid.Column="1" Classes="v2-target"
+                    AutomationProperties.AutomationId="v2-shell-persistence-retry"
+                    Content="{Binding PersistenceRetryLabel}" IsEnabled="{Binding CanRetryPersistence}"
+                    Command="{Binding RetryPersistenceCommand}" />
+          </Grid>
+        </Border>
+      </StackPanel>
+
+      <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
+        <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
+        <Border Grid.Column="0" Width="168" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.LandmarkType="Navigation"
+                AutomationProperties.Name="{Binding NavigationRegionName}">
+          <Grid RowDefinitions="*,Auto">
+            <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,12"
+                            AutomationProperties.AutomationId="v2-shell-navigation-rail">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
+                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Classes="v2-target v2-rail-item" Classes.selected="{Binding IsCurrent}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                            Command="{Binding NavigateCommand}">
+                      <StackPanel Orientation="Horizontal" Spacing="14">
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource V2RailIconTemplate}"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.AccessibilityView="Raw" />
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                      </StackPanel>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <Button Grid.Row="1" Classes="v2-target v2-rail-gear"
+                    Classes.selected="{Binding SetupDestination.IsCurrent}"
+                    AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
+                    AutomationProperties.Name="{Binding SetupDestination.Label}"
+                    AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                    ToolTip.Tip="{Binding SetupDestination.Label}"
+                    Command="{Binding SetupDestination.NavigateCommand}">
+              <ContentControl Content="{Binding SetupDestination}" ContentTemplate="{StaticResource V2RailIconTemplate}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            </Button>
+          </Grid>
         </Border>
 
         <Grid Grid.Column="1" ColumnDefinitions="*,Auto"
@@ -239,12 +465,20 @@
           <Grid Grid.Column="0" IsVisible="{Binding ShowsPrimaryContent}" RowDefinitions="Auto,*">
           <ScrollViewer Grid.Row="0" Grid.RowSpan="{Binding ShellBodyRowSpan}"
                         HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Classes="v2-page">
-              <TextBlock x:Name="PageHeading" Classes="v2-heading-2" Focusable="True"
+            <StackPanel Classes="v2-page" Margin="16,6,16,0" Spacing="8">
+              <!-- The rail already names the current destination, and the section tabs (when a
+                   route has any) repeat it as their own first tab — a visible heading here said
+                   the same word a third time. It stays in the tree, off-screen, only for the
+                   accessibility contract (every page focuses its H1); a screen reader still gets
+                   its name, and it draws no focus box, because nothing about landing here was a
+                   sighted user's own action. -->
+              <TextBlock x:Name="PageHeading" Classes="v2-label"
+                         Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+                         Focusable="True" FocusAdorner="{x:Null}"
                          AutomationProperties.AutomationId="v2-shell-page-heading"
                          AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" />
 
-              <Border Classes="v2-card" IsVisible="{Binding ShowsSectionNavigation}"
+              <Border Classes="v2-tabbar" IsVisible="{Binding ShowsSectionNavigation}"
                       AutomationProperties.AccessibilityView="Control"
                       AutomationProperties.AutomationId="v2-shell-sections"
                       AutomationProperties.LandmarkType="Navigation"
@@ -255,11 +489,11 @@
                   </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:V2ShellSectionViewModel">
-                      <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                      <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
                               AutomationProperties.AutomationId="{Binding AutomationId}"
                               AutomationProperties.Name="{Binding Label}"
                               AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                              Content="{Binding DisplayLabel}" Command="{Binding NavigateCommand}" />
+                              Content="{Binding Label}" Command="{Binding NavigateCommand}" />
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

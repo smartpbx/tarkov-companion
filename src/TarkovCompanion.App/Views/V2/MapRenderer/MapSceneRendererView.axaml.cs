@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Core.Domain.Maps.Scene;
@@ -11,18 +13,21 @@ namespace TarkovCompanion.App.Views.V2.MapRenderer;
 /// <summary>Responsive pointer, touch, and keyboard handoff for the canonical map view.</summary>
 public sealed partial class MapSceneRendererView : UserControl
 {
-    private const double CompactWidth = 860;
-    private const double NarrowHeaderWidth = 600;
     private const double DragThreshold = 4;
 
     private bool _pointerDown;
     private bool _dragging;
     private bool _viewportEventsAttached;
     private Point _pointerStart;
+    private string? _appliedLayoutMode;
 
     public MapSceneRendererView()
     {
-        AvaloniaXamlLoader.Load(this);
+        // InitializeComponent, not AvaloniaXamlLoader.Load: only the generated method assigns the
+        // x:Name fields (PlanViewport, RendererBody, ...). With Load alone every one stayed null,
+        // so the responsive layout and viewport sizing below silently never ran and the plan kept
+        // its default 1000x700 canvas beside an empty details column.
+        InitializeComponent();
         DataContextChanged += RendererDataContextChanged;
     }
 
@@ -82,7 +87,20 @@ public sealed partial class MapSceneRendererView : UserControl
         base.OnDetachedFromVisualTree(eventArgs);
     }
 
-    private void RendererDataContextChanged(object? sender, EventArgs eventArgs) => UpdateViewport();
+    private void RendererDataContextChanged(object? sender, EventArgs eventArgs)
+    {
+        // A host can swap in a new renderer view model while this view is already laid out at
+        // its final size (the Raid workspace does, on its first scene). Neither SizeChanged
+        // handler fires then, so the new model would keep its default canvas size and the
+        // details column this model may not want. Re-apply both now and once more after layout.
+        UpdateResponsiveLayout();
+        UpdateViewport();
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateResponsiveLayout();
+            UpdateViewport();
+        }, DispatcherPriority.Loaded);
+    }
 
     private void RendererSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
@@ -93,33 +111,49 @@ public sealed partial class MapSceneRendererView : UserControl
     private void UpdateResponsiveLayout()
     {
         if (RendererHeader is null || RendererTitle is null || RendererCommands is null ||
-            RendererBody is null || PlanViewport is null || DetailsPanel is null)
+            RendererBody is null || PlanViewport is null || DetailsPanel is null || RendererOverlay is null)
         {
             return;
         }
 
-        var compact = Bounds.Width < CompactWidth;
-        var narrowHeader = Bounds.Width < NarrowHeaderWidth;
-        RendererHeader.ColumnDefinitions = new(narrowHeader ? "*" : "*,Auto");
-        RendererHeader.RowDefinitions = new(narrowHeader ? "Auto,Auto" : "Auto");
-        Grid.SetColumn(RendererTitle, 0);
-        Grid.SetRow(RendererTitle, 0);
-        Grid.SetColumn(RendererCommands, narrowHeader ? 0 : 1);
-        Grid.SetRow(RendererCommands, narrowHeader ? 1 : 0);
-        RendererBody.ColumnDefinitions = new(compact ? "*" : "2*,*");
-        RendererBody.RowDefinitions = new(compact ? "Auto,Auto" : "Auto");
-        Grid.SetColumn(PlanViewport, 0);
-        Grid.SetRow(PlanViewport, 0);
-        Grid.SetColumn(DetailsPanel, compact ? 0 : 1);
-        Grid.SetRow(DetailsPanel, compact ? 1 : 0);
-        DetailsPanel.MaxHeight = compact ? 420 : 700;
+        // Only a host that hides the details column (the Raid workspace) gets the responsive,
+        // fill-the-host layout. With the details column the view sits in a vertical scroller
+        // where the plan's height comes from the canvas, so sizing the canvas from the plan grew
+        // it by a pixel on every pass (a layout cycle), and that host's verified gallery layout
+        // and cluster ids were recorded against the fixed default canvas. It keeps that layout.
+        if (DataContext is not MapSceneRendererViewModel { ShowsDetailsPanel: false })
+        {
+            return;
+        }
+
+        // Re-assigning definitions invalidates the Grid even when nothing changed, and this runs
+        // from SizeChanged; apply only when the mode actually differs, so it cannot feed itself.
+        const string Mode = "fill";
+        if (_appliedLayoutMode == Mode)
+        {
+            return;
+        }
+
+        _appliedLayoutMode = Mode;
+        RendererBody.ColumnDefinitions = new("*");
+        RendererBody.RowDefinitions = new("*");
+        RendererOverlay.ColumnDefinitions = new("*");
+        // The map is the whole view: the plan takes the host's finite height instead of letting
+        // the canvas's previous size decide it inside a scroller.
+        if (RendererScroll is not null)
+        {
+            RendererScroll.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        }
     }
 
     private void PlanViewportSizeChanged(object? sender, SizeChangedEventArgs eventArgs) => UpdateViewport();
 
     private void UpdateViewport()
     {
-        if (PlanViewport is not null && DataContext is MapSceneRendererViewModel renderer)
+        // See UpdateResponsiveLayout: only the fill-the-host layout has a plan height that does
+        // not depend on the canvas itself.
+        if (PlanViewport is not null && _appliedLayoutMode is not null &&
+            DataContext is MapSceneRendererViewModel { ShowsDetailsPanel: false } renderer)
         {
             renderer.SetViewportSize(PlanViewport.Bounds.Width, PlanViewport.Bounds.Height);
         }
@@ -262,5 +296,13 @@ public sealed partial class MapSceneRendererView : UserControl
         }
 
         eventArgs.Handled = true;
+    }
+
+    private void FloorSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (sender is ComboBox { SelectedItem: MapSceneRendererFloorViewModel floor })
+        {
+            floor.SelectCommand.Execute(null);
+        }
     }
 }
