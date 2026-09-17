@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -95,6 +96,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable
     /// already queued for it locally.
     /// </summary>
     public async Task RegisterPairedDeviceAsync(
+        PairingAttemptId attemptId,
         PairingOffer offer,
         string desktopNonceBase64Url,
         DateTimeOffset codeConsumedUtc,
@@ -140,6 +142,23 @@ public sealed class RelayMarksBridge : IAsyncDisposable
             return;
         }
 
+        var registeredJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var registered = JsonSerializer.Deserialize<RelaySessionCredentialWire>(registeredJson, WireJsonOptions);
+        if (registered is not null)
+        {
+            // Handed to the tablet through the same bounded pairing mailbox that carried
+            // `established` — the tablet has everything else it needs (session id, channel id,
+            // key epoch) from its own copy of that message, so only the bearer secret travels here.
+            using var credentialRequest = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"v2/companion/pairing/relay-session/{attemptId.Value:D}")
+            {
+                Content = JsonContent.Create(new { credential = registered.Credential, expiresUtc = registered.ExpiresUtc }),
+            };
+            using var credentialResponse = await relay.SendAsync(credentialRequest, cancellationToken).ConfigureAwait(false);
+            _ = credentialResponse; // best-effort; a tablet that missed it can be re-paired
+        }
+
         var assignment = session.Establishment.Assignment;
         var state = new PairedSessionState(
             assignment.DeviceId,
@@ -158,6 +177,8 @@ public sealed class RelayMarksBridge : IAsyncDisposable
             await PublishDeliveryAsync(state, delivery, _authority.Snapshot.CanonicalState, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    private sealed record RelaySessionCredentialWire(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
 
     private void EnsureLoopStarted()
     {

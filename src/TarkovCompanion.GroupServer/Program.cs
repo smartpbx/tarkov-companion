@@ -263,6 +263,10 @@ app.MapGet("/", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
 
 app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
 
+// v2r-tablet-marks-sync: the relay-frame sealing/opening the tablet page's live sync uses,
+// served at an absolute path so it resolves the same from "/" and "/tablet". See Tablet.cs.
+app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
+
 // v2r-pairing-tablet: the paired-device pairing handshake (#277/#290). A bounded relay of the
 // plaintext wire roots in docs/PAIRED_DEVICE_PROTOCOL.md's "Pairing" section — see
 // CompanionPairingMailbox for what it does and does not do. It is deliberately separate from the
@@ -407,6 +411,23 @@ app.MapPost("/v2/companion/pairing/established/{attemptId:guid}", async Task<IRe
 app.MapGet("/v2/companion/pairing/established/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>
     mailbox.ReadEstablished(new PairingAttemptId(attemptId)) is { } value
         ? Results.Bytes(CompanionProtocolJson.Serialize(value), "application/json")
+        : Results.NotFound());
+
+// v2r-tablet-marks-sync: the tablet's own relay bearer secret, handed through once the desktop has
+// registered it on the relay (POST /v2/companion/relay/devices). Not a CompanionProtocolJson wire
+// root — see RelayTabletCredential's remarks — so this is plain JSON, the same as every other
+// GroupServer-local request/response body.
+app.MapPost("/v2/companion/pairing/relay-session/{attemptId:guid}", (
+    Guid attemptId,
+    RelayTabletCredential body,
+    CompanionPairingMailbox mailbox) =>
+    mailbox.SubmitRelaySession(new PairingAttemptId(attemptId), body).Succeeded
+        ? Results.Ok()
+        : Results.BadRequest());
+
+app.MapGet("/v2/companion/pairing/relay-session/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>
+    mailbox.ReadRelaySession(new PairingAttemptId(attemptId)) is { } value
+        ? Results.Ok(value)
         : Results.NotFound());
 
 app.MapPost("/v2/companion/pairing/denied/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>

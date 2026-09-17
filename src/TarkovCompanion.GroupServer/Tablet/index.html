@@ -16,6 +16,12 @@
     --ochre: #c7a66b;
     --sage: #77b895;
     --alarm: #c77b6b;
+    /* The paired-companion design (docs/design/v2/v2-team-tablet-concept.png,
+       v2-tablet-desktop-control-concept.png): cyan against the same dark graphite ground,
+       scoped to the "Companion (paired with your desktop)" section only — the rest of this
+       page is the pre-existing group-key surface and keeps its ochre accent. */
+    --cyan: #22d3ee;
+    --cyan-ink: #062226;
   }
   * { box-sizing: border-box; }
   body {
@@ -70,6 +76,36 @@
   .clears button { flex: 1; min-height: 44px; }
   button[disabled] { opacity: .45; cursor: default; }
   form { display: contents; }
+
+  /* Paired companion (v2r-tablet-marks-sync): cyan, matching docs/design/v2's tablet concepts. */
+  #pairing.live { border-color: rgba(34, 211, 238, .35); }
+  .cyan { color: var(--cyan); }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
+    background: var(--quiet);
+  }
+  .live-dot.on { background: var(--cyan); box-shadow: 0 0 0 3px rgba(34, 211, 238, .18); }
+  .modes.cyan-modes button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  #teamMarks { display: grid; gap: 12px; margin-top: 12px; }
+  @media (min-width: 640px) { #teamMarks { grid-template-columns: minmax(0, 1fr) minmax(220px, 260px); } }
+  .tapPad {
+    position: relative; aspect-ratio: 1 / 1; border-radius: 10px; touch-action: manipulation;
+    background:
+      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 25% 25%,
+      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 25% 25%,
+      var(--inset);
+    border: 1px solid var(--line); overflow: hidden;
+  }
+  .tapPad .hint {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--quiet); font-size: 13px; text-align: center; padding: 20px; pointer-events: none;
+  }
+  .tapPad .pin {
+    position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+    background: var(--cyan); border: 2px solid var(--cyan-ink); box-shadow: 0 0 0 3px rgba(34, 211, 238, .25);
+  }
+  .tapPad .pin.ping { background: var(--ochre); box-shadow: 0 0 0 3px rgba(199, 166, 107, .25); }
+  .markList { display: flex; flex-direction: column; gap: 8px; }
 </style>
 </head>
 <body>
@@ -103,21 +139,32 @@
     </div>
     <div id="pairingDone" style="display:none">
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
-      <div class="modes" id="pairingModes">
+      <div class="modes cyan-modes" id="pairingModes">
         <button type="button" aria-pressed="true">Follow desktop</button>
         <button type="button" aria-pressed="false">Control desktop</button>
         <button type="button" aria-pressed="false">Independent</button>
       </div>
-      <div class="modes" id="pairingArm">
-        <button type="button">Arm: Loot</button>
-        <button type="button">Arm: Stash</button>
-        <button type="button">Arm: Keys</button>
-        <button type="button">Arm: Ammo</button>
-        <button type="button">Arm: Map</button>
+      <p class="note">Desktop navigation is not implemented in this rough pass — these change the label
+        only.</p>
+
+      <h2 style="margin-top:16px">Team marks</h2>
+      <p class="quiet" style="margin:0 0 10px"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Connecting to the desktop…</span></p>
+      <div id="teamMarks">
+        <div class="tapPad" id="tapPad">
+          <div class="hint" id="tapPadHint">Tap to drop a mark here</div>
+        </div>
+        <div>
+          <div class="modes cyan-modes" id="markKind">
+            <button type="button" data-kind="Ping" aria-pressed="true">Ping</button>
+            <button type="button" data-kind="Waypoint" aria-pressed="false">Waypoint</button>
+          </div>
+          <div class="form">
+            <input id="markMap" placeholder="Map" autocomplete="off" value="customs" size="10">
+            <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
+          </div>
+          <div class="markList" id="teamMarkList"><p class="empty">Nothing marked yet.</p></div>
+        </div>
       </div>
-      <p class="note" id="pairingArmNote">This device is authenticated and paired. The desktop and relay can
-        now carry live marks between a claimed relay and a paired tablet (v2r-relay-owner); this page does
-        not send or receive them yet. Capture arming and desktop navigation are not implemented in this rough pass.</p>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
@@ -758,6 +805,7 @@
   else setStatus("enter the group key", "");
 })();
 </script>
+<script src="/tablet/relay-crypto.js"></script>
 <script>
 // v2r-pairing-tablet: paired-companion pairing (docs/PAIRED_DEVICE_PROTOCOL.md "Pairing").
 //
@@ -1198,12 +1246,10 @@
 
         // Pairing is complete: the device is registered with the desktop's authority and (once
         // the desktop has claimed the relay) with the relay's own device registry too, so
-        // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). This page still
-        // does not seal or open a frame with tabletToDesktopKey/desktopToTabletKey, or hold the
-        // relay session credential POST /v2/companion/relay/devices issued for this device — that
-        // last-mile transport is deferred; see the package PR's "Deferred to polish".
-        void tabletToDesktopKey;
-        void desktopToTabletKey;
+        // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). Live sync
+        // (v2r-tablet-marks-sync) takes over from here in the background; the ceremony itself
+        // is done.
+        startLiveSync(attemptId, established, tabletToDesktopKey, desktopToTabletKey);
         return;
       }
 
@@ -1211,6 +1257,258 @@
     }
 
     throw new Error("The desktop did not confirm the session in time. Start again.");
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // v2r-tablet-marks-sync: the established session's own traffic. Everything after pairing
+  // travels as an OpaqueRelayFrame sealed/opened by relay-crypto.js — never a plaintext command,
+  // acknowledgement, update, or reconnect path (docs/PAIRED_DEVICE_PROTOCOL.md, "Transport
+  // binding"). Marks are the first payload wired end to end; see the package PR for what a mark
+  // command actually does on the desktop (DesktopCompanionAuthority.ApplyCommandAsync,
+  // RelayMarksBridge) and for what is still deferred (desktop-authored marks reaching the tablet).
+  // ---------------------------------------------------------------------------------------
+  let live = null;
+  let markKind = "Ping";
+  const FRAME_LIFETIME_MS = 60_000;
+
+  function renderLiveStatus() {
+    $("liveDot").classList.toggle("on", !!live?.connected);
+    $("liveStatus").textContent = !live
+      ? "Not connected."
+      : !live.credential
+        ? "Waiting for the desktop to finish registering this tablet…"
+        : live.lastSyncedUtc
+          ? `Live · synced ${Math.max(0, Math.round((Date.now() - live.lastSyncedUtc) / 1000))}s ago`
+          : "Live · waiting for the first sync…";
+  }
+
+  function renderTeamMarks() {
+    const pad = $("tapPad");
+    pad.querySelectorAll(".pin").forEach((el) => el.remove());
+    const marks = live?.marks ?? [];
+    $("tapPadHint").style.display = marks.length ? "none" : "";
+    for (const mark of marks) {
+      const pin = document.createElement("div");
+      pin.className = "pin" + (mark.kind === "Ping" ? " ping" : "");
+      pin.style.left = `${mark.state.x * 100}%`;
+      pin.style.top = `${mark.state.y * 100}%`;
+      pin.title = mark.state.label || mark.kind;
+      pad.appendChild(pin);
+    }
+
+    const list = $("teamMarkList");
+    list.replaceChildren();
+    if (marks.length === 0) {
+      list.innerHTML = '<p class="empty">Nothing marked yet.</p>';
+      return;
+    }
+
+    for (const mark of marks) {
+      const row = document.createElement("div");
+      row.className = "row markRow";
+      const info = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = mark.state.label || mark.kind;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `${mark.kind} · ${mark.state.mapId} · ${Math.round(mark.state.x * 100)}, ${Math.round(mark.state.y * 100)}`;
+      info.append(name, meta);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeTeamMark(mark));
+      row.append(info, remove);
+      list.appendChild(row);
+    }
+  }
+
+  async function relayCall(path, options) {
+    return fetch(path, {
+      ...options,
+      headers: {
+        "X-Relay-Session": live.sessionId,
+        "X-Relay-Credential": live.credential,
+        ...(options?.headers || {}),
+      },
+    });
+  }
+
+  async function startLiveSync(attemptId, established, tabletToDesktopKey, desktopToTabletKey) {
+    const assignment = established.assignment;
+    live = {
+      sessionId: assignment.sessionId.value,
+      channelId: assignment.relayChannelId.value,
+      keyEpoch: assignment.keyEpoch,
+      protocolVersion: assignment.protocolVersion,
+      tabletToDesktopKey,
+      desktopToTabletKey,
+      authorityEpoch: null,
+      marksRevision: 0,
+      credential: null,
+      senderSequence: 0,
+      afterDeliveryId: 0,
+      marks: [],
+      lastSyncedUtc: null,
+      connected: false,
+    };
+    renderLiveStatus();
+    renderTeamMarks();
+
+    // The desktop registers this tablet on the relay right after establishing the session and
+    // hands its bearer secret through the same bounded mailbox `established` just came through.
+    const deadline = Date.now() + 60_000;
+    while (!live.credential && Date.now() < deadline) {
+      try {
+        const credential = await getJson(`/v2/companion/pairing/relay-session/${attemptId}`);
+        if (credential) live.credential = credential.credential;
+      } catch {
+        // Transient; keep trying until the deadline.
+      }
+
+      if (!live.credential) await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    if (!live.credential) {
+      $("liveStatus").textContent = "The desktop has not claimed a relay yet, so live sync is unavailable.";
+      return;
+    }
+
+    renderLiveStatus();
+    pollLiveFrames();
+  }
+
+  async function pollLiveFrames() {
+    while (live && live.credential) {
+      try {
+        const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}`);
+        if (response.ok) {
+          const batch = await response.json();
+          live.connected = true;
+          for (const envelope of batch.frames) {
+            await handleInboundFrame(envelope.frame);
+            live.afterDeliveryId = Math.max(live.afterDeliveryId, envelope.deliveryId);
+          }
+
+          if (batch.frames.length > 0) {
+            await relayCall(`/v2/companion/relay/frames/${live.afterDeliveryId}/ack`, { method: "POST" });
+          }
+
+          live.lastSyncedUtc = Date.now();
+        } else {
+          live.connected = false;
+        }
+      } catch {
+        live.connected = false;
+      }
+
+      renderLiveStatus();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  async function handleInboundFrame(frame) {
+    try {
+      const opened = await RelayFrameCrypto.openRelayFrame({
+        trafficKey: live.desktopToTabletKey,
+        direction: RelayFrameCrypto.DIRECTION.DesktopToTablet,
+        frame,
+      });
+      if (opened.kind !== RelayFrameCrypto.PAYLOAD_KIND.ServerEnvelope) return;
+      const envelope = JSON.parse(RelayFrameCrypto.textDecoder.decode(opened.json));
+      applyServerMessage(envelope.message);
+    } catch {
+      // A frame that does not open or parse is dropped; the next poll tries again.
+    }
+  }
+
+  function applyServerMessage(message) {
+    // MarksCanonicalUpdate.State is the marks aggregate's full current list, the same shape a
+    // snapshot carries — so both cases here are "replace what we show", never an incremental fold.
+    if (message?.type === "canonicalSnapshot") {
+      live.authorityEpoch = message.state.authorityEpoch.value;
+      live.marksRevision = message.state.marks.cursor.revision.value;
+      live.marks = message.state.marks.marks;
+      renderTeamMarks();
+    } else if (message?.type === "canonicalUpdate" && message.update?.type === "marks") {
+      live.authorityEpoch = message.update.authorityEpoch.value;
+      live.marksRevision = message.update.state.cursor.revision.value;
+      live.marks = message.update.state.marks;
+      renderTeamMarks();
+    }
+  }
+
+  async function sendMarkCommand(command) {
+    if (!live?.authorityEpoch) return;
+    const envelope = {
+      protocolVersion: live.protocolVersion,
+      sessionId: { value: live.sessionId },
+      authorityEpoch: { value: live.authorityEpoch },
+      clientSentUtc: new Date().toISOString(),
+      command,
+    };
+    const json = textEncoder.encode(JSON.stringify(envelope));
+    const now = Date.now();
+    live.senderSequence += 1;
+    const frame = await RelayFrameCrypto.sealRelayFrame({
+      trafficKey: live.tabletToDesktopKey,
+      direction: RelayFrameCrypto.DIRECTION.TabletToDesktop,
+      kind: RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope,
+      protocolVersion: live.protocolVersion,
+      channelId: live.channelId,
+      sessionId: live.sessionId,
+      keyEpoch: live.keyEpoch,
+      senderSequence: live.senderSequence,
+      issuedUtc: now,
+      expiresUtc: now + FRAME_LIFETIME_MS,
+      json,
+    });
+    await relayCall("/v2/companion/relay/frames", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(frame),
+    });
+  }
+
+  function addTeamMark(x, y) {
+    if (!live?.authorityEpoch) return;
+    const label = $("markLabel").value.trim() || null;
+    const mapId = $("markMap").value.trim() || "customs";
+    const now = new Date();
+    sendMarkCommand({
+      type: "upsertMark",
+      commandId: { value: crypto.randomUUID() },
+      requestedRevision: { value: live.marksRevision + 1 },
+      issuedUtc: now.toISOString(),
+      expiresUtc: new Date(now.getTime() + FRAME_LIFETIME_MS).toISOString(),
+      offlineQueuePreview: null,
+      markId: { value: crypto.randomUUID() },
+      expectedMarkRevision: 0,
+      mark: {
+        kind: markKind,
+        scope: "PairedDevice",
+        state: { mapId, floorId: null, x, y, label, expiresUtc: null },
+        coordinateSpace: "Normalized",
+        projectionVersion: "tablet-normalized-1",
+        height: null,
+        color: markKind === "Ping" ? "#C7A66B" : "#22D3EE",
+      },
+    });
+  }
+
+  function removeTeamMark(mark) {
+    if (!live?.authorityEpoch) return;
+    const now = new Date();
+    sendMarkCommand({
+      type: "deleteMark",
+      commandId: { value: crypto.randomUUID() },
+      requestedRevision: { value: live.marksRevision + 1 },
+      issuedUtc: now.toISOString(),
+      expiresUtc: new Date(now.getTime() + FRAME_LIFETIME_MS).toISOString(),
+      offlineQueuePreview: null,
+      markId: mark.markId,
+      expectedMarkRevision: mark.revision,
+    });
   }
 
   // ---------------------------------------------------------------------------------------
@@ -1238,12 +1536,23 @@
     });
   }
 
-  for (const button of document.querySelectorAll("#pairingArm button")) {
+  for (const button of document.querySelectorAll("#markKind button")) {
     button.addEventListener("click", () => {
-      $("pairingArmNote").textContent =
-        "Not connected to the desktop yet. Live sync is not implemented in this rough pass.";
+      for (const other of document.querySelectorAll("#markKind button")) {
+        other.setAttribute("aria-pressed", String(other === button));
+      }
+
+      markKind = button.dataset.kind;
     });
   }
+
+  $("tapPad").addEventListener("click", (event) => {
+    if (!live?.authorityEpoch) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+    addTeamMark(x, y);
+  });
 
   setStage("pairingIdle");
 })();

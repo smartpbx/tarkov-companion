@@ -186,6 +186,36 @@ public sealed class CompanionPairingMailbox
 
     public SessionEstablished? ReadEstablished(PairingAttemptId attemptId) => Get(attemptId)?.Established;
 
+    /// <summary>
+    /// The desktop hands the tablet's own relay bearer secret through once it has registered the
+    /// device on the relay (v2r-relay-owner's <c>POST /v2/companion/relay/devices</c>). Single-use
+    /// the same way every other slot here is: a resubmission with the same value succeeds
+    /// idempotently, a different one is rejected.
+    /// </summary>
+    public MailboxResult<bool> SubmitRelaySession(PairingAttemptId attemptId, RelayTabletCredential relaySession)
+    {
+        ArgumentNullException.ThrowIfNull(relaySession);
+        var now = Now();
+        lock (_gate)
+        {
+            Sweep(now);
+            if (!_entries.TryGetValue(attemptId, out var entry) || entry.Offer.ExpiresUtc <= now)
+            {
+                return MailboxResult<bool>.Reject("pairing-rejected");
+            }
+
+            if (entry.RelaySession is { } existing)
+            {
+                return existing == relaySession ? MailboxResult<bool>.Success(true) : MailboxResult<bool>.Reject("pairing-rejected");
+            }
+
+            _entries[attemptId] = entry with { RelaySession = relaySession };
+            return MailboxResult<bool>.Success(true);
+        }
+    }
+
+    public RelayTabletCredential? ReadRelaySession(PairingAttemptId attemptId) => Get(attemptId)?.RelaySession;
+
     /// <summary>Lets the desktop tell a waiting tablet its request was declined.</summary>
     public MailboxResult<bool> Deny(PairingAttemptId attemptId)
     {
@@ -289,5 +319,15 @@ public sealed class CompanionPairingMailbox
         HandshakeChallenge? Challenge = null,
         DeviceKeyProof? Proof = null,
         SessionEstablished? Established = null,
+        RelayTabletCredential? RelaySession = null,
         bool Denied = false);
 }
+
+/// <summary>
+/// The bearer secret the relay issued this device when the desktop registered it (v2r-relay-owner
+/// #395), relayed to the tablet the same bounded way <see cref="SessionEstablished"/> is. Not a
+/// <see cref="TarkovCompanion.CompanionProtocol.CompanionProtocolJson"/> wire root: the tablet
+/// already has everything else it needs (session id, channel id, key epoch) from its own copy of
+/// <c>established.assignment</c>, so this carries only the one new value.
+/// </summary>
+public sealed record RelayTabletCredential(string Credential, DateTimeOffset ExpiresUtc);

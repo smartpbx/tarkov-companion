@@ -1,0 +1,24 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "channelId": {
+    "value": "90000000-0000-4000-8000-000000000001"
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "keyEpoch": 1,
+  "senderSequence": 1,
+  "cipherSuite": "P256HkdfSha256Aes256Gcm",
+  "nonceBase64Url": "AAAAAQAAAAAAAAAB",
+  "ciphertextLength": 784,
+  "ciphertextChunksBase64Url": [
+    "MqF7UoP1yWFF94a6W8m0FJleV8xUMZ64aCRyPZcUJ8WeouTIEHuiBNIfbthvzlrIwJNDHwrymqcH1BloqcAQA-xmj-uSfqQn2FwSpZPtR_YIfHb0eLdVSE1AqJfk5WkhwKGqCP-YwaC3-hXkC4toGOUS5Q-qAM35llNYFK6sj1MrKjJCRpjIybyj8f6uZMGKyHV5y60caZmvnj8nE9M4JEpT_dNKnkh6-Woq1V622OtQI74QLs9CD4nDCNKVHwFHaBTz-4otRHLdPqDII36HIqaga3oC8DWxcV0rlqKTio8zF3U1NF3wAoEXg1FJqPeF-ThCj3bbVZ6hBSPjmUepjFZFDCDy1Lhgqm7-liPbZpSv4blouxAktoaoPO3x_mg8xXDo2zkHMZKrY2irYBpJDLnPPhtMZf7O82nsvOZrYXXqoz4PeRF2GhUwrrOprM3hL739z-l8J4Up2ZPJmOKFc4rEubz9nscxRCt6t9YhyKzdeoaMWsLmM_8-wzdLfOFtEXc9m5olGrDEvn6TmjCE2W7IArxB5zOqKy_TWsQK86FKPwqSLap2_yX-GExNoWXbuVvNdvxCYBr0dG8eH8HSCZEz7PhGP8mghiMRDZpRr7B2Pqi_eLrIq36jMDy-8_xighEZBqUy73zjH0a-2ANRdg-hlffVBluObC0jNpjzpLiEW2yd5u-u4ANRUqdX3DHuoj_gXzCrzdxT9R39Gh3OA1bs6nQD_Y9amv0pLxSRrHb21rMoznFD9qR2448mTETC97w-805Iz6vnuAbZ9Ez6XQpM390XxR3gPKwMCznMkHu5pz7WRhhZNHW3_LNjlVTTZaTZOaAxBkExQ6ZhP8myE7kO2qoiqJePdKvrI_y9LFS9mPB2gOxFe_PGpD2Px_F5iajsWkZVal_O1CUgiyDvT74e8ICuNnbt9K391usHVKnQnJUA2pBz4y1qqr-wlkis0cCY3RROCtoMhTXxlz-97XUckKckE6Olxqc0VFIsVsAeTKclrzgIuPyj7AinE2uF",
+    "5l50QSzka3lM8blkkFrErQ"
+  ],
+  "authenticationTagBase64Url": "LVPw9IDpq5cSZc6vj_NKQw",
+  "issuedUtc": "2026-09-17T12:00:00.000Z",
+  "expiresUtc": "2026-09-17T12:01:00.000Z"
+}

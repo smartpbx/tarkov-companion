@@ -580,6 +580,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 // snapshot. Best-effort: a relay that is unreachable or not yet claimed leaves the
                 // pairing itself intact — only live sync for this device is unavailable.
                 await _relayMarksBridge.RegisterPairedDeviceAsync(
+                    _attemptId,
                     _offer,
                     _approval.NonceReveal.DesktopNonceBase64Url,
                     _offer.OfferedUtc,
