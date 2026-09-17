@@ -1111,9 +1111,27 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         var parsed = Router.Addresses.Parse(address);
         if (parsed.Location is not { } location)
         {
-            if (requestedAddress is not null)
+            if (requestedAddress is not null &&
+                V2LegacyPageAddressAliases.TryResolve(Registry, Variant, requestedAddress) is { } aliasedAddress)
             {
-                throw new ArgumentException(parsed.Failure);
+                parsed = Router.Addresses.Parse(aliasedAddress);
+            }
+
+            if (parsed.Location is not { } aliasedLocation)
+            {
+                if (requestedAddress is not null)
+                {
+                    throw new ArgumentException(parsed.Failure);
+                }
+
+                CurrentAddress = Router.CurrentAddress;
+                return;
+            }
+
+            var aliasRestored = Router.Restore(aliasedLocation, null, null);
+            if (!aliasRestored.Succeeded)
+            {
+                throw new ArgumentException(aliasRestored.Failure);
             }
 
             CurrentAddress = Router.CurrentAddress;
