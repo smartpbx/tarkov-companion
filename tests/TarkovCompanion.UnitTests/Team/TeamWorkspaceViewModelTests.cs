@@ -13,6 +13,23 @@ namespace TarkovCompanion.UnitTests.Team;
 
 public sealed class TeamWorkspaceViewModelTests
 {
+    [Theory]
+    [InlineData(TeamWorkspaceSection.Overview, 0, 1, 2, 3)]
+    [InlineData(TeamWorkspaceSection.Group, 1, 2, 0, 3)]
+    [InlineData(TeamWorkspaceSection.Devices, 1, 2, 3, 0)]
+    public void The_active_route_brings_its_own_section_to_the_top_of_the_page(
+        TeamWorkspaceSection section, int presenceRow, int marksRow, int groupRow, int devicesRow)
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.SetActiveSection(section);
+
+        Assert.Equal(presenceRow, viewModel.PresenceRow);
+        Assert.Equal(marksRow, viewModel.MarksRow);
+        Assert.Equal(groupRow, viewModel.GroupRow);
+        Assert.Equal(devicesRow, viewModel.DevicesRow);
+    }
+
     [Fact]
     public async Task Loading_reads_the_stored_group_settings_into_the_form()
     {

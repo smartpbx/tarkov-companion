@@ -49,7 +49,7 @@ public static class V2ShellText
         ["V2.Shell.Route.Events"] = "Events",
         ["V2.Shell.Route.Squad"] = "Team",
         ["V2.Shell.Route.Group"] = "Group",
-        ["V2.Shell.Route.Tablet"] = "Devices",
+        ["V2.Shell.Route.Tablet"] = "Tablet preview",
         ["V2.Shell.Route.History"] = "History",
         ["V2.Shell.Route.Settings"] = "Settings",
 

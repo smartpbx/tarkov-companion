@@ -9,6 +9,20 @@ using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.App.ViewModels.V2.Team;
 
+/// <summary>Which of the Team/Group/Tablet routes brought the workspace up.</summary>
+/// <remarks>
+/// Team, Group and Tablet all render this one workspace rather than three different pages (see
+/// <see cref="TeamWorkspaceViewModel"/>'s own remarks), but each still names a real destination
+/// with its own heading, so the section that route was *for* should still lead the page rather
+/// than sit wherever it happened to land in a fixed list.
+/// </remarks>
+public enum TeamWorkspaceSection
+{
+    Overview = 1,
+    Group,
+    Devices,
+}
+
 /// <summary>Whether a group member's last report is current, ageing, or too old to trust.</summary>
 public enum TeamPresenceState
 {
@@ -82,6 +96,15 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     private readonly CompanionPairingViewModel? _pairing;
     private readonly TimeProvider _clock;
 
+    /// <summary>The section order for each route, "leading" section first, in <c>Grid.Row</c> terms.</summary>
+    private static readonly IReadOnlyDictionary<TeamWorkspaceSection, string[]> SectionOrder = new Dictionary<TeamWorkspaceSection, string[]>
+    {
+        [TeamWorkspaceSection.Overview] = ["presence", "marks", "group", "devices"],
+        [TeamWorkspaceSection.Group] = ["group", "presence", "marks", "devices"],
+        [TeamWorkspaceSection.Devices] = ["devices", "presence", "marks", "group"],
+    };
+
+    private TeamWorkspaceSection _activeSection = TeamWorkspaceSection.Overview;
     private bool _confirmingLeave;
     private string _status = "Loading group settings…";
     private bool _isEnabled;
@@ -110,6 +133,37 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         LeaveCommand = new AsyncDelegateCommand(LeaveAsync);
         PairTabletCommand = new DelegateCommand(OpenPairing);
     }
+
+    /// <summary>
+    /// Which route brought this workspace up, so its section can lead the page.
+    /// </summary>
+    /// <remarks>
+    /// Set by the shell (<c>V2ShellViewModel.Refresh</c>) from the current route on every
+    /// refresh, the same way it keeps <see cref="Apply"/> current — this view model has no route
+    /// type of its own to read one from.
+    /// </remarks>
+    public void SetActiveSection(TeamWorkspaceSection section)
+    {
+        if (SetProperty(ref _activeSection, section, nameof(ActiveSection)))
+        {
+            OnPropertyChanged(nameof(PresenceRow));
+            OnPropertyChanged(nameof(MarksRow));
+            OnPropertyChanged(nameof(GroupRow));
+            OnPropertyChanged(nameof(DevicesRow));
+        }
+    }
+
+    public TeamWorkspaceSection ActiveSection => _activeSection;
+
+    public int PresenceRow => RowOf("presence");
+
+    public int MarksRow => RowOf("marks");
+
+    public int GroupRow => RowOf("group");
+
+    public int DevicesRow => RowOf("devices");
+
+    private int RowOf(string key) => Array.IndexOf(SectionOrder[_activeSection], key);
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 

@@ -1339,6 +1339,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
         _team?.Apply(snapshot);
+        _team?.SetActiveSection(Router.Current.Location.Route == V2Routes.Group
+            ? TeamWorkspaceSection.Group
+            : Router.Current.Location.Route == V2Routes.Tablet
+                ? TeamWorkspaceSection.Devices
+                : TeamWorkspaceSection.Overview);
         var selectedTask = Legacy?.Quests.SelectedTask;
         var selectedObjective = selectedTask?.Objectives.FirstOrDefault(objective => objective.Model.IsPinned)?.ObjectiveId;
         var priorScan = snapshot.Scan.Succeeded

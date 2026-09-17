@@ -14,7 +14,11 @@
         <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap" />
       </StackPanel>
 
-      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+      <!-- Team, Group and Tablet all land here; the section each route is for leads the page
+           rather than sitting at a fixed spot (Group -> join/leave + presence, Tablet -> Your
+           devices), via TeamWorkspaceViewModel's per-route row order. -->
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="16">
+      <Border Grid.Row="{Binding PresenceRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8">
           <TextBlock Classes="v2-heading-3" Text="Presence" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-body" IsVisible="{Binding HasNoPresence}" Text="Nobody else is sharing right now." />
@@ -34,7 +38,7 @@
         </StackPanel>
       </Border>
 
-      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+      <Border Grid.Row="{Binding MarksRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8">
           <TextBlock Classes="v2-heading-3" Text="Marks" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-body" IsVisible="{Binding HasNoMarks}" Text="No waypoints or pings yet." />
@@ -59,7 +63,7 @@
         </StackPanel>
       </Border>
 
-      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+      <Border Grid.Row="{Binding GroupRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8">
           <TextBlock Classes="v2-heading-3" Text="Group" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-body" Text="{Binding Status}"
@@ -92,7 +96,7 @@
         </StackPanel>
       </Border>
 
-      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+      <Border Grid.Row="{Binding DevicesRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8">
           <TextBlock Classes="v2-heading-3" Text="Your devices" AutomationProperties.HeadingLevel="2" />
           <TextBlock Classes="v2-body" IsVisible="{Binding HasNoDevices}" Text="No paired devices yet." />
@@ -116,6 +120,7 @@
                      IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
         </StackPanel>
       </Border>
+      </Grid>
     </StackPanel>
   </ScrollViewer>
 </UserControl>
