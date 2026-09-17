@@ -72,6 +72,9 @@ public sealed record QuestSummaryReadModel(
     /// something to notice rather than something to hide behind a blank.
     /// </remarks>
     public string? TraderName { get; init; }
+
+    /// <summary>The wiki page for this task, where the last sync had one.</summary>
+    public string? WikiUri { get; init; }
 }
 
 
