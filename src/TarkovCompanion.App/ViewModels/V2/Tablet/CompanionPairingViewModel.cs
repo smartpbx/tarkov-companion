@@ -1,0 +1,499 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Windows.Input;
+using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.Application.Services.Devices;
+using TarkovCompanion.CompanionProtocol;
+
+namespace TarkovCompanion.App.ViewModels.V2.Tablet;
+
+/// <summary>
+/// Whether this desktop can pair a tablet, and with what.
+/// </summary>
+/// <remarks>
+/// Always registered, so <see cref="TarkovCompanion.App.ViewModels.V2.Shell.V2ShellViewModel"/> has
+/// one dependency to take regardless of platform or configuration. <see cref="Coordinator"/> and
+/// <see cref="RelayOrigin"/> are both null unless this is Windows (the desktop identity key is
+/// DPAPI-protected) and a group relay with an HTTPS DNS origin is configured, because that origin
+/// is what the production <c>IDeviceKeyProofVerifier</c> pins a device-key proof to.
+/// </remarks>
+public sealed record CompanionPairingAvailability(DesktopPairingCoordinator? Coordinator, Uri? RelayOrigin)
+{
+    public static CompanionPairingAvailability Unavailable { get; } = new(null, null);
+}
+
+/// <summary>One row of the paired-device list.</summary>
+public sealed class PairedDeviceRowViewModel
+{
+    public PairedDeviceRowViewModel(PairedDevice device, Func<PairedDeviceRowViewModel, Task> revoke)
+    {
+        Device = device;
+        RevokeCommand = new AsyncDelegateCommand(() => revoke(this));
+    }
+
+    public PairedDevice Device { get; }
+
+    public string DisplayName => Device.DisplayName;
+
+    public string Role => Device.Role.ToString();
+
+    public string Status => Device.Status.ToString();
+
+    public DateTimeOffset LastUsedUtc => Device.LastUsedUtc;
+
+    public DateTimeOffset ExpiresUtc => Device.ExpiresUtc;
+
+    public bool CanRevoke => Device.Status == DeviceLifecycleStatus.Active;
+
+    public ICommand RevokeCommand { get; }
+}
+
+/// <summary>The stage the pairing panel is showing.</summary>
+public enum CompanionPairingStage
+{
+    Idle = 1,
+    AwaitingTablet,
+    AwaitingApproval,
+    Completing,
+}
+
+/// <summary>
+/// Drives one pairing ceremony (docs/PAIRED_DEVICE_PROTOCOL.md, "Pairing") against the relay's
+/// pairing mailbox, and shows the desktop's paired-device list.
+/// </summary>
+/// <remarks>
+/// The relay only carries the ceremony's plaintext messages; every cryptographic decision —
+/// binding the request, computing the verification code, verifying the device-key proof — is
+/// <see cref="DesktopPairingCoordinator"/>'s, unchanged from its own tests. This view model adds
+/// nothing to that trust boundary; it only calls it and shows the result.
+/// </remarks>
+public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
+{
+    private readonly DesktopCompanionAuthority _authority;
+    private readonly DesktopPairingCoordinator? _coordinator;
+    private readonly HttpClient? _relay;
+    private readonly TimeProvider _timeProvider;
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _ceremony;
+    private PairingAttemptId _attemptId;
+    private DesktopPairingApproval? _approval;
+
+    private CompanionPairingStage _stage = CompanionPairingStage.Idle;
+    private string? _qrPayload;
+    private string? _pairingCode;
+    private string? _requestedDisplayName;
+    private string? _verificationCode;
+    private string? _statusMessage;
+    private bool _isBusy;
+
+    public CompanionPairingViewModel(
+        DesktopCompanionAuthority authority,
+        CompanionPairingAvailability availability,
+        TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentNullException.ThrowIfNull(availability);
+        _authority = authority;
+        _coordinator = availability.Coordinator;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
+        {
+            _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
+        }
+
+        RefreshDevices();
+        StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
+        ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
+        DenyCommand = new AsyncDelegateCommand(DenyAsync);
+    }
+
+    public bool CanPair => _coordinator is not null && _relay is not null;
+
+    public string UnavailableReason => CanPair
+        ? string.Empty
+        : "Pairing needs Windows and a group relay configured with an https address (Settings > Group).";
+
+    public IReadOnlyList<PairedDeviceRowViewModel> Devices { get; private set; } = [];
+
+    public bool HasNoDevices => Devices.Count == 0;
+
+    public CompanionPairingStage Stage
+    {
+        get => _stage;
+        private set
+        {
+            if (SetProperty(ref _stage, value))
+            {
+                OnPropertyChanged(nameof(IsIdle));
+                OnPropertyChanged(nameof(IsAwaitingTablet));
+                OnPropertyChanged(nameof(IsAwaitingApproval));
+            }
+        }
+    }
+
+    public bool IsIdle => Stage == CompanionPairingStage.Idle;
+
+    public bool IsAwaitingTablet => Stage == CompanionPairingStage.AwaitingTablet;
+
+    public bool IsAwaitingApproval => Stage == CompanionPairingStage.AwaitingApproval;
+
+    public string? QrPayload
+    {
+        get => _qrPayload;
+        private set => SetProperty(ref _qrPayload, value);
+    }
+
+    public string? PairingCode
+    {
+        get => _pairingCode;
+        private set => SetProperty(ref _pairingCode, value);
+    }
+
+    public string? RequestedDisplayName
+    {
+        get => _requestedDisplayName;
+        private set => SetProperty(ref _requestedDisplayName, value);
+    }
+
+    public string? VerificationCode
+    {
+        get => _verificationCode;
+        private set => SetProperty(ref _verificationCode, value);
+    }
+
+    public string? StatusMessage
+    {
+        get => _statusMessage;
+        private set
+        {
+            if (SetProperty(ref _statusMessage, value))
+            {
+                OnPropertyChanged(nameof(HasStatusMessage));
+            }
+        }
+    }
+
+    public bool HasStatusMessage => !string.IsNullOrEmpty(StatusMessage);
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set => SetProperty(ref _isBusy, value);
+    }
+
+    public ICommand StartPairingCommand { get; }
+
+    public ICommand ApproveCommand { get; }
+
+    public ICommand DenyCommand { get; }
+
+    public void Dispose()
+    {
+        _ceremony?.Cancel();
+        _ceremony?.Dispose();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        _relay?.Dispose();
+    }
+
+    private void RefreshDevices()
+    {
+        Devices = _authority.Snapshot.Devices
+            .Select(device => new PairedDeviceRowViewModel(device, RevokeAsync))
+            .ToArray();
+        OnPropertyChanged(nameof(Devices));
+        OnPropertyChanged(nameof(HasNoDevices));
+    }
+
+    private async Task StartPairingAsync()
+    {
+        if (_coordinator is null || _relay is null)
+        {
+            return;
+        }
+
+        ResetCeremony();
+        IsBusy = true;
+        StatusMessage = null;
+        try
+        {
+            var invitation = await _coordinator.CreateInvitationAsync(Now()).ConfigureAwait(true);
+            _attemptId = invitation.Offer.AttemptId;
+            var registered = await PostAsync(
+                "v2/companion/pairing/offers",
+                invitation.Offer,
+                new KeyValuePair<string, string>("Tarkov-Pairing-Code", invitation.PairingCode),
+                _ceremony!.Token).ConfigureAwait(true);
+            if (!registered)
+            {
+                StatusMessage = "The relay would not accept a new pairing invitation. Try again shortly.";
+                Stage = CompanionPairingStage.Idle;
+                return;
+            }
+
+            QrPayload = invitation.QrPayload;
+            PairingCode = invitation.PairingCode;
+            Stage = CompanionPairingStage.AwaitingTablet;
+            _ = PollForRequestAsync(_ceremony.Token);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            StatusMessage = "Could not reach the group relay.";
+            Stage = CompanionPairingStage.Idle;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task PollForRequestAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var request = await GetAsync<PairingRequest>(
+                    $"v2/companion/pairing/requests/{_attemptId.Value:D}",
+                    cancellationToken).ConfigureAwait(true);
+                if (request is not null)
+                {
+                    await OnRequestReceivedAsync(request, cancellationToken).ConfigureAwait(true);
+                    return;
+                }
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                // Transient; the next poll tries again until the ceremony is cancelled or completes.
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(true);
+        }
+    }
+
+    private async Task OnRequestReceivedAsync(PairingRequest request, CancellationToken cancellationToken)
+    {
+        if (_coordinator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var approval = await _coordinator.BindRequestAsync(request, CompanionProtocolVersion.Current, Now())
+                .ConfigureAwait(true);
+            _approval = approval;
+            await PostAsync(
+                "v2/companion/pairing/reveals",
+                approval.NonceReveal,
+                _attemptId,
+                cancellationToken).ConfigureAwait(true);
+            RequestedDisplayName = approval.RequestedDisplayName;
+            VerificationCode = approval.VerificationCode;
+            Stage = CompanionPairingStage.AwaitingApproval;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            StatusMessage = "The tablet's pairing request could not be bound. Start over.";
+            Stage = CompanionPairingStage.Idle;
+        }
+    }
+
+    private async Task ApproveAsync()
+    {
+        if (_coordinator is null || _approval is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var grant = new PairingDeviceGrant(
+                DeviceAuthorizationRole.Member,
+                [
+                    DeviceCapability.FollowDesktop,
+                    DeviceCapability.RequestControl,
+                    DeviceCapability.ShowOnDesktop,
+                    DeviceCapability.ManageOwnMarks,
+                    DeviceCapability.RequestCaptureIntent,
+                ],
+                [
+                    DeviceCapability.FollowDesktop,
+                    DeviceCapability.ShowOnDesktop,
+                    DeviceCapability.ManageOwnMarks,
+                    DeviceCapability.RequestCaptureIntent,
+                ],
+                Now().AddDays(90),
+                CompanionTransportKind.EndToEndRelay,
+                CompanionSurfaceKind.TabletLandscape);
+            var challenge = await _coordinator.ApproveAsync(
+                _attemptId,
+                userConfirmedMatchingVerificationCode: true,
+                grant,
+                Now()).ConfigureAwait(true);
+            await PostAsync("v2/companion/pairing/challenges", challenge, _attemptId, _ceremony!.Token)
+                .ConfigureAwait(true);
+            Stage = CompanionPairingStage.Completing;
+            _ = PollForProofAsync(_ceremony.Token);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            StatusMessage = "Approval failed.";
+            Stage = CompanionPairingStage.Idle;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task PollForProofAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var proof = await GetAsync<DeviceKeyProof>(
+                    $"v2/companion/pairing/proofs/{_attemptId.Value:D}",
+                    cancellationToken).ConfigureAwait(true);
+                if (proof is not null)
+                {
+                    await OnProofReceivedAsync(proof, cancellationToken).ConfigureAwait(true);
+                    return;
+                }
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                // Transient; keep polling.
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(true);
+        }
+    }
+
+    private async Task OnProofReceivedAsync(DeviceKeyProof proof, CancellationToken cancellationToken)
+    {
+        if (_coordinator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var session = await _coordinator.CompletePairingAsync(_attemptId, proof, Now())
+                .ConfigureAwait(true);
+            await PostAsync("v2/companion/pairing/established", session.Establishment, _attemptId, cancellationToken)
+                .ConfigureAwait(true);
+            StatusMessage = $"Paired \"{RequestedDisplayName}\".";
+            RefreshDevices();
+            ResetCeremony();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            StatusMessage = "The tablet's device-key proof did not verify. It was not paired.";
+            ResetCeremony();
+        }
+    }
+
+    private async Task DenyAsync()
+    {
+        if (_coordinator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _coordinator.DenyAsync(_attemptId, Now()).ConfigureAwait(true);
+            await PostAsync($"v2/companion/pairing/denied/{_attemptId.Value:D}", _ceremony?.Token ?? default)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Already resolved; nothing further to tell the mailbox.
+        }
+        finally
+        {
+            StatusMessage = "Declined.";
+            ResetCeremony();
+        }
+    }
+
+    private async Task RevokeAsync(PairedDeviceRowViewModel row)
+    {
+        try
+        {
+            await _authority.RevokeDeviceAsync(row.Device.DeviceId, Now(), "Revoked from the pairing panel.")
+                .ConfigureAwait(true);
+            RefreshDevices();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            StatusMessage = $"Could not revoke \"{row.DisplayName}\".";
+        }
+    }
+
+    private void ResetCeremony()
+    {
+        _ceremony?.Cancel();
+        _ceremony?.Dispose();
+        _ceremony = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _approval = null;
+        QrPayload = null;
+        PairingCode = null;
+        RequestedDisplayName = null;
+        VerificationCode = null;
+        Stage = CompanionPairingStage.Idle;
+    }
+
+    private DateTimeOffset Now() => _timeProvider.GetUtcNow();
+
+    private async Task<bool> PostAsync<T>(
+        string path,
+        T value,
+        KeyValuePair<string, string> header,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(value));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+        request.Headers.Add(header.Key, header.Value);
+        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
+        return response.IsSuccessStatusCode;
+    }
+
+    private Task<bool> PostAsync<T>(string routePrefix, T value, PairingAttemptId attemptId, CancellationToken cancellationToken)
+        where T : class =>
+        PostAsync($"{routePrefix}/{attemptId.Value:D}", value, cancellationToken);
+
+    private async Task<bool> PostAsync<T>(string path, T value, CancellationToken cancellationToken)
+        where T : class
+    {
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(value));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var response = await _relay!.PostAsync(path, content, cancellationToken).ConfigureAwait(true);
+        return response.IsSuccessStatusCode;
+    }
+
+    private async Task<bool> PostAsync(string path, CancellationToken cancellationToken)
+    {
+        using var response = await _relay!.PostAsync(path, content: null, cancellationToken).ConfigureAwait(true);
+        return response.IsSuccessStatusCode;
+    }
+
+    private async Task<T?> GetAsync<T>(string path, CancellationToken cancellationToken)
+        where T : class
+    {
+        using var response = await _relay!.GetAsync(path, cancellationToken).ConfigureAwait(true);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        response.EnsureSuccessStatusCode();
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(true);
+        return CompanionProtocolJson.Deserialize<T>(bytes);
+    }
+}
