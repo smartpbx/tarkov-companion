@@ -17,6 +17,9 @@ public enum V2RouteContent
     /// <summary>One item's facts, with their source and age.</summary>
     ItemIntel,
 
+    /// <summary>The raid cockpit: the V2 map renderer plus its timer/extract panel (package 2).</summary>
+    RaidCockpit,
+
     /// <summary>The Loot Scan review surface: one frozen capture's take/swap/leave/review decisions.</summary>
     LootScan,
 }
@@ -94,7 +97,9 @@ public sealed class V2RouteRegistry
     [
         new(V2Routes.Home, [V2Capabilities.Readiness, V2Capabilities.Continue], V2RouteContent.Readiness, "V2.Shell.Route.Home",
             ShowsReadiness: true, ShowsContinue: true),
-        new(V2Routes.Raid, [V2Capabilities.Raid], V2RouteContent.LegacyPage, "V2.Shell.Route.Raid", "Raid",
+        // The raid cockpit hosts the V2 map renderer directly (package 2); it no longer passes
+        // through to the V1 "Raid" page, which remains reachable from V1 navigation only.
+        new(V2Routes.Raid, [V2Capabilities.Raid], V2RouteContent.RaidCockpit, "V2.Shell.Route.Raid",
             UsesGameData: true),
         new(V2Routes.Loot, [V2Capabilities.LootDecision], V2RouteContent.LootScan, "V2.Shell.Route.Loot",
             Parent: V2Routes.Raid, UsesGameData: true),

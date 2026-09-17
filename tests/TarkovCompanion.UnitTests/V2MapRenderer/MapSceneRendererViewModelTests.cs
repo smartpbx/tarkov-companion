@@ -225,6 +225,44 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void TryHitObjectAt_finds_the_object_under_a_point_without_selecting_it()
+    {
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            Point("waypoint", "Waypoint", MapSceneObjectKind.Waypoint, MapSceneTruthKind.UserAuthored, 50, 50),
+        ]));
+        var marker = Assert.Single(renderer.SpatialObjects);
+
+        // A right-click asks what it hit — used to decide whether to remove a mark — without
+        // the side effect TrySelectAt has of also changing what is selected.
+        Assert.True(renderer.TryHitObjectAt(
+            marker.AnchorLeft + (MapSceneRendererViewModel.MarkerExtent / 2),
+            marker.AnchorTop + (MapSceneRendererViewModel.MarkerExtent / 2),
+            out var objectId));
+        Assert.Equal("object:waypoint", objectId.Value);
+        Assert.False(renderer.HasSelection);
+
+        Assert.False(renderer.TryHitObjectAt(0, 0, out _));
+    }
+
+    [Fact]
+    public void TryScenePointAt_unprojects_a_viewport_position_into_scene_space()
+    {
+        var renderer = Renderer(Scene());
+
+        // The canvas center is where the camera is looking, whatever the viewport size: this is
+        // the same unprojection TrySelectAt already relies on to hit-test, exposed for a host —
+        // the raid cockpit placing a mark, for one — that needs the point without a hit.
+        Assert.True(renderer.TryScenePointAt(renderer.CanvasWidth / 2, renderer.CanvasHeight / 2, out var center));
+        Assert.Equal(50, center.X, 3);
+        Assert.Equal(50, center.Y, 3);
+
+        Assert.True(renderer.TryScenePointAt(0, 0, out var corner));
+        Assert.NotEqual(center.X, corner.X);
+        Assert.NotEqual(center.Y, corner.Y);
+    }
+
+    [Fact]
     public void Selection_clear_and_camera_updates_preserve_control_collections_and_asset_resolution()
     {
         var resolveCalls = 0;
