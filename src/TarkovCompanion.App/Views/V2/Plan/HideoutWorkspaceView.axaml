@@ -1,0 +1,63 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.HideoutWorkspaceView"
+             x:DataType="vm:HideoutWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="Hideout" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-body" Text="{Binding Status}"
+                   AutomationProperties.AutomationId="v2-hideout-status"
+                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <WrapPanel ItemSpacing="8" LineSpacing="8">
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-hideout-refresh"
+                Content="Refresh" Command="{Binding RefreshCommand}" />
+      </WrapPanel>
+
+      <Border Classes="v2-card" IsVisible="{Binding HasStations}">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Stations" AutomationProperties.HeadingLevel="2" />
+          <ItemsControl ItemsSource="{Binding Stations}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:HideoutStationRowViewModel">
+                <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Command="{Binding SelectCommand}">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                      <TextBlock Classes="v2-body" Text="{Binding Name}" />
+                      <TextBlock Classes="v2-label" Text="{Binding CurrentLevelLabel}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding NextLevelSummary}" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" Text="Ready" IsVisible="{Binding CanBuildNow}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding Items}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:HideoutRequirementRowViewModel">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12" Margin="0,0,0,4">
+                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding ItemName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Owned}" />
+                  <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Required}" />
+                  <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Remaining}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

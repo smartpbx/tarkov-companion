@@ -52,10 +52,37 @@ public sealed class V2LegacyPageAddressAliasesTests
     }
 
     [Theory]
+    [InlineData("Quests")]
+    [InlineData("quests")]
+    public void QuestsResolvesToThePlanRouteBecauseThatRouteNowHostsThePlanWorkspaceInstead(string requestedPage)
+    {
+        var registry = V2RouteRegistry.Default;
+
+        var addressA = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.A, requestedPage);
+        var addressB = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.B, requestedPage);
+
+        Assert.Equal(V2ShellVariants.A.Addresses[V2Routes.Plan], addressA);
+        Assert.Equal(V2ShellVariants.B.Addresses[V2Routes.Plan], addressB);
+    }
+
+    [Theory]
+    [InlineData("Hideout")]
+    [InlineData("hideout")]
+    public void HideoutResolvesToTheHideoutRouteBecauseThatRouteNowHostsTheHideoutWorkspaceInstead(string requestedPage)
+    {
+        var registry = V2RouteRegistry.Default;
+
+        var addressA = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.A, requestedPage);
+        var addressB = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.B, requestedPage);
+
+        Assert.Equal(V2ShellVariants.A.Addresses[V2Routes.Hideout], addressA);
+        Assert.Equal(V2ShellVariants.B.Addresses[V2Routes.Hideout], addressB);
+    }
+
+    [Theory]
     [InlineData("Squad", "team")]
     [InlineData("Group", "team/group")]
-    [InlineData("Quests", "prepare")]
-    public void EveryStillHostedV1PageNameResolvesThroughTheRegistryForVariantB(string requestedPage, string expectedAddress)
+    public void SquadAndGroupResolveToTheTeamWorkspaceBecauseThoseRoutesNowHostItInstead(string requestedPage, string expectedAddress)
     {
         var resolved = V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.B, requestedPage);
 

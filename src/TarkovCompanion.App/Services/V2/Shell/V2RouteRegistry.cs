@@ -120,18 +120,23 @@ public sealed class V2RouteRegistry
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),
         new(V2Routes.Stash, [V2Capabilities.StashScan], V2RouteContent.Workspace, "V2.Shell.Route.Stash"),
-        new(V2Routes.Plan, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Quests", "Quests",
+        // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
+        new(V2Routes.Plan, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Quests",
             UsesGameData: true),
-        new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Hideout", "Hideout",
+        new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Hideout",
             Parent: V2Routes.Plan, UsesGameData: true),
         new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Loadout", "Loadout",
             Parent: V2Routes.Plan, UsesGameData: true),
         new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Events", "Events",
             Parent: V2Routes.Plan),
-        new(V2Routes.Team, [V2Capabilities.Team], V2RouteContent.LegacyPage, "V2.Shell.Route.Squad", "Squad"),
-        new(V2Routes.Group, [V2Capabilities.Team], V2RouteContent.LegacyPage, "V2.Shell.Route.Group", "Group",
+        // v2r-team (package 9, wave 2): one native V2 Team workspace (presence, marks, group
+        // sharing, paired devices) replaces the Squad/Group passthroughs and the Tablet state
+        // presenter. Group and Tablet stay as separate addresses/section tabs but point at the
+        // same workspace rather than their own content.
+        new(V2Routes.Team, [V2Capabilities.Team], V2RouteContent.Workspace, "V2.Shell.Route.Squad"),
+        new(V2Routes.Group, [V2Capabilities.Team], V2RouteContent.Workspace, "V2.Shell.Route.Group",
             Parent: V2Routes.Team),
-        new(V2Routes.Tablet, [V2Capabilities.TabletPreview], V2RouteContent.StatePresenter, "V2.Shell.Route.Tablet",
+        new(V2Routes.Tablet, [V2Capabilities.TabletPreview], V2RouteContent.Workspace, "V2.Shell.Route.Tablet",
             Parent: V2Routes.Team),
         new(V2Routes.Debrief, [V2Capabilities.Debrief], V2RouteContent.Workspace, "V2.Shell.Route.History"),
         new(V2Routes.Setup, [V2Capabilities.Setup, V2Capabilities.Readiness], V2RouteContent.SetupWorkspace, "V2.Shell.Route.Settings",

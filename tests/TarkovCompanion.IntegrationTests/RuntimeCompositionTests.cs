@@ -5,6 +5,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
@@ -85,6 +86,39 @@ public sealed class RuntimeCompositionTests
             Assert.True(snapshot.DatabaseReady);
             Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
             Assert.Equal(V2Routes.Loot, shell.Router.Current.Location.Route);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task V2ShellNavigatesToTheNativePlanAndHideoutWorkspaces()
+    {
+        // V2 rough package 10 (#288): the Plan route and its Hideout child used to pass through
+        // to the V1 legacy pages; both now host a native V2 workspace resolved through the same
+        // container as everything else, so this exercises that wiring end to end rather than
+        // only at the route-registry level.
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: true) with { UiShell = V2ShellMode.VariantB },
+                new(DataRoot: root, Offline: true));
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var shell = services.GetRequiredService<V2ShellViewModel>();
+
+            await viewModel.InitializeAsync();
+            shell.GoTo(V2Routes.Plan);
+
+            Assert.True(shell.ShowsWorkspace);
+            Assert.IsType<PlanWorkspaceViewModel>(shell.WorkspaceContent);
+
+            shell.GoTo(V2Routes.Hideout);
+
+            Assert.True(shell.ShowsWorkspace);
+            Assert.IsType<HideoutWorkspaceViewModel>(shell.WorkspaceContent);
         }
         finally
         {

@@ -467,7 +467,10 @@ public sealed class GroupSessionService : IAsyncDisposable
             // The server expires pings for us, so whatever comes back is current by
             // definition and the client needs no timer of its own.
             Waypoints = (room?.Waypoints ?? []).Select(w =>
-                new GroupWaypointView(w.Id, w.By, w.MapId, w.X, w.Y, w.Z, w.Label, w.CompletedBy)).ToArray(),
+                new GroupWaypointView(w.Id, w.By, w.MapId, w.X, w.Y, w.Z, w.Label, w.CompletedBy)
+                {
+                    CreatedUtc = w.CreatedUtc,
+                }).ToArray(),
             Pings = (room?.Pings ?? []).Select(p =>
                 new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)).ToArray(),
         };
@@ -1106,7 +1109,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("y")] double Y,
         [property: JsonPropertyName("z")] double Z,
         [property: JsonPropertyName("label")] string? Label,
-        [property: JsonPropertyName("completedBy")] string? CompletedBy);
+        [property: JsonPropertyName("completedBy")] string? CompletedBy)
+    {
+        /// <summary>When the relay says this was marked, for the Team workspace's mark list.</summary>
+        [JsonPropertyName("createdUtc")]
+        public DateTimeOffset CreatedUtc { get; init; }
+    }
 
     private sealed record PingDto(
         [property: JsonPropertyName("id")] long Id,

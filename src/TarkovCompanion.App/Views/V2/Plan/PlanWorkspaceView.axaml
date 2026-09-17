@@ -1,0 +1,72 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.PlanWorkspaceView"
+             x:DataType="vm:PlanWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="Plan" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+        <TextBlock Classes="v2-body" Text="{Binding Status}"
+                   AutomationProperties.AutomationId="v2-plan-status"
+                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <WrapPanel ItemSpacing="8" LineSpacing="8">
+        <ToggleButton Classes="v2-target" AutomationProperties.AutomationId="v2-plan-show-all"
+                      Content="Show everything" IsChecked="{Binding ShowAll}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-plan-refresh"
+                Content="Refresh" Command="{Binding RefreshCommand}" />
+      </WrapPanel>
+
+      <TextBlock Classes="v2-body" Text="Nothing to show. Toggle Show everything to see locked, completed, or failed quests."
+                 IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" />
+
+      <ItemsControl ItemsSource="{Binding Groups}" IsVisible="{Binding HasGroups}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:PlanMapGroupViewModel">
+            <Border Classes="v2-card" Margin="0,0,0,12">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-3" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2" />
+                <ItemsControl ItemsSource="{Binding Objectives}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlanObjectiveRowViewModel">
+                      <Border BorderBrush="{DynamicResource V2.Brush.Border}" BorderThickness="0,0,0,1"
+                              Padding="0,0,0,8" Margin="0,0,0,8">
+                        <StackPanel Spacing="4">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                              <TextBlock Classes="v2-body" Text="{Binding TaskName}" FontWeight="SemiBold" />
+                              <TextBlock Classes="v2-label" Text="{Binding TraderLabel}" />
+                              <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
+                              <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" IsVisible="{Binding HasHandlingLabel}" />
+                              <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" />
+                              <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}" />
+                            </StackPanel>
+                          </Grid>
+                          <WrapPanel ItemSpacing="8" LineSpacing="4">
+                            <Button Classes="v2-target" Content="Wiki"
+                                    IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
+                            <Button Classes="v2-target" Content="Show on map"
+                                    IsVisible="{Binding CanShowOnMap}" Command="{Binding ShowOnMapCommand}" />
+                            <Button Classes="v2-target" Content="Mark objective done"
+                                    Command="{Binding MarkObjectiveDoneCommand}" />
+                            <Button Classes="v2-target" Content="Mark quest done"
+                                    Command="{Binding MarkQuestDoneCommand}" />
+                          </WrapPanel>
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
