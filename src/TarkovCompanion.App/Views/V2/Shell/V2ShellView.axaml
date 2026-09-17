@@ -11,7 +11,8 @@
              xmlns:planViews="using:TarkovCompanion.App.Views.V2.Plan"
              xmlns:teamVm="using:TarkovCompanion.App.ViewModels.V2.Team"
              xmlns:teamViews="using:TarkovCompanion.App.Views.V2.Team"
-             xmlns:raidVm="using:TarkovCompanion.App.ViewModels.V2.Raid">
+             xmlns:raidVm="using:TarkovCompanion.App.ViewModels.V2.Raid"
+             xmlns:intelViews="using:TarkovCompanion.App.Views.V2.Intel">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
@@ -510,72 +511,6 @@
                 </StackPanel>
               </Border>
 
-              <StackPanel Classes="v2-field" IsVisible="{Binding ShowsWorkspaceSearch}">
-                <TextBlock Classes="v2-label" Text="{Binding SearchLabel}" />
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                  <TextBox Grid.Column="0" Classes="v2-field-input" Text="{Binding SearchText}"
-                           PlaceholderText="{Binding SearchPlaceholder}"
-                           AutomationProperties.AutomationId="v2-shell-workspace-search"
-                           AutomationProperties.Name="{Binding SearchLabel}" />
-                  <Button Grid.Column="1" Classes="v2-target" AutomationProperties.AutomationId="v2-shell-workspace-search-open"
-                          Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
-                </Grid>
-              </StackPanel>
-
-              <Border Classes="v2-card" IsVisible="{Binding ShowsSuggestions}"
-                      AutomationProperties.AccessibilityView="Control"
-                      AutomationProperties.AutomationId="v2-shell-suggestions">
-                <StackPanel Classes="v2-stack">
-                  <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2"
-                             Text="{Binding SuggestionsHeading}" />
-                  <ItemsControl ItemsSource="{Binding SuggestionFilters}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:V2ShellSuggestionFilterViewModel">
-                        <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsSelected}"
-                                AutomationProperties.AutomationId="{Binding AutomationId}"
-                                AutomationProperties.Name="{Binding Label}"
-                                Content="{Binding DisplayLabel}" Command="{Binding SelectCommand}" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                  <TextBlock Classes="v2-label" IsVisible="{Binding HasNoSuggestions}"
-                             Text="{Binding SuggestionsEmpty}" />
-                  <ItemsControl ItemsSource="{Binding FilteredSuggestionItems}" IsVisible="{Binding HasSuggestions}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:V2ShellSuggestionViewModel">
-                        <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                AutomationProperties.AutomationId="{Binding AutomationId}"
-                                AutomationProperties.Name="{Binding Label}" Command="{Binding OpenCommand}">
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel Grid.Column="0" Classes="v2-stack">
-                              <TextBlock Classes="v2-body" Text="{Binding Label}" />
-                              <TextBlock Classes="v2-label" Text="{Binding Provenance}" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Category}" />
-                          </Grid>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                  <TextBlock Classes="v2-heading-3" Text="{Binding BrowseHeading}" />
-                  <ItemsControl ItemsSource="{Binding BrowseCategories}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:V2BrowseCategoryViewModel">
-                        <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
-                                AutomationProperties.Name="{Binding Detail}" Content="{Binding Label}"
-                                Command="{Binding OpenCommand}" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
-
               <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadiness}">
                 <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding ReadinessHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding ReadinessSummary}"
@@ -661,6 +596,9 @@
           </ScrollViewer>
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
+          <!-- V2 rough package 17: the Intel workspace (search, results, item, prices) binds this
+               shell directly; its search, selection and item facts are shell state. -->
+          <intelViews:IntelWorkspaceView Grid.Row="1" IsVisible="{Binding ShowsIntelWorkspace}" />
           <!-- V2 Raid cockpit (package 2): a full-page workspace on the same row as the legacy
                page above, mutually exclusive with it by route content. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
@@ -671,10 +609,11 @@
           </ScrollViewer>
           </Grid>
 
-          <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
-               narrow width it spans the content and replaces it. In A it is the Intel workspace. -->
+          <!-- The Intel card for an item opened beside some other page changes columns. At wide B it
+               is beside the current page; at a narrow width it spans the content and replaces it.
+               On the Intel routes themselves the workspace above shows the item instead. -->
           <ScrollViewer Grid.Column="{Binding IntelColumn}" Grid.ColumnSpan="{Binding IntelColumnSpan}"
-                        IsVisible="{Binding ShowsIntel}" HorizontalScrollBarVisibility="Disabled">
+                        IsVisible="{Binding ShowsIntelCard}" HorizontalScrollBarVisibility="Disabled">
             <Border Classes="v2-card" Margin="12" MaxWidth="520" HorizontalAlignment="Stretch">
               <StackPanel Classes="v2-stack">
                 <TextBlock x:Name="IntelHeading" Classes="v2-heading-2" Focusable="True"

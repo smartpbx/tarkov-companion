@@ -1177,7 +1177,8 @@ public sealed record ItemSearchResultViewModel(
     string Match,
     string Price,
     string PriceSource,
-    string Updated);
+    string Updated,
+    long? BestValueRoubles = null);
 
 public sealed class ItemsPageViewModel : PageViewModel
 {
@@ -1285,7 +1286,8 @@ public sealed class ItemsPageViewModel : PageViewModel
                     $"{hit.Score:P0} · matched {hit.MatchedText}",
                     bestValue > 0 ? $"{bestValue:N0} ₽ · {hit.Item.ValuePerSlot(price!):N0} ₽ / slot" : "Price unavailable",
                     channel,
-                    $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}"));
+                    $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}",
+                    bestValue > 0 ? bestValue : null));
             }
 
             Results = results;

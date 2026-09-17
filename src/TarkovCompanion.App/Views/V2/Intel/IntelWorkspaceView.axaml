@@ -1,0 +1,525 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.IntelWorkspaceView"
+             x:DataType="vm:V2ShellViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell">
+  <UserControl.Styles>
+    <!-- A workspace pane: the flat raised card the Raid map sits in. -->
+    <Style Selector="Border.v2-intel-pane">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    </Style>
+    <Style Selector="Border.v2-intel-search">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,0,6,0" />
+      <Setter Property="MinHeight" Value="50" />
+    </Style>
+    <Style Selector="TextBox.v2-intel-search-input">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBox.v2-intel-search-input:focus /template/ Border#PART_BorderElement,
+                     TextBox.v2-intel-search-input:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.v2-intel-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <!-- Filter chips: outlined, cyan only when selected. -->
+    <Style Selector="Button.v2-intel-chip">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="16,6" />
+      <Setter Property="MinHeight" Value="38" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-intel-chip.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.v2-intel-chip.selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- Result rows: a quiet raised row; the selected one takes the cyan outline. -->
+    <Style Selector="Button.v2-intel-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="10,10" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.v2-intel-row.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-intel-thumb">
+      <Setter Property="Width" Value="56" />
+      <Setter Property="Height" Value="56" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <!-- The item's footprint, drawn as the stash cells it occupies. -->
+    <Style Selector="Border.v2-intel-stage">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="200" />
+    </Style>
+    <Style Selector="Border.v2-intel-cell">
+      <Setter Property="Width" Value="64" />
+      <Setter Property="Height" Value="64" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-intel-fact">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="0,7" />
+    </Style>
+    <Style Selector="Border.v2-intel-panel">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <!-- A context-panel section with the concept's cyan leading edge (the Raid panel's pattern). -->
+    <Style Selector="Border.v2-intel-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="18,14" />
+    </Style>
+    <!-- The accent edge is the outer border's own background showing through a 3px left inset,
+         so only the leading edge is cyan and the rest of the outline stays quiet. -->
+    <Style Selector="Border.v2-intel-accent">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="3,0,0,0" />
+    </Style>
+    <Style Selector="Border.v2-intel-accent > Border.v2-intel-section">
+      <Setter Property="CornerRadius" Value="0,6,6,0" />
+      <Setter Property="BorderThickness" Value="0,1,1,1" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-intel-yes">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-tag">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Margin" Value="4,0" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-price">
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-price.v2-intel-best">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-name">
+      <Setter Property="FontSize" Value="34" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="ProgressBar.v2-intel-bar">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="Minimum" Value="0" />
+      <Setter Property="Maximum" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-unavailable">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Button.v2-intel-secondary">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Padding" Value="16,8" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- V2 rough package 17, like docs/design/v2/v2-intel-workspace-concept.png: search across the
+       top, results on the left, the selected item in the middle, and a full-height context panel
+       on the right with the need summary and the catalog's prices. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Border Grid.Row="0" Classes="v2-intel-search" IsVisible="{Binding ShowsWorkspaceSearch}">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+          <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                Data="{DynamicResource V2.Icon.Search}" />
+          <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
+                   PlaceholderText="{Binding IntelSearchPlaceholder}"
+                   AutomationProperties.AutomationId="v2-shell-workspace-search"
+                   AutomationProperties.Name="{Binding SearchLabel}">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  IsVisible="{Binding HasSearchText}"
+                  AutomationProperties.AutomationId="v2-intel-search-clear"
+                  AutomationProperties.Name="{Binding IntelClearSearchLabel}"
+                  ToolTip.Tip="{Binding IntelClearSearchLabel}"
+                  Command="{Binding ClearIntelSearchCommand}">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+          </Button>
+          <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-shell-workspace-search-open"
+                  AutomationProperties.Name="{Binding SearchOpenLabel}"
+                  ToolTip.Tip="{Binding SearchOpenLabel}"
+                  Command="{Binding SearchCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <!-- The results column grows a little on an ultrawide screen rather than leaving all the
+           extra width to the item pane. -->
+      <Grid Grid.Row="1" ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="0.3*" MinWidth="400" MaxWidth="560" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <!-- Results: kind chips, a count, and the rows. Before any search it offers the
+             shell's suggestions (recent, pinned, current plan) in the same place. -->
+        <Border Grid.Column="0" Classes="v2-intel-pane" Padding="14"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-intel-results">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+            <ItemsControl Grid.Row="0" ItemsSource="{Binding IntelKindFilters}" IsVisible="{Binding HasIntelSearchResults}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2IntelKindFilterViewModel">
+                  <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Grid.Row="0" Spacing="10" IsVisible="{Binding ShowsIntelSuggestionList}"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.AutomationId="v2-shell-suggestions">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding SuggestionsHeading}" />
+              <ItemsControl ItemsSource="{Binding SuggestionFilters}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2ShellSuggestionFilterViewModel">
+                    <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <TextBlock Grid.Row="1" Classes="v2-label" IsVisible="{Binding HasIntelSearchResults}"
+                       Text="{Binding IntelResultCountLabel}" Margin="2,0" />
+            <TextBlock Grid.Row="1" Classes="v2-label" IsVisible="{Binding HasIntelSearchStatus}"
+                       Text="{Binding IntelSearchStatus}" TextWrapping="Wrap" Margin="2,0" />
+
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="4">
+                <ItemsControl ItemsSource="{Binding IntelResults}" IsVisible="{Binding HasIntelResults}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2IntelResultRowViewModel">
+                      <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Name}"
+                              Command="{Binding OpenCommand}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                          <Border Grid.Column="0" Classes="v2-intel-thumb">
+                            <TextBlock Classes="v2-intel-tag" Text="{Binding ShortName}" />
+                          </Border>
+                          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding Category}" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="2" Classes="v2-body" VerticalAlignment="Bottom" Text="{Binding PriceLabel}" />
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="v2-label" IsVisible="{Binding ShowsIntelNoKindMatch}" Text="{Binding IntelNoKindMatchLabel}" />
+
+                <StackPanel Spacing="4" IsVisible="{Binding ShowsIntelSuggestionList}">
+                  <TextBlock Classes="v2-label" IsVisible="{Binding HasNoSuggestions}" Text="{Binding SuggestionsEmpty}" />
+                  <ItemsControl ItemsSource="{Binding FilteredSuggestionItems}" IsVisible="{Binding HasSuggestions}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellSuggestionViewModel">
+                        <Button Classes="v2-target v2-intel-row"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}" Command="{Binding OpenCommand}">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                              <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="v2-label" Text="{Binding Provenance}" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Category}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+
+        <!-- The selected item. -->
+        <Border Grid.Column="1" Classes="v2-intel-pane"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-intel-detail">
+          <Grid>
+            <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Margin="24"
+                       IsVisible="{Binding ShowsIntelNoSelection}" Text="{Binding IntelNoSelectionLabel}" />
+            <StackPanel Margin="24,20" Spacing="8" IsVisible="{Binding ShowsIntelDetailStatus}">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Classes="v2-heading-2" Focusable="True"
+                           AutomationProperties.AutomationId="v2-shell-intel-heading"
+                           AutomationProperties.HeadingLevel="1" Text="{Binding IntelDescription}" />
+                <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain"
+                        AutomationProperties.AutomationId="v2-shell-intel-close"
+                        AutomationProperties.Name="{Binding IntelCloseLabel}" ToolTip.Tip="{Binding IntelCloseLabel}"
+                        Command="{Binding CloseTransientCommand}">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                </Button>
+              </Grid>
+              <TextBlock Classes="v2-label" Text="{Binding IntelStatusLabel}" />
+            </StackPanel>
+
+            <ScrollViewer IsVisible="{Binding IntelHasResult}" HorizontalScrollBarVisibility="Disabled">
+              <!-- Fills the pane up to a readable width, then stays left-aligned on an ultrawide screen. -->
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" MaxWidth="1400" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+              <StackPanel Margin="24,18,24,24" Spacing="14">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Grid.Column="0" Spacing="4">
+                    <TextBlock Classes="v2-intel-name" Focusable="True"
+                               AutomationProperties.AutomationId="v2-shell-intel-heading"
+                               AutomationProperties.HeadingLevel="1" Text="{Binding IntelName}" />
+                    <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{Binding IntelSubtitle}" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Top"
+                          AutomationProperties.AutomationId="v2-shell-intel-close"
+                          AutomationProperties.Name="{Binding IntelCloseLabel}" ToolTip.Tip="{Binding IntelCloseLabel}"
+                          Command="{Binding CloseTransientCommand}">
+                    <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                  </Button>
+                </Grid>
+
+                <Border Classes="v2-intel-stage" AutomationProperties.Name="{Binding IntelSlotsLabel}">
+                  <ItemsControl ItemsSource="{Binding IntelSlotCells}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><UniformGrid Columns="{Binding IntelSlotColumns}" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="x:Int32">
+                        <Border Classes="v2-intel-cell" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </Border>
+
+                <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}" TextWrapping="Wrap"
+                           IsVisible="{Binding HasIntelItemDescription}" Text="{Binding IntelItemDescription}" />
+
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelKeyInfoHeading}"
+                             Margin="0,4,0,4" />
+                  <ItemsControl ItemsSource="{Binding IntelFacts}" AutomationProperties.AutomationId="v2-shell-intel-facts">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellIntelFactViewModel">
+                        <Border Classes="v2-intel-fact">
+                          <Grid ColumnDefinitions="220,*" ColumnSpacing="16">
+                            <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Label}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Value}" TextWrapping="Wrap" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+              </Grid>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+
+    <!-- Context panel. -->
+    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.LandmarkType="Complementary"
+            AutomationProperties.AutomationId="v2-intel-context">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <!-- Need summary: how many to keep, why, and where it sells best. -->
+          <Border Classes="v2-intel-accent" IsVisible="{Binding IntelHasResult}">
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2" Text="{Binding IntelVerdictHeadline}" />
+              <ItemsControl ItemsSource="{Binding IntelNeedLines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2IntelNeedLineViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,3">
+                      <Panel>
+                        <Path Classes="v2-icon v2-intel-yes" IsVisible="{Binding IsActive}" Data="{DynamicResource V2.Icon.Check}" />
+                        <Path Classes="v2-icon v2-icon-muted" IsVisible="{Binding !IsActive}" Data="{DynamicResource V2.Icon.MinusCircle}" />
+                      </Panel>
+                      <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Text}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,3">
+                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Cart}" />
+                <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding IntelBestSaleLabel}" />
+              </StackPanel>
+              <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Margin="0,6,0,0" IsVisible="{Binding IntelHasWikiLink}"
+                      AutomationProperties.AutomationId="v2-shell-intel-wiki"
+                      AutomationProperties.Name="{Binding IntelWikiLabel}"
+                      Command="{Binding OpenIntelWikiCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Link}" />
+                  <TextBlock VerticalAlignment="Center" Text="{Binding IntelWikiLabel}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
+          </Border>
+          </Border>
+
+          <!-- Prices: flea beside the best trader, the catalog's 24-hour range, and every channel. -->
+          <Border Classes="v2-intel-accent" IsVisible="{Binding IntelHasResult}">
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelPricesHeading}" />
+              <TextBlock Classes="v2-label" IsVisible="{Binding IntelHasNoPrices}" Text="{Binding IntelNoPricesLabel}" TextWrapping="Wrap" />
+              <Grid ColumnDefinitions="*,Auto,*" ColumnSpacing="18" IsVisible="{Binding IntelHasPrices}">
+                <StackPanel Grid.Column="0" Spacing="2">
+                  <TextBlock Classes="v2-intel-price v2-intel-best" Text="{Binding IntelFleaPriceLabel}" />
+                  <TextBlock Classes="v2-body" Text="{Binding IntelFleaCaption}" />
+                  <TextBlock Classes="v2-label" Text="{Binding IntelPriceUpdatedLabel}" />
+                </StackPanel>
+                <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}"
+                           IsVisible="{Binding IntelHasTraderPrice}" />
+                <StackPanel Grid.Column="2" Spacing="2" IsVisible="{Binding IntelHasTraderPrice}">
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelTraderPriceLabel}" />
+                  <TextBlock Classes="v2-body" Text="{Binding IntelTraderCaption}" />
+                  <TextBlock Classes="v2-label" Text="{Binding IntelTraderDetail}" />
+                </StackPanel>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding IntelHas24HourRange}">
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Intel24HourLabel}" />
+                <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding Intel24HourRange}" />
+              </Grid>
+
+              <StackPanel Spacing="8" IsVisible="{Binding IntelHasPrices}" Margin="0,6,0,0">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding IntelSourcesHeading}" />
+                <ItemsControl ItemsSource="{Binding IntelPriceSources}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2IntelPriceSourceViewModel">
+                      <Grid ColumnDefinitions="110,*,120" ColumnSpacing="12" Margin="0,4">
+                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <ProgressBar Grid.Column="1" Classes="v2-intel-bar" Value="{Binding Share}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="v2-body" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   Classes.v2-intel-unavailable="{Binding !IsAvailable}" Text="{Binding ValueLabel}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          </Border>
+
+          <!-- What a key opens. -->
+          <Border Classes="v2-intel-section" IsVisible="{Binding IntelIsKey}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelOpensHeading}" />
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Map}" />
+                <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding IntelKeyMapLabel}" />
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding IntelKeyLocks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-body" Margin="34,2,0,2" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- An ammo round's ballistics. -->
+          <Border Classes="v2-intel-section" IsVisible="{Binding IntelIsAmmo}">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelBallisticsHeading}" />
+              <TextBlock Classes="v2-label" IsVisible="{Binding IntelHasNoAmmoFacts}" Text="{Binding IntelAmmoUnknownLabel}" />
+              <Grid ColumnDefinitions="*,*,*" IsVisible="{Binding IntelHasAmmoFacts}">
+                <StackPanel Grid.Column="0" Spacing="2">
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoDamage}" />
+                  <TextBlock Classes="v2-label" Text="{Binding IntelDamageLabel}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="2">
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoPenetration}" />
+                  <TextBlock Classes="v2-label" Text="{Binding IntelPenetrationLabel}" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="2">
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoTier}" />
+                  <TextBlock Classes="v2-label" Text="{Binding IntelTierLabel}" />
+                </StackPanel>
+              </Grid>
+              <TextBlock Classes="v2-body" IsVisible="{Binding IntelHasAmmoFacts}" Text="{Binding IntelAmmoAdvice}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

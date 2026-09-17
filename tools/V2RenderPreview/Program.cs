@@ -32,13 +32,21 @@ internal static class Program
         var height = IntOption(args, "--height", 1080);
         var outputPath = StringOption(args, "--out") ?? throw new ArgumentException("--out <path.png> is required.");
         var mapId = StringOption(args, "--map");
+        // V2 rough package 17: land on a workspace other than the variant's landing page
+        // ("intel", "intel/item/<id>"), and optionally run a search there first.
+        var route = StringOption(args, "--route");
+        var search = StringOption(args, "--search");
         var options = AppCommandLine.Parse(args) with { Demo = true };
 
+        var rendered = false;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataRoot);
         try
         {
-            await using var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
+            // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
+            // nothing pumps once the frame is saved, so awaiting it hung the process after
+            // "Saved" (package 17). The process exits right after the finally block instead.
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -61,6 +69,7 @@ internal static class Program
                     .Distinct();
                 Console.WriteLine("Automation ids: " + string.Join(", ", ids));
                 SaveFrame(gallery, outputPath, width, height);
+                rendered = true;
                 return 0;
             }
 
@@ -81,6 +90,24 @@ internal static class Program
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
+
+            if (shell is not null && route is not null)
+            {
+                var result = shell.Router.NavigateToAddress(route);
+                if (!result.Succeeded)
+                {
+                    throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
+                }
+
+                Pump(20);
+            }
+
+            if (shell is not null && search is not null)
+            {
+                shell.SearchText = search;
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+            }
 
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
@@ -123,6 +150,7 @@ internal static class Program
             Pump(10);
 
             SaveFrame(window, outputPath, width, height);
+            rendered = true;
             return 0;
         }
         finally
@@ -134,6 +162,14 @@ internal static class Program
             catch (IOException)
             {
                 // Best effort: this is a throwaway temp directory for one render.
+            }
+
+            // Headless Avalonia and the composition's background services keep foreground
+            // threads alive; a finished render is one frame, so end the process explicitly.
+            if (rendered)
+            {
+                Console.Out.Flush();
+                Environment.Exit(0);
             }
         }
     }

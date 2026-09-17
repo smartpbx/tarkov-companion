@@ -28,6 +28,9 @@ public enum V2RouteContent
 
     /// <summary>The native V2 Setup page (#292): sectioned settings over the existing view models.</summary>
     SetupWorkspace,
+
+    /// <summary>The Intel workspace (package 17): search results, the selected item, its prices and needs.</summary>
+    IntelWorkspace,
 }
 
 /// <summary>
@@ -109,7 +112,9 @@ public sealed class V2RouteRegistry
             UsesGameData: true),
         new(V2Routes.Loot, [V2Capabilities.LootDecision], V2RouteContent.LootScan, "V2.Shell.Route.Loot",
             Parent: V2Routes.Raid, UsesGameData: true),
-        new(V2Routes.Items, [V2Capabilities.ItemSearch], V2RouteContent.LegacyPage, "V2.Shell.Route.Items", "Items",
+        // V2 rough package 17: Intel is a native workspace (results, item, prices) rather than
+        // the V1 Items page; the item route draws the same workspace with that item selected.
+        new(V2Routes.Items, [V2Capabilities.ItemSearch], V2RouteContent.IntelWorkspace, "V2.Shell.Route.Items",
             UsesGameData: true),
         new(V2Routes.Ammo, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Ammo", "Ammo",
             Parent: V2Routes.Items, UsesGameData: true),
