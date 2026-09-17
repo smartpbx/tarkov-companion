@@ -98,6 +98,7 @@ public sealed partial class MapSceneRendererView : UserControl
             return;
         }
 
+        var showsDetails = DataContext is not MapSceneRendererViewModel renderer || renderer.ShowsDetailsPanel;
         var compact = Bounds.Width < CompactWidth;
         var narrowHeader = Bounds.Width < NarrowHeaderWidth;
         RendererHeader.ColumnDefinitions = new(narrowHeader ? "*" : "*,Auto");
@@ -106,8 +107,8 @@ public sealed partial class MapSceneRendererView : UserControl
         Grid.SetRow(RendererTitle, 0);
         Grid.SetColumn(RendererCommands, narrowHeader ? 0 : 1);
         Grid.SetRow(RendererCommands, narrowHeader ? 1 : 0);
-        RendererBody.ColumnDefinitions = new(compact ? "*" : "2*,*");
-        RendererBody.RowDefinitions = new(compact ? "Auto,Auto" : "Auto");
+        RendererBody.ColumnDefinitions = new(!showsDetails ? "*" : compact ? "*" : "2*,*");
+        RendererBody.RowDefinitions = new(showsDetails && compact ? "Auto,Auto" : "Auto");
         Grid.SetColumn(PlanViewport, 0);
         Grid.SetRow(PlanViewport, 0);
         Grid.SetColumn(DetailsPanel, compact ? 0 : 1);
@@ -262,5 +263,13 @@ public sealed partial class MapSceneRendererView : UserControl
         }
 
         eventArgs.Handled = true;
+    }
+
+    private void FloorSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (sender is ComboBox { SelectedItem: MapSceneRendererFloorViewModel floor })
+        {
+            floor.SelectCommand.Execute(null);
+        }
     }
 }

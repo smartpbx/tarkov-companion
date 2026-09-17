@@ -163,6 +163,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     }
 
     public IReadOnlyList<RaidMapPickerItemViewModel> MapPicker { get; private set; } = [];
+    /// <summary>The picker entry for the map currently shown, for a header selector that stays
+    /// showing the current map name rather than resetting to a blank picker each time.</summary>
+    public RaidMapPickerItemViewModel? SelectedMap =>
+        MapPicker.FirstOrDefault(item => item.MapId == _map.RenderModel?.Location.Id);
 
     public IReadOnlyList<RaidMarkRowViewModel> Marks { get; private set; } = [];
 
@@ -346,6 +350,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
         {
+            OnPropertyChanged(nameof(SelectedMap));
             _ = RebuildAsync();
         }
         else if (e.PropertyName is nameof(MapViewModel.Locations))
@@ -362,6 +367,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             .OrderBy(location => location.Name, StringComparer.OrdinalIgnoreCase)
             .Select(location => new RaidMapPickerItemViewModel(location.Id, location.Name, SelectMapAsync))];
         OnPropertyChanged(nameof(MapPicker));
+        OnPropertyChanged(nameof(SelectedMap));
     }
 
     private void RaidPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -557,7 +563,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 reviewedAssetResolver: ResolveBackgroundImage,
                 highValueLoot: lootLayer,
                 highValueLootFilterState: _lootFilter,
-                highValueLootCategories: null);
+                highValueLootCategories: null,
+                // The Raid workspace's own right panel and bottom strip already show marks,
+                // extracts, the raid clock and the layer switches; the renderer's own
+                // search/layers/selection/loot-filter column would just be a second, narrower
+                // copy of the same map beside it. Loot filtering stays reachable through
+                // Renderer.HighValueLoot in this page's own right panel.
+                showsDetailsPanel: false);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             Renderer = renderer;

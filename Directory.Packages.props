@@ -6,6 +6,9 @@
     <PackageVersion Include="Avalonia" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.2" />
+    <!-- V2 rough package 15's tools/V2RenderPreview: headless renders to compare V2 pages
+         against docs/design/v2 concepts without a display. Dev-tool only, not shipped. -->
+    <PackageVersion Include="Avalonia.Headless" Version="12.1.2" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.12" />

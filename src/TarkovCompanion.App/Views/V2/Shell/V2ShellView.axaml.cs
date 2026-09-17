@@ -8,6 +8,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 
 namespace TarkovCompanion.App.Views.V2.Shell;
@@ -169,6 +170,14 @@ public sealed partial class V2ShellView : UserControl
         if (automationId?.StartsWith("v2-shell-", StringComparison.Ordinal) == true)
         {
             _wiredShell?.RecordFocusedTarget(automationId);
+        }
+    }
+
+    private void TopBarMapSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
+    {
+        if (sender is ComboBox { SelectedItem: RaidMapPickerItemViewModel map })
+        {
+            map.SelectCommand.Execute(null);
         }
     }
 }

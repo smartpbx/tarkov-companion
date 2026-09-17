@@ -5,30 +5,13 @@ using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Views.V2.Raid;
 
-/// <summary>Hosts the raid cockpit: map picker, mark placement, and the canonical map renderer.</summary>
+/// <summary>Hosts the raid cockpit: mark placement and the canonical map renderer. The map
+/// selector itself now lives in the shell's top bar (v2-shell-topbar-map).</summary>
 public sealed partial class RaidCockpitView : UserControl
 {
     public RaidCockpitView()
     {
         AvaloniaXamlLoader.Load(this);
-    }
-
-    private void MapPickerSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
-    {
-        if (sender is not ComboBox comboBox)
-        {
-            return;
-        }
-
-        if (comboBox.SelectedItem is RaidMapPickerItemViewModel item)
-        {
-            item.SelectCommand.Execute(null);
-        }
-
-        // A picker rather than a persistent selection: the current map is already shown by the
-        // renderer, and leaving an entry highlighted here would just be a second, staler copy of
-        // that same fact.
-        comboBox.SelectedItem = null;
     }
 
     private void RendererPlanClicked(object? sender, MapScenePoint point)

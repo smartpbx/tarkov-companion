@@ -770,7 +770,9 @@ $Shots.Add([pscustomobject]@{
     }
 })
 $Shots.Add([pscustomobject]@{
-    name = "shell-v2-a"; args = @("--ui-shell", "v2-a", "--page", "setup"); shellMode = "v2-a"
+    # V2 rough package 15: this scenario still exercises Back, which now only draws under
+    # --developer-mode (Clayton flagged it as provisional #265 scaffold, not shipped chrome).
+    name = "shell-v2-a"; args = @("--ui-shell", "v2-a", "--page", "setup", "--developer-mode"); shellMode = "v2-a"
     width = 0; height = 0
     interaction = [pscustomobject]@{
         steps = @(
@@ -814,15 +816,20 @@ $Shots.Add([pscustomobject]@{
     }
 })
 $Shots.Add([pscustomobject]@{
-    name = "shell-v2-b"; args = @("--ui-shell", "v2-b", "--page", "home"); shellMode = "v2-b"
+    # V2 rough package 15: this scenario still exercises the Commands palette button, which now
+    # only draws under --developer-mode.
+    name = "shell-v2-b"; args = @("--ui-shell", "v2-b", "--page", "home", "--developer-mode"); shellMode = "v2-b"
     width = 0; height = 0
     interaction = [pscustomobject]@{
         steps = @(
             [pscustomobject]@{
                 action = "assert"; description = "Variant B initial title and layout"
                 expectedWindowName = (Get-V2WindowName -Heading "Home")
-                expectedAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-row")
-                forbiddenAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-rail")
+                # V2 rough package 15: every variant renders the rail at Standard+ width now (the
+                # concept renders always show a left rail); Variant B still switches to the row at
+                # Compact/Narrow widths, covered by shell-v2-b-narrow below.
+                expectedAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-rail")
+                forbiddenAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-row")
             },
             [pscustomobject]@{
                 action = "invoke"; description = "named Capture dialog peer"
@@ -933,7 +940,9 @@ $Shots.Add([pscustomobject]@{
     }
 })
 $Shots.Add([pscustomobject]@{
-    name = "shell-v2-reset-close"; args = @("--ui-shell", "v2-a", "--page", "setup"); shellMode = "v2-a"
+    # V2 rough package 15: this scenario still exercises the Commands palette button, which now
+    # only draws under --developer-mode.
+    name = "shell-v2-reset-close"; args = @("--ui-shell", "v2-a", "--page", "setup", "--developer-mode"); shellMode = "v2-a"
     width = 0; height = 0; captureBeforeInteraction = $true; closeImmediately = $true
     interaction = [pscustomobject]@{
         steps = @(
