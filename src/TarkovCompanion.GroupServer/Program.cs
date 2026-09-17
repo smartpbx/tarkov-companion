@@ -5,6 +5,9 @@ using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer;
+using TarkovCompanion.GroupServer.Security;
+using TarkovCompanion.GroupServer.StateSync;
+using TarkovCompanion.GroupServer.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -72,6 +75,31 @@ static string? UpdateStatusDirectory()
 /// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>
 static string? StorePath(string fileName) =>
     StateDirectory() is { } directory ? Path.Combine(directory, fileName) : null;
+
+/// <summary>
+/// The protected operator secret <see cref="OwnerRecoveryProtector"/> signs a claim grant with, or
+/// null when unset. Standard base64 (not base64url, so an operator can generate one with
+/// <c>openssl rand -base64 32</c> unmodified), at least 32 decoded bytes; anything else is treated
+/// as unset rather than accepted short, the same fail-closed rule <see cref="RelayAdmin"/> follows.
+/// </summary>
+static byte[]? OwnerRecoverySecret()
+{
+    var configured = Environment.GetEnvironmentVariable("TARKOV_RELAY_OWNER_RECOVERY_SECRET");
+    if (string.IsNullOrWhiteSpace(configured))
+    {
+        return null;
+    }
+
+    try
+    {
+        var decoded = Convert.FromBase64String(configured);
+        return decoded.Length >= 32 ? decoded : null;
+    }
+    catch (FormatException)
+    {
+        return null;
+    }
+}
 // One copy of the game-data catalog for the whole group, instead of five clients each pulling
 // several megabytes of the same answer. Its own client, with its own timeout, because a slow
 // upstream must not hold up the group exchange this server mainly exists for.
@@ -108,10 +136,35 @@ builder.Services.AddSingleton<ProblemReports>();
 // CompanionPairingMailbox for what it does and does not do.
 builder.Services.AddSingleton<CompanionPairingMailbox>();
 
+// v2r-relay-owner (#278/#290): the relay's device registry, its owner-recovery secret, and the
+// opaque-frame hub that routes a paired session's traffic once RecoverOwnerAsync/AddPairedDeviceAsync
+// puts it there. Without TARKOV_RELAY_OWNER_RECOVERY_SECRET configured the registry still opens (on
+// a random, never-exposed, never-reused secret) so its other operations degrade rather than fail to
+// start, but RelayCompanionRoutes refuses the claim route outright — the same fail-closed shape
+// RelayAdmin already uses for TARKOV_RELAY_ADMIN_KEY.
+builder.Services.AddSingleton(provider => new OwnerRecoveryProtector(
+    OwnerRecoverySecret() ?? RandomNumberGenerator.GetBytes(32),
+    provider.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton(provider => RelayDeviceRegistry.OpenAsync(
+        provider.GetRequiredService<TimeProvider>(),
+        provider.GetRequiredService<OwnerRecoveryProtector>(),
+        StorePath("relay-devices.json") is { } path ? new VerifiedRelayRegistryStore(path) : null)
+    .AsTask().GetAwaiter().GetResult());
+builder.Services.AddSingleton(provider => new OpaqueRelayFrameHub(
+    provider.GetRequiredService<RelayDeviceRegistry>(),
+    provider.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton(provider => new RelayOwnerClaimGate(provider.GetRequiredService<TimeProvider>()));
+
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 var registry = app.Services.GetRequiredService<GroupRoomRegistry>();
+var relayOwnerRecoveryConfigured = OwnerRecoverySecret() is not null;
+app.MapRelayCompanionRoutes(
+    app.Services.GetRequiredService<RelayDeviceRegistry>(),
+    app.Services.GetRequiredService<OpaqueRelayFrameHub>(),
+    relayOwnerRecoveryConfigured ? app.Services.GetRequiredService<OwnerRecoveryProtector>() : null,
+    app.Services.GetRequiredService<RelayOwnerClaimGate>());
 
 // Which rooms may be used at all.
 //
@@ -209,6 +262,10 @@ app.MapGet("/health", () => Results.Ok(new
 app.MapGet("/", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
 
 app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
+
+// v2r-tablet-marks-sync: the relay-frame sealing/opening the tablet page's live sync uses,
+// served at an absolute path so it resolves the same from "/" and "/tablet". See Tablet.cs.
+app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
 
 // v2r-pairing-tablet: the paired-device pairing handshake (#277/#290). A bounded relay of the
 // plaintext wire roots in docs/PAIRED_DEVICE_PROTOCOL.md's "Pairing" section — see
@@ -354,6 +411,25 @@ app.MapPost("/v2/companion/pairing/established/{attemptId:guid}", async Task<IRe
 app.MapGet("/v2/companion/pairing/established/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>
     mailbox.ReadEstablished(new PairingAttemptId(attemptId)) is { } value
         ? Results.Bytes(CompanionProtocolJson.Serialize(value), "application/json")
+        : Results.NotFound());
+
+// v2r-tablet-marks-sync: the tablet's own relay bearer secret, handed through once the desktop has
+// registered it on the relay (POST /v2/companion/relay/devices) — sealed with the pairing's own
+// desktop-to-tablet traffic key (RelayCredentialCryptography), never plaintext, so this relay never
+// holds or forwards a readable bearer secret (ABUSE-PAIRED-LIVE-BEARER-THEFT). Not a
+// CompanionProtocolJson wire root, so this is plain JSON, the same as every other GroupServer-local
+// request/response body.
+app.MapPost("/v2/companion/pairing/relay-session/{attemptId:guid}", (
+    Guid attemptId,
+    SealedRelayCredential body,
+    CompanionPairingMailbox mailbox) =>
+    mailbox.SubmitRelaySession(new PairingAttemptId(attemptId), body).Succeeded
+        ? Results.Ok()
+        : Results.BadRequest());
+
+app.MapGet("/v2/companion/pairing/relay-session/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>
+    mailbox.ReadRelaySession(new PairingAttemptId(attemptId)) is { } value
+        ? Results.Ok(value)
         : Results.NotFound());
 
 app.MapPost("/v2/companion/pairing/denied/{attemptId:guid}", (Guid attemptId, CompanionPairingMailbox mailbox) =>

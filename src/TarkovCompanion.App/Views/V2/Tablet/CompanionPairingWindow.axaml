@@ -15,6 +15,20 @@
                   TextWrapping="Wrap" />
 
       <StackPanel Classes="v2-stack" IsVisible="{Binding CanPair}" Spacing="14">
+        <Border Classes="v2-card" IsVisible="{Binding CanClaimRelay}">
+          <StackPanel Classes="v2-stack" Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Claim this relay" />
+            <TextBlock Classes="v2-body" TextWrapping="Wrap"
+                       Text="Type the relay's admin key to make this desktop its owner. The key is used once and never stored." />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Text="{Binding AdminKeyInput}" PasswordChar="•" PlaceholderText="Admin key" Width="220" />
+              <Button Classes="v2-target" Content="Claim" Command="{Binding ClaimRelayCommand}" IsEnabled="{Binding !IsClaimingRelay}" />
+            </StackPanel>
+            <TextBlock Classes="v2-label" Text="Claimed by this desktop." IsVisible="{Binding IsClaimedByThisDesktop}" />
+            <TextBlock Classes="v2-label" Text="{Binding RelayClaimMessage}" IsVisible="{Binding HasRelayClaimMessage}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <Border Classes="v2-card">
           <StackPanel Classes="v2-stack" Spacing="8">
             <TextBlock Classes="v2-heading-3" Text="Add a device" />

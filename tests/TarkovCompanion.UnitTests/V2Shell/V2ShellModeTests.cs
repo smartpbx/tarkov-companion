@@ -4,8 +4,8 @@ using TarkovCompanion.App.Services.V2.Shell;
 namespace TarkovCompanion.UnitTests.V2Shell;
 
 /// <summary>
-/// Choosing a shell at launch: variant B unless asked otherwise, and a clear refusal for anything
-/// this build does not have.
+/// Choosing a shell at launch: the V1 legacy shell unless asked otherwise, and a clear refusal
+/// for anything this build does not have.
 /// </summary>
 /// <remarks>
 /// A launch that asks for a shell this build does not have must not quietly draw a different one,
@@ -14,17 +14,17 @@ namespace TarkovCompanion.UnitTests.V2Shell;
 public sealed class V2ShellModeTests
 {
     [Fact]
-    public void VariantB_is_the_shell_when_nothing_asks_for_another()
+    public void Legacy_is_the_shell_when_nothing_asks_for_another()
     {
-        Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse([]).UiShell);
-        Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse(["--demo", "--page", "home"]).UiShell);
+        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse([]).UiShell);
+        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse(["--demo", "--page", "home"]).UiShell);
     }
 
     [Fact]
-    public void Legacy_remains_available_as_an_explicit_fallback()
+    public void V2_previews_remain_available_as_an_explicit_choice()
     {
-        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse(["--ui-shell", "legacy"]).UiShell);
-        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse(["--ui-shell", "legacy", "--page", "Raid"]).UiShell);
+        Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse(["--ui-shell", "v2-b"]).UiShell);
+        Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse(["--ui-shell", "v2-b", "--page", "raid/loot"]).UiShell);
     }
 
     [Fact]

@@ -567,6 +567,14 @@ public static class AppComposition
                 CreateInitialCompanionState(),
                 CancellationToken.None)
             .AsTask().GetAwaiter().GetResult());
+        // v2r-relay-owner (package 13): the first live paired payload — a tablet's mark add/edit/
+        // remove reaching IRaidMarkStore over the now-composed relay registry and frame hub.
+        // Always registered (like DesktopCompanionAuthority above); Configure/SetOwnerCredential
+        // below are what actually turn it on, once a relay origin and a successful claim exist.
+        services.AddSingleton(provider => new RelayMarksBridge(
+            provider.GetRequiredService<DesktopCompanionAuthority>(),
+            provider.GetRequiredService<IRaidMarkStore>(),
+            timeProvider));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);
@@ -730,7 +738,8 @@ public static class AppComposition
             provider.GetRequiredService<IDeviceKeyProofVerifier>()));
         services.AddSingleton(provider => new CompanionPairingAvailability(
             provider.GetRequiredService<DesktopPairingCoordinator>(),
-            origin));
+            origin,
+            provider.GetRequiredService<IDesktopIdentitySigner>()));
     }
 
     /// <summary>

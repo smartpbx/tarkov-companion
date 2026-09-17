@@ -3,9 +3,9 @@ using TarkovCompanion.App.Services.V2.Shell;
 namespace TarkovCompanion.UnitTests.V2Shell;
 
 /// <summary>
-/// Covers the fix for the windows-smoke regression where <c>--page Scanner</c> crashed the V2
-/// default launch (an unhandled <see cref="ArgumentException"/> before the database ever
-/// migrated), because "Scanner" is a v1 page name and not a v2 address.
+/// Covers the fix for the windows-smoke regression where <c>--page Scanner</c> crashed a V2 shell
+/// launch (an unhandled <see cref="ArgumentException"/> before the database ever migrated),
+/// because "Scanner" is a v1 page name and not a v2 address.
 /// </summary>
 public sealed class V2LegacyPageAddressAliasesTests
 {
