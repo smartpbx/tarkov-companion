@@ -35,6 +35,7 @@ using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Application.Services.Wiki;
@@ -540,6 +541,10 @@ public static class AppComposition
         services.AddSingleton<StashScanWorkflow>();
         services.AddSingleton<StashScanWorkspaceViewModel>();
         services.AddSingleton<DebriefWorkspaceViewModel>();
+        // v2r-team (package 9, wave 2): the Team workspace, over the same GroupSessionService and
+        // IGroupSettingsStore the V1 Group/Squad pages used, plus CompanionPairingViewModel
+        // (registered further down) for its Devices section.
+        services.AddSingleton<TeamWorkspaceViewModel>();
 
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its

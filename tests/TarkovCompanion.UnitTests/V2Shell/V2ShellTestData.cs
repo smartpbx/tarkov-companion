@@ -8,18 +8,20 @@ internal static class V2ShellTestData
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
-    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner", "History" and
-    /// "Settings" are deliberately absent: the Raid route now hosts the raid cockpit
-    /// (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's "Raid"
-    /// page, the Loot route hosts the real <c>LootScanView</c> instead of Scanner (package 1,
-    /// #282), the Debrief route hosts the real <c>DebriefWorkspaceView</c> instead of History
-    /// (package 3, #291), and Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings
-    /// (package 6, #292). All four V1 pages remain reachable from V1 navigation; none is a V2
-    /// LegacyPage route any more.
+    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner", "History",
+    /// "Settings", "Squad" and "Group" are deliberately absent: the Raid route now hosts the raid
+    /// cockpit (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's
+    /// "Raid" page, the Loot route hosts the real <c>LootScanView</c> instead of Scanner (package
+    /// 1, #282), the Debrief route hosts the real <c>DebriefWorkspaceView</c> instead of History
+    /// (package 3, #291), Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings
+    /// (package 6, #292), and the Team and Group routes both host the real Team workspace
+    /// (<c>V2RouteContent.Workspace</c>, package 9) instead of a passthrough to either V1 page.
+    /// All six V1 pages remain reachable from V1 navigation; none is a V2 LegacyPage route any
+    /// more.
     /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Squad", "Group", "Items", "Ammo", "Keys",
+        "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout",
     ];
 

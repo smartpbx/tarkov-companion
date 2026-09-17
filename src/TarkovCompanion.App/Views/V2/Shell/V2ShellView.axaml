@@ -6,13 +6,19 @@
              xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
              xmlns:stashViews="using:TarkovCompanion.App.Views.V2.StashScan"
              xmlns:debriefVm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
-             xmlns:debriefViews="using:TarkovCompanion.App.Views.V2.Debrief">
+             xmlns:debriefViews="using:TarkovCompanion.App.Views.V2.Debrief"
+             xmlns:teamVm="using:TarkovCompanion.App.ViewModels.V2.Team"
+             xmlns:teamViews="using:TarkovCompanion.App.Views.V2.Team">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
     </DataTemplate>
     <DataTemplate DataType="{x:Type debriefVm:DebriefWorkspaceViewModel}">
       <debriefViews:DebriefWorkspaceView />
+    </DataTemplate>
+    <!-- v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes. -->
+    <DataTemplate DataType="{x:Type teamVm:TeamWorkspaceViewModel}">
+      <teamViews:TeamWorkspaceView />
     </DataTemplate>
   </UserControl.DataTemplates>
   <UserControl.Styles>
