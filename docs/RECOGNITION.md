@@ -270,6 +270,33 @@ icon matcher and `RecognitionSelfTest` reports the capability disabled. The reta
 experimental ROI matcher uses averaged dHash with a hard 12-bit negative cutoff and caps its
 ranking score below the ambiguity threshold; its raw distance is labeled as not a probability.
 
+## V2 pixel-to-grid reconstruction (#273)
+
+`GridPixelReconstructionBuilder` (Infrastructure/Recognition/Grid) is the V2 counterpart that
+turns a captured frame into a `GridReconstructionRequest` for `InventoryGridReconstructor`, run
+from `CaptureRecognitionPipeline.AnalyzeAsync` while pixels are still available and carried
+pixel-free on `CaptureAnalysis.Grid` from there on. It reuses `ContainerGridDetector` and
+`ContainerGridSegmenter` unchanged for lattice and occupancy - both already measure pitch and
+phase from the frame itself - then merges adjacent occupied cells into rectangular multi-cell
+footprints (a component only trusted as one item when it exactly fills its own bounding box) and
+matches each footprint's crop against the local icon evidence cache (#355) via
+`IconCandidateSeparator`, filtered first by the footprint's own measured width/height. A stack
+badge is read through the shared OCR API for quantity only; item name text is never read for
+identity. On an ultrawide frame where a whole-frame line-coverage pass fails, it retries once
+inside a centered ~16:9 crop, since a game panel does not always stretch to fill the frame.
+
+The icon evidence cache starts empty: nothing in this repository fetches or populates it yet, so
+until something does, every occupied cell reports `ItemUnresolved` regardless of how well its
+geometry was measured (the domain's own contract only attaches footprint width/height to a
+resolved-or-candidate item; see `InventoryGridReconstructor.MarkEvidenceUncertainty`). Wired into
+`LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second, carried-inventory
+panel needs its own region split this pass does not attempt) and `StashScanCaptureHandoff` (see
+`docs/STASH_SCAN.md`). A benchmark test
+(`tests/TarkovCompanion.RecognitionTests/Grid/GridRecognitionCorpusBenchmarkTests.cs`) runs this
+pipeline over a local, never-committed screenshot corpus and prints grid/occupancy/candidate/timing
+counts; it turns on real precision/recall and item top-1/top-3 when an optional
+`<screenshot>.expected.json` ground-truth sidecar is present.
+
 ## Fixtures and evidence
 
 The suites deliberately separate two evidence levels:
