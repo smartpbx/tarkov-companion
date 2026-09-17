@@ -64,10 +64,10 @@ public sealed class RuntimeCompositionTests
     }
 
     [Fact]
-    public async Task V2DefaultLaunchWithALegacyPageNameStillMigratesAndInitializesTheDatabase()
+    public async Task V2LaunchWithALegacyPageNameStillMigratesAndInitializesTheDatabase()
     {
         // Reproduces the exact windows-smoke launch (--demo --page Scanner --developer-mode)
-        // now that V2 is the default shell: constructing the V2 shell used to throw before this
+        // under an explicit --ui-shell v2-b: constructing the V2 shell used to throw before this
         // fix, because "Scanner" is not a v2 address, and that thrown ArgumentException aborted
         // startup before MainWindowViewModel.InitializeAsync ever ran the database migration.
         var root = TemporaryRoot();

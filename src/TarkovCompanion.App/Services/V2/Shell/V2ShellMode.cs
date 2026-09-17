@@ -4,11 +4,11 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// Which shell this process starts with. Chosen once, at launch, and never swapped.
 /// </summary>
 /// <remarks>
-/// <see cref="VariantB"/> is now the default launch shell (package 1 of the V2 rough pass);
-/// neither preview may replace the other while the process is alive, since hot-swapping would
-/// mean two runtime graphs over one database and one screenshot watcher, which is a class of bug
-/// this application has already paid for once. Restarting with a different option is the only
-/// switch: <c>--ui-shell legacy</c> is the explicit fallback to V1.
+/// <see cref="Legacy"/> is the default launch shell until the V2 redesign lands; <c>--ui-shell
+/// v2-a</c> / <c>v2-b</c> open the V2 previews explicitly. Neither preview may replace the other
+/// while the process is alive, since hot-swapping would mean two runtime graphs over one database
+/// and one screenshot watcher, which is a class of bug this application has already paid for once.
+/// Restarting with a different option is the only switch.
 ///
 /// Zero is deliberately undefined, the same rule the V2 contract enums follow, so a value that was
 /// never set cannot quietly read as the legacy shell.
