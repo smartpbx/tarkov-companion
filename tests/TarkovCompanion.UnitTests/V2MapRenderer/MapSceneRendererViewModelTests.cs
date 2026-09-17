@@ -1,4 +1,6 @@
 using System.Globalization;
+using Avalonia;
+using Avalonia.Media;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Application.Services.LootSpawns;
@@ -354,6 +356,100 @@ public sealed class MapSceneRendererViewModelTests
         Assert.True(renderer.HasBackgroundStatus);
         Assert.Contains("not cached", renderer.BackgroundStatus, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Example map author", renderer.ReviewedAssetLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Resolver_returns_reviewed_artwork_for_the_scenes_background_asset()
+    {
+        var scene = Scene();
+        var backgroundAsset = scene.Assets.Single(asset => asset.Kind == MapSceneAssetKind.Background2D);
+        var artwork = new StubImage();
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            reviewedAssetResolver: asset => string.Equals(asset.ContentSha256, backgroundAsset.ContentSha256, StringComparison.Ordinal)
+                ? artwork
+                : null);
+
+        Assert.True(renderer.HasBackgroundImage);
+        Assert.Same(artwork, renderer.BackgroundImage);
+        Assert.False(renderer.HasBackgroundStatus);
+    }
+
+    [Fact]
+    public void Marker_projection_lands_proportionally_within_the_background_plan_rectangle()
+    {
+        // The rasterized background is stretched across MapLeft/MapTop/MapWidth/MapHeight (see
+        // MapSceneRendererView.axaml), the exact rectangle every scene object is projected into
+        // through the same MapSceneProjection. A fixture point at (25, 75) in the scene's 0-100
+        // plan space must therefore land a quarter of the way across and three quarters down
+        // that rectangle — proof the artwork and the markers share one transform.
+        var renderer = Renderer(Scene(firstFloorObjects:
+        [
+            Point("fixture", "Fixture", MapSceneObjectKind.Waypoint, MapSceneTruthKind.UserAuthored, 25, 75),
+        ]));
+
+        var marker = Assert.Single(renderer.SpatialObjects);
+        var anchorCenterX = marker.AnchorLeft + (MapSceneRendererViewModel.MarkerExtent / 2);
+        var anchorCenterY = marker.AnchorTop + (MapSceneRendererViewModel.MarkerExtent / 2);
+
+        Assert.Equal(renderer.MapLeft + (0.25 * renderer.MapWidth), anchorCenterX, 3);
+        Assert.Equal(renderer.MapTop + (0.75 * renderer.MapHeight), anchorCenterY, 3);
+    }
+
+    [Fact]
+    public void FitPlan_frames_the_whole_plan_within_the_viewport_after_zooming_and_panning()
+    {
+        var renderer = Renderer(Scene());
+        renderer.SetViewportSize(640, 480);
+
+        renderer.RequestZoom(1);
+        renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, renderer.LastRequestedChange!).Scene);
+        renderer.RequestPan(150, -60);
+        renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, renderer.LastRequestedChange!).Scene);
+        Assert.NotEqual(1, renderer.CameraZoom);
+
+        renderer.FitPlanCommand.Execute(null);
+        renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, renderer.LastRequestedChange!).Scene);
+
+        Assert.Equal(1, renderer.CameraZoom, 6);
+        Assert.Equal(0, renderer.CameraRotationDegrees, 6);
+
+        var topLeft = OnScreen(renderer, renderer.MapLeft, renderer.MapTop);
+        var bottomRight = OnScreen(renderer, renderer.MapLeft + renderer.MapWidth, renderer.MapTop + renderer.MapHeight);
+
+        Assert.InRange(topLeft.X, 0, renderer.CanvasWidth);
+        Assert.InRange(topLeft.Y, 0, renderer.CanvasHeight);
+        Assert.InRange(bottomRight.X, 0, renderer.CanvasWidth);
+        Assert.InRange(bottomRight.Y, 0, renderer.CanvasHeight);
+    }
+
+    /// <summary>
+    /// Reproduces MapSceneRendererView.axaml's camera render-transform chain (pre-translate,
+    /// rotate, scale, post-translate) so the fit test asserts against the same math the view
+    /// actually applies, rather than a hand rederivation of it.
+    /// </summary>
+    private static (double X, double Y) OnScreen(MapSceneRendererViewModel renderer, double planX, double planY)
+    {
+        var preX = planX + renderer.CameraPreTranslateX;
+        var preY = planY + renderer.CameraPreTranslateY;
+        var radians = renderer.CameraRotationDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        var rotatedX = (cosine * preX) - (sine * preY);
+        var rotatedY = (sine * preX) + (cosine * preY);
+        return (
+            (rotatedX * renderer.CameraZoom) + renderer.CameraPostTranslateX,
+            (rotatedY * renderer.CameraZoom) + renderer.CameraPostTranslateY);
+    }
+
+    private sealed class StubImage : IImage
+    {
+        public Size Size => new(256, 256);
+
+        public void Draw(DrawingContext context, Rect sourceRect, Rect destRect)
+        {
+        }
     }
 
     [Fact]
