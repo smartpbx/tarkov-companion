@@ -36,6 +36,15 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _backgroundGate = new();
     private readonly CancellationTokenSource _lifetime = new();
+    // The one explicit "database is ready" gate every startup consumer must await before its
+    // first query. LegacyProfileContextBootstrap and SettingsPageViewModel's retention load both
+    // used to run their own database reads directly from App.axaml.cs / a view-model
+    // constructor, racing InitializeDataStoreAsync's migrations on a fresh data folder — "no
+    // such table: profile_workspaces" and an unobserved "no such table: retention_policies" on
+    // 2026-09-17. TrySetResult/TrySetException here always run before anyone can be waiting on
+    // it, because InitializeDataStoreAsync is the sole producer.
+    private readonly TaskCompletionSource _databaseReady =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly BackgroundWorkSupervisor _supervisor;
     private readonly FeatureLifecycleCoordinator _lifecycle;
     private Task<BackgroundWorkResult>? _backgroundRefresh;
@@ -121,6 +130,15 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     private readonly IOcrEngineStatus? _ocrStatus;
     private readonly GroupSessionService? _groupSession;
+
+    /// <summary>
+    /// Completes once migrations have been applied (or faults if they failed), so any startup
+    /// consumer that reads or writes the database can await it before its first query instead of
+    /// racing <see cref="InitializeAsync"/>. The wait is bounded by the caller's own token; it
+    /// never cancels the shared migration work another awaiter may still be depending on.
+    /// </summary>
+    public Task DatabaseReadyAsync(CancellationToken cancellationToken) =>
+        _databaseReady.Task.WaitAsync(cancellationToken);
 
     public Task? BackgroundRefresh
     {
@@ -340,6 +358,17 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             }
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
+            // "2 endpoint refresh(es) failed" with no names took a day to diagnose because
+            // nothing had logged which two, or why. Every failure is now named here — the one
+            // place every refresh path (startup, manual sync, reconnect) funnels through.
+            foreach (var failed in errors)
+            {
+                _logger.LogWarning(
+                    "The {Endpoint} game-data endpoint did not refresh: {Reason}",
+                    failed.Endpoint,
+                    failed.Error);
+            }
+
             // The sync has always known when an endpoint answered from a stale cache instead
             // of refreshing, and has never said so. "Refreshed" while three endpoints served
             // yesterday's rows is a claim the player would act on.
@@ -355,7 +384,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                             ? stale == 0
                                 ? $"Refreshed from {report.Endpoints.Count} endpoints"
                                 : $"Refreshed from {report.Endpoints.Count} endpoints · {stale} served a cached copy"
-                            : $"{errors.Length} of {report.Endpoints.Count} endpoints failed · local data stands",
+                            : $"{DescribeEndpointFailures(errors)} · local data stands",
                     // A refresh that reports "Current" while the item catalog is empty is a
                     // false claim about the data the user is looking at. Partial success only
                     // counts as current when something actually landed.
@@ -718,7 +747,26 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             return "The refresh reported success but no game items were stored.";
         }
 
-        return $"No game items are available; {errors.Count} endpoint refresh(es) failed.";
+        return $"No game items are available; {DescribeEndpointFailures(errors)}.";
+    }
+
+    /// <summary>
+    /// Names the endpoint and reason for every failed refresh, short enough for a one-line
+    /// banner. "2 endpoint refresh(es) failed" with no names left this unreproducible for a day.
+    /// </summary>
+    private static string DescribeEndpointFailures(IReadOnlyList<SyncEndpointResult> errors) =>
+        string.Join("; ", errors.Select(error => $"{error.Endpoint}: {ShortenReason(error.Error)}"));
+
+    private static string ShortenReason(string? reason)
+    {
+        const int maximumLength = 120;
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return "unknown reason";
+        }
+
+        var firstLine = reason.Split('\n', 2)[0].Trim();
+        return firstLine.Length <= maximumLength ? firstLine : firstLine[..maximumLength] + "…";
     }
 
     private bool NeedsRefresh(RuntimeDataState data) =>
@@ -842,16 +890,27 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     private async Task InitializeDataStoreAsync(CancellationToken cancellationToken)
     {
-        await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        if (_options.DemoMode)
+        try
         {
-            await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
-        }
+            await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            if (_options.DemoMode)
+            {
+                await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-        // Loading one projection may still fail independently. The database itself became
-        // ready when initialization (and the optional fixture seed) completed, so preserve
-        // that measured fact instead of letting an unrelated reader report it unavailable.
-        _stateStore.Update(current => current with { DatabaseReady = true });
+            // Loading one projection may still fail independently. The database itself became
+            // ready when initialization (and the optional fixture seed) completed, so preserve
+            // that measured fact instead of letting an unrelated reader report it unavailable.
+            _stateStore.Update(current => current with { DatabaseReady = true });
+            _databaseReady.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            // Every awaiter of DatabaseReadyAsync needs to hear about this, not just the
+            // lifecycle graph's own fault handling for the "database" feature.
+            _databaseReady.TrySetException(exception);
+            throw;
+        }
     }
 
     private async Task LoadCachedDataAsync(CancellationToken cancellationToken)
