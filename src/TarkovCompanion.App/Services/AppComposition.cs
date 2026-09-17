@@ -32,6 +32,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
+using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
@@ -540,6 +541,10 @@ public static class AppComposition
         services.AddSingleton<StashScanWorkflow>();
         services.AddSingleton<StashScanWorkspaceViewModel>();
         services.AddSingleton<DebriefWorkspaceViewModel>();
+
+        // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
+        services.AddSingleton<PlanWorkspaceViewModel>();
+        services.AddSingleton<HideoutWorkspaceViewModel>();
 
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its

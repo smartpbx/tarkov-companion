@@ -10,6 +10,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
@@ -58,6 +59,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private readonly IWikiLinkOpener _wikiOpener;
     private readonly StashScanWorkspaceViewModel? _stashScan;
     private readonly DebriefWorkspaceViewModel? _debrief;
+    private readonly PlanWorkspaceViewModel? _plan;
+    private readonly HideoutWorkspaceViewModel? _hideout;
     private readonly V2ShellPreviewStore _preview;
     private readonly V2ShellPersistenceQueue _persistence;
     private readonly TimeProvider _clock;
@@ -118,7 +121,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         // V2 Raid cockpit (package 2): resolved by DI like every other registered service here;
         // optional so this constructor's shape does not change for a caller that predates it.
         RaidCockpitViewModel? raidCockpit = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        // V2 rough package 10 (Plan workspace + Hideout section): optional for the same reason
+        // as stashScan/debrief above.
+        PlanWorkspaceViewModel? plan = null,
+        HideoutWorkspaceViewModel? hideout = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -135,7 +142,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             intel,
             wikiOpener,
             stashScan,
-            debrief)
+            debrief,
+            plan,
+            hideout)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
     }
@@ -151,7 +160,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         IItemIntelService? intel = null,
         IWikiLinkOpener? wikiOpener = null,
         StashScanWorkspaceViewModel? stashScan = null,
-        DebriefWorkspaceViewModel? debrief = null)
+        DebriefWorkspaceViewModel? debrief = null,
+        PlanWorkspaceViewModel? plan = null,
+        HideoutWorkspaceViewModel? hideout = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -165,7 +176,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             intel,
             wikiOpener,
             stashScan,
-            debrief)
+            debrief,
+            plan,
+            hideout)
     {
     }
 
@@ -182,12 +195,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         IItemIntelService? intel = null,
         IWikiLinkOpener? wikiOpener = null,
         StashScanWorkspaceViewModel? stashScan = null,
-        DebriefWorkspaceViewModel? debrief = null)
+        DebriefWorkspaceViewModel? debrief = null,
+        PlanWorkspaceViewModel? plan = null,
+        HideoutWorkspaceViewModel? hideout = null)
     {
         _lifetimeToken = _lifetime.Token;
         _runtime = runtime;
         _stashScan = stashScan;
         _debrief = debrief;
+        _plan = plan;
+        _hideout = hideout;
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
@@ -263,6 +280,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         if (_stashScan is not null)
         {
             _stashScan.ScanRequested += StashScanRequested;
+        }
+
+        if (_plan is not null)
+        {
+            _plan.ShowOnMapRequested += PlanShowOnMapRequested;
         }
 
         WireLegacyContext();
@@ -636,11 +658,14 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     /// behind a permanently stale "empty" badge.
     /// </remarks>
     public bool ShowsWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.Workspace;
-    public object? WorkspaceContent => Router.Current.Location.Route == V2Routes.Stash
-        ? (object?)_stashScan
-        : Router.Current.Location.Route == V2Routes.Debrief
-            ? _debrief
-            : null;
+    public object? WorkspaceContent => Router.Current.Location.Route switch
+    {
+        var route when route == V2Routes.Stash => _stashScan,
+        var route when route == V2Routes.Debrief => _debrief,
+        var route when route == V2Routes.Plan => _plan,
+        var route when route == V2Routes.Hideout => _hideout,
+        _ => null,
+    };
     // V2 Raid cockpit (package 2): a full-page workspace like the legacy page it replaced on
     // this route, so it takes the same row span.
     public bool ShowsRaidCockpit => Registry[Router.Current.Location.Route].Content == V2RouteContent.RaidCockpit;
@@ -994,6 +1019,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         ToggleDialog(V2ShellDialogKind.Capture, V2ShellFocusTargets.Capture, V2ShellFocusTargets.CaptureDialog);
     }
 
+    /// <summary>
+    /// The Plan workspace's "Show on map" already moved the shared map; this only sends the
+    /// player to the route that renders it.
+    /// </summary>
+    private void PlanShowOnMapRequested(object? sender, EventArgs e) => GoTo(V2Routes.Raid);
+
     private void ArmSelectedCaptureIntent()
     {
         var requested = CaptureArmRequested;
@@ -1253,6 +1284,14 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         else if (route == V2Routes.Debrief && _debrief is not null)
         {
             _ = _debrief.LoadAsync();
+        }
+        else if (route == V2Routes.Plan && _plan is not null)
+        {
+            _ = _plan.LoadAsync();
+        }
+        else if (route == V2Routes.Hideout && _hideout is not null)
+        {
+            _ = _hideout.LoadAsync();
         }
     }
 
@@ -2527,6 +2566,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         if (_stashScan is not null)
         {
             _stashScan.ScanRequested -= StashScanRequested;
+        }
+
+        if (_plan is not null)
+        {
+            _plan.ShowOnMapRequested -= PlanShowOnMapRequested;
         }
 
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;

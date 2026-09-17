@@ -6,13 +6,22 @@
              xmlns:stashVm="using:TarkovCompanion.App.ViewModels.V2.StashScan"
              xmlns:stashViews="using:TarkovCompanion.App.Views.V2.StashScan"
              xmlns:debriefVm="using:TarkovCompanion.App.ViewModels.V2.Debrief"
-             xmlns:debriefViews="using:TarkovCompanion.App.Views.V2.Debrief">
+             xmlns:debriefViews="using:TarkovCompanion.App.Views.V2.Debrief"
+             xmlns:planVm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:planViews="using:TarkovCompanion.App.Views.V2.Plan">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
     </DataTemplate>
     <DataTemplate DataType="{x:Type debriefVm:DebriefWorkspaceViewModel}">
       <debriefViews:DebriefWorkspaceView />
+    </DataTemplate>
+    <!-- V2 rough package 10 (Plan workspace + Hideout section). Refs #288. -->
+    <DataTemplate DataType="{x:Type planVm:PlanWorkspaceViewModel}">
+      <planViews:PlanWorkspaceView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type planVm:HideoutWorkspaceViewModel}">
+      <planViews:HideoutWorkspaceView />
     </DataTemplate>
   </UserControl.DataTemplates>
   <UserControl.Styles>

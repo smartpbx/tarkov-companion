@@ -61,6 +61,17 @@ public sealed class V2ShellRegistryTests
     }
 
     [Fact]
+    public void ThePlanAndHideoutRoutesHostWorkspacesRatherThanTheLegacyPages()
+    {
+        var registry = V2RouteRegistry.Default;
+
+        Assert.Equal(V2RouteContent.Workspace, registry[V2Routes.Plan].Content);
+        Assert.Null(registry[V2Routes.Plan].LegacyPage);
+        Assert.Equal(V2RouteContent.Workspace, registry[V2Routes.Hideout].Content);
+        Assert.Null(registry[V2Routes.Hideout].LegacyPage);
+    }
+
+    [Fact]
     public void Both_variants_expose_every_capability_and_the_same_ones()
     {
         var registry = V2RouteRegistry.Default;

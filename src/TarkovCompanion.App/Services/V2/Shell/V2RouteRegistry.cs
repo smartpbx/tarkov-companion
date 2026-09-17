@@ -117,9 +117,10 @@ public sealed class V2RouteRegistry
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),
         new(V2Routes.Stash, [V2Capabilities.StashScan], V2RouteContent.Workspace, "V2.Shell.Route.Stash"),
-        new(V2Routes.Plan, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Quests", "Quests",
+        // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
+        new(V2Routes.Plan, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Quests",
             UsesGameData: true),
-        new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Hideout", "Hideout",
+        new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Hideout",
             Parent: V2Routes.Plan, UsesGameData: true),
         new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Loadout", "Loadout",
             Parent: V2Routes.Plan, UsesGameData: true),

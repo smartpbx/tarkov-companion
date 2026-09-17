@@ -13,7 +13,8 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// v1 page used to pass through to now hosts a real V2 workspace instead, so there is no
 /// registry entry left to read. "Scanner" now hosts <c>LootScanView</c> (package 1, #282);
 /// "Raid" now hosts the raid cockpit (package 2, #286); "History" now hosts the Debrief workspace
-/// (package 3, #291). The overrides below are those historical mappings, not a general escape
+/// (package 3, #291); "Quests" and "Hideout" now host the Plan workspace and its Hideout section
+/// (package 10, #288). The overrides below are those historical mappings, not a general escape
 /// hatch — a route that never had a v1 page has nothing to alias, and gets none.
 /// </remarks>
 public static class V2LegacyPageAddressAliases
@@ -24,6 +25,8 @@ public static class V2LegacyPageAddressAliases
             ["Scanner"] = V2Routes.Loot,
             ["Raid"] = V2Routes.Raid,
             ["History"] = V2Routes.Debrief,
+            ["Quests"] = V2Routes.Plan,
+            ["Hideout"] = V2Routes.Hideout,
         };
 
     /// <summary>The current variant's address for the route this v1 page name now belongs to, or null.</summary>
