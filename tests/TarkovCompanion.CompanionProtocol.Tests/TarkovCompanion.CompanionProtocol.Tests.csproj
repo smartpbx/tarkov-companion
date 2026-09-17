@@ -14,6 +14,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Golden/**/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Not under Golden/: GoldenAndHostileJsonTests treats every file there as one of the closed
+         set of canonical wire-root examples (EveryWireRootHasGoldenCoverage etc.); this is a
+         cross-language interop fixture instead (see RelayCryptoInteropTests). -->
+    <None Include="Interop/**/*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/TarkovCompanion.CompanionProtocol/Schemas/v2/*.json"
           Link="Schemas/v2/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
