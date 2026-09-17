@@ -2,27 +2,43 @@
              x:DataType="vm:V2SetupWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
-  <StackPanel Classes="v2-stack">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+             xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup">
+  <UserControl.Styles>
+    <!-- A settings section reads as a readable column, not a full-width slab. -->
+    <Style Selector="Border.v2-card.v2-setup-section">
+      <Setter Property="MaxWidth" Value="960" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="Padding" Value="22,18" />
+    </Style>
+  </UserControl.Styles>
+  <!-- V2 rough package 17 (home): compact section tabs like the shell's own, the home overview
+       first, then one settings section at a time. -->
+  <StackPanel Classes="v2-stack" Margin="16,4,16,0">
     <ItemsControl ItemsSource="{Binding Sections}"
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-setup-sections"
                   AutomationProperties.LandmarkType="Navigation"
                   AutomationProperties.Name="{Binding SectionsRegionName}">
       <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:V2SetupSectionTabViewModel">
-          <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+          <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
                   AutomationProperties.AutomationId="{Binding AutomationId}"
                   AutomationProperties.Name="{Binding Label}"
-                  Content="{Binding DisplayLabel}" Command="{Binding SelectCommand}" />
+                  Content="{Binding Label}" Command="{Binding SelectCommand}" />
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsGameProfileSelected}">
+    <Panel IsVisible="{Binding IsOverviewSelected}">
+      <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
+    </Panel>
+
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameProfileSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.WatchedFolders}" />
@@ -45,7 +61,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsRecognitionSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsRecognitionSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Settings.RecognitionProvider}" />
         <TextBlock Classes="v2-label" IsVisible="{Binding Settings.RecognitionNeedsRuntime}"
@@ -54,7 +70,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsDataSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Settings.DataStatus}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.DatabasePath}" />
@@ -65,7 +81,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsTeamDevicesSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsTeamDevicesSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
         <Button Classes="v2-target" HorizontalAlignment="Left"
@@ -74,7 +90,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsUpdatesSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsUpdatesSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-label" Text="{Binding Settings.InstalledBuild}" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" />
@@ -92,7 +108,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsPrivacySelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsPrivacySelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding ScreenshotIntro}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" />
@@ -108,7 +124,7 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsAppearanceSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAppearanceSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />
         <WrapPanel Classes="v2-toolbar">
@@ -123,11 +139,11 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsDisplaysSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDisplaysSelected}">
       <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" />
     </Border>
 
-    <Border Classes="v2-card" IsVisible="{Binding IsDiagnosticsSelected}">
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDiagnosticsSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-label" Text="{Binding Settings.CompanionLogPath}" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />

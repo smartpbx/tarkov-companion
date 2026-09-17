@@ -59,6 +59,49 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal("Died at Dorms", service.LastCorrection.Value.Notes);
     }
 
+    [Fact]
+    public async Task Loading_selects_the_newest_raid_and_names_its_map_from_the_catalog()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        viewModel.UseMapNames(id => id == "customs" ? "Customs" : null);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("1 raid", viewModel.Status);
+        Assert.Equal("Customs", Assert.Single(viewModel.Raids).MapLabel);
+        Assert.True(viewModel.HasSelection);
+        Assert.False(viewModel.HasNoSelection);
+        Assert.Equal("Customs", viewModel.SelectedMapLabel);
+    }
+
+    [Fact]
+    public async Task A_map_the_catalog_does_not_know_keeps_the_id_it_was_recorded_with()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "sandbox_high", "Pmc", Started, Started.AddMinutes(3), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        viewModel.UseMapNames(_ => null);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("sandbox_high", Assert.Single(viewModel.Raids).MapLabel);
+    }
+
+    [Fact]
+    public async Task A_raid_that_has_not_ended_reads_as_in_progress_rather_than_unknown()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, null, null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("In progress", Assert.Single(viewModel.Raids).DurationLabel);
+        Assert.Equal("In progress", viewModel.SelectedDurationLabel);
+    }
+
     private static AppDataPaths TestPaths() => AppDataPaths.Resolve(
         Path.Combine(Path.GetTempPath(), $"tarkov-companion-debrief-tests-{Guid.NewGuid():N}"));
 

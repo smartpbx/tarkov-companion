@@ -10,16 +10,18 @@ namespace TarkovCompanion.UnitTests.V2Shell;
 public sealed class V2SetupWorkspaceViewModelTests
 {
     [Fact]
-    public void GameProfileIsSelectedFirst()
+    public void TheOverviewIsSelectedFirst()
     {
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
 
-        Assert.True(workspace.IsGameProfileSelected);
-        Assert.True(Assert.Single(workspace.Sections, section => section.Section == V2SetupSection.GameProfile).IsCurrent);
-        Assert.All(workspace.Sections.Where(section => section.Section != V2SetupSection.GameProfile), section => Assert.False(section.IsCurrent));
+        Assert.True(workspace.IsOverviewSelected);
+        Assert.False(workspace.IsGameProfileSelected);
+        Assert.True(Assert.Single(workspace.Sections, section => section.Section == V2SetupSection.Overview).IsCurrent);
+        Assert.All(workspace.Sections.Where(section => section.Section != V2SetupSection.Overview), section => Assert.False(section.IsCurrent));
     }
 
     [Theory]
+    [InlineData(V2SetupSection.GameProfile)]
     [InlineData(V2SetupSection.Recognition)]
     [InlineData(V2SetupSection.Data)]
     [InlineData(V2SetupSection.TeamDevices)]
