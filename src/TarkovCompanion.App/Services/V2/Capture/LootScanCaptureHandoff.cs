@@ -18,12 +18,14 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// workspaces that own them (Stash scan, Ammo, Keys, Map/extracts) are other packages' rough pass.
 /// </summary>
 /// <remarks>
-/// #273's pixel-to-grid recognition is not wired yet, so every evaluated scan here reconstructs an
-/// intentionally empty grid (<see cref="InventoryGridSurface.VisibleLoot"/> and
-/// <see cref="InventoryGridSurface.CarriedInventory"/> with no lattice). The real decision service
-/// then reports this honestly as an unavailable result with a "geometry unavailable" reason,
-/// rather than this adapter fabricating recognized items. Once #273 lands, only the grid inputs
-/// here need to change; the decision service and the shell wiring do not.
+/// #273's pixel-to-grid recognition runs in <see cref="TarkovCompanion.App.Services.V2.Capture.CaptureRecognitionPipeline"/>,
+/// the one place pixels are still available; its result rides pixel-free on
+/// <see cref="CaptureAnalysis.Grid"/> as far as this handoff. It only ever measures the visible
+/// loot lattice (<see cref="InventoryGridSurface.VisibleLoot"/>): splitting the Loot screen's
+/// second panel into its own <see cref="InventoryGridSurface.CarriedInventory"/> lattice needs
+/// region-of-interest detection this pass does not attempt, so that surface still reconstructs an
+/// intentionally empty grid and the decision service reports it honestly as unavailable rather
+/// than this adapter fabricating recognized items.
 /// </remarks>
 public sealed class LootScanCaptureHandoff(
     IProfileRuntimeContextService profileContext,
@@ -87,7 +89,9 @@ public sealed class LootScanCaptureHandoff(
             inventory: null,
             raidContext: null);
         var visibleLoot = _gridReconstructor.Reconstruct(
-            new(InventoryGridSurface.VisibleLoot, lattice: null, occupiedCells: []),
+            request.Analysis.Grid is { Surface: InventoryGridSurface.VisibleLoot } visibleLootRequest
+                ? visibleLootRequest
+                : new(InventoryGridSurface.VisibleLoot, lattice: null, occupiedCells: []),
             cancellationToken);
         var carriedInventory = _gridReconstructor.Reconstruct(
             new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),

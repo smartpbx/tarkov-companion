@@ -1,14 +1,16 @@
 using System.Security.Cryptography;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Profiles;
+using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Core.Domain.Stash;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.UnitTests.Profiles;
 using TarkovCompanion.UnitTests.Runtime;
@@ -17,17 +19,17 @@ using static TarkovCompanion.UnitTests.Profiles.ProfileV2Fixtures;
 namespace TarkovCompanion.UnitTests.V2Capture;
 
 /// <summary>
-/// Exercises the composition-owned #271/#274/#282 seam through a real
-/// <see cref="CaptureSessionCoordinator"/>, since <see cref="CaptureHandoffRequest"/> is only ever
-/// constructed by the coordinator itself.
+/// Exercises #273's Stash Scan wiring: a reviewed Stash-intent capture becomes one real,
+/// pixel-derived <see cref="StashScanCaptureFrame"/> and a saved snapshot, instead of #382's
+/// placeholder empty request.
 /// </summary>
-public sealed class LootScanCaptureHandoffTests
+public sealed class StashScanCaptureHandoffTests
 {
     private static readonly WorkspaceOrigin Origin = new(
-        new(Guid.Parse("11111111-1111-1111-1111-111111111111")),
-        new(Guid.Parse("22222222-2222-2222-2222-222222222222")),
+        new(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+        new(Guid.Parse("44444444-4444-4444-4444-444444444444")),
         WorkspaceOriginKind.DesktopApplication,
-        "loot-scan-handoff-tests");
+        "stash-scan-handoff-tests");
 
     private static readonly CaptureContextMetadata CaptureContext = new(
         "raid",
@@ -39,40 +41,68 @@ public sealed class LootScanCaptureHandoffTests
         "desktop");
 
     [Fact]
-    public async Task LootIntentWithAnActiveProfileProducesAnHonestUnavailableResultUntilGridRecognitionIsWired()
+    public async Task StashIntentWithARealGridSavesASnapshotInsteadOfAnEmptyOne()
     {
+        var store = new MemorySnapshotStore();
         using var runtime = await ReadyProfileContextAsync();
-        var handoff = new LootScanCaptureHandoff(runtime, new InventoryGridReconstructor(), new LootScanDecisionService());
-        LootScanResult? evaluated = null;
-        handoff.LootScanEvaluated += (_, result) => evaluated = result;
+        var handoff = new StashScanCaptureHandoff(
+            runtime,
+            new InventoryGridReconstructor(),
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()));
 
-        await using var harness = new Harness(handoff, RecognizedContext.Loot, ScanIntent.Loot);
+        await using var harness = new Harness(handoff, RecognizedContext.Stash, ScanIntent.Stash, RealStashGrid());
         await harness.CaptureAsync();
 
-        Assert.NotNull(evaluated);
-        Assert.Equal(ResultCompleteness.Unavailable, evaluated!.Status.Completeness);
-        Assert.Empty(evaluated.Decisions);
+        Assert.NotNull(store.Saved);
+        var stash = store.Saved!.Recognition.Result.Value!;
+        Assert.Single(stash.CapturedRegions);
+        Assert.Equal("stash", stash.CapturedRegions[0].ContainerPath);
     }
 
     [Fact]
-    public async Task LootIntentWithARealVisibleLootLatticeProducesReviewableDecisionsInsteadOfUnavailable()
+    public async Task NonStashIntentIsAcknowledgedWithoutSavingASnapshot()
     {
+        var store = new MemorySnapshotStore();
         using var runtime = await ReadyProfileContextAsync();
-        var handoff = new LootScanCaptureHandoff(runtime, new InventoryGridReconstructor(), new LootScanDecisionService());
-        LootScanResult? evaluated = null;
-        handoff.LootScanEvaluated += (_, result) => evaluated = result;
+        var handoff = new StashScanCaptureHandoff(
+            runtime,
+            new InventoryGridReconstructor(),
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()));
 
-        await using var harness = new Harness(handoff, RecognizedContext.Loot, ScanIntent.Loot, RealVisibleLootGrid());
-        await harness.CaptureAsync();
+        await using var harness = new Harness(handoff, RecognizedContext.Loot, ScanIntent.Loot);
+        var receipt = await harness.CaptureAsync();
 
-        Assert.NotNull(evaluated);
-        Assert.NotEqual(ResultCompleteness.Unavailable, evaluated!.Status.Completeness);
-        Assert.NotEmpty(evaluated.Decisions);
+        Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
+        Assert.Null(store.Saved);
     }
 
-    private static GridReconstructionRequest RealVisibleLootGrid()
+    [Fact]
+    public async Task StashIntentWithoutAnActiveProfileIsAcknowledgedWithoutSavingASnapshot()
     {
-        var provenance = Provenance();
+        var store = new MemorySnapshotStore();
+        using var profiles = new ProfileContextService(new MemoryProfileStore(), new ProfileClock(Now));
+        using var runtime = new ProfileRuntimeContextService(profiles);
+        await runtime.InitializeAsync(CancellationToken.None);
+        var handoff = new StashScanCaptureHandoff(
+            runtime,
+            new InventoryGridReconstructor(),
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()));
+
+        await using var harness = new Harness(handoff, RecognizedContext.Stash, ScanIntent.Stash, RealStashGrid());
+        var receipt = await harness.CaptureAsync();
+
+        Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
+        Assert.Null(store.Saved);
+    }
+
+    private static GridReconstructionRequest RealStashGrid()
+    {
+        var provenance = new EvidenceProvenance(
+            EvidenceSourceClass.GameWrittenScreenshot,
+            "fixture://grid",
+            Now,
+            EvidenceConfidence.Unscored,
+            new ProducerIdentity("fixture", "1"));
         var bounds = new EvidenceRegion(0, 0, 64, 64, EvidenceCoordinateSpace.SourcePixels);
         var lattice = new DetectedGridLattice(
             rows: 1,
@@ -89,53 +119,14 @@ public sealed class LootScanCaptureHandoffTests
             provenance,
             bounds);
         var observation = new GridCellObservation("cell-000-000", new GridCellAddress(0, 0), item);
-        return new GridReconstructionRequest(InventoryGridSurface.VisibleLoot, lattice, [observation]);
-    }
-
-    private static EvidenceProvenance Provenance() => new(
-        EvidenceSourceClass.GameWrittenScreenshot,
-        "fixture://grid",
-        Now,
-        EvidenceConfidence.Unscored,
-        new ProducerIdentity("fixture", "1"));
-
-    [Fact]
-    public async Task NonLootIntentIsAcknowledgedWithoutProducingAScan()
-    {
-        using var runtime = await ReadyProfileContextAsync();
-        var handoff = new LootScanCaptureHandoff(runtime, new InventoryGridReconstructor(), new LootScanDecisionService());
-        var evaluated = false;
-        handoff.LootScanEvaluated += (_, _) => evaluated = true;
-
-        await using var harness = new Harness(handoff, RecognizedContext.Stash, ScanIntent.Stash);
-        var receipt = await harness.CaptureAsync();
-
-        Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
-        Assert.False(evaluated);
-    }
-
-    [Fact]
-    public async Task LootIntentWithoutAnActiveProfileIsAcknowledgedWithoutProducingAScan()
-    {
-        using var profiles = new ProfileContextService(new MemoryProfileStore(), new ProfileClock(Now));
-        using var runtime = new ProfileRuntimeContextService(profiles);
-        await runtime.InitializeAsync(CancellationToken.None);
-        var handoff = new LootScanCaptureHandoff(runtime, new InventoryGridReconstructor(), new LootScanDecisionService());
-        var evaluated = false;
-        handoff.LootScanEvaluated += (_, _) => evaluated = true;
-
-        await using var harness = new Harness(handoff, RecognizedContext.Loot, ScanIntent.Loot);
-        var receipt = await harness.CaptureAsync();
-
-        Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
-        Assert.False(evaluated);
+        return new GridReconstructionRequest(InventoryGridSurface.Stash, lattice, [observation]);
     }
 
     private static async Task<ProfileRuntimeContextService> ReadyProfileContextAsync()
     {
         var store = new MemoryProfileStore();
         var profiles = new ProfileContextService(store, new ProfileClock(Now));
-        var profile = Profile(Context(Id(401), "generation-a", ProfileGameMode.Pvp), "item-a");
+        var profile = Profile(Context(Id(402), "generation-a", ProfileGameMode.Pvp), "item-a");
         await profiles.CreateAsync(Request(profile), CancellationToken.None);
         var runtime = new ProfileRuntimeContextService(profiles);
         await runtime.InitializeAsync(CancellationToken.None);
@@ -151,7 +142,7 @@ public sealed class LootScanCaptureHandoffTests
         ScanIntent intent,
         GridReconstructionRequest? grid = null) : IAsyncDisposable
     {
-        private readonly ManualTimeProvider _clock = new(DateTimeOffset.Parse("2026-09-16T00:00:00Z"));
+        private readonly ManualTimeProvider _clock = new(DateTimeOffset.Parse("2026-09-17T00:00:00Z"));
         private CaptureSessionCoordinator? _coordinator;
 
         public async Task<CaptureQueueReceipt> CaptureAsync()
@@ -221,5 +212,31 @@ public sealed class LootScanCaptureHandoffTests
                 null,
                 new Confidence(0.9),
                 grid));
+    }
+
+    private sealed class MemorySnapshotStore : IStashSnapshotStore
+    {
+        public StashSnapshotRecord? Saved { get; private set; }
+
+        public Task SaveAsync(StashSnapshotRecord snapshot, CancellationToken cancellationToken)
+        {
+            Saved = snapshot;
+            return Task.CompletedTask;
+        }
+
+        public Task<StashSnapshotRecord?> ReadCurrentAsync(InventoryProfileScope scope, CancellationToken cancellationToken) =>
+            Task.FromResult(Saved);
+
+        public Task<StashSnapshotRecord?> ReadAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken) =>
+            Task.FromResult(Saved);
+
+        public Task<IReadOnlyList<StashSnapshotSummary>> ListAsync(InventoryProfileScope scope, int maximumCount, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<StashSnapshotSummary>>([]);
+
+        public Task<StashSnapshotDeleteResult> DeleteAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<StashSnapshotRetentionResult> ApplyRetentionAsync(InventoryProfileScope scope, DateTimeOffset retainFromUtc, bool dryRun, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 }

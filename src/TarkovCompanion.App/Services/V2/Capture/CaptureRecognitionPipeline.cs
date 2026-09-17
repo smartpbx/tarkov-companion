@@ -3,7 +3,9 @@ using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
+using TarkovCompanion.Infrastructure.Recognition.Grid;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
 
@@ -21,9 +23,21 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// detection it can't support: an unrecognised or ambiguous screen reports null context, still
 /// requiring the reviewer's confirmation before anything is accepted (#271's review stage).
 /// </remarks>
-public sealed class CaptureRecognitionPipeline(OcrCoordinator ocr) : ICaptureSessionPipeline
+/// <remarks>
+/// #273's grid reconstruction runs here too, and only here: pixels are released once analysis
+/// returns (<c>CaptureSessionCoordinator</c> is pixel-free past this point), so this is the one
+/// place a grid-shaped intent can still be turned into a <see cref="GridReconstructionRequest"/>.
+/// The request is itself pixel-free (bounds and evidenced values, never raw bytes), so it can
+/// safely ride along on <see cref="CaptureAnalysis"/> to the handoff.
+/// </remarks>
+public sealed class CaptureRecognitionPipeline(
+    OcrCoordinator ocr,
+    GridPixelReconstructionBuilder gridBuilder,
+    TimeProvider? timeProvider = null) : ICaptureSessionPipeline
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
+    private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public async Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -39,14 +53,35 @@ public sealed class CaptureRecognitionPipeline(OcrCoordinator ocr) : ICaptureSes
         var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);
         var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
 
+        GridReconstructionRequest? grid = null;
+        if (GridSurfaceFor(request.RequestedIntent) is { } surface)
+        {
+            grid = await _gridBuilder
+                .BuildAsync(request.Image, surface, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         return new(
             contentHash,
             detectedContext,
             isAmbiguous,
             isAvailable,
             coordinated.DiagnosticCode,
-            detection.Confidence);
+            detection.Confidence,
+            grid);
     }
+
+    /// <summary>
+    /// Which lattice a grid-shaped intent's screen measures. Ammo/Keys/Quest-items grids are other
+    /// packages' rough pass (their capture handoffs do not exist yet), so only the two intents
+    /// this package wires - Loot and Stash - request reconstruction here.
+    /// </summary>
+    internal static InventoryGridSurface? GridSurfaceFor(ScanIntent intent) => intent switch
+    {
+        ScanIntent.Loot => InventoryGridSurface.VisibleLoot,
+        ScanIntent.Stash => InventoryGridSurface.Stash,
+        _ => null,
+    };
 
     internal static RecognizedContext Map(ScanContext context, ScanIntent requestedIntent) => context switch
     {
