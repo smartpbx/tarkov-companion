@@ -4,6 +4,7 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 
 namespace TarkovCompanion.Application.Services.CaptureSessions;
 
@@ -300,7 +301,8 @@ public sealed record CaptureAnalysis(
     bool IsAmbiguous,
     bool IsAvailable,
     string? DiagnosticCode,
-    Confidence Confidence)
+    Confidence Confidence,
+    GridReconstructionRequest? Grid = null)
 {
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))

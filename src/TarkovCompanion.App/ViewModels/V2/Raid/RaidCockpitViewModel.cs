@@ -1,5 +1,8 @@
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -107,6 +110,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private string _unavailableReason = "Loading the map…";
     private string? _cachedAssetVariantKey;
     private CachedMapAsset? _cachedAsset;
+    private Bitmap? _backgroundImage;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -257,6 +261,56 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         _rebuildCancellation?.Cancel();
         _rebuildCancellation?.Dispose();
+        _backgroundImage?.Dispose();
+    }
+
+    /// <summary>The V2 renderer's asset seam: the artwork for the reviewed background asset it
+    /// is about to draw, decoded ahead of time in <see cref="RebuildCoreAsync"/> since this is
+    /// called synchronously from the renderer's own present/rebuild pass.</summary>
+    private IImage? ResolveBackgroundImage(MapSceneAsset asset) =>
+        _cachedAsset is { } cached && string.Equals(asset.ContentSha256, cached.ContentSha256, StringComparison.OrdinalIgnoreCase)
+            ? _backgroundImage
+            : null;
+
+    /// <summary>
+    /// Swaps in newly decoded artwork, disposing the previous bitmap once the current render
+    /// pass has finished with it rather than immediately, mirroring MapViewModel.ReleaseLater.
+    /// </summary>
+    private void ReplaceBackgroundImage(Bitmap? image)
+    {
+        var previous = _backgroundImage;
+        _backgroundImage = image;
+        if (previous is not null && !ReferenceEquals(previous, image))
+        {
+            Dispatcher.UIThread.Post(previous.Dispose, DispatcherPriority.Background);
+        }
+    }
+
+    /// <summary>Decodes a cached rasterized-map image file off the UI thread.</summary>
+    private static async Task<Bitmap?> LoadBackgroundImageAsync(string? path, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Task.Run(
+                () =>
+                {
+                    using var stream = File.OpenRead(path);
+                    return new Bitmap(stream);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or ArgumentException
+                                          or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private async Task InitializeAsync()
@@ -392,29 +446,47 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         // Refetching on every rebuild (a runtime snapshot changes often) would re-hash a
-        // multi-megabyte SVG on disk each time for no reason once the variant has not changed.
-        if (_cachedAssetVariantKey != variant.Key || _cachedAsset is null)
+        // multi-megabyte SVG on disk each time for no reason once the variant and floor have
+        // not changed. Keyed on the floor too: a multi-floor SVG rasterizes a different upstream
+        // layer per floor onto the same cache file, so the source hash alone cannot tell floors
+        // apart the way V1's own floor switch relies on (see TarkovDevMapAssetCache.GetSvgAsync).
+        var selectedFloor = model.SelectedFloor;
+        var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
+        if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
         {
-            var assetResult = await _assetCache.GetSvgAsync(variant, cancellationToken).ConfigureAwait(true);
+            var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
             {
                 _cachedAssetVariantKey = null;
                 _cachedAsset = null;
+                ReplaceBackgroundImage(null);
                 SetUnavailable(assetResult.Message ?? "The reviewed map asset is not available yet.");
                 return;
             }
 
-            _cachedAssetVariantKey = variant.Key;
+            // Decoded, and the cache markers updated, only once both steps succeed: if the
+            // decode is cancelled by a newer rebuild landing first, leaving the markers behind
+            // would make the next rebuild trust a bitmap that was never actually produced.
+            var decoded = await LoadBackgroundImageAsync(fetched.RenderPath, cancellationToken).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+            _cachedAssetVariantKey = assetCacheKey;
             _cachedAsset = fetched;
+            ReplaceBackgroundImage(decoded);
         }
 
         var cached = _cachedAsset!;
 
         var nowUtc = _timeProvider.GetUtcNow();
         var transformVersion = variant.Key;
+        // The floor is part of the asset identity, not just its cache key: a multi-floor SVG
+        // rasterizes a different upstream layer per floor onto the one cached file, so two
+        // floors' artwork share every other field (source, licence, content hash) and would
+        // otherwise look identical to the renderer's own change detection (see
+        // MapSceneRendererViewModel.ResolveBackground), leaving a stale floor's picture on
+        // screen after switching.
         var asset = new MapSceneAsset(
-            new($"asset:{model.Location.Id}:{variant.Key}"),
+            new($"asset:{model.Location.Id}:{variant.Key}:{selectedFloor?.Id ?? "base"}"),
             MapSceneAssetKind.Background2D,
             cached.SourceUri,
             cached.LicenseUri,
@@ -482,7 +554,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 scene,
                 _presentation,
                 nextChangeId: Guid.NewGuid,
-                reviewedAssetResolver: null,
+                reviewedAssetResolver: ResolveBackgroundImage,
                 highValueLoot: lootLayer,
                 highValueLootFilterState: _lootFilter,
                 highValueLootCategories: null);

@@ -77,8 +77,17 @@ than claims that the current synthetic fixtures meet them.
 `StashScanWorkflow` and its dependencies in `AppComposition.cs`, lists and browses persisted
 snapshots, and shows an ammo and key summary by joining recognized items against
 `IItemFactCatalog`. Starting a scan arms the shell's existing capture chrome with the Stash, Ammo,
-or Keys intent; nothing yet bridges an accepted capture into `StashScanAssembler`; the workspace
-manages only snapshots already produced some other way (see the package's PR for what's deferred).
+or Keys intent.
+
+`StashScanCaptureHandoff` (#273) bridges an accepted Stash-intent capture into this backend: it
+takes the pixel-derived `GridReconstructionRequest` `CaptureRecognitionPipeline` attaches to the
+capture's analysis (see `docs/RECOGNITION.md`), reconstructs it, and assembles it as a single-frame
+session rooted at the `stash` container path, confirmed to start at cell zero with an unresolved
+total-cell count. Moving through container tabs, opening nested containers to capture them, and
+supplying a real total-cell hint across an ordered multi-capture session are capture-lifecycle UI
+this pass does not add; `StashScanAssembler` already stitches multiple frames when a future package
+supplies them with origin hints, so nothing here needs to change to support that. Ammo and Keys
+intents still have no handoff and are acknowledged without producing advice.
 Keep/Sell/Use soon grouping via `StashOrganizationPlanner` and #308 ammo/key intelligence is not
 wired either — general items are listed under Review.
 

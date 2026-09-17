@@ -56,6 +56,7 @@ using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Settings;
@@ -617,14 +618,23 @@ public static class AppComposition
             new CompanionDeviceId(Guid.NewGuid()),
             WorkspaceOriginKind.DesktopApplication,
             "desktop"));
+        // [V2 rough package 14] #273: pixel-to-grid recognition. The icon evidence cache (#355)
+        // is machine-local, keyed by canonical item id and source URI - nothing here fetches or
+        // populates it yet, so it starts empty until something feeds it (deferred to polish).
+        services.AddSingleton<IIconEvidenceCache>(_ => new FileIconEvidenceCache(
+            new FileIconEvidenceCacheOptions(Path.Combine(paths.Cache, "IconEvidence"))));
+        services.AddSingleton<IconCandidateSeparator>();
+        services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
             provider.GetRequiredService<CaptureRecognitionPipeline>());
         services.AddSingleton<InventoryGridReconstructor>();
         services.AddSingleton<LootScanDecisionService>();
         services.AddSingleton<LootScanCaptureHandoff>();
+        services.AddSingleton<StashScanCaptureHandoff>();
+        services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
-            provider.GetRequiredService<LootScanCaptureHandoff>());
+            provider.GetRequiredService<CompositeCaptureResultHandoff>());
         services.AddSingleton<ICaptureSessionService>(provider => new CaptureSessionCoordinator(
             provider.GetRequiredService<ICaptureWorkScheduler>(),
             provider.GetRequiredService<ICaptureSessionPipeline>(),
