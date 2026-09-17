@@ -10,8 +10,8 @@ public sealed class MigrationRecoveryTests
     public async Task LedgerHasPairedUpgradeAndRollbackFixturesAndFreshDatabaseAppliesAll()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(11, SqliteMigrationLedger.Entries.Count);
-        Assert.Equal("0011_v2_data_platform", SqliteMigrationLedger.Entries[^1].Id);
+        Assert.Equal(12, SqliteMigrationLedger.Entries.Count);
+        Assert.Equal("0012_task_wiki_link", SqliteMigrationLedger.Entries[^1].Id);
         Assert.All(SqliteMigrationLedger.Entries, entry =>
         {
             var fixture = SqliteMigrationRunner.ReadFixture(entry.Id);
@@ -20,15 +20,15 @@ public sealed class MigrationRecoveryTests
             Assert.EndsWith(";", fixture.UpgradeSql.TrimEnd(), StringComparison.Ordinal);
             Assert.EndsWith(";", fixture.RollbackSql.TrimEnd(), StringComparison.Ordinal);
         });
-        Assert.Equal(11, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
+        Assert.Equal(12, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
 
-        var rollback = SqliteMigrationRunner.ReadFixture("0011_v2_data_platform").RollbackSql;
+        var rollback = SqliteMigrationRunner.ReadFixture("0012_task_wiki_link").RollbackSql;
         await using var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = rollback;
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
-        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('http_response_cache') WHERE name = 'body_json';";
-        Assert.Equal(1L, await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+        command.CommandText = "SELECT COUNT(*) FROM pragma_table_info('quest_catalog_tasks') WHERE name = 'wiki_url';";
+        Assert.Equal(0L, await command.ExecuteScalarAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -457,6 +457,7 @@ public sealed class MigrationRecoveryTests
         "0009_drop_unread_map_tables" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'map_spawns';",
         "0010_drop_quest_catalog_orphans" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';",
         "0011_v2_data_platform" => "SELECT COUNT(*) FROM pragma_table_info('http_response_cache') WHERE name = 'body_json';",
+        "0012_task_wiki_link" => "SELECT COUNT(*) FROM pragma_table_info('quest_catalog_tasks') WHERE name = 'wiki_url';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 

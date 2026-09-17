@@ -420,12 +420,12 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             trader_id, min_player_level, faction_name, primary_map_id,
                             restartable, kappa_required, lightkeeper_required, required_prestige_id,
                             available_delay_seconds_min, available_delay_seconds_max,
-                            source_game_modes_json, raw_json)
+                            source_game_modes_json, wiki_url, raw_json)
                         VALUES (
                             $sourceKey, $sourceMode, $language, $id, $name, $normalizedName,
                             $traderId, $minLevel, $factionName, $primaryMapId,
                             $restartable, $kappaRequired, $lightkeeperRequired, $requiredPrestigeId,
-                            $delayMin, $delayMax, $sourceGameMode, $rawJson);
+                            $delayMin, $delayMax, $sourceGameMode, $wikiUrl, $rawJson);
                         """,
                         cancellationToken,
                         ("$sourceKey", provenance.Source),
@@ -445,6 +445,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$delayMin", task.AvailableDelaySecondsMinimum),
                         ("$delayMax", task.AvailableDelaySecondsMaximum),
                         ("$sourceGameMode", JsonSerializer.Serialize(task.SourceGameModes, SerializerOptions)),
+                        ("$wikiUrl", task.WikiUri),
                         ("$rawJson", task.RawSourceJson)).ConfigureAwait(false);
 
                     foreach (var requirement in task.Requirements)

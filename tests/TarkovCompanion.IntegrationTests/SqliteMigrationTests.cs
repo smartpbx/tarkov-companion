@@ -43,7 +43,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(11, first.Applied.Count);
+            Assert.Equal(12, first.Applied.Count);
             Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -141,6 +141,7 @@ public sealed class SqliteMigrationTests
                     "0009_drop_unread_map_tables",
                     "0010_drop_quest_catalog_orphans",
                     "0011_v2_data_platform",
+                    "0012_task_wiki_link",
                 ],
                 applied.Applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);

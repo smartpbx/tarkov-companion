@@ -796,6 +796,7 @@ public sealed class QuestReadService(
             objectives)
         {
             TraderName = NameOfTrader(task.TraderId, context),
+            WikiUri = task.WikiUri,
         };
     }
 

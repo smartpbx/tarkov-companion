@@ -122,7 +122,11 @@ public sealed record QuestTaskDefinition(
     IReadOnlyList<QuestTaskRequirement> Requirements,
     IReadOnlyList<QuestObjectiveDefinition> Objectives,
     IReadOnlyList<QuestObjectiveDefinition> FailureConditions,
-    string RawSourceJson);
+    string RawSourceJson)
+{
+    /// <summary>The wiki page for this task, where the last sync had one.</summary>
+    public string? WikiUri { get; init; }
+}
 
 public sealed record QuestCatalogSnapshot(
     QuestCatalogProvenance Provenance,
