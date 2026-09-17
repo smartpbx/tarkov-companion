@@ -149,6 +149,24 @@ internal static class Program
             window.Width = width;
             Pump(10);
 
+            // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
+            // A headless run has no relay to join, and the offline group session republishes
+            // "not sharing" on its own tick, so this goes straight to the view model last.
+            if (shell is not null && args.Contains("--team-demo"))
+            {
+                var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                var demo = TeamDemoGroup();
+                for (var i = 0; i < 6; i++)
+                {
+                    // The shell re-applies the store's snapshot on every refresh (the raid clock
+                    // alone ticks once a second), so the store carries the demo group too.
+                    store.Update(snapshot => snapshot with { Group = demo });
+                    services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.TeamWorkspaceViewModel>()
+                        .Apply(store.Current);
+                    Pump(1);
+                }
+            }
+
             SaveFrame(window, outputPath, width, height);
             rendered = true;
             return 0;
@@ -172,6 +190,31 @@ internal static class Program
                 Environment.Exit(0);
             }
         }
+    }
+
+    private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup()
+    {
+        var now = DateTimeOffset.UtcNow;
+        TarkovCompanion.Application.Services.Group.GroupMemberView Member(string name, string map, TimeSpan since, params string[] quests) =>
+            new(name, map, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", null, null, null, [], quests) { Since = since };
+        return new(true,
+            [
+                Member("Geo", "customs", TimeSpan.FromSeconds(4), "Delivery from the Past", "Debut"),
+                Member("Riley", "customs", TimeSpan.FromSeconds(9), "Delivery from the Past"),
+                Member("Sam", "customs", TimeSpan.FromMinutes(2), "Shortage"),
+            ],
+            "Sharing as Clay · 3 others here",
+            now)
+        {
+            Waypoints =
+            [
+                new(1, "Geo", "customs", 0, 0, 0, "Dorms", "Riley") { CreatedUtc = now.AddMinutes(-6) },
+                new(2, "Riley", "customs", 0, 0, 0, null, null) { CreatedUtc = now.AddMinutes(-4) },
+                new(3, "Geo", "customs", 0, 0, 0, "Old gas station", null) { CreatedUtc = now.AddMinutes(-2) },
+                new(4, "Clay", "customs", 0, 0, 0, "RUAF roadblock", null) { CreatedUtc = now.AddMinutes(-1) },
+            ],
+            Pings = [new(5, "Sam", "customs", 0, 0, 0, null, now.AddSeconds(-12))],
+        };
     }
 
     private static void SaveFrame(Window window, string outputPath, int width, int height)
