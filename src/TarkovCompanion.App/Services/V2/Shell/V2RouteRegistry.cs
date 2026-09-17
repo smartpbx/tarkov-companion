@@ -19,6 +19,9 @@ public enum V2RouteContent
 
     /// <summary>The Loot Scan review surface: one frozen capture's take/swap/leave/review decisions.</summary>
     LootScan,
+
+    /// <summary>The native V2 Setup page (#292): sectioned settings over the existing view models.</summary>
+    SetupWorkspace,
 }
 
 /// <summary>
@@ -123,8 +126,8 @@ public sealed class V2RouteRegistry
         new(V2Routes.Tablet, [V2Capabilities.TabletPreview], V2RouteContent.StatePresenter, "V2.Shell.Route.Tablet",
             Parent: V2Routes.Team),
         new(V2Routes.Debrief, [V2Capabilities.Debrief], V2RouteContent.LegacyPage, "V2.Shell.Route.History", "History"),
-        new(V2Routes.Setup, [V2Capabilities.Setup, V2Capabilities.Readiness], V2RouteContent.LegacyPage, "V2.Shell.Route.Settings",
-            "Settings", ShowsReadiness: true),
+        new(V2Routes.Setup, [V2Capabilities.Setup, V2Capabilities.Readiness], V2RouteContent.SetupWorkspace, "V2.Shell.Route.Settings",
+            ShowsReadiness: true),
     ]);
 
     public V2RouteDefinition this[V2RouteId id] => _routes.TryGetValue(id, out var route)

@@ -9,6 +9,8 @@
     xmlns:shell="using:TarkovCompanion.App.Views.V2.Shell"
     xmlns:lootScanVm="using:TarkovCompanion.App.ViewModels.V2.LootScan"
     xmlns:lootScanViews="using:TarkovCompanion.App.Views.V2.LootScan"
+    xmlns:setupVm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+    xmlns:setupViews="using:TarkovCompanion.App.Views.V2.Setup"
     Title="{Binding WindowTitle}"
     Icon="/Assets/TarkovCompanion.ico"
     Width="1500"
@@ -61,6 +63,9 @@
     </DataTemplate>
     <DataTemplate DataType="{x:Type lootScanVm:LootScanViewModel}">
       <lootScanViews:LootScanView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type setupVm:V2SetupWorkspaceViewModel}">
+      <setupViews:V2SetupWorkspaceView />
     </DataTemplate>
   </Window.DataTemplates>
 
