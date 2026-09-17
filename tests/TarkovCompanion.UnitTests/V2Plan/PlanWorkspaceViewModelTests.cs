@@ -108,6 +108,34 @@ public sealed class PlanWorkspaceViewModelTests
     }
 
     [Fact]
+    public void A_map_group_numbers_its_steps_and_counts_distinct_quests()
+    {
+        var first = Task("quest-a", RecordedTaskState.Active,
+        [
+            Objective("obj-1", RecordedObjectiveState.InProgress),
+            Objective("obj-2", RecordedObjectiveState.InProgress),
+        ]);
+        var second = Task("quest-b", RecordedTaskState.Active,
+        [
+            Objective("obj-3", RecordedObjectiveState.InProgress),
+        ]);
+        var rows = PlanWorkspaceViewModel.Bucket([first, second], showAll: false)
+            .Select((entry, index) => new PlanObjectiveRowViewModel(entry.Task, entry.Objective, null!, index + 1, index == 2))
+            .ToArray();
+
+        var group = new PlanMapGroupViewModel("customs", "Customs", rows);
+
+        Assert.Equal([1, 2, 3], rows.Select(row => row.Number));
+        Assert.True(rows[0].HasNext);
+        Assert.False(rows[2].HasNext);
+        Assert.Equal(2, group.Quests.Count);
+        Assert.Equal("2 objectives", group.Quests[0].ObjectivesLabel);
+        Assert.Equal("3 objectives · 2 quests", group.Summary);
+        Assert.True(group.CanOpenInRaid);
+        Assert.False(new PlanMapGroupViewModel(null, "Any map", rows).CanOpenInRaid);
+    }
+
+    [Fact]
     public void Remaining_label_falls_back_to_the_recorded_state_when_there_is_no_target_or_count()
     {
         var objective = Objective("obj", RecordedObjectiveState.Unknown);

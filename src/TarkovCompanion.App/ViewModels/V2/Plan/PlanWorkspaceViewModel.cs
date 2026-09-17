@@ -16,11 +16,15 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     internal PlanObjectiveRowViewModel(
         QuestSummaryReadModel task,
         QuestObjectiveReadModel objective,
-        PlanWorkspaceViewModel owner)
+        PlanWorkspaceViewModel owner,
+        int number = 1,
+        bool isLast = true)
     {
         Task = task;
         Objective = objective;
         _owner = owner;
+        Number = number;
+        IsLast = isLast;
         OpenWikiCommand = new DelegateCommand(() => _owner.TryOpenWiki(task.WikiUri));
         MarkObjectiveDoneCommand = new AsyncDelegateCommand(
             () => _owner.MarkObjectiveDoneAsync(objective.ObjectiveId, objective.TargetCount ?? objective.RecordedCount));
@@ -31,6 +35,14 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     internal QuestSummaryReadModel Task { get; }
 
     internal QuestObjectiveReadModel Objective { get; }
+
+    /// <summary>1-based position within its map group: the numbered step the Plan list draws.</summary>
+    public int Number { get; }
+
+    /// <summary>The last step draws no connector line below its number.</summary>
+    public bool IsLast { get; }
+
+    public bool HasNext => !IsLast;
 
     public string TaskName => Task.Name;
 
@@ -49,6 +61,9 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public string RemainingLabel => PlanWorkspaceViewModel.DescribeRemaining(Objective);
 
+    /// <summary>A bare recorded state ("Unknown") says nothing on the page; only counts are shown.</summary>
+    public bool HasRemainingLabel => Objective.TargetCount is not null || Objective.RecordedCount is not null;
+
     public bool HasWikiLink => WikiLinkPolicy.IsAllowed(Task.WikiUri);
 
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
@@ -62,8 +77,75 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     public ICommand ShowOnMapCommand { get; }
 }
 
-/// <summary>Every objective on one map (or "Any map" for one that names none).</summary>
-public sealed record PlanMapGroupViewModel(string MapLabel, IReadOnlyList<PlanObjectiveRowViewModel> Objectives);
+/// <summary>One quest with objectives in a map group, for the context panel's quest list.</summary>
+public sealed record PlanQuestSummaryViewModel(string Name, string TraderLabel, string ObjectivesLabel);
+
+/// <summary>
+/// Every objective on one map (or "Any map" for one that names none): one "bundle" card in the
+/// Plan workspace's left column, and the whole centre and context panel while it is selected.
+/// </summary>
+public sealed class PlanMapGroupViewModel : BindableViewModel
+{
+    private bool _isSelected;
+
+    internal PlanMapGroupViewModel(
+        string? mapId,
+        string mapLabel,
+        IReadOnlyList<PlanObjectiveRowViewModel> objectives,
+        Action<PlanMapGroupViewModel>? select = null,
+        Func<string, Task>? openInRaid = null)
+    {
+        MapId = mapId;
+        MapLabel = mapLabel;
+        Objectives = objectives;
+        Quests = objectives
+            .GroupBy(row => row.Task.TaskId, StringComparer.Ordinal)
+            .Select(group => new PlanQuestSummaryViewModel(
+                group.First().TaskName,
+                group.First().TraderLabel,
+                PlanWorkspaceViewModel.CountLabel(group.Count(), "objective")))
+            .ToArray();
+        FindInRaidCount = objectives.Count(row => row.Objective.FoundInRaidRequired == true);
+        HandInCount = objectives.Count(row => row.Objective.FoundInRaidRequired == false);
+        SelectCommand = new DelegateCommand(() => select?.Invoke(this));
+        OpenInRaidCommand = new AsyncDelegateCommand(() => mapId is null || openInRaid is null
+            ? System.Threading.Tasks.Task.CompletedTask
+            : openInRaid(mapId));
+    }
+
+    /// <summary>The catalog map id, or null for the "Any map" group.</summary>
+    public string? MapId { get; }
+
+    public string MapLabel { get; }
+
+    public IReadOnlyList<PlanObjectiveRowViewModel> Objectives { get; }
+
+    public IReadOnlyList<PlanQuestSummaryViewModel> Quests { get; }
+
+    /// <summary>"4 objectives · 3 quests", the bundle card's second line.</summary>
+    public string Summary => $"{PlanWorkspaceViewModel.CountLabel(Objectives.Count, "objective")} · {PlanWorkspaceViewModel.CountLabel(Quests.Count, "quest")}";
+
+    /// <summary>Objectives whose items must be found in raid, where the catalog says so.</summary>
+    public int FindInRaidCount { get; }
+
+    /// <summary>Objectives whose items may be bought and handed in, where the catalog says so.</summary>
+    public int HandInCount { get; }
+
+    public bool HasItemObjectives => FindInRaidCount + HandInCount > 0;
+
+    /// <summary>Only a real map can be opened on the Raid map.</summary>
+    public bool CanOpenInRaid => MapId is not null;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set => SetProperty(ref _isSelected, value);
+    }
+
+    public ICommand SelectCommand { get; }
+
+    public ICommand OpenInRaidCommand { get; }
+}
 
 /// <summary>
 /// Native V2 Plan workspace over the existing quest tracking services: active quests and their
@@ -85,38 +167,96 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private readonly IQuestProgressCommandService _commandService;
     private readonly MapViewModel _map;
     private readonly IWikiLinkOpener _wikiOpener;
+    private readonly IMapDataService? _mapData;
+    private Dictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
     private QuestBoardReadModel? _board;
     private QuestProfileScope? _scope;
     private bool _showAll;
     private string _status = "Loading your quest board…";
     private string _scopeLabel = "No profile loaded";
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
+    private PlanMapGroupViewModel? _selectedGroup;
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
         IQuestReadService readService,
         IQuestProgressCommandService commandService,
         MapViewModel map,
-        IWikiLinkOpener wikiOpener)
+        IWikiLinkOpener wikiOpener,
+        // V2 rough package 17: quest objectives name maps by game-data id, which the map
+        // catalog behind MapViewModel does not key on, so the groups showed raw ids. Optional so
+        // a composition without the synced map table still builds this.
+        IMapDataService? mapData = null)
     {
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
         _commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _wikiOpener = wikiOpener ?? throw new ArgumentNullException(nameof(wikiOpener));
+        _mapData = mapData;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
+        OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
+        // The map catalog usually finishes loading after the first quest board read; the groups
+        // are named from it, so rebuild them when it arrives rather than showing catalog ids.
+        _map.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MapViewModel.Locations))
+            {
+                ApplyFilter();
+            }
+        };
     }
 
     /// <summary>Raised after this workspace has moved the shared map to the requested one.</summary>
     public event EventHandler<EventArgs>? ShowOnMapRequested;
 
+    /// <summary>Raised when the Hideout card asks the shell for the Plan route's Hideout tab.</summary>
+    public event EventHandler<EventArgs>? OpenHideoutRequested;
+
     public IReadOnlyList<PlanMapGroupViewModel> Groups
     {
         get => _groups;
-        private set => SetProperty(ref _groups, value);
+        private set
+        {
+            if (SetProperty(ref _groups, value))
+            {
+                OnPropertyChanged(nameof(HasGroups));
+            }
+        }
     }
 
     public bool HasGroups => Groups.Count > 0;
+
+    /// <summary>The map bundle the centre list and context panel show; the first one by default.</summary>
+    public PlanMapGroupViewModel? SelectedGroup
+    {
+        get => _selectedGroup;
+        private set
+        {
+            if (ReferenceEquals(_selectedGroup, value))
+            {
+                return;
+            }
+
+            if (_selectedGroup is not null)
+            {
+                _selectedGroup.IsSelected = false;
+            }
+
+            _selectedGroup = value;
+            if (value is not null)
+            {
+                value.IsSelected = true;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedGroup));
+        }
+    }
+
+    public bool HasSelectedGroup => SelectedGroup is not null;
+
+    public ICommand OpenHideoutCommand { get; }
 
     public bool ShowAll
     {
@@ -157,18 +297,24 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
+            _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
             ApplyFilter();
             Status = _board.UnavailableReason ?? (HasGroups
-                ? $"{Groups.Sum(group => group.Objectives.Count)} objective(s) across {Groups.Count} map(s)"
+                ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
                 : ShowAll
                     ? "No quests recorded yet."
-                    : "Nothing active or unfinished. Toggle Show everything to see the rest.");
+                    : "No active quests. Turn on Show everything to see the rest.");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // The raw exception belongs in the log, not on the page: the usual cause is simply
+            // that game data has not finished loading, and the shell reloads this workspace when
+            // it does.
             _board = null;
             Groups = [];
-            Status = $"Unavailable · {exception.Message}";
+            SelectedGroup = null;
+            Status = "Quest data isn't available yet.";
+            System.Diagnostics.Trace.TraceWarning($"Plan workspace refresh failed: {exception}");
         }
     }
 
@@ -180,7 +326,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var buckets = new Dictionary<string, List<PlanObjectiveRowViewModel>>(StringComparer.OrdinalIgnoreCase);
+        var previousMapKey = SelectedGroup is { } previous ? previous.MapId ?? AnyMapKey : null;
+        var buckets = new Dictionary<string, List<PlanObjectiveBucketEntry>>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in Bucket(_board.Tasks, ShowAll))
         {
             if (!buckets.TryGetValue(entry.MapKey, out var list))
@@ -188,15 +335,33 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                 buckets[entry.MapKey] = list = [];
             }
 
-            list.Add(new PlanObjectiveRowViewModel(entry.Task, entry.Objective, this));
+            list.Add(entry);
         }
 
         Groups = buckets
-            .Select(bucket => new PlanMapGroupViewModel(NameOfMap(bucket.Key), bucket.Value))
-            .OrderBy(group => group.MapLabel == "Any map" ? 1 : 0)
+            .Select(bucket => new PlanMapGroupViewModel(
+                bucket.Key.Length == 0 ? null : bucket.Key,
+                NameOfMap(bucket.Key),
+                bucket.Value
+                    .Select((entry, index) => new PlanObjectiveRowViewModel(
+                        entry.Task, entry.Objective, this, index + 1, index == bucket.Value.Count - 1))
+                    .ToArray(),
+                group => SelectedGroup = group,
+                OpenInRaidAsync))
+            .OrderBy(group => group.MapId is null ? 1 : 0)
             .ThenBy(group => group.MapLabel, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
+        SelectedGroup = Groups.FirstOrDefault(group =>
+                previousMapKey is not null &&
+                string.Equals(group.MapId ?? AnyMapKey, previousMapKey, StringComparison.OrdinalIgnoreCase))
+            ?? Groups.FirstOrDefault();
     }
+
+    /// <summary>"1 objective", "3 quests": the plural is regular for every noun this page counts.</summary>
+    internal static string CountLabel(int count, string noun) =>
+        string.Create(CultureInfo.CurrentCulture, $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
+
+    private Task OpenInRaidAsync(string mapId) => ShowOnMapAsync(mapId);
 
     /// <summary>One objective, tagged with one map key it belongs to (an objective on several
     /// maps produces one entry per map; an objective with none produces one <see cref="AnyMapKey"/>
@@ -269,6 +434,40 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             $"{remaining:0.##} remaining of {target:0.##}");
     }
 
+    private async Task<Dictionary<string, string>> ResolveMapNamesAsync(
+        QuestBoardReadModel board,
+        CancellationToken cancellationToken)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (_mapData is null)
+        {
+            return names;
+        }
+
+        var mapIds = board.Tasks
+            .SelectMany(task => task.Objectives)
+            .SelectMany(objective => objective.MapIds)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var mapId in mapIds)
+        {
+            try
+            {
+                if (await _mapData.GetAsync(mapId, cancellationToken).ConfigureAwait(true) is { } map &&
+                    !string.IsNullOrWhiteSpace(map.Name))
+                {
+                    names[mapId] = map.Name;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One unreadable map falls back to the catalog name below; it must not blank the page.
+                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name map {mapId}: {exception.Message}");
+            }
+        }
+
+        return names;
+    }
+
     private string NameOfMap(string mapId)
     {
         if (mapId.Length == 0)
@@ -276,11 +475,16 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return "Any map";
         }
 
+        if (_mapNames.TryGetValue(mapId, out var synced))
+        {
+            return synced;
+        }
+
         return _map.Locations
             .FirstOrDefault(location =>
                 string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase))?.Name
-            ?? mapId;
+            ?? "Other map";
     }
 
     internal bool TryOpenWiki(string? wikiUri) => _wikiOpener.TryOpen(wikiUri);

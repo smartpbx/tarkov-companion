@@ -63,6 +63,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private readonly DebriefWorkspaceViewModel? _debrief;
     private readonly PlanWorkspaceViewModel? _plan;
     private readonly HideoutWorkspaceViewModel? _hideout;
+    private DateTimeOffset? _planDataUpdatedUtc;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
     private readonly TeamWorkspaceViewModel? _team;
     private readonly V2ShellPreviewStore _preview;
@@ -310,6 +311,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         if (_plan is not null)
         {
             _plan.ShowOnMapRequested += PlanShowOnMapRequested;
+            // V2 rough package 17: the Plan page's Hideout card opens the Hideout tab.
+            _plan.OpenHideoutRequested += PlanOpenHideoutRequested;
         }
 
         WireLegacyContext();
@@ -1091,6 +1094,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     /// </summary>
     private void PlanShowOnMapRequested(object? sender, EventArgs e) => GoTo(V2Routes.Raid);
 
+    private void PlanOpenHideoutRequested(object? sender, EventArgs e) => GoTo(V2Routes.Hideout);
+
     private void ArmSelectedCaptureIntent()
     {
         var requested = CaptureArmRequested;
@@ -1339,6 +1344,28 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// V2 rough package 17: a launch that restores straight onto Plan or Hideout loads that
+    /// workspace before startup has migrated and filled the database, and it then showed
+    /// "unavailable" until the player pressed Refresh. Reloading once whenever the game data's
+    /// timestamp moves covers that first arrival and every later sync, without reloading on the
+    /// many runtime changes (raid clock, observation) that leave the data untouched.
+    /// </summary>
+    private void ReloadPlanWhenGameDataChanges(DateTimeOffset? dataUpdatedUtc)
+    {
+        if (dataUpdatedUtc == _planDataUpdatedUtc)
+        {
+            return;
+        }
+
+        _planDataUpdatedUtc = dataUpdatedUtc;
+        var route = Router.Current.Location.Route;
+        if (route == V2Routes.Plan || route == V2Routes.Hideout)
+        {
+            LoadCurrentWorkspace();
+        }
+    }
+
     /// <summary>Loads the workspace for whichever route is now current, if it needs one.</summary>
     private void LoadCurrentWorkspace()
     {
@@ -1468,6 +1495,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         var snapshot = _runtime.Current;
         var continuity = Volatile.Read(ref _continuity);
         SynchronizeLegacySelection();
+        ReloadPlanWhenGameDataChanges(snapshot.Data.UpdatedUtc);
         // v2r-team (package 9, wave 2): kept live on every refresh, like Legacy.Group/Legacy.Squad
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
@@ -2716,6 +2744,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         if (_plan is not null)
         {
             _plan.ShowOnMapRequested -= PlanShowOnMapRequested;
+            _plan.OpenHideoutRequested -= PlanOpenHideoutRequested;
         }
 
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;

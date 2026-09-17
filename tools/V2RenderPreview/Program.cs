@@ -11,7 +11,10 @@ using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
 using AppClass = TarkovCompanion.App.App;
 
@@ -36,6 +39,17 @@ internal static class Program
 
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataRoot);
+
+        // V2 rough package 17: the demo fixture seeds one item and no quests or hideout, so a
+        // Plan render showed only empty states. --seed-database copies an existing synced
+        // database (any earlier real run's tarkov-companion.db) into the throwaway data root;
+        // startup migrates it forward, and it is deleted with the root afterwards.
+        if (StringOption(args, "--seed-database") is { } seedDatabase)
+        {
+            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: true).Database;
+            Directory.CreateDirectory(databaseDirectory);
+            File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
+        }
         try
         {
             await using var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
@@ -81,6 +95,15 @@ internal static class Program
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
+
+            // A fresh profile has no quest recorded as active, so the Plan page has nothing to
+            // plan. --seed-active-quests marks that many available quests active through the same
+            // command service the page itself uses, then reloads the page.
+            if (IntOption(args, "--seed-active-quests", 0) is var questCount and > 0)
+            {
+                DrainUntilComplete(SeedActiveQuestsAsync(services, questCount));
+                DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+            }
 
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
@@ -136,6 +159,31 @@ internal static class Program
                 // Best effort: this is a throwaway temp directory for one render.
             }
         }
+    }
+
+    private static async Task SeedActiveQuestsAsync(IServiceProvider services, int count)
+    {
+        var profile = await services.GetRequiredService<IPlayerProfileService>().GetActiveAsync(CancellationToken.None);
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var board = await services.GetRequiredService<IQuestReadService>().GetQuestBoardAsync(scope, CancellationToken.None);
+        var commands = services.GetRequiredService<IQuestProgressCommandService>();
+        // Preview data only: the first few quests with map objectives, spread over three maps
+        // so the page has more than one map bundle. Eligibility is ignored; a fresh profile's is
+        // mostly indeterminate.
+        var picked = board.Tasks
+            .Where(task => task.Objectives.Any(objective => objective.MapIds.Count > 0))
+            .GroupBy(task => task.Objectives.First(objective => objective.MapIds.Count > 0).MapIds[0], StringComparer.Ordinal)
+            .OrderByDescending(group => group.Count())
+            .Take(3)
+            .SelectMany(group => group.Take((count + 2) / 3))
+            .Take(count)
+            .ToArray();
+        foreach (var task in picked)
+        {
+            await commands.SetTaskStateAsync(scope, task.TaskId, RecordedTaskState.Active, CancellationToken.None);
+        }
+
+        Console.WriteLine($"Seeded {picked.Length} active quest(s) of {board.Tasks.Count}.");
     }
 
     private static void SaveFrame(Window window, string outputPath, int width, int height)
