@@ -1612,7 +1612,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             1 / camera.Zoom,
             camera.BearingDegrees,
             MarkerFor(sceneObject),
-            TruthGlyphFor(sceneObject.Truth),
+            IsNumberedStep(sceneObject) ? string.Empty : TruthGlyphFor(sceneObject.Truth),
             FactionGlyphFor(sceneObject),
             OfferGlyphFor(sceneObject),
             false,
@@ -1660,7 +1660,21 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             select);
     }
 
-    private static string MarkerFor(MapSceneObject item) => item.Truth switch
+    /// <summary>
+    /// V2 rough package 17: a personal-plan quest objective labelled with a short step number
+    /// (the Plan workspace's numbered objectives) draws that number, so the marker and its row
+    /// in the list read as one thing. Every other object keeps its kind glyph and truth badge.
+    /// </summary>
+    private static bool IsNumberedStep(MapSceneObject item) =>
+        item.Kind == MapSceneObjectKind.QuestObjective &&
+        item.Truth == MapSceneTruthKind.PersonalPlan &&
+        HasStepNumberLabel(item);
+
+    /// <summary>A label that is a 1–3 digit number: the numbered-marker convention Plan and Team share.</summary>
+    private static bool HasStepNumberLabel(MapSceneObject item) =>
+        item.Label.Length is > 0 and <= 3 && item.Label.All(char.IsAsciiDigit);
+
+    private static string MarkerFor(MapSceneObject item) => IsNumberedStep(item) ? item.Label : item.Truth switch
     {
         MapSceneTruthKind.HistoricalEstimate => "≈",
         MapSceneTruthKind.LocalLastKnown => "◎",
@@ -1672,7 +1686,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             MapSceneObjectKind.QuestObjective => "◇",
             // V2 rough package 17 (team): a waypoint labelled with its number draws that number,
             // so the marker and its row in a marks list read as one thing.
-            MapSceneObjectKind.Waypoint => item.Label.Length is > 0 and <= 3 && item.Label.All(char.IsAsciiDigit) ? item.Label : "◆",
+            MapSceneObjectKind.Waypoint => HasStepNumberLabel(item) ? item.Label : "◆",
             MapSceneObjectKind.Ping => "•",
             MapSceneObjectKind.Hazard => "!",
             MapSceneObjectKind.Lock => "⌑",
