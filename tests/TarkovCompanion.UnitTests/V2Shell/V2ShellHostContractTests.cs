@@ -57,14 +57,17 @@ public sealed class V2ShellHostContractTests
     [Fact]
     public void Capture_context_persistence_and_suggestions_are_real_bound_shell_surfaces()
     {
-        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+        // V2 rough package 17: search and suggestions moved into the Intel workspace view, which
+        // binds the same shell view model.
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml")) +
+            File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelWorkspaceView.axaml"));
 
         foreach (var binding in new[]
         {
             "CaptureIntents", "CaptureProgressItems", "CaptureAttentionActions", "CaptureReviewActions",
             "CaptureReference", "ProfileContextLabel", "LocalTimeLabel", "RaidContextLabel", "PlanContextLabel",
             "TeamContextLabel", "DeviceContextLabel", "SelectionContextLabel", "FilteredSuggestionItems",
-            "SuggestionFilters", "BrowseCategories", "PersistenceFailure", "RetryPersistenceCommand",
+            "SuggestionFilters", "PersistenceFailure", "RetryPersistenceCommand",
         })
         {
             Assert.Contains($"{{Binding {binding}}}", shell, StringComparison.Ordinal);
@@ -80,7 +83,8 @@ public sealed class V2ShellHostContractTests
     [Fact]
     public void Variant_placements_and_measured_narrow_reflow_are_bound_into_the_host()
     {
-        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml")) +
+            File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelWorkspaceView.axaml"));
         var model = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "ViewModels", "V2", "Shell", "V2ShellViewModel.cs"));
         var view = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml.cs"));
 

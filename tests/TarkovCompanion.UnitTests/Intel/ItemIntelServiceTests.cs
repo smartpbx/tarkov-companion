@@ -51,6 +51,51 @@ public sealed class ItemIntelServiceTests
     }
 
     [Fact]
+    public async Task PriceFactsListEveryTraderBestFirstAlongsideTheFleaFigures()
+    {
+        var item = Item("item-gpu", "Graphics card", ItemCategory.Barter) with { Description = "A video card." };
+        var updated = new DateTimeOffset(2026, 9, 17, 12, 0, 0, TimeSpan.Zero);
+        var price = new ItemPriceSnapshot(
+            1_200_000,
+            [
+                new TraderOffer("therapist", "Therapist", 90_000, Provenance),
+                new TraderOffer("mechanic", "Mechanic", 118_000, Provenance),
+            ],
+            1_180_000,
+            1_100_000,
+            1_260_000,
+            Provenance with { SourceUpdatedUtc = updated });
+        var service = new ItemIntelService(
+            new FakeItemRepository([item], price),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog());
+
+        var result = await service.GetAsync(item.Id, CancellationToken.None);
+
+        Assert.Equal("A video card.", result.Description);
+        var prices = Assert.IsType<V2IntelPriceFacts>(result.Prices);
+        Assert.Equal(1_200_000, prices.FleaRoubles);
+        Assert.Equal(1_100_000, prices.Low24HourRoubles);
+        Assert.Equal(1_260_000, prices.High24HourRoubles);
+        Assert.Equal(["Mechanic", "Therapist"], prices.Traders.Select(trader => trader.TraderName));
+        Assert.Equal(updated, prices.UpdatedUtc);
+    }
+
+    [Fact]
+    public async Task AnItemWithNoPriceHasNoPriceFacts()
+    {
+        var item = Item("item-unpriced", "Unpriced", ItemCategory.Barter);
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog());
+
+        var result = await service.GetAsync(item.Id, CancellationToken.None);
+
+        Assert.Null(result.Prices);
+    }
+
+    [Fact]
     public async Task KeyItemReportsWhatItOpensWhenTheCatalogHasFacts()
     {
         var item = Item("item-key", "Dorm 114 key", ItemCategory.Key);

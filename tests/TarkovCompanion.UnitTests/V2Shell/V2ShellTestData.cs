@@ -23,7 +23,7 @@ internal static class V2ShellTestData
     /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Items", "Ammo", "Keys", "Flea", "Events", "Loadout",
+        "Ammo", "Keys", "Flea", "Events", "Loadout",
     ];
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>
