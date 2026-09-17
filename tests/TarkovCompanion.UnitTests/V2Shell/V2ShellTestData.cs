@@ -13,12 +13,14 @@ internal static class V2ShellTestData
     /// (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's "Raid"
     /// page, the Loot route now hosts the real <c>LootScanView</c> instead (package 1, #282), and
     /// the Debrief route now hosts the real <c>DebriefWorkspaceView</c> instead (package 3, #291).
-    /// All three V1 pages remain reachable from V1 navigation; none is a V2 LegacyPage route any
-    /// more.
+    /// "Squad" and "Group" are absent for the same reason: the Team and Group routes now host the
+    /// real Team workspace (<c>V2RouteContent.Workspace</c>, package 9) instead of a passthrough
+    /// to either V1 page. All five V1 pages remain reachable from V1 navigation; none is a V2
+    /// LegacyPage route any more.
     /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Squad", "Group", "Items", "Ammo", "Keys",
+        "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "Settings",
     ];
 

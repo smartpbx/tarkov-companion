@@ -1,0 +1,121 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Team.TeamWorkspaceView"
+             x:DataType="vm:TeamWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
+             xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="Team" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-body" Text="{Binding ConnectionHealth}"
+                   AutomationProperties.AutomationId="v2-team-connection"
+                   AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Presence" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoPresence}" Text="Nobody else is sharing right now." />
+          <ItemsControl ItemsSource="{Binding Presence}" IsVisible="{Binding HasPresence}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TeamPresenceRowViewModel">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
+                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Name}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding SinceLabel}" />
+                  <Border Grid.Column="2" Background="{Binding StateColor}" CornerRadius="4" Padding="6,2">
+                    <TextBlock Text="{Binding StateLabel}" Foreground="Black" FontSize="11" />
+                  </Border>
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Marks" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoMarks}" Text="No waypoints or pings yet." />
+          <ItemsControl ItemsSource="{Binding Marks}" IsVisible="{Binding HasMarks}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
+                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Name}" />
+                  <StackPanel Grid.Column="1" Spacing="0">
+                    <TextBlock Classes="v2-label" Text="{Binding ByLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding MapId}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="0" HorizontalAlignment="Right">
+                    <TextBlock Classes="v2-label" Text="{Binding AgeLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
+                  </StackPanel>
+                  <Button Grid.Column="3" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Group" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" Text="{Binding Status}"
+                     AutomationProperties.AutomationId="v2-team-group-status"
+                     AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+          <CheckBox Content="Share this session" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+          <StackPanel Spacing="4">
+            <TextBlock Classes="v2-label" Text="Server address" />
+            <TextBox Classes="v2-field-input" Text="{Binding ServerUri, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="v2-team-server-input" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Classes="v2-label" Text="Display name" />
+            <TextBox Classes="v2-field-input" Text="{Binding DisplayName, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="v2-team-name-input" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Classes="v2-label" Text="Group key — type a new one to create a group, or an existing one to join it" />
+            <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}"
+                      AutomationProperties.AutomationId="v2-team-key-input" />
+          </StackPanel>
+          <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
+          <CheckBox Content="Share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
+          <WrapPanel ItemSpacing="8" LineSpacing="8">
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-team-save"
+                    Content="Save" Command="{Binding SaveCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-team-leave"
+                    Content="{Binding LeaveLabel}" Command="{Binding LeaveCommand}" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Your devices" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoDevices}" Text="No paired devices yet." />
+          <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="tabletVm:PairedDeviceRowViewModel">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
+                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding DisplayName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Status}" />
+                  <Button Grid.Column="2" Classes="v2-target" Content="Revoke" Command="{Binding RevokeCommand}"
+                          IsVisible="{Binding CanRevoke}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="v2-target" HorizontalAlignment="Left"
+                  AutomationProperties.AutomationId="v2-team-pair-tablet"
+                  Content="Pair a tablet" Command="{Binding PairTabletCommand}"
+                  IsEnabled="{Binding CanPairDevice}" />
+          <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
+                     IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
