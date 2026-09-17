@@ -37,6 +37,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private string _status = "Raid history has not been loaded.";
     private string _correctedOutcome = string.Empty;
     private string _correctedNotes = string.Empty;
+    private Func<string, string?> _mapName = _ => null;
 
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
@@ -63,7 +64,14 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     public bool HasSelection => _selected is not null;
 
-    public string SelectedMapLabel => _selected?.MapId ?? string.Empty;
+    public bool HasNoSelection => !HasSelection;
+
+    public string SelectedMapLabel => _selected?.MapId is { } mapId ? MapLabel(mapId) : string.Empty;
+
+    public string SelectedStartedLabel => _selected?.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown";
+
+    /// <summary>Package 17 (home): said once, beside the field it explains, instead of in the status line.</summary>
+    public string OutcomeHint { get; } = "The game doesn't record outcomes; enter one by hand.";
 
     public string SelectedModeLabel => _selected?.Mode ?? string.Empty;
 
@@ -104,6 +112,13 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
+    /// <summary>
+    /// Package 17 (home): shows a raid's map by its catalog name ("Customs") rather than the id the
+    /// history stores ("customs"); an id the catalog doesn't know is shown as it is.
+    /// </summary>
+    public void UseMapNames(Func<string, string?> mapName) =>
+        _mapName = mapName ?? throw new ArgumentNullException(nameof(mapName));
+
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
         try
@@ -112,7 +127,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             Raids = raids
                 .Select(raid => new DebriefRaidRowViewModel(
                     raid.Id,
-                    raid.MapId ?? "Unknown map",
+                    raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
                     raid.Mode,
                     raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
                     raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
@@ -123,9 +138,15 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     IsSelected = _selected?.Id == raid.Id,
                 })
                 .ToArray();
+            if (_selected is null && Raids.Count > 0)
+            {
+                // Master-detail: the newest raid is what a debrief is almost always about.
+                await SelectRaidAsync(Raids[0].RaidId, cancellationToken).ConfigureAwait(true);
+            }
+
             Status = Raids.Count == 0
                 ? "No raids recorded yet."
-                : $"{Raids.Count} raid(s). The game never records whether you survived, so Outcome is whatever was entered by hand.";
+                : Raids.Count == 1 ? "1 raid" : $"{Raids.Count.ToString(CultureInfo.CurrentCulture)} raids";
             RaiseAll();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -198,6 +219,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
     }
 
+    private string MapLabel(string mapId) => _mapName(mapId) is { Length: > 0 } name ? name : mapId;
+
     private static string Duration(RaidHistoryEntry? raid)
     {
         if (raid?.StartedUtc is not { } started)
@@ -205,8 +228,12 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             return "Unknown";
         }
 
-        var ended = raid.EndedUtc ?? started;
-        var elapsed = ended - started;
+        if (raid.EndedUtc is null)
+        {
+            return "In progress";
+        }
+
+        var elapsed = raid.EndedUtc.Value - started;
         return elapsed <= TimeSpan.Zero
             ? "Unknown"
             : elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\h\ mm\m" : @"mm\m\ ss\s", CultureInfo.InvariantCulture);
@@ -218,6 +245,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasRaids));
         OnPropertyChanged(nameof(HasNoRaids));
         OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(HasNoSelection));
+        OnPropertyChanged(nameof(SelectedStartedLabel));
         OnPropertyChanged(nameof(SelectedMapLabel));
         OnPropertyChanged(nameof(SelectedModeLabel));
         OnPropertyChanged(nameof(SelectedDurationLabel));
