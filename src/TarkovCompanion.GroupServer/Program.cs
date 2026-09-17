@@ -225,8 +225,16 @@ app.MapPost("/v2/companion/pairing/offers", async Task<IResult> (
         return Results.BadRequest("A pairing offer is required.");
     }
 
-    var result = mailbox.RegisterOffer(offer, request.Headers["Tarkov-Pairing-Code"].ToString());
-    return result.Succeeded ? Results.Ok() : Results.BadRequest(result.Code);
+    var remote = request.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+    var result = mailbox.RegisterOffer(offer, request.Headers["Tarkov-Pairing-Code"].ToString(), remote);
+    if (!result.Succeeded)
+    {
+        return result.Code == "rate-limited"
+            ? Results.StatusCode(StatusCodes.Status429TooManyRequests)
+            : Results.BadRequest(result.Code);
+    }
+
+    return Results.Ok();
 });
 
 app.MapPost("/v2/companion/pairing/offers/resolve", (HttpRequest request, CompanionPairingMailbox mailbox) =>
