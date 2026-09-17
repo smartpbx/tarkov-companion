@@ -4,12 +4,15 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.StashScan;
+using TarkovCompanion.Application.Services.Wiki;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Stash;
 using TarkovCompanion.UnitTests.V2Contracts;
@@ -109,6 +112,34 @@ public sealed class StashScanWorkspaceViewModelTests
 
         var pending = Assert.Single(viewModel.PendingCorrections);
         Assert.Equal("CorrectQuantity", pending.Action);
+    }
+
+    [Fact]
+    public async Task An_item_with_a_catalog_wiki_link_can_open_it_and_one_without_cannot()
+    {
+        var store = new FakeSnapshotStore();
+        store.Seed(Record());
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var wikiOpener = new FakeWikiLinkOpener();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()),
+            itemRepository: new FakeItemRepository(
+                new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["item-gas-analyzer"] = "https://escapefromtarkov.fandom.com/wiki/Gas_analyzer",
+                }),
+            wikiOpener: wikiOpener);
+
+        await viewModel.LoadAsync();
+
+        var row = Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer");
+        Assert.True(row.HasWikiLink);
+        row.OpenWikiCommand!.Execute(null);
+        Assert.Equal("https://escapefromtarkov.fandom.com/wiki/Gas_analyzer", wikiOpener.LastOpened);
     }
 
     private static StashScanWorkflow Workflow(IStashSnapshotStore store, InMemoryStashReviewCommandSink reviewCommands) =>
@@ -248,6 +279,45 @@ public sealed class StashScanWorkspaceViewModelTests
 
         public void Invalidate()
         {
+        }
+    }
+
+    private sealed class FakeItemRepository(IReadOnlyDictionary<string, string?> wikiUriByItemId) : IItemRepository
+    {
+        public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemDefinition?>(wikiUriByItemId.TryGetValue(itemId, out var wikiUri)
+                ? new ItemDefinition(
+                    itemId,
+                    itemId,
+                    itemId,
+                    string.Empty,
+                    ItemCategory.Unknown,
+                    new ItemDimensions(1, 1),
+                    FleaEligible: true,
+                    IconUri: null,
+                    ImageUri: null,
+                    WikiUri: wikiUri,
+                    PropertiesType: null,
+                    PropertiesJson: null,
+                    CategoryIds: new HashSet<string>(),
+                    Provenance: new DataProvenance("fixture", DateTimeOffset.UnixEpoch))
+                : null);
+
+        public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ItemSearchHit>>([]);
+
+        public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemPriceSnapshot?>(null);
+    }
+
+    private sealed class FakeWikiLinkOpener : IWikiLinkOpener
+    {
+        public string? LastOpened { get; private set; }
+
+        public bool TryOpen(string? wikiUrl)
+        {
+            LastOpened = wikiUrl;
+            return true;
         }
     }
 

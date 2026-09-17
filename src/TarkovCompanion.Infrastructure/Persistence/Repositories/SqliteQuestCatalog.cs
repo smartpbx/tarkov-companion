@@ -15,7 +15,7 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
         SELECT id, name, normalized_name, trader_id, min_player_level, faction_name,
                primary_map_id, restartable, kappa_required, lightkeeper_required,
                required_prestige_id, available_delay_seconds_min,
-               available_delay_seconds_max, source_game_modes_json, raw_json
+               available_delay_seconds_max, source_game_modes_json, wiki_url, raw_json
         FROM quest_catalog_tasks
         WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language
         ORDER BY id COLLATE BINARY;
@@ -77,7 +77,10 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
                 .ThenBy(value => value.Id, StringComparer.Ordinal)
                 .Select(value => value.ToDomain())
                 .ToArray(),
-            task.RawJson)).ToArray();
+            task.RawJson)
+            {
+                WikiUri = task.WikiUri,
+            }).ToArray();
 
         return new(snapshot.Provenance, tasks, snapshot.RawJson, snapshot.TranslatedJson);
     }
@@ -148,7 +151,8 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
                 NullableInt(reader, 11),
                 NullableInt(reader, 12),
                 JsonSerializer.Deserialize<string[]>(reader.GetString(13), SerializerOptions) ?? [],
-                reader.GetString(14)));
+                NullableString(reader, 14),
+                reader.GetString(15)));
         }
 
         return rows;
@@ -430,6 +434,7 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
         int? DelayMinimum,
         int? DelayMaximum,
         IReadOnlyList<string> SourceGameModes,
+        string? WikiUri,
         string RawJson);
 
     private sealed class RequirementBuilder(

@@ -165,6 +165,8 @@
                       <Button Command="{Binding SetCompletedCommand}" Content="Completed" Margin="0,0,6,6" />
                       <Button Command="{Binding SetFailedCommand}" Content="Failed" Margin="0,0,6,6" />
                       <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,6,6" />
+                      <Button Command="{Binding OpenWikiCommand}" Content="Wiki" Margin="0,0,6,6"
+                              IsVisible="{Binding HasWikiLink}" />
                     </WrapPanel>
 
                     <TextBlock Classes="sectionTitle" Text="Objectives" />
