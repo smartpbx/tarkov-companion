@@ -658,10 +658,11 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     transaction,
                     """
                     INSERT OR REPLACE INTO task_objective_items(
-                        objective_id, item_id, count, found_in_raid_required)
-                    VALUES ($objectiveId, $itemId, $count, $foundInRaid);
+                        task_id, objective_id, item_id, count, found_in_raid_required)
+                    VALUES ($taskId, $objectiveId, $itemId, $count, $foundInRaid);
                     """,
                     cancellationToken,
+                    ("$taskId", objective.TaskId),
                     ("$objectiveId", objective.Id),
                     ("$itemId", target.ItemId),
                     ("$count", objective.TargetCount ?? 1),

@@ -326,7 +326,6 @@ internal static class TarkovDevDatasetValidator
     {
         var tasks = Present(data.Tasks, sourceKey, "tasks dictionary");
         ValidateDictionaryIdentities(tasks, sourceKey, "task", value => value.Id);
-        var legacyObjectiveIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var task in tasks.Values)
         {
             RequiredText(task.Name, sourceKey, $"task '{task.Id}' name");
@@ -364,14 +363,12 @@ internal static class TarkovDevDatasetValidator
                 task.Id,
                 Present(task.Objectives, sourceKey, $"task '{task.Id}' objectives"),
                 sourceKey,
-                "objective",
-                legacyObjectiveIds);
+                "objective");
             ValidateObjectives(
                 task.Id,
                 Present(task.FailConditions, sourceKey, $"task '{task.Id}' failure conditions"),
                 sourceKey,
-                "failure condition",
-                globalIds: null);
+                "failure condition");
         }
     }
 
@@ -379,8 +376,7 @@ internal static class TarkovDevDatasetValidator
         string taskId,
         IReadOnlyList<TarkovDevTaskObjective> objectives,
         string sourceKey,
-        string kind,
-        HashSet<string>? globalIds)
+        string kind)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var objective in objectives)
@@ -401,11 +397,11 @@ internal static class TarkovDevDatasetValidator
             OptionalIdentifier(objective.QuestItem, sourceKey, $"task '{taskId}' {kind} quest item id");
             OptionalIdentifier(objective.MarkerItem, sourceKey, $"task '{taskId}' {kind} marker item id");
             OptionalIdentifier(objective.Task, sourceKey, $"task '{taskId}' {kind} target task id");
+            // Objective ids used to be globally unique across every task, but upstream now
+            // reuses one id for the same underlying objective shared by several tasks (e.g. a
+            // "find quest item" step common to a quest chain), so uniqueness is scoped to this
+            // task's own objective list rather than the whole catalog.
             Unique(ids, objective.Id, sourceKey, $"task '{taskId}' {kind} id");
-            if (globalIds is not null)
-            {
-                Unique(globalIds, objective.Id, sourceKey, "legacy objective id");
-            }
 
             if (objective.Count is < 0)
             {

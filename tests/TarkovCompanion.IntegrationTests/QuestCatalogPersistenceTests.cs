@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services;
+using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Infrastructure.Persistence;
@@ -66,6 +67,37 @@ public sealed class QuestCatalogPersistenceTests
         Assert.Equal(1, await CountAsync(database.Factory, "quest_catalog_snapshots"));
         Assert.Equal(1, await CountAsync(database.Factory, "quest_catalog_tasks"));
         Assert.Equal(23, await CountAsync(database.Factory, "quest_catalog_objectives"));
+    }
+
+    [Fact]
+    public async Task TasksSharingAnObjectiveIdEachKeepTheirOwnRequirementRowInsteadOfOverwriting()
+    {
+        // json.tarkov.dev reuses one objective id for the same underlying objective shared by
+        // several tasks (seen live on 2026-09-17: '6391d9ba4b15ca31f76bc325' on three tasks).
+        // task_objectives/task_objective_items used to be keyed by the objective id alone, so
+        // INSERT OR REPLACE silently kept only the last task's row (0013 re-keys both by
+        // (task_id, id)). This proves both tasks' item requirements now survive the same sync.
+        const string json = """
+            {"data":{"tasks":{
+                "task-a":{"id":"task-a","name":"Task A","objectives":[
+                    {"id":"shared","type":"giveItem","items":["item-a"],"count":1}]},
+                "task-b":{"id":"task-b","name":"Task B","objectives":[
+                    {"id":"shared","type":"giveItem","items":["item-b"],"count":1}]}
+            }}}
+            """;
+        await using var database = await TestDatabase.CreateAsync();
+        var catalog = ParseAndNormalize(json, GameMode.Regular);
+        var refresh = new SqliteDataRefreshRepository(database.Factory);
+
+        await refresh.RefreshTasksAsync(catalog, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, await CountAsync(database.Factory, "task_objectives"));
+        Assert.Equal(2, await CountAsync(database.Factory, "task_objective_items"));
+
+        var requirements = await new SqliteRequirementCatalog(database.Factory)
+            .GetQuestRequirementsAsync(TestContext.Current.CancellationToken);
+        Assert.Contains(requirements, requirement => requirement.TaskId == "task-a" && requirement.ItemId == "item-a");
+        Assert.Contains(requirements, requirement => requirement.TaskId == "task-b" && requirement.ItemId == "item-b");
     }
 
     [Fact]
@@ -314,6 +346,8 @@ public sealed class QuestCatalogPersistenceTests
             "quest_catalog_objectives",
             "profile_task_progress",
             "profile_objective_progress",
+            "task_objectives",
+            "task_objective_items",
         };
         if (!allowed.Contains(table))
         {

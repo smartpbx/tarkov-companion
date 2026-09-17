@@ -59,8 +59,9 @@ public sealed class SqliteRequirementCatalog(SqliteConnectionFactory connectionF
     /// requirement two or more times. This interface takes neither a game mode nor a language, so
     /// there is no honest way to pick a scope here, and reading them all would multiply every
     /// quest need by the number of scopes present. <c>task_objective_items</c> is the single
-    /// mode-agnostic projection and is keyed <c>(objective_id, item_id)</c>, so it cannot hold the
-    /// same requirement twice.
+    /// mode-agnostic projection and is keyed <c>(task_id, objective_id, item_id)</c> — upstream
+    /// reuses one objective id across several tasks for the same shared objective, so the task id
+    /// is part of the key too — and it cannot hold the same requirement twice.
     /// </para>
     /// <para>
     /// <c>found_in_raid_required</c> is real data on that table: the sync writes the objective's
@@ -165,18 +166,19 @@ public sealed class SqliteRequirementCatalog(SqliteConnectionFactory connectionF
             return [];
         }
 
-        // No collapsing pass here: the (objective_id, item_id) primary key already makes a
-        // duplicate impossible, and the join adds exactly one task row per objective. Several
+        // No collapsing pass here: the (task_id, objective_id, item_id) primary key already
+        // makes a duplicate impossible, and the join adds exactly one task row per objective. Several
         // rows for one objective are the objective's alternative items ("hand over A or B"), and
         // they must stay separate — the aggregation service counts each against its own item id,
         // so merging them would erase a need rather than double one.
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT objective.task_id, item.objective_id, item.item_id,
+            SELECT item.task_id, item.objective_id, item.item_id,
                    item.count, item.found_in_raid_required
             FROM task_objective_items AS item
-            JOIN task_objectives AS objective ON objective.id = item.objective_id
-            ORDER BY objective.task_id COLLATE BINARY, item.objective_id COLLATE BINARY,
+            JOIN task_objectives AS objective
+                ON objective.task_id = item.task_id AND objective.id = item.objective_id
+            ORDER BY item.task_id COLLATE BINARY, item.objective_id COLLATE BINARY,
                      item.item_id COLLATE BINARY;
             """;
         var requirements = new List<QuestItemRequirement>();
