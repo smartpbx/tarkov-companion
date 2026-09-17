@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -38,6 +39,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotImageLoader? _imageLoader;
     private readonly IScanUseCase? _scanUseCase;
     private readonly ICaptureSessionService? _captureSessions;
+    private readonly IProfileRuntimeContextService? _profileRuntimeContext;
     private readonly ScreenshotRetentionService? _retention;
     private readonly IScreenshotRetentionStore? _retentionSettings;
     private readonly RaidActivityCoordinator _coordinator;
@@ -82,6 +84,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         ScreenshotRetentionService? retention = null,
         IScreenshotRetentionStore? retentionSettings = null,
         ICaptureSessionService? captureSessions = null,
+        IProfileRuntimeContextService? profileRuntimeContext = null,
         TimeProvider? timeProvider = null)
     {
         _pathLocator = pathLocator;
@@ -92,6 +95,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _imageLoader = imageLoader;
         _scanUseCase = scanUseCase;
         _captureSessions = captureSessions;
+        _profileRuntimeContext = profileRuntimeContext;
         _retention = retention;
         _retentionSettings = retentionSettings;
         _squad = squad;
@@ -652,17 +656,16 @@ public sealed class RaidObservationService : IAsyncDisposable
             try
             {
                 var current = _stateStore.Current;
+                var activeProfile = _profileRuntimeContext?.Current.ActiveProfile;
                 var context = new CaptureContextMetadata(
                     activeWorkspace: null,
-                    // The legacy runtime profile is not a canonical v2 ProfileContext. The
-                    // composition owner must supply that contract when capture sessions are
-                    // registered; do not mislabel this intake with the legacy identifier.
-                    activeProfile: null,
+                    activeProfile: activeProfile?.Context.Identity.ProfileId.ToString("D"),
                     activeMap: current.Raid.MapId,
                     activePlan: null,
                     selectedEntity: null,
                     priorScan: null,
-                    initiatingDevice: "desktop");
+                    initiatingDevice: "desktop",
+                    profileContext: activeProfile?.Context);
                 var receipt = await _captureSessions.EnqueueAsync(
                         new(
                             CaptureDeliveryKind.WatchedFile,

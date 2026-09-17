@@ -16,6 +16,9 @@ public enum V2RouteContent
 
     /// <summary>One item's facts, with their source and age.</summary>
     ItemIntel,
+
+    /// <summary>The Loot Scan review surface: one frozen capture's take/swap/leave/review decisions.</summary>
+    LootScan,
 }
 
 /// <summary>
@@ -93,7 +96,7 @@ public sealed class V2RouteRegistry
             ShowsReadiness: true, ShowsContinue: true),
         new(V2Routes.Raid, [V2Capabilities.Raid], V2RouteContent.LegacyPage, "V2.Shell.Route.Raid", "Raid",
             UsesGameData: true),
-        new(V2Routes.Loot, [V2Capabilities.LootDecision], V2RouteContent.LegacyPage, "V2.Shell.Route.Loot", "Scanner",
+        new(V2Routes.Loot, [V2Capabilities.LootDecision], V2RouteContent.LootScan, "V2.Shell.Route.Loot",
             Parent: V2Routes.Raid, UsesGameData: true),
         new(V2Routes.Items, [V2Capabilities.ItemSearch], V2RouteContent.LegacyPage, "V2.Shell.Route.Items", "Items",
             UsesGameData: true),
