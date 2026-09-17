@@ -293,8 +293,72 @@ traffic key, the same way this file's group routes never see anything the client
 publish. A code is rate-limited per source the same way `/admin/rooms` gates by key, but consumed
 under `NormalizePairingCode`, not `GroupKey`.
 
-This is the pairing hop only. The established session's own traffic — commands, marks, capture
-arming — has no relay route yet; see the package PR for why and what is deferred.
+This is the pairing hop only. Once a session is established, its own traffic — commands, marks,
+capture arming — travels as an `OpaqueRelayFrame` over the routes below (v2r-relay-owner), not
+through this mailbox.
+
+## Claiming the relay's owner (v2r-relay-owner)
+
+`RelayDeviceRegistry` and `OpaqueRelayFrameHub` route a paired session's opaque traffic once a
+relay has an owner, but nothing bootstraps that first owner on its own — pairing always needs an
+*existing* owner to approve it. An operator claims it once, with the relay's own admin key:
+
+    POST /admin/relay/claim
+    X-Admin-Key: <the operator's admin key>
+    Content-Type: application/json
+
+    {"offer": {...}, "desktopNonceBase64Url": "...", "codeConsumedUtc": "...",
+     "request": {...}, "challenge": {...}, "establishment": {...}}
+
+The desktop builds this body itself (`DesktopRelayOwnerClaim`): a real, self-consistent completed
+pairing that names the desktop's own identity key as the device, without a second device to run
+the ordinary two-party WebAuthn ceremony against. The relay never re-verifies that proof itself —
+for an ordinary pairing it trusts an already-authenticated owner's session to have run it; here,
+with no owner yet, the admin key is the entire authorization boundary. It requires
+`TARKOV_RELAY_OWNER_RECOVERY_SECRET` (protected operator configuration, standard base64, at least
+32 decoded bytes — `openssl rand -base64 32`) to be set alongside `TARKOV_RELAY_ADMIN_KEY`; without
+it the route refuses outright with 501, the same fail-closed shape `RelayAdmin` uses. The secret
+binds `OwnerRecoveryProtector`'s single-use, two-minute recovery grant to the claiming device's key
+thumbprint. The claim route is rate limited per source and relay-wide
+(`RelayOwnerClaimGate`), on top of the admin key check.
+
+    GET /admin/relay/owner
+    X-Admin-Key: <the operator's admin key>
+
+    {"claimed": true, "ownerDeviceId": "…"}
+
+From the desktop app: Setup → Team & Devices → Companion pairing → "Claim this relay". The admin
+key is typed once and never stored; the panel checks status first so a relay already claimed by
+another desktop is reported without spending this desktop's own rate-limit budget on an attempt
+that can only fail.
+
+Once claimed, the owner registers each paired tablet on the relay too (separately from the
+desktop's own local `DesktopCompanionAuthority` record of it), bearer-authenticated with the
+session `/admin/relay/claim` returned:
+
+    POST /v2/companion/relay/devices
+    X-Relay-Session: <session id>
+    X-Relay-Credential: <bearer secret>
+
+    {"pairing": {...same five fields as the claim body...}, "role": "Member", "surface": "TabletLandscape"}
+
+and from then on both sides exchange `OpaqueRelayFrame`s the same way:
+
+    POST /v2/companion/relay/frames        (publish one frame)
+    GET  /v2/companion/relay/frames?after=<deliveryId>
+    POST /v2/companion/relay/frames/{deliveryId}/ack
+
+Bearer headers rather than a cookie, because the caller is always a native `HttpClient` the
+desktop or tablet code sets explicitly, never a browser attaching an ambient credential — so CSRF,
+which only defends against that ambient attachment, does not apply here.
+
+**First live payload: marks.** A mark a tablet places or removes reaches the desktop's own local
+mark store (`IRaidMarkStore`) through this transport today: the tablet's `UpsertMarkCommand`/
+`DeleteMarkCommand`, sealed inside a `ClientCommandEnvelope`, is applied through the existing,
+already-tested `DesktopCompanionAuthority.ApplyCommandAsync`, and `RelayMarksBridge` reconciles the
+result into the desktop's map. The other direction — a mark the desktop already had, or places
+locally, reaching the tablet — and the tablet page's own frame sealing/opening are deferred; see
+the package PR's "Deferred to polish".
 
 ## Which version everything speaks
 

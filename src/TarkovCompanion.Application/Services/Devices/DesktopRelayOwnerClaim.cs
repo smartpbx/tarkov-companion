@@ -1,7 +1,4 @@
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 
@@ -35,19 +32,8 @@ public sealed record DesktopRelayOwnerClaimMaterial(
     /// with each nested field written through the same <see cref="CompanionProtocolJson"/> boundary
     /// the relay reads it back through.
     /// </summary>
-    public byte[] ToJsonBody()
-    {
-        var body = new JsonObject
-        {
-            ["offer"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Offer)),
-            ["desktopNonceBase64Url"] = DesktopNonceBase64Url,
-            ["codeConsumedUtc"] = CodeConsumedUtc,
-            ["request"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Request)),
-            ["challenge"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Challenge)),
-            ["establishment"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Establishment)),
-        };
-        return Encoding.UTF8.GetBytes(body.ToJsonString());
-    }
+    public byte[] ToJsonBody() =>
+        RelayDeviceClaimWireFormat.Build(Offer, DesktopNonceBase64Url, CodeConsumedUtc, Request, Challenge, Establishment);
 }
 
 /// <summary>
@@ -85,6 +71,10 @@ public static class DesktopRelayOwnerClaim
         DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(signer);
+        // Every protocol timestamp built below requires exact millisecond precision
+        // (ProtocolGuard.Utc); TimeProvider.System.GetUtcNow() is sub-millisecond, so a caller
+        // passing it through unmodified would fail every constructor below.
+        now = MillisecondUtc(now);
         var desktopIdentityKey = signer.PublicKey;
 
         using var offerEphemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
@@ -182,6 +172,12 @@ public static class DesktopRelayOwnerClaim
             DeviceKeyAlgorithm.WebAuthnEs256,
             Base64Url(RandomNumberGenerator.GetBytes(16)),
             Base64Url(cose));
+    }
+
+    private static DateTimeOffset MillisecondUtc(DateTimeOffset value)
+    {
+        var utc = value.ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
     private static string Base64Url(ReadOnlySpan<byte> bytes) =>

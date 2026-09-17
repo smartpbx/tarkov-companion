@@ -85,12 +85,17 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private readonly DesktopCompanionAuthority _authority;
     private readonly DesktopPairingCoordinator? _coordinator;
     private readonly IDesktopIdentitySigner? _identitySigner;
+    private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
     private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _ceremony;
     private PairingAttemptId _attemptId;
     private DesktopPairingApproval? _approval;
+    private PairingOffer? _offer;
+    private PairingRequest? _request;
+    private HandshakeChallenge? _challenge;
+    private PairingDeviceGrant? _grant;
 
     private CompanionPairingStage _stage = CompanionPairingStage.Idle;
     private string? _qrPayload;
@@ -107,17 +112,20 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     public CompanionPairingViewModel(
         DesktopCompanionAuthority authority,
         CompanionPairingAvailability availability,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        RelayMarksBridge? relayMarksBridge = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(availability);
         _authority = authority;
         _coordinator = availability.Coordinator;
         _identitySigner = availability.IdentitySigner;
+        _relayMarksBridge = relayMarksBridge;
         _timeProvider = timeProvider ?? TimeProvider.System;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
             _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
+            _relayMarksBridge?.Configure(origin);
         }
 
         RefreshDevices();
@@ -304,6 +312,12 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             {
                 RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
                 RelayClaimMessage = "Claimed. This desktop is now the relay's owner.";
+                var claimedJson = await response.Content.ReadAsStringAsync(_lifetime.Token).ConfigureAwait(true);
+                var credential = JsonSerializer.Deserialize<RelaySessionCredentialResponse>(claimedJson, JsonOptions);
+                if (credential is not null)
+                {
+                    _relayMarksBridge?.SetOwnerCredential(credential.SessionId, credential.Credential, credential.ExpiresUtc);
+                }
             }
             else if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
@@ -353,6 +367,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     private sealed record RelayOwnerStatusResponse(bool Claimed, string? OwnerDeviceId);
 
+    private sealed record RelaySessionCredentialResponse(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
+
     public void Dispose()
     {
         _ceremony?.Cancel();
@@ -385,6 +401,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         {
             var invitation = await _coordinator.CreateInvitationAsync(Now()).ConfigureAwait(true);
             _attemptId = invitation.Offer.AttemptId;
+            _offer = invitation.Offer;
             var registered = await PostAsync(
                 "v2/companion/pairing/offers",
                 invitation.Offer,
@@ -449,6 +466,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             var approval = await _coordinator.BindRequestAsync(request, CompanionProtocolVersion.Current, Now())
                 .ConfigureAwait(true);
             _approval = approval;
+            _request = request;
             await PostAsync(
                 "v2/companion/pairing/reveals",
                 approval.NonceReveal,
@@ -493,11 +511,13 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 Now().AddDays(90),
                 CompanionTransportKind.EndToEndRelay,
                 CompanionSurfaceKind.TabletLandscape);
+            _grant = grant;
             var challenge = await _coordinator.ApproveAsync(
                 _attemptId,
                 userConfirmedMatchingVerificationCode: true,
                 grant,
                 Now()).ConfigureAwait(true);
+            _challenge = challenge;
             await PostAsync("v2/companion/pairing/challenges", challenge, _attemptId, _ceremony!.Token)
                 .ConfigureAwait(true);
             Stage = CompanionPairingStage.Completing;
@@ -551,6 +571,26 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 .ConfigureAwait(true);
             await PostAsync("v2/companion/pairing/established", session.Establishment, _attemptId, cancellationToken)
                 .ConfigureAwait(true);
+            if (_relayMarksBridge is not null && _offer is not null && _request is not null &&
+                _challenge is not null && _approval is not null && _grant is not null)
+            {
+                // Registers this same completed pairing on the relay (separately from the local
+                // DesktopCompanionAuthority record RegisterPairingAsync just made) so the hub can
+                // route the new tablet's opaque frames, and delivers its starting canonical
+                // snapshot. Best-effort: a relay that is unreachable or not yet claimed leaves the
+                // pairing itself intact — only live sync for this device is unavailable.
+                await _relayMarksBridge.RegisterPairedDeviceAsync(
+                    _offer,
+                    _approval.NonceReveal.DesktopNonceBase64Url,
+                    _offer.OfferedUtc,
+                    _request,
+                    _challenge,
+                    session,
+                    _grant.Role,
+                    _grant.Surface,
+                    cancellationToken).ConfigureAwait(true);
+            }
+
             StatusMessage = $"Paired \"{RequestedDisplayName}\".";
             RefreshDevices();
             ResetCeremony();
@@ -606,6 +646,10 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         _ceremony?.Dispose();
         _ceremony = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _approval = null;
+        _offer = null;
+        _request = null;
+        _challenge = null;
+        _grant = null;
         QrPayload = null;
         PairingCode = null;
         RequestedDisplayName = null;
@@ -613,7 +657,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         Stage = CompanionPairingStage.Idle;
     }
 
-    private DateTimeOffset Now() => _timeProvider.GetUtcNow();
+    // DesktopPairingCoordinator (and every protocol record it builds) requires exact
+    // millisecond-precision UTC and throws otherwise; TimeProvider.System.GetUtcNow() is
+    // sub-millisecond, so every real (non-test-clock) pairing ceremony call needs this truncated.
+    private DateTimeOffset Now()
+    {
+        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
+    }
 
     private async Task<bool> PostAsync<T>(
         string path,

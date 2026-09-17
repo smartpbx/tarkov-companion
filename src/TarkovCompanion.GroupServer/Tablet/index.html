@@ -115,8 +115,9 @@
         <button type="button">Arm: Ammo</button>
         <button type="button">Arm: Map</button>
       </div>
-      <p class="note" id="pairingArmNote">This device is authenticated and paired. Live sync — marks, capture
-        arming, and desktop navigation — is not implemented in this rough pass.</p>
+      <p class="note" id="pairingArmNote">This device is authenticated and paired. The desktop and relay can
+        now carry live marks between a claimed relay and a paired tablet (v2r-relay-owner); this page does
+        not send or receive them yet. Capture arming and desktop navigation are not implemented in this rough pass.</p>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
@@ -1195,10 +1196,12 @@
           throw new Error("The desktop's session confirmation did not match. This pairing was not completed.");
         }
 
-        // Pairing is complete: the device is registered with the desktop's authority and can be
-        // seen and revoked from its pairing panel. tabletToDesktopKey/desktopToTabletKey and
-        // established.assignment (deviceId, sessionId, relayChannelId) are what a live frame
-        // relay would use next; this rough pass stops here (see the package PR).
+        // Pairing is complete: the device is registered with the desktop's authority and (once
+        // the desktop has claimed the relay) with the relay's own device registry too, so
+        // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). This page still
+        // does not seal or open a frame with tabletToDesktopKey/desktopToTabletKey, or hold the
+        // relay session credential POST /v2/companion/relay/devices issued for this device — that
+        // last-mile transport is deferred; see the package PR's "Deferred to polish".
         void tabletToDesktopKey;
         void desktopToTabletKey;
         return;

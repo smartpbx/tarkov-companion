@@ -38,6 +38,22 @@ public sealed class DesktopRelayOwnerClaimTests
     }
 
     [Fact]
+    public void BuildToleratesSubMillisecondNowFromARealClock()
+    {
+        // TimeProvider.System.GetUtcNow() (what production actually passes) is sub-millisecond
+        // precision; every protocol timestamp Build produces requires exact millisecond precision.
+        // A `now` that lands exactly on a millisecond boundary, like every other test's fixed
+        // clock, would never have caught a regression here.
+        using var signer = new TestIdentitySigner();
+        var now = TimeProvider.System.GetUtcNow();
+        Assert.NotEqual(0, now.Ticks % TimeSpan.TicksPerMillisecond);
+
+        var material = DesktopRelayOwnerClaim.Build(signer, new CompanionDeviceId(Guid.NewGuid()), now);
+
+        Assert.Equal(0, material.Establishment.EstablishedUtc.Ticks % TimeSpan.TicksPerMillisecond);
+    }
+
+    [Fact]
     public void BuildIsDeterministicallyDistinctPerCall()
     {
         using var signer = new TestIdentitySigner();
