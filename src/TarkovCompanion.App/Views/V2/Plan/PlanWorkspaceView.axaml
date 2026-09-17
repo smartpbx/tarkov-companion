@@ -2,7 +2,8 @@
              x:DataType="vm:PlanWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
   <UserControl.Styles>
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
     <Style Selector="Button.v2-plan-bundle">
@@ -35,11 +36,13 @@
     <Style Selector="Button.v2-plan-link.v2-plan-link-action">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
-    <Style Selector="Border.v2-plan-card">
-      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    <!-- The map card, like the Raid workspace's: canvas behind the artwork, clipped corners. -->
+    <Style Selector="Border.v2-plan-mapcard">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="ClipToBounds" Value="True" />
     </Style>
     <Style Selector="Border.v2-plan-section">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -97,9 +100,10 @@
 
   <!-- V2 rough package 17: laid out like docs/design/v2/v2-plan-workspace-concept.png. Left, the
        "next raid" column of map bundles (one per map with active objectives) plus the Hideout card;
-       centre, the selected map's objectives as numbered steps; right, a context panel with that
-       map's quests and the one primary action, Open in Raid. The concept's centre map, traffic,
-       loadout readiness and route estimate have no data source yet, so they are not drawn. -->
+       centre, that map drawn by the V2 renderer with only its active objectives, numbered; right,
+       the numbered objectives list and the one primary action, Open in Raid. The concept's traffic,
+       route, requirements, loadout readiness and route estimate have no data source yet, so they
+       are not drawn. -->
   <Grid ColumnDefinitions="340,*,Auto">
     <!-- Left column -->
     <Border Grid.Column="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
@@ -181,63 +185,84 @@
       </Grid>
     </Border>
 
-    <!-- Centre: the selected map's objectives as numbered steps. -->
-    <Border Grid.Column="1" Classes="v2-plan-card" Margin="16,8,16,16">
+    <!-- Centre: the selected map with its active objectives, numbered like the list. -->
+    <Border Grid.Column="1" Classes="v2-plan-mapcard" Margin="16,8,16,16">
       <Grid>
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" TextAlignment="Center"
                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Opacity="0.8"
                    Text="Nothing planned yet. Active quest objectives appear here, grouped by map." />
-        <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasSelectedGroup}">
-          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,20,8" DataContext="{Binding SelectedGroup}">
-            <StackPanel x:DataType="vm:PlanMapGroupViewModel" Spacing="2">
-              <TextBlock Classes="v2-heading-2" Text="Objectives" AutomationProperties.HeadingLevel="2" />
-              <TextBlock Classes="v2-label" Text="{Binding Summary}" />
-            </StackPanel>
-          </Grid>
-          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" DataContext="{Binding SelectedGroup}">
-            <ItemsControl x:DataType="vm:PlanMapGroupViewModel" ItemsSource="{Binding Objectives}" Margin="8,0,8,12"
-                          MaxWidth="1400" HorizontalAlignment="Left">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:PlanObjectiveRowViewModel">
-                  <Grid ColumnDefinitions="Auto,*">
-                    <!-- The step rail: a numbered ring, joined to the next by a line. -->
-                    <Grid Grid.Column="0" RowDefinitions="Auto,*" Width="44" Margin="4,0,0,0">
-                      <Panel Grid.Row="0" Width="32" Height="32" Margin="0,10,0,0">
-                        <Ellipse Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2" />
-                        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Number}"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                      </Panel>
-                      <Rectangle Grid.Row="1" Width="2" Fill="{DynamicResource V2.Brush.Action}" Opacity="0.45"
-                                 HorizontalAlignment="Center" Margin="0,4,0,-10" IsVisible="{Binding HasNext}" />
-                    </Grid>
-                    <Border Grid.Column="1" Classes="v2-plan-step-row" Margin="0,0,0,4">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                        <StackPanel Grid.Column="0" Spacing="4">
-                          <WrapPanel ItemSpacing="10">
-                            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding TaskName}" />
-                            <TextBlock Classes="v2-label" Text="{Binding TraderLabel}" VerticalAlignment="Center" />
-                          </WrapPanel>
-                          <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap"
-                                     Foreground="{DynamicResource V2.Brush.TextSecondary}" />
-                          <WrapPanel ItemSpacing="8" LineSpacing="4" Margin="0,2,0,0">
-                            <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
-                              <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
-                            </Border>
-                            <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" VerticalAlignment="Center"
-                                       IsVisible="{Binding HasRemainingLabel}" />
-                            <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}"
-                                       VerticalAlignment="Center" />
-                          </WrapPanel>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Top">
-                          <Button Classes="v2-target v2-plan-link" Command="{Binding MarkObjectiveDoneCommand}"
+        <TextBlock Classes="v2-body" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.8"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                   IsVisible="{Binding MapNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Text="{Binding MapNote}" />
+        <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself, whose own
+             DataContext is overridden to MapPreview (same as the Raid workspace). -->
+        <ContentControl IsVisible="{Binding HasMapPreview}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        AutomationProperties.AutomationId="v2-plan-map">
+          <map:MapSceneRendererView DataContext="{Binding MapPreview}" />
+        </ContentControl>
+      </Grid>
+    </Border>
+
+    <!-- Right: the selected map's context panel, its objectives list, and Open in Raid. -->
+    <Border Grid.Column="2" Width="440" Classes="v2-plan-panel">
+      <Panel>
+        <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasSelectedGroup}" TextWrapping="Wrap"
+                   Text="Pick a map to see its objectives." />
+        <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
+             would resolve IsVisible against SelectedGroup. -->
+        <Panel IsVisible="{Binding HasSelectedGroup}">
+        <Grid RowDefinitions="Auto,*,Auto" DataContext="{Binding SelectedGroup}">
+          <StackPanel Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
+            <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
+                       TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+          </StackPanel>
+          <Border Grid.Row="1" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section v2-plan-accent"
+                  Margin="16,0,16,12" Padding="12,12,8,8">
+            <Grid RowDefinitions="Auto,*">
+              <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
+              <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Objectives}" Margin="0,0,8,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlanObjectiveRowViewModel">
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <!-- The step rail: a numbered ring, joined to the next by a line. -->
+                        <Grid Grid.Column="0" RowDefinitions="Auto,*" Width="34">
+                          <Panel Grid.Row="0" Width="28" Height="28" Margin="0,6,0,0">
+                            <Ellipse Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2" />
+                            <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding Number}"
+                                       Foreground="{DynamicResource V2.Brush.TextPrimary}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          </Panel>
+                          <Rectangle Grid.Row="1" Width="2" Fill="{DynamicResource V2.Brush.Action}" Opacity="0.45"
+                                     HorizontalAlignment="Center" Margin="0,2,0,-2" IsVisible="{Binding HasNext}" />
+                        </Grid>
+                        <Border Grid.Column="1" Classes="v2-plan-step-row" Padding="8,6" Margin="0,0,0,6">
+                          <StackPanel Spacing="3">
+                            <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" TextWrapping="Wrap">
+                              <Run Text="{Binding TaskName}" />
+                              <Run Text=" · " />
+                              <Run Text="{Binding TraderLabel}" />
+                            </TextBlock>
+                            <WrapPanel ItemSpacing="8" LineSpacing="4">
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
+                                <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                              </Border>
+                              <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" VerticalAlignment="Center"
+                                         IsVisible="{Binding HasRemainingLabel}" />
+                              <TextBlock Classes="v2-label" Text="No map position" VerticalAlignment="Center" Opacity="0.8"
+                                         IsVisible="{Binding ShowsNoMapPosition}" />
+                              <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}"
+                                         VerticalAlignment="Center" />
+                            </WrapPanel>
+                          </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2,0,0">
+                          <Button Classes="v2-target v2-icon-btn v2-plan-link" Command="{Binding MarkObjectiveDoneCommand}"
                                   AutomationProperties.Name="Mark objective done" ToolTip.Tip="Mark objective done">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                              <Viewbox Width="18" Height="18">
-                                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Check}" />
-                              </Viewbox>
-                              <TextBlock Text="Done" VerticalAlignment="Center" />
-                            </StackPanel>
+                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Check}" />
                           </Button>
                           <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="More actions"
                                   ToolTip.Tip="More actions">
@@ -254,74 +279,13 @@
                           </Button>
                         </StackPanel>
                       </Grid>
-                    </Border>
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
-        </Grid>
-      </Grid>
-    </Border>
-
-    <!-- Right: the selected map's context panel. -->
-    <Border Grid.Column="2" Width="420" Classes="v2-plan-panel">
-      <Panel>
-        <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasSelectedGroup}" TextWrapping="Wrap"
-                   Text="Pick a map to see its quests." />
-        <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
-             would resolve IsVisible against SelectedGroup. -->
-        <Panel IsVisible="{Binding HasSelectedGroup}">
-        <Grid RowDefinitions="*,Auto" DataContext="{Binding SelectedGroup}">
-          <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:DataType="vm:PlanMapGroupViewModel" Spacing="12" Margin="16,12,16,12">
-              <StackPanel Spacing="2">
-                <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
-                           TextTrimming="CharacterEllipsis" />
-                <TextBlock Classes="v2-label" Text="{Binding Summary}" />
-              </StackPanel>
-              <Border Classes="v2-plan-section v2-plan-accent">
-                <StackPanel Spacing="10">
-                  <TextBlock Classes="v2-heading-3" Text="Quests" />
-                  <ItemsControl ItemsSource="{Binding Quests}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:PlanQuestSummaryViewModel">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                          <Viewbox Width="18" Height="18" VerticalAlignment="Top" Margin="0,2,0,0">
-                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clipboard}" />
-                          </Viewbox>
-                          <StackPanel Grid.Column="1" Spacing="1">
-                            <TextBlock Classes="v2-body" Text="{Binding Name}" TextWrapping="Wrap" />
-                            <TextBlock Classes="v2-label" Text="{Binding TraderLabel}" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding ObjectivesLabel}" VerticalAlignment="Top"
-                                     Margin="0,2,0,0" />
-                        </Grid>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
-              <!-- What the objectives ask for, where the catalog says: found in raid or hand in. -->
-              <Border Classes="v2-plan-section" IsVisible="{Binding HasItemObjectives}">
-                <StackPanel Spacing="8">
-                  <TextBlock Classes="v2-heading-3" Text="Items" />
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Classes="v2-body" Text="Found in raid" />
-                    <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding FindInRaidCount}" />
-                  </Grid>
-                  <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Classes="v2-body" Text="Hand in" />
-                    <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding HandInCount}" />
-                  </Grid>
-                </StackPanel>
-              </Border>
-            </StackPanel>
-          </ScrollViewer>
-          <StackPanel Grid.Row="1" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+          <StackPanel Grid.Row="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
             <Button Classes="v2-target v2-plan-primary" Command="{Binding OpenInRaidCommand}"
                     IsVisible="{Binding CanOpenInRaid}"
                     AutomationProperties.AutomationId="v2-plan-open-in-raid"

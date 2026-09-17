@@ -1,10 +1,18 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.V2.MapRenderer;
+using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -12,6 +20,7 @@ namespace TarkovCompanion.App.ViewModels.V2.Plan;
 public sealed class PlanObjectiveRowViewModel : BindableViewModel
 {
     private readonly PlanWorkspaceViewModel _owner;
+    private bool? _hasMapPosition;
 
     internal PlanObjectiveRowViewModel(
         QuestSummaryReadModel task,
@@ -60,6 +69,26 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     public bool HasHandlingLabel => HandlingLabel.Length > 0;
 
     public string RemainingLabel => PlanWorkspaceViewModel.DescribeRemaining(Objective);
+
+    /// <summary>
+    /// False once the centre map is showing this objective's map and the projection had no
+    /// position for it; null while that is not known yet, so no note flickers in before the map.
+    /// </summary>
+    public bool? HasMapPosition
+    {
+        get => _hasMapPosition;
+        internal set
+        {
+            if (_hasMapPosition != value)
+            {
+                _hasMapPosition = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(ShowsNoMapPosition));
+            }
+        }
+    }
+
+    public bool ShowsNoMapPosition => HasMapPosition == false;
 
     /// <summary>A bare recorded state ("Unknown") says nothing on the page; only counts are shown.</summary>
     public bool HasRemainingLabel => Objective.TargetCount is not null || Objective.RecordedCount is not null;
@@ -133,6 +162,9 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool HasItemObjectives => FindInRaidCount + HandInCount > 0;
 
+    /// <summary>"Objectives (4)", the context panel's list heading.</summary>
+    public string ObjectivesHeading => $"Objectives ({Objectives.Count})";
+
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
 
@@ -169,6 +201,14 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private readonly IWikiLinkOpener _wikiOpener;
     private readonly IMapDataService? _mapData;
     private Dictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly RaidCockpitViewModel? _raidCockpit;
+    private readonly IRuntimeStateStore? _runtime;
+    private readonly QuestMapProjectionService? _projection;
+    private readonly Dictionary<string, IReadOnlyList<QuestMapObjectiveProjection>> _projected = new(StringComparer.OrdinalIgnoreCase);
+    private string? _projectingMapId;
+    private MapSceneRendererViewModel? _mapPreview;
+    private string? _mapPreviewSignature;
+    private string _mapNote = string.Empty;
     private QuestBoardReadModel? _board;
     private QuestProfileScope? _scope;
     private bool _showAll;
@@ -186,7 +226,13 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // V2 rough package 17: quest objectives name maps by game-data id, which the map
         // catalog behind MapViewModel does not key on, so the groups showed raw ids. Optional so
         // a composition without the synced map table still builds this.
-        IMapDataService? mapData = null)
+        IMapDataService? mapData = null,
+        // Package 17: the centre map is a second scene built by the Raid cockpit (see
+        // RaidCockpitViewModel.CreateObjectivePreview); the runtime store keeps Plan from moving
+        // the shared map away from a raid in progress. Both optional, like mapData.
+        RaidCockpitViewModel? raidCockpit = null,
+        IRuntimeStateStore? runtime = null,
+        QuestMapProjectionService? projection = null)
     {
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
@@ -194,6 +240,13 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _wikiOpener = wikiOpener ?? throw new ArgumentNullException(nameof(wikiOpener));
         _mapData = mapData;
+        _raidCockpit = raidCockpit;
+        _runtime = runtime;
+        _projection = projection;
+        if (_raidCockpit is not null)
+        {
+            _raidCockpit.SceneRebuilt += (_, _) => RefreshMapPreview();
+        }
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
         // The map catalog usually finishes loading after the first quest board read; the groups
@@ -203,6 +256,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             if (e.PropertyName == nameof(MapViewModel.Locations))
             {
                 ApplyFilter();
+            }
+            else if (e.PropertyName == nameof(MapViewModel.RenderModel))
+            {
+                RefreshMapPreview();
             }
         };
     }
@@ -251,7 +308,42 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedGroup));
+            _ = FollowSelectedGroupAsync();
         }
+    }
+
+    /// <summary>The selected map with only its active objectives, numbered like the list.</summary>
+    public MapSceneRendererViewModel? MapPreview
+    {
+        get => _mapPreview;
+        private set
+        {
+            if (!ReferenceEquals(_mapPreview, value))
+            {
+                if (_mapPreview is not null)
+                {
+                    _mapPreview.ViewChangeRequested -= MapPreviewViewChangeRequested;
+                }
+
+                _mapPreview = value;
+                if (value is not null)
+                {
+                    value.ViewChangeRequested += MapPreviewViewChangeRequested;
+                }
+
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasMapPreview));
+            }
+        }
+    }
+
+    public bool HasMapPreview => MapPreview is not null;
+
+    /// <summary>Why the centre map is not showing: short, plain, never an error dump.</summary>
+    public string MapNote
+    {
+        get => _mapNote;
+        private set => SetProperty(ref _mapNote, value);
     }
 
     public bool HasSelectedGroup => SelectedGroup is not null;
@@ -298,6 +390,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
+            _projected.Clear();
             ApplyFilter();
             Status = _board.UnavailableReason ?? (HasGroups
                 ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
@@ -362,6 +455,257 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         string.Create(CultureInfo.CurrentCulture, $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
 
     private Task OpenInRaidAsync(string mapId) => ShowOnMapAsync(mapId);
+
+    /// <summary>The map catalog location a game-data map id belongs to, if the catalog has it.</summary>
+    private string? LocationIdFor(string gameMapId) => _map.Locations
+        .FirstOrDefault(location => IsLocationOf(location, gameMapId))
+        ?.Id;
+
+    /// <summary>
+    /// Whether a map catalog location is the game-data map a quest names. The catalog does not
+    /// always publish the game-data id (its entries can carry only the normalized name), so a
+    /// location also matches by the synced maps table's name for that id.
+    /// </summary>
+    private bool IsLocationOf(MapLocation location, string gameMapId) =>
+        string.Equals(location.Id, gameMapId, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(location.SourceId, gameMapId, StringComparison.OrdinalIgnoreCase) ||
+        location.Variants.Any(variant => variant.AlternateLocationIds.Contains(gameMapId, StringComparer.OrdinalIgnoreCase)) ||
+        (_mapNames.TryGetValue(gameMapId, out var name) && string.Equals(location.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private bool ShowsGroupMap(PlanMapGroupViewModel group) =>
+        group.MapId is { } mapId &&
+        _map.SelectedLocation is { } location &&
+        IsLocationOf(location, mapId);
+
+    /// <summary>
+    /// Projects the active objectives onto the selected group's map with the same services the
+    /// V1 quest layer uses, once per map per board refresh. The location handed over carries the
+    /// game-data id as its source id, so zones named by that id match (see IsLocationOf).
+    /// </summary>
+    private async Task ProjectGroupAsync(string gameMapId)
+    {
+        if (_projection is null || _scope is null || _projectingMapId is not null ||
+            _map.SelectedLocation is not { } location || _map.SelectedVariant is not { } variant ||
+            _map.CatalogProvenance is not { } provenance)
+        {
+            return;
+        }
+
+        _projectingMapId = gameMapId;
+        try
+        {
+            var located = location with { SourceId = gameMapId };
+            var query = await _readService
+                .GetActiveMapObjectivesAsync(_scope, [.. QuestMapProjectionService.CompatibleMapIds(located, variant)], CancellationToken.None)
+                .ConfigureAwait(true);
+            _projected[gameMapId] = _projection.Project(query, located, variant, selectedFloor: null, provenance).Objectives;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not place objectives on {gameMapId}: {exception.Message}");
+            _projected[gameMapId] = [];
+        }
+        finally
+        {
+            _projectingMapId = null;
+        }
+
+        RefreshMapPreview();
+    }
+
+    /// <summary>
+    /// Moves the shared map to the selected group's map so the centre can draw it — but never
+    /// during a raid, when that map belongs to the raid and the Raid workspace follows it.
+    /// </summary>
+    private async Task FollowSelectedGroupAsync()
+    {
+        if (SelectedGroup is not { MapId: { } mapId } group || ShowsGroupMap(group))
+        {
+            RefreshMapPreview();
+            return;
+        }
+
+        if (_runtime?.Current.Raid.State == RaidLifecycleState.InRaid && _map.SelectedLocation is not null)
+        {
+            RefreshMapPreview();
+            return;
+        }
+
+        if (LocationIdFor(mapId) is not { } locationId)
+        {
+            RefreshMapPreview();
+            return;
+        }
+
+        try
+        {
+            MapNote = "Loading map…";
+            await _map.FollowRaidAsync(locationId).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not load map {mapId}: {exception.Message}");
+        }
+
+        RefreshMapPreview();
+    }
+
+    /// <summary>
+    /// Rebuilds the centre map for the selected group, numbering each placed objective like its
+    /// row, and marks rows the projection could not place.
+    /// </summary>
+    internal void RefreshMapPreview()
+    {
+        var group = SelectedGroup;
+        if (group is null || group.MapId is null)
+        {
+            ClearMapPreview(group is null ? string.Empty : "These objectives can be done on any map.");
+            return;
+        }
+
+        if (_raidCockpit is null || !ShowsGroupMap(group))
+        {
+            ClearMapPreview(_runtime?.Current.Raid.State == RaidLifecycleState.InRaid && _map.SelectedLocation is not null
+                ? "The map follows your raid. It shows here after the raid."
+                : "Loading map…");
+            return;
+        }
+
+        if (!_projected.TryGetValue(group.MapId, out var projected))
+        {
+            _ = ProjectGroupAsync(group.MapId);
+            projected = [];
+        }
+
+        var toPlan = _map.SelectedVariant is { } selectedVariant ? PlanPercentMapper(selectedVariant) : null;
+        var elements = toPlan is null ? [] : BuildObjectiveMarkers(group.Objectives, projected, toPlan);
+        var known = _projected.ContainsKey(group.MapId);
+        foreach (var row in group.Objectives)
+        {
+            var number = row.Number.ToString(CultureInfo.InvariantCulture);
+            row.HasMapPosition = known ? elements.Any(element => element.Label == number) : null;
+        }
+
+        var signature = $"{_map.RenderModel?.Location.Id}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', elements.Select(element => $"{element.Label}@{element.Position.X:R},{element.Position.Y:R}"))}";
+        if (MapPreview is not null && signature == _mapPreviewSignature)
+        {
+            return;
+        }
+
+        var preview = _raidCockpit.CreateObjectivePreview(elements, MapPreview);
+        _mapPreviewSignature = preview is null ? null : signature;
+        MapPreview = preview;
+        MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
+    }
+
+    private void ClearMapPreview(string note)
+    {
+        MapPreview = null;
+        _mapPreviewSignature = null;
+        MapNote = note;
+        if (SelectedGroup is { } group)
+        {
+            foreach (var row in group.Objectives)
+            {
+                row.HasMapPosition = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One marker per objective the projection placed, labelled with the row's step number.
+    /// A region is marked at the mean of its outline, which lands inside every convex zone the
+    /// catalog publishes. The number is the marker's label, which the renderer draws as the
+    /// marker itself (see MapSceneRendererObjectViewModel.IsNumberedStep).
+    /// </summary>
+    internal static IReadOnlyList<MapOverlayElement> BuildObjectiveMarkers(
+        IReadOnlyList<PlanObjectiveRowViewModel> rows,
+        IReadOnlyList<QuestMapObjectiveProjection> projected,
+        Func<MapPoint, MapPoint> toPlan)
+    {
+        var markers = new List<MapOverlayElement>(rows.Count);
+        foreach (var row in rows)
+        {
+            var match = projected.FirstOrDefault(objective =>
+                string.Equals(objective.ObjectiveId, row.Objective.ObjectiveId, StringComparison.Ordinal) &&
+                objective.GeometryKind is QuestMapGeometryKind.Point or QuestMapGeometryKind.Region &&
+                objective.Points.Count > 0);
+            if (match is null)
+            {
+                continue;
+            }
+
+            var position = toPlan(new MapPoint(match.Points.Average(point => point.X), match.Points.Average(point => point.Y)));
+            if (position.X is < 0 or > 100 || position.Y is < 0 or > 100)
+            {
+                continue;
+            }
+
+            markers.Add(new MapOverlayElement(
+                MapOverlayKind.QuestObjectives,
+                position,
+                row.Number.ToString(CultureInfo.InvariantCulture))
+            {
+                Detail = row.Description,
+            });
+        }
+
+        return markers;
+    }
+
+    /// <summary>
+    /// Projected map units to the V2 scene's 0–100 plan space. The Raid cockpit stretches the
+    /// 2D plan artwork over that square, and the artwork spans the variant's SVG bounds (the map
+    /// bounds when it publishes none) — the same extent the V1 canvas mapper places markers in
+    /// (MapCanvasCoordinateMapper.Create). Null when the variant cannot be projected.
+    /// </summary>
+    internal static Func<MapPoint, MapPoint>? PlanPercentMapper(MapVariant variant)
+    {
+        if (variant.Transform is not { } transform || (variant.SvgBounds ?? variant.Bounds) is not { IsValid: true } bounds)
+        {
+            return null;
+        }
+
+        var corners = new[]
+        {
+            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
+        };
+        var projected = new List<MapPoint>(corners.Length);
+        foreach (var corner in corners)
+        {
+            if (!transform.TryProject(corner, out var point))
+            {
+                return null;
+            }
+
+            projected.Add(point);
+        }
+
+        var minimumX = projected.Min(point => point.X);
+        var minimumY = projected.Min(point => point.Y);
+        var width = projected.Max(point => point.X) - minimumX;
+        var height = projected.Max(point => point.Y) - minimumY;
+        return width <= 0 || height <= 0
+            ? null
+            : point => new((point.X - minimumX) / width * 100, (point.Y - minimumY) / height * 100);
+    }
+
+    private void MapPreviewViewChangeRequested(MapSceneViewChange change)
+    {
+        if (MapPreview is not { } preview)
+        {
+            return;
+        }
+
+        var result = MapSceneViewReducer.Apply(preview.Scene, change);
+        if (result.Status is MapSceneViewChangeStatus.Applied or MapSceneViewChangeStatus.Unchanged)
+        {
+            preview.Present(result.Scene);
+        }
+    }
 
     /// <summary>One objective, tagged with one map key it belongs to (an objective on several
     /// maps produces one entry per map; an objective with none produces one <see cref="AnyMapKey"/>
@@ -505,7 +849,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         try
         {
-            await _map.FollowRaidAsync(mapId).ConfigureAwait(true);
+            // Quest objectives name maps by game-data id; the map view follows catalog location
+            // ids. Handing it the game id matched no location and silently did nothing.
+            await _map.FollowRaidAsync(LocationIdFor(mapId) ?? mapId).ConfigureAwait(true);
             ShowOnMapRequested?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

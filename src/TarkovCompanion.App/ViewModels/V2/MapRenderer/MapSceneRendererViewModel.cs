@@ -1612,7 +1612,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             1 / camera.Zoom,
             camera.BearingDegrees,
             MarkerFor(sceneObject),
-            TruthGlyphFor(sceneObject.Truth),
+            IsNumberedStep(sceneObject) ? string.Empty : TruthGlyphFor(sceneObject.Truth),
             FactionGlyphFor(sceneObject),
             OfferGlyphFor(sceneObject),
             false,
@@ -1660,7 +1660,18 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             select);
     }
 
-    private static string MarkerFor(MapSceneObject item) => item.Truth switch
+    /// <summary>
+    /// V2 rough package 17: a personal-plan quest objective labelled with a short step number
+    /// (the Plan workspace's numbered objectives) draws that number, so the marker and its row
+    /// in the list read as one thing. Every other object keeps its kind glyph and truth badge.
+    /// </summary>
+    private static bool IsNumberedStep(MapSceneObject item) =>
+        item.Kind == MapSceneObjectKind.QuestObjective &&
+        item.Truth == MapSceneTruthKind.PersonalPlan &&
+        item.Label.Length is > 0 and <= 3 &&
+        item.Label.All(char.IsAsciiDigit);
+
+    private static string MarkerFor(MapSceneObject item) => IsNumberedStep(item) ? item.Label : item.Truth switch
     {
         MapSceneTruthKind.HistoricalEstimate => "≈",
         MapSceneTruthKind.LocalLastKnown => "◎",

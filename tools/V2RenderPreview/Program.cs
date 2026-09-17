@@ -117,7 +117,11 @@ internal static class Program
                     Thread.Sleep(25);
                 }
 
-                var picked = mapId is null
+                // A page other than Raid picks its own map (Plan follows its selected map group),
+                // so only a Raid render, or an explicit --map, chooses one here.
+                var picked = mapId is null && options.StartPage is not null
+                    ? null
+                    : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
                     : raid.MapPicker.FirstOrDefault(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase));
                 if (picked is not null)
@@ -125,9 +129,13 @@ internal static class Program
                     picked.SelectCommand.Execute(null);
                     Pump(40);
                 }
-                else
+                else if (raid.MapPicker.Count == 0)
                 {
                     Console.Error.WriteLine("No map available to select; the map picker stayed empty.");
+                }
+                else
+                {
+                    Pump(80);
                 }
             }
 

@@ -652,6 +652,68 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         OnPropertyChanged(nameof(HasRenderer));
         RefreshSceneLists(scene);
+        SceneRebuilt?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// V2 rough package 17: raised after a scene rebuild presented, so the artwork and render
+    /// model <see cref="CreateObjectivePreview"/> reads are current.
+    /// </summary>
+    public event EventHandler? SceneRebuilt;
+
+    /// <summary>
+    /// V2 rough package 17: a second, independent scene of the map this cockpit currently shows,
+    /// carrying only the given quest objective markers, for the Plan workspace's centre map.
+    /// </summary>
+    /// <remarks>
+    /// Its own renderer view model, not <see cref="Renderer"/>: the renderer keeps viewport and
+    /// camera state, and two views sizing one renderer would fight over it. It reuses this
+    /// cockpit's artwork, decoded bitmap and assembler, so Plan does not grow a second map
+    /// pipeline. Null while this cockpit has no scene of its own.
+    /// </remarks>
+    internal MapSceneRendererViewModel? CreateObjectivePreview(
+        IReadOnlyList<MapOverlayElement> objectives,
+        MapSceneRendererViewModel? existing)
+    {
+        if (Renderer is not { } current || _map.RenderModel is not { } model ||
+            !string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var nowUtc = _timeProvider.GetUtcNow();
+        var sameMap = existing is not null &&
+            string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
+        var request = new MapSceneBuildRequest(
+            (existing?.Scene.Revision ?? 0) + 1,
+            model,
+            PlanBounds,
+            model.Variant.Key,
+            sameMap
+                ? existing!.Scene.View
+                : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, new(50, 50, 1, 0, 0), []),
+            objectives.Select(element => new MapSceneLegacyElement(element, new DataProvenance("quest-catalog", nowUtc))).ToArray(),
+            [],
+            [],
+            current.Scene.Assets);
+        if (_assembler.Build(request).Scene is not { } scene)
+        {
+            return null;
+        }
+
+        if (sameMap)
+        {
+            existing!.Present(scene);
+            return existing;
+        }
+
+        return new MapSceneRendererViewModel(
+            scene,
+            _presentation,
+            nextChangeId: Guid.NewGuid,
+            reviewedAssetResolver: ResolveBackgroundImage,
+            showsDetailsPanel: false,
+            fillsViewport: false);
     }
 
     /// <summary>Internal for direct coverage (see the unit tests).</summary>

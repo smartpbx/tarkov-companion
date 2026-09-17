@@ -1,4 +1,5 @@
 using TarkovCompanion.App.ViewModels.V2.Plan;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.UnitTests.V2Plan;
@@ -134,6 +135,71 @@ public sealed class PlanWorkspaceViewModelTests
         Assert.True(group.CanOpenInRaid);
         Assert.False(new PlanMapGroupViewModel(null, "Any map", rows).CanOpenInRaid);
     }
+
+    [Fact]
+    public void Objective_markers_carry_the_row_number_and_skip_objectives_with_no_placed_geometry()
+    {
+        var task = Task("quest-a", RecordedTaskState.Active,
+        [
+            Objective("placed-point", RecordedObjectiveState.InProgress),
+            Objective("association-only", RecordedObjectiveState.InProgress),
+            Objective("placed-region", RecordedObjectiveState.InProgress),
+        ]);
+        var rows = PlanWorkspaceViewModel.Bucket([task], showAll: false)
+            .Select((entry, index) => new PlanObjectiveRowViewModel(entry.Task, entry.Objective, null!, index + 1, index == 2))
+            .ToArray();
+        IReadOnlyList<QuestMapObjectiveProjection> projected =
+        [
+            Projected("placed-point", QuestMapGeometryKind.Point, [new(10, 20)]),
+            Projected("association-only", QuestMapGeometryKind.AssociationOnly, []),
+            Projected("placed-region", QuestMapGeometryKind.Region, [new(40, 40), new(60, 40), new(60, 60), new(40, 60)]),
+        ];
+
+        var markers = PlanWorkspaceViewModel.BuildObjectiveMarkers(rows, projected, point => point);
+
+        Assert.Equal(["1", "3"], markers.Select(marker => marker.Label));
+        Assert.Equal(new TarkovCompanion.Core.Domain.Maps.MapPoint(10, 20), markers[0].Position);
+        Assert.Equal(new TarkovCompanion.Core.Domain.Maps.MapPoint(50, 50), markers[1].Position);
+    }
+
+    [Fact]
+    public void Objective_markers_outside_the_plan_square_are_left_to_the_list()
+    {
+        var task = Task("quest-a", RecordedTaskState.Active, [Objective("far", RecordedObjectiveState.InProgress)]);
+        var rows = PlanWorkspaceViewModel.Bucket([task], showAll: false)
+            .Select(entry => new PlanObjectiveRowViewModel(entry.Task, entry.Objective, null!))
+            .ToArray();
+
+        var markers = PlanWorkspaceViewModel.BuildObjectiveMarkers(
+            rows,
+            [Projected("far", QuestMapGeometryKind.Point, [new(250, 20)])],
+            point => point);
+
+        Assert.Empty(markers);
+    }
+
+    private static QuestMapObjectiveProjection Projected(
+        string objectiveId,
+        QuestMapGeometryKind geometry,
+        IReadOnlyList<TarkovCompanion.Core.Domain.Maps.MapPoint> points) => new(
+        "quest-a",
+        "quest-a",
+        objectiveId,
+        "description",
+        QuestObjectiveKind.Visit,
+        IsUnsupported: false,
+        IsPinned: false,
+        ZoneId: null,
+        geometry,
+        points,
+        IsFloorFiltered: false,
+        Availability: "test",
+        FloorHint: null,
+        FoundInRaidRequired: null,
+        ItemTargets: [],
+        QuestCatalogProvenance: null!,
+        MapCatalogProvenance: null!,
+        Attribution: "test");
 
     [Fact]
     public void Remaining_label_falls_back_to_the_recorded_state_when_there_is_no_target_or_count()
