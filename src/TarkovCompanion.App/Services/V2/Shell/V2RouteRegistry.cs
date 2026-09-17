@@ -17,6 +17,9 @@ public enum V2RouteContent
     /// <summary>One item's facts, with their source and age.</summary>
     ItemIntel,
 
+    /// <summary>A self-contained V2 workspace over a merged backend (stash scan, debrief).</summary>
+    Workspace,
+
     /// <summary>The raid cockpit: the V2 map renderer plus its timer/extract panel (package 2).</summary>
     RaidCockpit,
 
@@ -116,7 +119,7 @@ public sealed class V2RouteRegistry
             Parent: V2Routes.Items, UsesGameData: true),
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),
-        new(V2Routes.Stash, [V2Capabilities.StashScan], V2RouteContent.StatePresenter, "V2.Shell.Route.Stash"),
+        new(V2Routes.Stash, [V2Capabilities.StashScan], V2RouteContent.Workspace, "V2.Shell.Route.Stash"),
         new(V2Routes.Plan, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Quests", "Quests",
             UsesGameData: true),
         new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Hideout", "Hideout",
@@ -130,7 +133,7 @@ public sealed class V2RouteRegistry
             Parent: V2Routes.Team),
         new(V2Routes.Tablet, [V2Capabilities.TabletPreview], V2RouteContent.StatePresenter, "V2.Shell.Route.Tablet",
             Parent: V2Routes.Team),
-        new(V2Routes.Debrief, [V2Capabilities.Debrief], V2RouteContent.LegacyPage, "V2.Shell.Route.History", "History"),
+        new(V2Routes.Debrief, [V2Capabilities.Debrief], V2RouteContent.Workspace, "V2.Shell.Route.History"),
         new(V2Routes.Setup, [V2Capabilities.Setup, V2Capabilities.Readiness], V2RouteContent.SetupWorkspace, "V2.Shell.Route.Settings",
             ShowsReadiness: true),
     ]);
