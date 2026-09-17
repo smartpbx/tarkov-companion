@@ -109,6 +109,26 @@
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="Padding" Value="0" />
     </Style>
+    <!-- V2 rough package 20: the one global-problem line. A tinted strip the width of the window,
+         one row high, with no dashed outline — it must not read as a card. -->
+    <Style Selector="Border.v2-surface-banner">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="20,6" />
+    </Style>
+    <Style Selector="Border.v2-surface-banner.v2-tone-warning > Grid > TextBlock.v2-glyph">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-surface-banner.v2-tone-danger > Grid > TextBlock.v2-glyph">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="Border.v2-surface-banner Button.v2-banner-action">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,3" />
+    </Style>
     <Style Selector="Border.v2-status-pill">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -369,36 +389,45 @@
           </StackPanel>
         </Border>
 
-        <!-- A global problem (a failed endpoint refresh, an unavailable surface) reads as one
-             compact banner here, never a large card that pushes the workspace — the Raid map
-             included — down the page. -->
-        <Panel Classes="v2-banner" IsVisible="{Binding ShowsStatePresenter}"
-               Classes.v2-tone-warning="{Binding SurfaceIsWarningTone}"
-               Classes.v2-tone-danger="{Binding SurfaceIsDangerTone}"
-               AutomationProperties.AccessibilityView="Control"
-               AutomationProperties.AutomationId="v2-shell-surface-state"
-               AutomationProperties.Name="{Binding SurfaceAutomationName}">
-          <Rectangle Classes="v2-banner-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
-          <StackPanel Classes="v2-banner-content">
-            <StackPanel Classes="v2-banner-tone">
-              <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{Binding SurfaceGlyph}" />
-              <TextBlock Classes="v2-label" Text="{Binding SurfaceTitle}" />
-            </StackPanel>
-            <TextBlock Classes="v2-body" Text="{Binding Surface.Detail}" TextWrapping="Wrap" />
-            <TextBlock Classes="v2-label" Text="{Binding SurfaceRemainder}" />
-            <ItemsControl ItemsSource="{Binding RecoveryActions}">
+        <!-- V2 rough package 20: a global problem (a failed endpoint refresh, an unavailable
+             surface) reads as ONE single-line banner here and nowhere else. No dashed outline, no
+             repeated remainder sub-line, no second copy inside the workspace: the Raid map lost
+             about 400px of height to the duplicate that used to sit in the page body below. The
+             rest of the story — the remainder line and the checks — is behind the status pill,
+             and the line can be dismissed until the problem itself changes. -->
+        <Border Classes="v2-surface-banner" IsVisible="{Binding ShowsSurfaceBanner}"
+                Classes.v2-tone-warning="{Binding SurfaceIsWarningTone}"
+                Classes.v2-tone-danger="{Binding SurfaceIsDangerTone}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-shell-surface-state"
+                AutomationProperties.Name="{Binding SurfaceAutomationName}">
+          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+            <TextBlock Grid.Column="0" Classes="v2-glyph" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw" Text="{Binding SurfaceGlyph}" />
+            <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center"
+                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       AutomationProperties.AutomationId="v2-shell-surface-state-text"
+                       Text="{Binding SurfaceBannerText}" />
+            <ItemsControl Grid.Column="2" ItemsSource="{Binding RecoveryActions}" VerticalAlignment="Center">
               <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:V2RecoveryActionViewModel">
-                  <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                  <Button Classes="v2-target v2-banner-action" AutomationProperties.AutomationId="{Binding AutomationId}"
                           AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding InvokeCommand}" />
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-          </StackPanel>
-        </Panel>
+            <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="v2-shell-surface-state-dismiss"
+                    AutomationProperties.Name="{Binding SurfaceDismissLabel}"
+                    ToolTip.Tip="{Binding SurfaceDismissLabel}"
+                    Command="{Binding DismissSurfaceBannerCommand}">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+            </Button>
+          </Grid>
+        </Border>
 
         <Border Classes="v2-card" IsVisible="{Binding HasPersistenceFailure}"
                 AutomationProperties.AccessibilityView="Control"
@@ -553,45 +582,8 @@
                 </ItemsControl>
               </StackPanel>
 
-              <Border Classes="v2-card" IsVisible="{Binding ShowsStatePresenter}"
-                      AutomationProperties.AccessibilityView="Control"
-                      AutomationProperties.AutomationId="v2-shell-surface-state"
-                      AutomationProperties.Name="{Binding SurfaceAutomationName}">
-                <StackPanel Classes="v2-stack">
-                  <Grid Classes="v2-badge"
-                        Classes.v2-availability-ready="{Binding SurfaceIsReady}"
-                        Classes.v2-availability-loading="{Binding SurfaceIsLoading}"
-                        Classes.v2-availability-unknown="{Binding SurfaceIsUnknown}"
-                        Classes.v2-availability-offline="{Binding SurfaceIsOffline}"
-                        Classes.v2-availability-stale="{Binding SurfaceIsStale}"
-                        Classes.v2-availability-partial="{Binding SurfaceIsPartial}"
-                        Classes.v2-availability-denied="{Binding SurfaceIsDenied}"
-                        Classes.v2-availability-failed="{Binding SurfaceIsFailed}">
-                    <Rectangle Classes="v2-badge-outline"
-                               Classes.v2-pattern-dashed="{Binding SurfacePatternDashed}"
-                               Classes.v2-pattern-dotted="{Binding SurfacePatternDotted}"
-                               Classes.v2-pattern-double="{Binding SurfacePatternDouble}"
-                               AutomationProperties.AccessibilityView="Raw" />
-                    <StackPanel Classes="v2-badge-content">
-                      <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}" AutomationProperties.AccessibilityView="Raw" />
-                      <TextBlock Classes="v2-label" Text="{Binding SurfaceTitle}" />
-                    </StackPanel>
-                  </Grid>
-                  <TextBlock Classes="v2-body" Text="{Binding Surface.Detail}" />
-                  <TextBlock Classes="v2-label" Text="{Binding SurfaceRemainder}" />
-                  <ItemsControl ItemsSource="{Binding RecoveryActions}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:V2RecoveryActionViewModel">
-                        <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
-                                AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding InvokeCommand}" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-              </Border>
+              <!-- V2 rough package 20: the second copy of the global-problem block used to be
+                   here. One banner above the workspace is the whole presentation now. -->
             </StackPanel>
           </ScrollViewer>
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
@@ -820,6 +812,34 @@
                        AutomationProperties.AutomationId="v2-shell-health-dialog-title"
                        AutomationProperties.HeadingLevel="1" Text="{Binding HealthHeading}" />
             <TextBlock Classes="v2-body" Text="{Binding HealthSummary}" />
+            <!-- V2 rough package 20: the banner is one line, so the current problem's full detail,
+                 what still works, and its recovery actions live here, behind the status pill. -->
+            <Border Classes="v2-card" IsVisible="{Binding ShowsHealthSurface}"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-shell-health-surface"
+                    AutomationProperties.Name="{Binding SurfaceAutomationName}">
+              <StackPanel Classes="v2-stack">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{Binding SurfaceGlyph}" />
+                  <TextBlock Classes="v2-heading-3" Text="{Binding SurfaceTitle}" />
+                </StackPanel>
+                <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding Surface.Detail}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SurfaceRemainder}" />
+                <ItemsControl ItemsSource="{Binding RecoveryActions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2RecoveryActionViewModel">
+                      <!-- No AutomationId: the banner's own buttons already carry these ids, and a
+                           duplicate would make either one ambiguous to UI Automation. -->
+                      <Button Classes="v2-target" AutomationProperties.Name="{Binding Label}"
+                              Content="{Binding Label}" Command="{Binding InvokeCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
             <ItemsControl ItemsSource="{Binding ReadinessItems}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:V2ReadinessCheckViewModel">
