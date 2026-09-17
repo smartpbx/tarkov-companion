@@ -4,8 +4,8 @@ using TarkovCompanion.App.Services.V2.Shell;
 namespace TarkovCompanion.UnitTests.V2Shell;
 
 /// <summary>
-/// Choosing a shell at launch: the V1 legacy shell unless asked otherwise, and a clear refusal
-/// for anything this build does not have.
+/// Choosing a shell at launch: V2 variant A unless asked otherwise, and a clear refusal for
+/// anything this build does not have.
 /// </summary>
 /// <remarks>
 /// A launch that asks for a shell this build does not have must not quietly draw a different one,
@@ -14,15 +14,16 @@ namespace TarkovCompanion.UnitTests.V2Shell;
 public sealed class V2ShellModeTests
 {
     [Fact]
-    public void Legacy_is_the_shell_when_nothing_asks_for_another()
+    public void VariantA_is_the_shell_when_nothing_asks_for_another()
     {
-        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse([]).UiShell);
-        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse(["--demo", "--page", "home"]).UiShell);
+        Assert.Equal(V2ShellMode.VariantA, AppCommandLine.Parse([]).UiShell);
+        Assert.Equal(V2ShellMode.VariantA, AppCommandLine.Parse(["--demo", "--page", "home"]).UiShell);
     }
 
     [Fact]
-    public void V2_previews_remain_available_as_an_explicit_choice()
+    public void The_other_shells_remain_available_as_an_explicit_choice()
     {
+        Assert.Equal(V2ShellMode.Legacy, AppCommandLine.Parse(["--ui-shell", "legacy"]).UiShell);
         Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse(["--ui-shell", "v2-b"]).UiShell);
         Assert.Equal(V2ShellMode.VariantB, AppCommandLine.Parse(["--ui-shell", "v2-b", "--page", "raid/loot"]).UiShell);
     }
@@ -30,8 +31,8 @@ public sealed class V2ShellModeTests
     [Fact]
     public void A_command_line_built_by_hand_is_legacy()
     {
-        // Several test projects construct this record positionally; the new option must not
-        // change what they get.
+        // Several test projects construct this record positionally, not through Parse; V1 stays
+        // the safe fallback for those regardless of what a plain command-line launch resolves to.
         Assert.Equal(V2ShellMode.Legacy, new AppCommandLine(false, true, false, false, null, null, null).UiShell);
     }
 
