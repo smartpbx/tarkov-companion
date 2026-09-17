@@ -61,7 +61,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly IWikiLinkOpener _wikiOpener;
     private readonly StashScanWorkspaceViewModel? _stashScan;
     private readonly DebriefWorkspaceViewModel? _debrief;
+    /// <summary>How often the home overview re-reads recent raids while it is showing.</summary>
+    private static readonly TimeSpan HomeOverviewRefresh = TimeSpan.FromSeconds(15);
+
     private readonly PlanWorkspaceViewModel? _plan;
+    private bool _homeOverviewLoaded;
+    private DateTimeOffset _homeOverviewLoadedUtc;
+    private RaidLifecycleState _homeOverviewRaid;
     private readonly HideoutWorkspaceViewModel? _hideout;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
     private readonly TeamWorkspaceViewModel? _team;
@@ -248,6 +254,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
+        // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
+        SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
+        if (legacy is not null)
+        {
+            _debrief?.UseMapNames(id => legacy.Map.Locations
+                .FirstOrDefault(location => string.Equals(location.Id, id, StringComparison.OrdinalIgnoreCase))?.Name);
+        }
         // V2 rough package 17 (team): the Team context panel's links move through this router.
         _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
 
@@ -741,6 +754,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public int ShellBodyRowSpan =>
         ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
+    /// <summary>The plain checklist; Setup draws the same checks as its overview's steps instead.</summary>
+    public bool ShowsReadinessChecklist => ShowsReadiness && !ShowsSetupWorkspace;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
         Registry[Router.Current.Location.Route].Content == V2RouteContent.StatePresenter ||
@@ -1366,6 +1381,44 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             _ = _team.LoadAsync();
         }
+        else if (route == V2Routes.Setup)
+        {
+            _homeOverviewLoaded = false;
+            LoadHomeOverview(_runtime.Current);
+        }
+    }
+
+    /// <summary>
+    /// Package 17 (home): the Setup overview's plan and recent raids come from the Plan and Debrief
+    /// workspaces. Setup is variant A's landing page, so this waits for the database: loading
+    /// before its migrations ran showed a raw "no such table" error in the plan card.
+    /// </summary>
+    private void LoadHomeOverview(ApplicationRuntimeSnapshot snapshot)
+    {
+        if (!snapshot.DatabaseReady || Router.Current.Location.Route != V2Routes.Setup)
+        {
+            return;
+        }
+
+        if (!_homeOverviewLoaded)
+        {
+            _homeOverviewLoaded = true;
+            _homeOverviewLoadedUtc = _clock.GetUtcNow();
+            _homeOverviewRaid = snapshot.Raid.State;
+            _ = _plan?.LoadAsync();
+            _ = _debrief?.LoadAsync();
+        }
+        else if (_homeOverviewRaid != snapshot.Raid.State ||
+            _clock.GetUtcNow() - _homeOverviewLoadedUtc >= HomeOverviewRefresh)
+        {
+            // Raids are written while the overview is showing (the landing page is where a
+            // session starts), so its recent raids follow the raid state and, failing that,
+            // re-read on a slow beat; otherwise a raid that opened a second after the first
+            // load would leave "No raids recorded yet" on screen for the rest of the session.
+            _homeOverviewLoadedUtc = _clock.GetUtcNow();
+            _homeOverviewRaid = snapshot.Raid.State;
+            _ = _debrief?.LoadAsync();
+        }
     }
 
     private void SynchronizeLegacyRoute()
@@ -1471,6 +1524,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var snapshot = _runtime.Current;
         var continuity = Volatile.Read(ref _continuity);
         SynchronizeLegacySelection();
+        LoadHomeOverview(snapshot);
         // v2r-team (package 9, wave 2): kept live on every refresh, like Legacy.Group/Legacy.Squad
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
@@ -1512,7 +1566,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             ReadinessItems = Readiness.Checks
                 .Select(check => new V2ReadinessCheckViewModel(check, () => OpenReadiness(check)))
                 .ToArray();
+            SetupWorkspace?.Overview.ApplyReadiness(Readiness, ReadinessSummary, OpenReadiness);
         }
+
+        SetupWorkspace?.Overview.ApplyDataFreshness(DataFreshnessLabel);
 
         var previousSurface = Surface.Kind;
         var nextSurface = V2SurfaceStateResolver.Resolve(
@@ -2279,7 +2336,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             nameof(ShowsRaidCockpit),
             nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
             nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
-            nameof(ShowsReadiness), nameof(ShowsContinue),
+            nameof(ShowsReadiness), nameof(ShowsReadinessChecklist), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),
             nameof(SurfaceIsReady), nameof(SurfaceIsLoading), nameof(SurfaceIsUnknown), nameof(SurfaceIsOffline),

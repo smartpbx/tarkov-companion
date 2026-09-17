@@ -3,75 +3,208 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief">
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
-      <StackPanel Spacing="4">
-        <TextBlock Classes="v2-heading-1" Text="Debrief" AutomationProperties.HeadingLevel="1" />
-        <TextBlock Classes="v2-body" Text="{Binding Status}"
-                   AutomationProperties.AutomationId="v2-debrief-status"
-                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
-      </StackPanel>
+  <UserControl.Styles>
+    <!-- The same flat pane, context panel and section shapes as the Raid and Team workspaces. -->
+    <Style Selector="Border.v2-debrief-pane">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.v2-debrief-panel">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <Style Selector="Border.v2-debrief-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="18,14" />
+    </Style>
+    <Style Selector="Border.v2-debrief-section.v2-debrief-accent">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="3,1,1,1" />
+    </Style>
+    <Style Selector="TextBlock.v2-debrief-muted">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-debrief-strong">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Grid.v2-debrief-columns > TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
 
-      <WrapPanel ItemSpacing="8" LineSpacing="8">
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-refresh"
-                Content="Refresh" Command="{Binding RefreshCommand}" />
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-export-csv"
-                Content="Export CSV" Command="{Binding ExportCsvCommand}" />
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-export-json"
-                Content="Export JSON" Command="{Binding ExportJsonCommand}" />
-      </WrapPanel>
+    <!-- A raid row: flat, a tint and cyan leading edge when selected, like the rail. -->
+    <Style Selector="Button.v2-debrief-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="3,0,0,0" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="17,12,20,12" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.v2-debrief-row:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Button.v2-debrief-row.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
 
-      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Raids" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoRaids}" Text="No raids recorded yet." />
-          <ItemsControl ItemsSource="{Binding Raids}" IsVisible="{Binding HasRaids}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:DebriefRaidRowViewModel">
-                <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                        Command="{Binding SelectCommand}">
-                  <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                      <TextBlock Classes="v2-body" Text="{Binding MapLabel}" />
-                      <TextBlock Classes="v2-label" Text="{Binding StartedLabel}" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Mode}" />
-                    <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding DurationLabel}" />
-                    <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Outcome}" />
-                  </Grid>
-                </Button>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
+    <Style Selector="Button.v2-debrief-primary">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-debrief-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.v2-debrief-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Button.v2-debrief-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- V2 rough package 17 (home): Debrief has no concept render of its own, so it takes the
+       Raid/Team layout — the raid table as the primary pane, the selected raid's detail and its
+       correction in a right context panel. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="12" MinHeight="48">
+        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+          <TextBlock Classes="v2-heading-2" Text="Raid history" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+          <TextBlock Classes="v2-debrief-muted" Text="{Binding Status}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                     AutomationProperties.AutomationId="v2-debrief-status"
+                     AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
-      </Border>
-
-      <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Raid detail" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" Text="{Binding SelectedMapLabel}" />
-          <TextBlock Classes="v2-label" Text="{Binding SelectedModeLabel}" />
-          <TextBlock Classes="v2-label" Text="{Binding SelectedDurationLabel}" />
-          <TextBlock Classes="v2-label" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
-          <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
-
-          <TextBlock Classes="v2-heading-3" Text="Correct outcome or notes" AutomationProperties.HeadingLevel="3" />
-          <StackPanel Spacing="4">
-            <TextBlock Classes="v2-label" Text="Outcome" />
-            <TextBox Classes="v2-field-input" Text="{Binding CorrectedOutcome}"
-                      AutomationProperties.AutomationId="v2-debrief-outcome-input" />
-          </StackPanel>
-          <StackPanel Spacing="4">
-            <TextBlock Classes="v2-label" Text="Notes" />
-            <TextBox Classes="v2-field-input" AcceptsReturn="True" Height="80"
-                      Text="{Binding CorrectedNotes}"
-                      AutomationProperties.AutomationId="v2-debrief-notes-input" />
-          </StackPanel>
-          <Button Classes="v2-target" HorizontalAlignment="Left"
-                  AutomationProperties.AutomationId="v2-debrief-save-correction"
-                  Content="Save correction" Command="{Binding SaveCorrectionCommand}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+          <Button Classes="v2-target v2-debrief-plain" AutomationProperties.AutomationId="v2-debrief-refresh"
+                  AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" Width="18" Height="18" Stretch="Uniform" />
+              <TextBlock Text="Refresh" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Classes="v2-target v2-debrief-plain" AutomationProperties.AutomationId="v2-debrief-export-csv"
+                  Content="Export CSV" Command="{Binding ExportCsvCommand}" />
+          <Button Classes="v2-target v2-debrief-plain" AutomationProperties.AutomationId="v2-debrief-export-json"
+                  Content="Export JSON" Command="{Binding ExportJsonCommand}" />
         </StackPanel>
+      </Grid>
+
+      <Border Grid.Row="1" Classes="v2-debrief-pane" AutomationProperties.AccessibilityView="Control">
+        <Grid RowDefinitions="Auto,*">
+          <Border Grid.Row="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
+            <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
+              <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Mode" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="Started" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="Duration" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="Outcome" FontWeight="SemiBold" />
+            </Grid>
+          </Border>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRaids}">
+            <ItemsControl ItemsSource="{Binding Raids}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DebriefRaidRowViewModel">
+                  <Button Classes="v2-target v2-debrief-row" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.Name="{Binding MapLabel}"
+                          Command="{Binding SelectCommand}">
+                    <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
+                      <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
+                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding Mode}" />
+                      <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding StartedLabel}" />
+                      <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
+                      <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="{Binding Outcome}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+          <StackPanel Grid.Row="1" IsVisible="{Binding HasNoRaids}" Spacing="10"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
+                  HorizontalAlignment="Center" />
+            <TextBlock Classes="v2-debrief-muted" Text="No raids recorded yet." HorizontalAlignment="Center" />
+          </StackPanel>
+        </Grid>
       </Border>
-    </StackPanel>
-  </ScrollViewer>
+    </Grid>
+
+    <Border Grid.Column="1" Width="420" Classes="v2-debrief-panel">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <TextBlock Classes="v2-heading-2" Text="Raid detail" AutomationProperties.HeadingLevel="2" />
+          <Border Classes="v2-debrief-section" IsVisible="{Binding HasNoSelection}">
+            <TextBlock Classes="v2-debrief-muted" Text="Select a raid to see its detail." TextWrapping="Wrap" />
+          </Border>
+
+          <StackPanel Spacing="12" IsVisible="{Binding HasSelection}">
+            <Border Classes="v2-debrief-section v2-debrief-accent">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
+                  <TextBlock Grid.Row="0" Classes="v2-debrief-muted" Text="Mode" />
+                  <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedModeLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="1" Classes="v2-debrief-muted" Text="Started" />
+                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStartedLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Duration" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
+                </Grid>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Camera}" />
+                  <TextBlock Classes="v2-debrief-strong" Text="Screenshots" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-debrief-strong" Text="Correct outcome or notes" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-label" Text="{Binding OutcomeHint}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-debrief-muted" Text="Outcome" Margin="0,4,0,0" />
+                <TextBox Classes="v2-field-input" Text="{Binding CorrectedOutcome}"
+                         AutomationProperties.Name="Outcome"
+                         AutomationProperties.AutomationId="v2-debrief-outcome-input" />
+                <TextBlock Classes="v2-debrief-muted" Text="Notes" Margin="0,4,0,0" />
+                <TextBox Classes="v2-field-input" AcceptsReturn="True" Height="96" TextWrapping="Wrap"
+                         AutomationProperties.Name="Notes"
+                         Text="{Binding CorrectedNotes}"
+                         AutomationProperties.AutomationId="v2-debrief-notes-input" />
+                <Button Classes="v2-target v2-debrief-primary" Margin="0,6,0,0"
+                        AutomationProperties.AutomationId="v2-debrief-save-correction"
+                        Content="Save correction" Command="{Binding SaveCorrectionCommand}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
 </UserControl>
