@@ -1,0 +1,375 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2HomeOverviewView"
+             x:DataType="vm:V2HomeOverviewViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <UserControl.Styles>
+    <!-- A dashboard card, flat like the Raid and Team panes rather than the outlined v2-card. -->
+    <Style Selector="Border.v2-home-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="22,18" />
+    </Style>
+    <Style Selector="TextBlock.v2-home-card-title">
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-home-strong">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-home-muted">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-home-done">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.v2-home-attention">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-home-rule">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+
+    <!-- Step and health markers: a filled check when done, a warning ring when it wants the
+         player, a quiet ring when it is optional or simply not confirmed. -->
+    <Style Selector="Border.v2-home-marker">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.v2-home-marker.v2-home-done">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-home-marker.v2-home-attention">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-home-marker Path">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="StrokeThickness" Value="2.4" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-home-marker TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Rectangle.v2-home-connector">
+      <Setter Property="Width" Value="2" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+
+    <!-- A step's status is itself the button that opens where it is fixed. -->
+    <Style Selector="Button.v2-home-pill">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="14,4" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-home-pill.v2-home-done">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Button.v2-home-pill.v2-home-attention">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Button.v2-home-pill:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+
+    <!-- One filled primary action on the page, cyan outlines for the rest (as on Team). -->
+    <Style Selector="Button.v2-home-primary">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="56" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-home-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.v2-home-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Button.v2-home-outline">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="Padding" Value="18,6" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-home-outline.v2-home-quiet">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="MinHeight" Value="56" />
+    </Style>
+    <Style Selector="Button.v2-home-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-home-action">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-home-accent">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-home-muted">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- V2 rough package 17 (home): laid out like docs/design/v2/v2-home-setup-concept.png — a hero
+       and the current map along the top; Get ready down the left; the current plan, system health,
+       recent activity and privacy as a grid of cards to its right. -->
+  <Grid ColumnDefinitions="31*,27*,22*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="16"
+        Margin="0,4,0,16">
+
+    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
+      <TextBlock Text="{Binding HeroTitle}" FontSize="44" FontWeight="Bold" TextWrapping="Wrap"
+                 Foreground="{DynamicResource V2.Brush.TextPrimary}" AutomationProperties.HeadingLevel="2" />
+      <TextBlock Classes="v2-home-muted" Text="{Binding HeroSubtitle}" FontSize="19" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Classes="v2-home-card" MinHeight="156" ClipToBounds="True">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <!-- No map photography ships with the app; a large quiet map glyph stands in for the concept's image. -->
+        <Path Grid.ColumnSpan="2" Classes="v2-icon v2-home-muted" Data="{DynamicResource V2.Icon.Map}"
+              Width="190" Height="120" Stretch="Uniform" StrokeThickness="0.8" Opacity="0.22"
+              HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,230,0" />
+        <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
+          <TextBlock Classes="v2-home-muted" Text="{Binding MapEyebrow}" FontSize="13" FontWeight="SemiBold" LetterSpacing="1.2" />
+          <TextBlock Classes="v2-home-strong" Text="{Binding MapTitle}" FontSize="28" />
+          <TextBlock Classes="v2-home-muted" Text="{Binding MapDetail}" FontSize="16" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button Grid.Column="1" Classes="v2-home-outline" VerticalAlignment="Bottom"
+                AutomationProperties.AutomationId="v2-home-explore-map"
+                AutomationProperties.Name="{Binding ExploreMapLabel}"
+                Command="{Binding ExploreMapCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="{Binding ExploreMapLabel}" VerticalAlignment="Center" />
+            <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Map}" Width="20" Height="20" Stretch="Uniform" />
+          </StackPanel>
+        </Button>
+      </Grid>
+    </Border>
+
+    <!-- Get ready: the readiness checks as steps. -->
+    <Border Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Classes="v2-home-card" Padding="22,20">
+      <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <TextBlock Grid.Row="0" Classes="v2-home-card-title" FontSize="26" Text="{Binding StepsHeading}"
+                   AutomationProperties.HeadingLevel="2" />
+        <TextBlock Grid.Row="1" Classes="v2-home-muted" Margin="0,10,0,14" FontSize="16" Text="{Binding StepsSummary}"
+                   AutomationProperties.AutomationId="v2-shell-readiness-summary"
+                   AutomationProperties.Name="{Binding StepsSummary}" />
+        <ItemsControl Grid.Row="2" ItemsSource="{Binding Steps}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2HomeStepViewModel">
+              <Grid ColumnDefinitions="44,*,Auto" RowDefinitions="Auto,*" MinHeight="84">
+                <Rectangle Grid.Column="0" Grid.RowSpan="2" Classes="v2-home-connector" Margin="0,34,0,0"
+                           IsVisible="{Binding HasConnector}" VerticalAlignment="Stretch" />
+                <Border Grid.Column="0" Classes="v2-home-marker" Margin="0,6,0,0" HorizontalAlignment="Center"
+                        Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}">
+                  <Panel>
+                    <Path IsVisible="{Binding IsDone}" Data="M6,13 L10.5,17.5 L18.5,8.5" Width="14" Height="12" Stretch="Uniform" />
+                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" FontSize="14" />
+                  </Panel>
+                </Border>
+                <StackPanel Grid.Column="1" Spacing="3" Margin="10,6,12,14">
+                  <TextBlock Classes="v2-home-strong" Text="{Binding Label}" FontSize="18" />
+                  <TextBlock Classes="v2-home-muted" Text="{Binding Detail}" TextWrapping="Wrap" />
+                </StackPanel>
+                <Button Grid.Column="2" Classes="v2-home-pill" Margin="0,4,0,0" VerticalAlignment="Top"
+                        Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                        AutomationProperties.Name="{Binding AutomationName}"
+                        Content="{Binding ActionLabel}" Command="{Binding OpenCommand}" />
+                <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="v2-home-rule" VerticalAlignment="Bottom"
+                        Margin="10,0,0,6" IsVisible="{Binding HasConnector}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="18" Margin="0,18,0,0">
+          <Button Grid.Column="0" Classes="v2-home-primary"
+                  AutomationProperties.AutomationId="v2-home-primary"
+                  AutomationProperties.Name="{Binding PrimaryLabel}"
+                  Command="{Binding PrimaryCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Path Data="M7,5 L19,12 L7,19 Z" Fill="{DynamicResource V2.Brush.Canvas}" Width="16" Height="16" Stretch="Uniform"
+                    VerticalAlignment="Center" />
+              <TextBlock Text="{Binding PrimaryLabel}" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button>
+          <Button Grid.Column="1" Classes="v2-home-outline v2-home-quiet" HorizontalAlignment="Stretch"
+                  AutomationProperties.AutomationId="v2-home-all-settings"
+                  Content="{Binding AllSettingsLabel}" Command="{Binding AllSettingsCommand}" />
+        </Grid>
+      </Grid>
+    </Border>
+
+    <!-- Current plan: the Plan workspace's objectives for the current map (or its first map). -->
+    <Border Grid.Row="1" Grid.Column="1" Classes="v2-home-card">
+      <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14">
+        <TextBlock Grid.Row="0" Classes="v2-home-card-title" Text="{Binding PlanHeading}" AutomationProperties.HeadingLevel="2" />
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="20" IsVisible="{Binding HasPlan}">
+          <Border Grid.Column="0" Width="150" Height="130" VerticalAlignment="Top"
+                  Background="{DynamicResource V2.Brush.Canvas}" CornerRadius="{DynamicResource V2.Shape.Control}">
+            <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Map}" Width="56" Height="56"
+                  Stretch="Uniform" StrokeThickness="1.2" Opacity="0.8" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <StackPanel Grid.Column="1" Spacing="6">
+            <TextBlock Classes="v2-home-strong" Text="{Binding PlanTitle}" FontSize="18" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-home-muted" Text="{Binding PlanScope}" Margin="0,0,0,6" />
+            <ItemsControl ItemsSource="{Binding PlanObjectives}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2HomeLineViewModel">
+                  <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,4">
+                    <Path Classes="v2-icon v2-home-accent" Data="{DynamicResource V2.Icon.Pin}" Width="18" Height="18" Stretch="Uniform"
+                          VerticalAlignment="Top" />
+                    <TextBlock Grid.Column="1" Classes="v2-home-muted" Text="{Binding Text}" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding Aside}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Grid>
+        <TextBlock Grid.Row="1" Classes="v2-home-muted" IsVisible="{Binding HasNoPlan}" Text="{Binding PlanEmpty}"
+                   TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Row="2" Classes="v2-home-outline" HorizontalAlignment="Stretch"
+                AutomationProperties.AutomationId="v2-home-open-plan"
+                Content="{Binding OpenPlanLabel}" Command="{Binding OpenPlanCommand}" />
+      </Grid>
+    </Border>
+
+    <!-- System health: the required checks at a glance. -->
+    <Border Grid.Row="1" Grid.Column="2" Classes="v2-home-card">
+      <StackPanel Spacing="12">
+        <TextBlock Classes="v2-home-card-title" Text="{Binding HealthHeading}" AutomationProperties.HeadingLevel="2" />
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
+          <Path Classes="v2-icon v2-home-action" Data="M3,4 L21,4 L21,16 L3,16 Z M8,20 L16,20 M12,16 L12,20"
+                Width="56" Height="50" Stretch="Uniform" StrokeThickness="1.6" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Text="{Binding HealthReadyLabel}" FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Action}" />
+            <TextBlock Classes="v2-home-muted" Classes.v2-home-attention="{Binding HealthNeedsAttention}"
+                       Text="{Binding HealthAttentionLabel}" FontSize="17" />
+          </StackPanel>
+        </Grid>
+        <Border Classes="v2-home-rule" />
+        <ItemsControl ItemsSource="{Binding HealthRows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2HomeHealthRowViewModel">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14" Margin="0,5">
+                <Border Classes="v2-home-marker" Width="22" Height="22" CornerRadius="11" VerticalAlignment="Center"
+                        Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}">
+                  <Panel>
+                    <Path IsVisible="{Binding IsDone}" Data="M6,13 L10.5,17.5 L18.5,8.5" Width="11" Height="9" Stretch="Uniform" />
+                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" FontSize="12" />
+                  </Panel>
+                </Border>
+                <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource V2.Brush.TextPrimary}" />
+                <TextBlock Grid.Column="2" Classes="v2-home-muted" VerticalAlignment="Center"
+                           Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}"
+                           Text="{Binding Status}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </Border>
+
+    <!-- Recent activity: data freshness and the last few recorded raids. -->
+    <Border Grid.Row="2" Grid.Column="1" Classes="v2-home-card">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+        <TextBlock Grid.Row="0" Classes="v2-home-card-title" Text="{Binding RecentHeading}" AutomationProperties.HeadingLevel="2" />
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+          <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Refresh}" Width="20" Height="20" Stretch="Uniform" />
+          <TextBlock Grid.Column="1" Classes="v2-home-strong" Text="{Binding DataFreshness}" VerticalAlignment="Center" />
+        </Grid>
+        <StackPanel Grid.Row="2" Spacing="4">
+          <TextBlock Classes="v2-home-muted" Text="{Binding RecentRaidsLabel}" FontSize="13" FontWeight="SemiBold" />
+          <TextBlock Classes="v2-home-muted" IsVisible="{Binding HasNoRecentRaids}" Text="{Binding RecentEmpty}" />
+          <ItemsControl ItemsSource="{Binding RecentRaids}" IsVisible="{Binding HasRecentRaids}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:V2HomeLineViewModel">
+                <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,9">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Path Classes="v2-icon v2-home-muted" Data="{DynamicResource V2.Icon.Chart}" Width="18" Height="18" Stretch="Uniform" />
+                    <TextBlock Grid.Column="1" Text="{Binding Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource V2.Brush.TextPrimary}" />
+                    <TextBlock Grid.Column="2" Classes="v2-home-muted" Text="{Binding Aside}" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <Button Grid.Row="3" Classes="v2-home-outline" HorizontalAlignment="Right"
+                AutomationProperties.AutomationId="v2-home-open-debrief"
+                Content="{Binding OpenDebriefLabel}" Command="{Binding OpenDebriefCommand}" />
+      </Grid>
+    </Border>
+
+    <!-- Privacy at a glance. -->
+    <Border Grid.Row="2" Grid.Column="2" Classes="v2-home-card">
+      <Grid RowDefinitions="Auto,*,Auto" RowSpacing="12">
+        <TextBlock Grid.Row="0" Classes="v2-home-card-title" Text="{Binding PrivacyHeading}" AutomationProperties.HeadingLevel="2" />
+        <StackPanel Grid.Row="1" Spacing="0">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18" Margin="0,6,0,12">
+            <Path Classes="v2-icon v2-home-action" Data="M12,3 L20,6 L20,12 C20,16.5 16.5,20 12,21.5 C7.5,20 4,16.5 4,12 L4,6 Z"
+                  Width="30" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="v2-home-strong" Text="{Binding CleanupTitle}" FontSize="17" />
+              <TextBlock Classes="v2-home-muted" Text="{Binding CleanupDetail}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+          <Border Classes="v2-home-rule" />
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18" Margin="0,12,0,6">
+            <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Document}"
+                  Width="30" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="v2-home-strong" Text="{Binding TelemetryTitle}" FontSize="17" />
+              <TextBlock Classes="v2-home-muted" Text="{Binding TelemetryDetail}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+        <Button Grid.Row="2" Classes="v2-home-outline" HorizontalAlignment="Stretch"
+                AutomationProperties.AutomationId="v2-home-review-privacy"
+                Content="{Binding ReviewPrivacyLabel}" Command="{Binding ReviewPrivacyCommand}" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

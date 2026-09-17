@@ -61,8 +61,15 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly IWikiLinkOpener _wikiOpener;
     private readonly StashScanWorkspaceViewModel? _stashScan;
     private readonly DebriefWorkspaceViewModel? _debrief;
+    /// <summary>How often the home overview re-reads recent raids while it is showing.</summary>
+    private static readonly TimeSpan HomeOverviewRefresh = TimeSpan.FromSeconds(15);
+
     private readonly PlanWorkspaceViewModel? _plan;
+    private bool _homeOverviewLoaded;
+    private DateTimeOffset _homeOverviewLoadedUtc;
+    private RaidLifecycleState _homeOverviewRaid;
     private readonly HideoutWorkspaceViewModel? _hideout;
+    private DateTimeOffset? _planDataUpdatedUtc;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
     private readonly TeamWorkspaceViewModel? _team;
     private readonly V2ShellPreviewStore _preview;
@@ -248,6 +255,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
+        // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
+        SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
+        if (legacy is not null)
+        {
+            _debrief?.UseMapNames(id => legacy.Map.Locations
+                .FirstOrDefault(location => string.Equals(location.Id, id, StringComparison.OrdinalIgnoreCase))?.Name);
+        }
         // V2 rough package 17 (team): the Team context panel's links move through this router.
         _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
 
@@ -314,6 +328,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (_plan is not null)
         {
             _plan.ShowOnMapRequested += PlanShowOnMapRequested;
+            // V2 rough package 17: the Plan page's Hideout card opens the Hideout tab.
+            _plan.OpenHideoutRequested += PlanOpenHideoutRequested;
         }
 
         WireLegacyContext();
@@ -748,6 +764,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public int ShellBodyRowSpan =>
         ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
+    /// <summary>The plain checklist; Setup draws the same checks as its overview's steps instead.</summary>
+    public bool ShowsReadinessChecklist => ShowsReadiness && !ShowsSetupWorkspace;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
         Registry[Router.Current.Location.Route].Content == V2RouteContent.StatePresenter ||
@@ -1109,6 +1127,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// </summary>
     private void PlanShowOnMapRequested(object? sender, EventArgs e) => GoTo(V2Routes.Raid);
 
+    private void PlanOpenHideoutRequested(object? sender, EventArgs e) => GoTo(V2Routes.Hideout);
+
     private void ArmSelectedCaptureIntent()
     {
         var requested = CaptureArmRequested;
@@ -1357,6 +1377,30 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
+    /// <summary>
+    /// V2 rough package 17: a launch that restores straight onto Plan or Hideout loads that
+    /// workspace before startup has migrated and filled the database, and it then showed
+    /// "unavailable" until the player pressed Refresh. Reloading once whenever the game data's
+    /// timestamp moves covers that first arrival and every later sync, without reloading on the
+    /// many runtime changes (raid clock, observation) that leave the data untouched.
+    /// </summary>
+    private void ReloadPlanWhenGameDataChanges(DateTimeOffset? dataUpdatedUtc)
+    {
+        if (dataUpdatedUtc == _planDataUpdatedUtc)
+        {
+            return;
+        }
+
+        _planDataUpdatedUtc = dataUpdatedUtc;
+        var route = Router.Current.Location.Route;
+        // Setup joins Plan and Hideout here (package 17, home): its overview shows the same plan,
+        // and variant A lands on it, so it is the page most likely to be open when data first lands.
+        if (route == V2Routes.Plan || route == V2Routes.Hideout || route == V2Routes.Setup)
+        {
+            LoadCurrentWorkspace();
+        }
+    }
+
     /// <summary>Loads the workspace for whichever route is now current, if it needs one.</summary>
     private void LoadCurrentWorkspace()
     {
@@ -1380,6 +1424,44 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {
             _ = _team.LoadAsync();
+        }
+        else if (route == V2Routes.Setup)
+        {
+            _homeOverviewLoaded = false;
+            LoadHomeOverview(_runtime.Current);
+        }
+    }
+
+    /// <summary>
+    /// Package 17 (home): the Setup overview's plan and recent raids come from the Plan and Debrief
+    /// workspaces. Setup is variant A's landing page, so this waits for the database: loading
+    /// before its migrations ran showed a raw "no such table" error in the plan card.
+    /// </summary>
+    private void LoadHomeOverview(ApplicationRuntimeSnapshot snapshot)
+    {
+        if (!snapshot.DatabaseReady || Router.Current.Location.Route != V2Routes.Setup)
+        {
+            return;
+        }
+
+        if (!_homeOverviewLoaded)
+        {
+            _homeOverviewLoaded = true;
+            _homeOverviewLoadedUtc = _clock.GetUtcNow();
+            _homeOverviewRaid = snapshot.Raid.State;
+            _ = _plan?.LoadAsync();
+            _ = _debrief?.LoadAsync();
+        }
+        else if (_homeOverviewRaid != snapshot.Raid.State ||
+            _clock.GetUtcNow() - _homeOverviewLoadedUtc >= HomeOverviewRefresh)
+        {
+            // Raids are written while the overview is showing (the landing page is where a
+            // session starts), so its recent raids follow the raid state and, failing that,
+            // re-read on a slow beat; otherwise a raid that opened a second after the first
+            // load would leave "No raids recorded yet" on screen for the rest of the session.
+            _homeOverviewLoadedUtc = _clock.GetUtcNow();
+            _homeOverviewRaid = snapshot.Raid.State;
+            _ = _debrief?.LoadAsync();
         }
     }
 
@@ -1486,6 +1568,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var snapshot = _runtime.Current;
         var continuity = Volatile.Read(ref _continuity);
         SynchronizeLegacySelection();
+        LoadHomeOverview(snapshot);
+        ReloadPlanWhenGameDataChanges(snapshot.Data.UpdatedUtc);
         // v2r-team (package 9, wave 2): kept live on every refresh, like Legacy.Group/Legacy.Squad
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
@@ -1527,7 +1611,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             ReadinessItems = Readiness.Checks
                 .Select(check => new V2ReadinessCheckViewModel(check, () => OpenReadiness(check)))
                 .ToArray();
+            SetupWorkspace?.Overview.ApplyReadiness(Readiness, ReadinessSummary, OpenReadiness);
         }
+
+        SetupWorkspace?.Overview.ApplyDataFreshness(DataFreshnessLabel);
 
         var previousSurface = Surface.Kind;
         var nextSurface = V2SurfaceStateResolver.Resolve(
@@ -2294,7 +2381,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             nameof(ShowsRaidCockpit),
             nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
             nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
-            nameof(ShowsReadiness), nameof(ShowsContinue),
+            nameof(ShowsReadiness), nameof(ShowsReadinessChecklist), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),
             nameof(SurfaceIsReady), nameof(SurfaceIsLoading), nameof(SurfaceIsUnknown), nameof(SurfaceIsOffline),
@@ -2740,6 +2827,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (_plan is not null)
         {
             _plan.ShowOnMapRequested -= PlanShowOnMapRequested;
+            _plan.OpenHideoutRequested -= PlanOpenHideoutRequested;
         }
 
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;

@@ -511,7 +511,7 @@
                 </StackPanel>
               </Border>
 
-              <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadiness}">
+              <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadinessChecklist}">
                 <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding ReadinessHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding ReadinessSummary}"
                            AutomationProperties.AutomationId="v2-shell-readiness-summary"

@@ -6,7 +6,9 @@ namespace TarkovCompanion.App.ViewModels.V2.Setup;
 /// <summary>The sections #292 asks for, in the order they are offered.</summary>
 public enum V2SetupSection
 {
-    GameProfile = 1,
+    /// <summary>V2 rough package 17 (home): the dashboard the Setup page opens on.</summary>
+    Overview = 1,
+    GameProfile,
     Recognition,
     Data,
     TeamDevices,
@@ -75,7 +77,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     };
 
     private readonly Action<V2RouteId> _navigate;
-    private V2SetupSection _selected = V2SetupSection.GameProfile;
+    private V2SetupSection _selected = V2SetupSection.Overview;
 
     public V2SetupWorkspaceViewModel(SettingsPageViewModel? settings, GroupPageViewModel? group, MainWindowViewModel? legacy, Action<V2RouteId> navigate)
     {
@@ -87,8 +89,10 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));
         ResetScaleCommand = new DelegateCommand(() => Legacy?.ResetInterfaceScale());
+        Overview = new(navigate, Select);
         Sections =
         [
+            new(V2SetupSection.Overview, "V2.Setup.Section.Overview", Select),
             new(V2SetupSection.GameProfile, "V2.Setup.Section.GameProfile", Select),
             new(V2SetupSection.Recognition, "V2.Setup.Section.Recognition", Select),
             new(V2SetupSection.Data, "V2.Setup.Section.Data", Select),
@@ -109,6 +113,9 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public MainWindowViewModel? Legacy { get; }
 
     public IReadOnlyList<V2SetupSectionTabViewModel> Sections { get; }
+
+    /// <summary>The home dashboard (package 17); the shell feeds it readiness and the pages it summarises.</summary>
+    public V2HomeOverviewViewModel Overview { get; }
 
     public ICommand OpenTeamCommand { get; }
 
@@ -154,6 +161,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
                 section.IsCurrent = section.Section == value;
             }
 
+            OnPropertyChanged(nameof(IsOverviewSelected));
             OnPropertyChanged(nameof(IsGameProfileSelected));
             OnPropertyChanged(nameof(IsRecognitionSelected));
             OnPropertyChanged(nameof(IsDataSelected));
@@ -166,6 +174,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         }
     }
 
+    public bool IsOverviewSelected => Selected == V2SetupSection.Overview;
     public bool IsGameProfileSelected => Selected == V2SetupSection.GameProfile;
     public bool IsRecognitionSelected => Selected == V2SetupSection.Recognition;
     public bool IsDataSelected => Selected == V2SetupSection.Data;
