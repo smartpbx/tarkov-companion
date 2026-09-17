@@ -23,7 +23,7 @@ public sealed class CompanionPairingMailboxTests
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
 
-        var registered = mailbox.RegisterOffer(offer, "TESTCODE12");
+        var registered = mailbox.RegisterOffer(offer, "TESTCODE12", "192.0.2.10");
         Assert.True(registered.Succeeded);
 
         var resolved = mailbox.ResolveOffer("test-code-12", "192.0.2.10");
@@ -63,13 +63,51 @@ public sealed class CompanionPairingMailboxTests
         Assert.Equal("rate-limited", rateLimited.Code);
     }
 
+    /// <summary>
+    /// A future-dated offer is rejected rather than filling the table forever.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PairingOffer"/> only bounds how long an offer lasts, not when it claims to have
+    /// started: 64 offers dated far in the future would each hold their slot until the process
+    /// restarted, since <see cref="CompanionPairingMailbox.Sweep()"/> never reaches an
+    /// <c>ExpiresUtc</c> that far ahead, and every later pairing would see "invitation-limit".
+    /// </remarks>
+    [Fact]
+    public void AnOfferDatedFarInTheFutureIsRejected()
+    {
+        var mailbox = new CompanionPairingMailbox(new FixedTimeProvider(Now));
+        var futureOffer = MakeOffer(Now.Add(ProtocolBounds.MaxClientClockSkew).AddMinutes(5));
+
+        var registered = mailbox.RegisterOffer(futureOffer, "TESTCODE66", "192.0.2.61");
+
+        Assert.False(registered.Succeeded);
+        Assert.Equal("pairing-rejected", registered.Code);
+    }
+
+    [Fact]
+    public void RegistrationIsRateLimitedPerSource()
+    {
+        var mailbox = new CompanionPairingMailbox(new FixedTimeProvider(Now));
+
+        MailboxResult<bool> last = default!;
+        for (var attempt = 0; attempt < ProtocolBounds.MaxPairingAttemptsPerWindow; attempt++)
+        {
+            last = mailbox.RegisterOffer(MakeOffer(Now), $"REGCODE{attempt}AB", "192.0.2.70");
+            Assert.True(last.Succeeded);
+        }
+
+        var rateLimited = mailbox.RegisterOffer(MakeOffer(Now), "REGCODEEXB", "192.0.2.70");
+        Assert.False(rateLimited.Succeeded);
+        Assert.Equal("rate-limited", rateLimited.Code);
+    }
+
     [Fact]
     public async Task AResentIdenticalRequestIsAcceptedButAConflictingOneIsRejected()
     {
         var clock = new FixedTimeProvider(Now);
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
-        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE22").Succeeded);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE22", "192.0.2.21").Succeeded);
 
         using var deviceKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var publicDeviceKey = PublicDeviceKey(deviceKey);
@@ -98,9 +136,9 @@ public sealed class CompanionPairingMailboxTests
     {
         var mailbox = new CompanionPairingMailbox(new FixedTimeProvider(Now));
         var offer = MakeOffer(Now);
-        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE33").Succeeded);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE33", "192.0.2.31").Succeeded);
 
-        var duplicate = mailbox.RegisterOffer(offer, "ANOTHRCOD3");
+        var duplicate = mailbox.RegisterOffer(offer, "ANOTHRCOD3", "192.0.2.31");
 
         Assert.False(duplicate.Succeeded);
     }
@@ -111,7 +149,7 @@ public sealed class CompanionPairingMailboxTests
         var clock = new FixedTimeProvider(Now);
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
-        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE44").Succeeded);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE44", "192.0.2.41").Succeeded);
 
         clock.Advance(ProtocolBounds.PairingLifetime + TimeSpan.FromMinutes(2));
 
@@ -126,7 +164,7 @@ public sealed class CompanionPairingMailboxTests
         var clock = new FixedTimeProvider(Now);
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
-        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE55").Succeeded);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE55", "192.0.2.51").Succeeded);
 
         Assert.False(mailbox.IsDenied(offer.AttemptId));
 

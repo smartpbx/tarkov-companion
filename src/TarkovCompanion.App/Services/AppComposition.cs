@@ -30,8 +30,11 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
+using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -41,8 +44,10 @@ using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Stash;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
+using TarkovCompanion.Infrastructure.Persistence.Stash;
 using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
@@ -516,6 +521,18 @@ public static class AppComposition
                     ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
+        // V2 rough — package 3 (stash scan workspace + debrief). Refs #283 #291 #377.
+        services.AddSingleton<SqliteV2DataStore>();
+        services.AddSingleton<StashScanAssembler>();
+        services.AddSingleton<StashSnapshotComparer>();
+        services.AddSingleton<SqliteStashSnapshotStore>();
+        services.AddSingleton<IStashSnapshotStore>(provider => provider.GetRequiredService<SqliteStashSnapshotStore>());
+        services.AddSingleton<InMemoryStashReviewCommandSink>();
+        services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<InMemoryStashReviewCommandSink>());
+        services.AddSingleton<StashScanWorkflow>();
+        services.AddSingleton<StashScanWorkspaceViewModel>();
+        services.AddSingleton<DebriefWorkspaceViewModel>();
+
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its
         // store are always available (list/revoke keeps working even when pairing cannot). The

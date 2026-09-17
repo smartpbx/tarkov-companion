@@ -409,6 +409,28 @@ public sealed class SqliteRaidHistoryService(
         await EndCoreAsync(connection, null, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task CorrectAsync(
+        Guid raidId,
+        string? outcome,
+        string? notes,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE raids
+            SET outcome = $outcome, notes = $notes
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+        command.Parameters.AddWithValue("$outcome", (object?)outcome ?? DBNull.Value);
+        command.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+        }
+    }
+
     private static async Task EndCoreAsync(
         SqliteConnection connection,
         SqliteTransaction? transaction,

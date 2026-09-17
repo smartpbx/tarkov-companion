@@ -584,6 +584,12 @@ public sealed class RaidObservationServiceTests
             string? notes,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task CorrectAsync(
+            Guid raidId,
+            string? outcome,
+            string? notes,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 

@@ -360,8 +360,30 @@ public sealed class SqliteStashSnapshotStore(
         string description,
         int maximumUtf8Bytes = SqliteV2DataStore.MaximumContractStringUtf8Bytes)
     {
-        if (reader.GetValue(ordinal) is not string value || string.IsNullOrWhiteSpace(value) ||
-            Encoding.UTF8.GetByteCount(value) > maximumUtf8Bytes)
+        if (reader.IsDBNull(ordinal))
+        {
+            throw new InvalidDataException($"Persisted {description} is invalid.");
+        }
+
+        // UTF-8 always takes at least as many bytes as UTF-16 takes chars per code point, so
+        // reading at most maximumUtf8Bytes + 1 chars bounds this buffer without ever materialising
+        // a corrupted or tampered row's payload in full first (#377).
+        using var textReader = reader.GetTextReader(ordinal);
+        var buffer = new char[maximumUtf8Bytes + 1];
+        var read = 0;
+        int chunk;
+        while (read < buffer.Length && (chunk = textReader.Read(buffer, read, buffer.Length - read)) > 0)
+        {
+            read += chunk;
+        }
+
+        if (read >= buffer.Length)
+        {
+            throw new InvalidDataException($"Persisted {description} is invalid.");
+        }
+
+        var value = new string(buffer, 0, read);
+        if (string.IsNullOrWhiteSpace(value) || Encoding.UTF8.GetByteCount(value) > maximumUtf8Bytes)
         {
             throw new InvalidDataException($"Persisted {description} is invalid.");
         }
