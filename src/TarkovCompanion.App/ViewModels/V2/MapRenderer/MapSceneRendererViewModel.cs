@@ -453,6 +453,24 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     public bool TrySelectAt(double viewportX, double viewportY)
     {
+        if (!TryHitObjectAt(viewportX, viewportY, out var objectId))
+        {
+            return false;
+        }
+
+        SelectObject(objectId);
+        return true;
+    }
+
+    /// <summary>The object under a viewport position, without selecting it.</summary>
+    /// <remarks>
+    /// The hit-test <see cref="TrySelectAt"/> already does, exposed on its own so a host can ask
+    /// "what did that gesture land on" for something other than selection — a right-click asking
+    /// to remove a mark, for one. This view model does not need to know marks exist to answer it.
+    /// </remarks>
+    public bool TryHitObjectAt(double viewportX, double viewportY, out MapSceneObjectId objectId)
+    {
+        objectId = default;
         if (!_projection.TryUnproject(
                 viewportX,
                 viewportY,
@@ -474,9 +492,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return false;
         }
 
-        SelectObject(hit.Object.Id);
+        objectId = hit.Object.Id;
         return true;
     }
+
+    /// <summary>The scene point under a viewport position, for a host placing something there.</summary>
+    /// <remarks>
+    /// The same unprojection <see cref="TrySelectAt"/> already does to hit-test, exposed on its
+    /// own so a host — the raid cockpit placing a mark, for one — can ask "where is that" without
+    /// this view model needing to know marks exist.
+    /// </remarks>
+    public bool TryScenePointAt(double viewportX, double viewportY, out MapScenePoint point) =>
+        _projection.TryUnproject(viewportX, viewportY, _scene.View.Camera, out point, out _);
 
     public void ClearSelection()
     {
