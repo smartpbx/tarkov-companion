@@ -136,6 +136,34 @@ public sealed class MapVariantSelectionService(IMapVariantPreferenceStore prefer
     public Task ChooseGroupNamesAsync(bool shown, CancellationToken cancellationToken) =>
         preferenceStore.SetAsync(GroupNamesKey, shown ? "on" : "off", cancellationToken);
 
+    /// <summary>
+    /// The key the idle auto-hide setting is remembered under.
+    /// </summary>
+    /// <remarks>
+    /// Not a location, for the same reason the group-names key is not: whether the floating
+    /// chrome fades when the pointer leaves the map is a fact about how somebody plays, not
+    /// about which map is open.
+    /// </remarks>
+    private const string HideControlsWhenIdleKey = "#hide-controls-idle";
+
+    /// <summary>
+    /// Whether the floating toolbars fade out once the pointer has been off the map a few
+    /// seconds. On unless somebody turns it off.
+    /// </summary>
+    /// <remarks>
+    /// Absent means never asked, and the default for that is on: the whole point is a second
+    /// monitor where the mouse lives in the game, and that is the common case, not the
+    /// exception somebody has to opt into.
+    /// </remarks>
+    public async Task<bool> HideControlsWhenIdleAsync(CancellationToken cancellationToken)
+    {
+        var stored = await preferenceStore.GetAsync(HideControlsWhenIdleKey, cancellationToken).ConfigureAwait(false);
+        return stored is null || string.Equals(stored, "on", StringComparison.Ordinal);
+    }
+
+    public Task ChooseHideControlsWhenIdleAsync(bool hide, CancellationToken cancellationToken) =>
+        preferenceStore.SetAsync(HideControlsWhenIdleKey, hide ? "on" : "off", cancellationToken);
+
     public async Task<MapVariant?> SelectAsync(MapLocation location, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(location);

@@ -1442,6 +1442,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _zoomScale = 1;
     private bool _isAutoFit = true;
     private bool _showsGroupNames;
+    private bool _hideControlsWhenIdle = true;
     private int _rotationDegrees;
     private MapVariant? _floorVariant;
     private bool _disposed;
@@ -1995,6 +1996,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // arriving, not somebody pressing the button.
             _showsGroupNames = await _selectionService.GroupNamesAsync(_lifetime.Token).ConfigureAwait(true);
             OnPropertyChanged(nameof(ShowsGroupNames));
+            _hideControlsWhenIdle = await _selectionService.HideControlsWhenIdleAsync(_lifetime.Token).ConfigureAwait(true);
+            OnPropertyChanged(nameof(HideControlsWhenIdle));
 
             var result = await _catalogClient.GetAsync(_lifetime.Token).ConfigureAwait(true);
             if (result.Catalog is null)
@@ -4835,6 +4838,25 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ShowsGroupNames = !ShowsGroupNames;
         await _selectionService
             .ChooseGroupNamesAsync(ShowsGroupNames, _lifetime.Token)
+            .ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Whether the floating toolbars fade out once the pointer has been off the map a few
+    /// seconds. On unless somebody turns it off.
+    /// </summary>
+    public bool HideControlsWhenIdle
+    {
+        get => _hideControlsWhenIdle;
+        private set => Set(ref _hideControlsWhenIdle, value);
+    }
+
+    /// <summary>Turns idle auto-hide of the floating chrome on or off, and remembers the answer.</summary>
+    public async Task ToggleHideControlsWhenIdleAsync()
+    {
+        HideControlsWhenIdle = !HideControlsWhenIdle;
+        await _selectionService
+            .ChooseHideControlsWhenIdleAsync(HideControlsWhenIdle, _lifetime.Token)
             .ConfigureAwait(true);
     }
 

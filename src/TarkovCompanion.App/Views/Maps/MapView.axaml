@@ -17,7 +17,9 @@
        the zoom with a scale of its own, read from one shared object on the view model. That
        is what keeps a marker twenty pixels wide whether the whole map is on screen or one
        building is. -->
-  <Panel>
+  <Panel
+      PointerEntered="RootPointerEntered"
+      PointerExited="RootPointerExited">
     <Border Classes="panel mapGround" ClipToBounds="True" Padding="0">
       <ScrollViewer
           x:Name="ViewportScrollViewer"
@@ -698,7 +700,20 @@
          star column gives the left bar whatever the right bar does not need, and the row
          inside it wraps rather than running on. -->
     <Grid VerticalAlignment="Top" ColumnDefinitions="*,Auto">
-      <StackPanel Grid.Column="0" Margin="12" HorizontalAlignment="Left" VerticalAlignment="Top" Spacing="7">
+      <StackPanel
+          x:Name="TopLeftOverlay"
+          Grid.Column="0"
+          Margin="12"
+          HorizontalAlignment="Left"
+          VerticalAlignment="Top"
+          Spacing="7"
+          GotFocus="OverlayGotFocus"
+          LostFocus="OverlayLostFocus">
+        <StackPanel.Transitions>
+          <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+          </Transitions>
+        </StackPanel.Transitions>
         <Border Classes="floating" Padding="8,6">
           <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="6">
             <ComboBox
@@ -708,6 +723,8 @@
                 ItemsSource="{Binding Locations}"
                 SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
                 SelectionChanged="LocationSelectionChanged"
+                DropDownOpened="OverlayDropDownOpened"
+                DropDownClosed="OverlayDropDownClosed"
                 ToolTip.Tip="Map">
               <ComboBox.ItemTemplate>
                 <DataTemplate x:DataType="maps:MapLocation">
@@ -723,7 +740,9 @@
                   MinWidth="124"
                   ItemsSource="{Binding Variants}"
                   SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
-                  SelectionChanged="VariantSelectionChanged">
+                  SelectionChanged="VariantSelectionChanged"
+                  DropDownOpened="OverlayDropDownOpened"
+                  DropDownClosed="OverlayDropDownClosed">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="maps:MapVariant">
                     <TextBlock Text="{Binding DisplayName}" />
@@ -746,7 +765,9 @@
                   MinWidth="100"
                   ItemsSource="{Binding Floors}"
                   SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
-                  SelectionChanged="FloorSelectionChanged">
+                  SelectionChanged="FloorSelectionChanged"
+                  DropDownOpened="OverlayDropDownOpened"
+                  DropDownClosed="OverlayDropDownClosed">
                 <ComboBox.ItemTemplate>
                   <DataTemplate x:DataType="maps:MapFloorDefinition">
                     <TextBlock Text="{Binding Name}" />
@@ -796,7 +817,12 @@
              single largest piece of chrome and is the one touched least. Open, it is a key as
              much as a set of switches: each row is drawn with the disc its markers use, in the
              order they matter, with a count of what is on the layer. -->
-        <Expander Classes="floating" Header="Layers" IsExpanded="False">
+        <Expander
+            Classes="floating"
+            Header="Layers"
+            IsExpanded="False"
+            Expanded="LayersExpandedChanged"
+            Collapsed="LayersExpandedChanged">
           <ItemsControl ItemsSource="{Binding Overlays}" MinWidth="220">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:MapOverlayViewModel">
@@ -840,7 +866,21 @@
         </Expander>
       </StackPanel>
 
-      <Border Grid.Column="1" Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
+      <Border
+          x:Name="TopRightOverlay"
+          Grid.Column="1"
+          Classes="floating"
+          Margin="12"
+          Padding="6,5"
+          HorizontalAlignment="Right"
+          VerticalAlignment="Top"
+          GotFocus="OverlayGotFocus"
+          LostFocus="OverlayLostFocus">
+        <Border.Transitions>
+          <Transitions>
+            <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+          </Transitions>
+        </Border.Transitions>
         <StackPanel Orientation="Horizontal" Spacing="4">
           <!-- Only shown where the map actually publishes both, which is a minority of them. -->
           <Button
@@ -873,6 +913,15 @@
               Click="GroupNamesClick"
               Content="Names"
               ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
+          <!-- Off screen more than on it: this panel usually sits on a second monitor while
+               the mouse lives in the game. Fading the chrome out is the default, and this is
+               the one press that gets it back for somebody who wants it up all the time. -->
+          <Button
+              Classes="viewControl"
+              Classes.on="{Binding HideControlsWhenIdle}"
+              Click="HideControlsWhenIdleClick"
+              Content="Auto-hide"
+              ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
           <!-- One button going one way round, because four presses is the whole space and a
                second button for the other direction is a second button to find under fire. -->
           <Button
@@ -897,13 +946,21 @@
          tooltip gives it back, and opening the expander now shows it in full — it said
          everything except the line somebody was reading. -->
     <Expander
+        x:Name="BottomOverlay"
         Classes="floating"
         Margin="12"
         MaxWidth="520"
         HorizontalAlignment="Left"
         VerticalAlignment="Bottom"
         ToolTip.Tip="{Binding StatusLine}"
-        IsExpanded="False">
+        IsExpanded="False"
+        GotFocus="OverlayGotFocus"
+        LostFocus="OverlayLostFocus">
+      <Expander.Transitions>
+        <Transitions>
+          <DoubleTransition Property="Opacity" Duration="0:0:0.25" />
+        </Transitions>
+      </Expander.Transitions>
       <Expander.Header>
         <TextBlock Text="{Binding StatusLine}" TextTrimming="CharacterEllipsis" MaxWidth="460" />
       </Expander.Header>

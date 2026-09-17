@@ -54,6 +54,30 @@ public sealed partial class MapView : UserControl
     private Point _panStart;
     private Vector _panOffset;
 
+    /// <summary>How often the idle clock is checked while the pointer is away from the map.</summary>
+    private static readonly TimeSpan IdleTickInterval = TimeSpan.FromMilliseconds(250);
+
+    private readonly MapControlsIdleState _idleState = new();
+    private DispatcherTimer? _idleTimer;
+    private bool _overlaysHidden;
+    private bool _subscribedToOverlays;
+    private bool _layersExpanded;
+    private int _openDropdownCount;
+    private int _focusedOverlayCount;
+
+    private Control? _topLeftOverlay;
+    private Control? _topRightOverlay;
+    private Control? _bottomOverlay;
+
+    /// <summary>The location/view/floor toolbar and the Layers expander beneath it.</summary>
+    private Control? TopLeftChrome => _topLeftOverlay ??= this.FindControl<Control>("TopLeftOverlay");
+
+    /// <summary>Follow, Floors, Fit, Visited, Names, rotation and zoom.</summary>
+    private Control? TopRightChrome => _topRightOverlay ??= this.FindControl<Control>("TopRightOverlay");
+
+    /// <summary>The "Following the raid on…" status strip.</summary>
+    private Control? BottomChrome => _bottomOverlay ??= this.FindControl<Control>("BottomOverlay");
+
     public MapView()
     {
         AvaloniaXamlLoader.Load(this);
@@ -77,7 +101,41 @@ public sealed partial class MapView : UserControl
             Viewport.SizeChanged += ViewportSizeChanged;
         }
 
+        if (!_subscribedToOverlays)
+        {
+            _subscribedToOverlays = true;
+            SubscribeOverlayResize(TopLeftChrome);
+            SubscribeOverlayResize(TopRightChrome);
+            SubscribeOverlayResize(BottomChrome);
+        }
+
+        EnsureIdleTimer();
         FitAndCentre();
+    }
+
+    /// <summary>Stops the idle clock rather than leaving it ticking against a view nobody sees.</summary>
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        base.OnDetachedFromVisualTree(eventArgs);
+        _idleTimer?.Stop();
+        _idleTimer = null;
+    }
+
+    private void SubscribeOverlayResize(Control? overlay)
+    {
+        if (overlay is not null)
+        {
+            overlay.SizeChanged += OverlaySizeChanged;
+        }
+    }
+
+    /// <summary>Chrome that grew or shrank — an expanded Layers panel, a wrapped toolbar — re-fits only a view that is still auto-fitting.</summary>
+    private void OverlaySizeChanged(object? sender, SizeChangedEventArgs eventArgs)
+    {
+        if (_boundViewModel?.IsAutoFit == true)
+        {
+            FitAndCentre();
+        }
     }
 
     private void MapDataContextChanged(object? sender, EventArgs eventArgs)
@@ -151,9 +209,10 @@ public sealed partial class MapView : UserControl
                 var scale = model.ZoomScale;
                 var viewport = Viewport.Viewport;
                 var extent = Viewport.Extent;
+                var freeRect = ComputeFreeRect(Viewport.Bounds.Size);
                 Viewport.Offset = new(
-                    Math.Clamp((marker.CenterX * scale) - (viewport.Width / 2), 0, Math.Max(0, extent.Width - viewport.Width)),
-                    Math.Clamp((marker.CenterY * scale) - (viewport.Height / 2), 0, Math.Max(0, extent.Height - viewport.Height)));
+                    Math.Clamp((marker.CenterX * scale) - freeRect.Center.X, 0, Math.Max(0, extent.Width - viewport.Width)),
+                    Math.Clamp((marker.CenterY * scale) - freeRect.Center.Y, 0, Math.Max(0, extent.Height - viewport.Height)));
             },
             DispatcherPriority.Background);
     }
@@ -193,11 +252,55 @@ public sealed partial class MapView : UserControl
             return;
         }
 
-        viewModel.ApplyFit(available.Width - ViewportPadding, available.Height - ViewportPadding);
+        var freeRect = ComputeFreeRect(available);
+        if (freeRect.Width <= 0 || freeRect.Height <= 0)
+        {
+            return;
+        }
+
+        viewModel.ApplyFit(freeRect.Width, freeRect.Height);
 
         // Centring has to wait for the resized content to be measured, otherwise the
         // scrollable extent is still the previous one and the offset is clamped away.
         Dispatcher.UIThread.Post(CentreViewport, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// The rectangle of the viewport that the floating chrome currently leaves free.
+    /// </summary>
+    /// <remarks>
+    /// A hidden overlay (faded out by idle auto-hide) reserves nothing: its bounds are still
+    /// whatever they were before it faded, but a rectangle nobody can see should not shrink the
+    /// map underneath it.
+    /// </remarks>
+    private Rect ComputeFreeRect(Size viewportSize)
+    {
+        IReadOnlyList<Rect> overlays = _overlaysHidden ? Array.Empty<Rect>() : CollectOverlayRects();
+        return MapOverlayFit.ComputeFreeRect(viewportSize, overlays, ViewportPadding);
+    }
+
+    private IReadOnlyList<Rect> CollectOverlayRects()
+    {
+        var rects = new List<Rect>(3);
+        AddOverlayRect(rects, TopLeftChrome);
+        AddOverlayRect(rects, TopRightChrome);
+        AddOverlayRect(rects, BottomChrome);
+        return rects;
+    }
+
+    private void AddOverlayRect(List<Rect> rects, Control? overlay)
+    {
+        if (overlay is null || Viewport is null || !overlay.IsEffectivelyVisible)
+        {
+            return;
+        }
+
+        if (overlay.TranslatePoint(new Point(0, 0), Viewport) is not { } origin)
+        {
+            return;
+        }
+
+        rects.Add(new Rect(origin, overlay.Bounds.Size));
     }
 
     /// <summary>
@@ -217,21 +320,28 @@ public sealed partial class MapView : UserControl
 
         var extent = Viewport.Extent;
         var viewport = Viewport.Viewport;
+        // Recomputed rather than carried over from FitAndCentre: this runs a dispatcher tick
+        // later, and centring on a rectangle the chrome has since resized out from under would
+        // put the map wherever the free area used to be rather than where it is.
+        var freeRect = ComputeFreeRect(Viewport.Bounds.Size);
         var content = viewModel.ContentBounds;
+        double centreX;
+        double centreY;
         if (content.Width <= 0 || content.Height <= 0)
         {
-            Viewport.Offset = new(
-                Math.Max(0, (extent.Width - viewport.Width) / 2),
-                Math.Max(0, (extent.Height - viewport.Height) / 2));
-            return;
+            centreX = extent.Width / 2;
+            centreY = extent.Height / 2;
+        }
+        else
+        {
+            var scale = viewModel.ZoomScale;
+            centreX = (content.X + (content.Width / 2)) * scale;
+            centreY = (content.Y + (content.Height / 2)) * scale;
         }
 
-        var scale = viewModel.ZoomScale;
-        var centreX = (content.X + (content.Width / 2)) * scale;
-        var centreY = (content.Y + (content.Height / 2)) * scale;
         Viewport.Offset = new(
-            Math.Clamp(centreX - (viewport.Width / 2), 0, Math.Max(0, extent.Width - viewport.Width)),
-            Math.Clamp(centreY - (viewport.Height / 2), 0, Math.Max(0, extent.Height - viewport.Height)));
+            Math.Clamp(centreX - freeRect.Center.X, 0, Math.Max(0, extent.Width - viewport.Width)),
+            Math.Clamp(centreY - freeRect.Center.Y, 0, Math.Max(0, extent.Height - viewport.Height)));
     }
 
     private async void LocationSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
@@ -550,6 +660,124 @@ public sealed partial class MapView : UserControl
 
     private void FitClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.RequestFit();
+
+    private async void HideControlsWhenIdleClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            await RunGuardedAsync(viewModel, viewModel.ToggleHideControlsWhenIdleAsync);
+        }
+    }
+
+    private void EnsureIdleTimer()
+    {
+        if (_idleTimer is not null)
+        {
+            return;
+        }
+
+        _idleTimer = new DispatcherTimer(IdleTickInterval, DispatcherPriority.Background, IdleTimerTick);
+        _idleTimer.Start();
+    }
+
+    private void IdleTimerTick(object? sender, EventArgs eventArgs)
+    {
+        if (DataContext is not MapViewModel viewModel || !viewModel.HideControlsWhenIdle)
+        {
+            SetOverlaysHidden(false);
+            return;
+        }
+
+        _idleState.Tick(DateTimeOffset.UtcNow);
+        SetOverlaysHidden(!_idleState.IsVisible);
+    }
+
+    private void RootPointerEntered(object? sender, PointerEventArgs eventArgs)
+    {
+        _idleState.PointerEntered(DateTimeOffset.UtcNow);
+        SetOverlaysHidden(false);
+    }
+
+    private void RootPointerExited(object? sender, PointerEventArgs eventArgs) =>
+        _idleState.PointerExited(DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// Fades the floating chrome in or out, and re-fits a view that is still auto-fitting.
+    /// </summary>
+    /// <remarks>
+    /// Hidden overlays report the same bounds they had a moment ago — they are faded, not
+    /// resized — so the fit that follows has to be told they no longer reserve room rather
+    /// than reading it off their (unchanged) layout.
+    /// </remarks>
+    private void SetOverlaysHidden(bool hidden)
+    {
+        if (_overlaysHidden == hidden)
+        {
+            return;
+        }
+
+        _overlaysHidden = hidden;
+        ApplyOverlayOpacity(TopLeftChrome, hidden);
+        ApplyOverlayOpacity(TopRightChrome, hidden);
+        ApplyOverlayOpacity(BottomChrome, hidden);
+
+        if (_boundViewModel?.IsAutoFit == true)
+        {
+            FitAndCentre();
+        }
+    }
+
+    private static void ApplyOverlayOpacity(Control? overlay, bool hidden)
+    {
+        if (overlay is null)
+        {
+            return;
+        }
+
+        overlay.Opacity = hidden ? 0 : 1;
+        overlay.IsHitTestVisible = !hidden;
+    }
+
+    /// <summary>Recomputes whether an open dropdown, an expanded Layers panel, or focus inside an overlay should keep the chrome up regardless of the pointer or the idle clock.</summary>
+    private void UpdateKeepVisible()
+    {
+        var keepVisible = _layersExpanded || _openDropdownCount > 0 || _focusedOverlayCount > 0;
+        _idleState.SetKeepVisible(keepVisible, DateTimeOffset.UtcNow);
+        if (keepVisible)
+        {
+            SetOverlaysHidden(false);
+        }
+    }
+
+    private void LayersExpandedChanged(object? sender, RoutedEventArgs eventArgs)
+    {
+        _layersExpanded = sender is Expander { IsExpanded: true };
+        UpdateKeepVisible();
+    }
+
+    private void OverlayDropDownOpened(object? sender, EventArgs eventArgs)
+    {
+        _openDropdownCount++;
+        UpdateKeepVisible();
+    }
+
+    private void OverlayDropDownClosed(object? sender, EventArgs eventArgs)
+    {
+        _openDropdownCount = Math.Max(0, _openDropdownCount - 1);
+        UpdateKeepVisible();
+    }
+
+    private void OverlayGotFocus(object? sender, FocusChangedEventArgs eventArgs)
+    {
+        _focusedOverlayCount++;
+        UpdateKeepVisible();
+    }
+
+    private void OverlayLostFocus(object? sender, RoutedEventArgs eventArgs)
+    {
+        _focusedOverlayCount = Math.Max(0, _focusedOverlayCount - 1);
+        UpdateKeepVisible();
+    }
 
     private async void VisitedClick(object? sender, RoutedEventArgs eventArgs)
     {
