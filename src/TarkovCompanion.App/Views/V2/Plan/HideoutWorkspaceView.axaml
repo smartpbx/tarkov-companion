@@ -124,7 +124,7 @@
                                  VerticalAlignment="Center" />
                       <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
                       <Viewbox Grid.Column="2" Width="20" Height="20" IsVisible="{Binding IsSatisfied}">
-                        <Path Classes="v2-icon v2-hideout-done" Data="{DynamicResource V2.Icon.Check}" />
+                        <Path Classes="v2-icon v2-hideout-done" Data="{DynamicResource V2.Icon.Tick}" />
                       </Viewbox>
                     </Grid>
                   </DataTemplate>

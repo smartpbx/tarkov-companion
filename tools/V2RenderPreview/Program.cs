@@ -35,8 +35,13 @@ internal static class Program
         var height = IntOption(args, "--height", 1080);
         var outputPath = StringOption(args, "--out") ?? throw new ArgumentException("--out <path.png> is required.");
         var mapId = StringOption(args, "--map");
+        // V2 rough package 17: land on a workspace other than the variant's landing page
+        // ("intel", "intel/item/<id>"), and optionally run a search there first.
+        var route = StringOption(args, "--route");
+        var search = StringOption(args, "--search");
         var options = AppCommandLine.Parse(args) with { Demo = true };
 
+        var rendered = false;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
         Directory.CreateDirectory(dataRoot);
 
@@ -52,7 +57,10 @@ internal static class Program
         }
         try
         {
-            await using var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
+            // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
+            // nothing pumps once the frame is saved, so awaiting it hung the process after
+            // "Saved" (package 17). The process exits right after the finally block instead.
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -75,6 +83,7 @@ internal static class Program
                     .Distinct();
                 Console.WriteLine("Automation ids: " + string.Join(", ", ids));
                 SaveFrame(gallery, outputPath, width, height);
+                rendered = true;
                 return 0;
             }
 
@@ -103,6 +112,24 @@ internal static class Program
             {
                 DrainUntilComplete(SeedActiveQuestsAsync(services, questCount));
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+            }
+
+            if (shell is not null && route is not null)
+            {
+                var result = shell.Router.NavigateToAddress(route);
+                if (!result.Succeeded)
+                {
+                    throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
+                }
+
+                Pump(20);
+            }
+
+            if (shell is not null && search is not null)
+            {
+                shell.SearchText = search;
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
             }
 
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
@@ -153,7 +180,26 @@ internal static class Program
             window.Width = width;
             Pump(10);
 
+            // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
+            // A headless run has no relay to join, and the offline group session republishes
+            // "not sharing" on its own tick, so this goes straight to the view model last.
+            if (shell is not null && args.Contains("--team-demo"))
+            {
+                var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                var demo = TeamDemoGroup(viewModel.Map.RenderModel);
+                for (var i = 0; i < 6; i++)
+                {
+                    // The shell re-applies the store's snapshot on every refresh (the raid clock
+                    // alone ticks once a second), so the store carries the demo group too.
+                    store.Update(snapshot => snapshot with { Group = demo });
+                    services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.TeamWorkspaceViewModel>()
+                        .Apply(store.Current);
+                    Pump(1);
+                }
+            }
+
             SaveFrame(window, outputPath, width, height);
+            rendered = true;
             return 0;
         }
         finally
@@ -165,6 +211,14 @@ internal static class Program
             catch (IOException)
             {
                 // Best effort: this is a throwaway temp directory for one render.
+            }
+
+            // Headless Avalonia and the composition's background services keep foreground
+            // threads alive; a finished render is one frame, so end the process explicitly.
+            if (rendered)
+            {
+                Console.Out.Flush();
+                Environment.Exit(0);
             }
         }
     }
@@ -192,6 +246,62 @@ internal static class Program
         }
 
         Console.WriteLine($"Seeded {picked.Length} active quest(s) of {board.Tasks.Count}.");
+    }
+
+    private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup(
+        TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var mapId = model?.Location.Id ?? "customs";
+
+        // World positions that land at chosen spots on the selected map's plan, found by probing
+        // its own transform, so the demo marks sit on the map rather than off its edge.
+        var candidates = new List<(double X, double Z, double PlanX, double PlanY)>();
+        if (model is not null)
+        {
+            for (var x = -1200.0; x <= 1200; x += 15)
+            {
+                for (var z = -1200.0; z <= 1200; z += 15)
+                {
+                    if (model.TryMapPosition(new(x, 0, z), out var point) && point.X is > 5 and < 95 && point.Y is > 5 and < 95)
+                    {
+                        candidates.Add((x, z, point.X, point.Y));
+                    }
+                }
+            }
+        }
+
+        (double X, double Z) At(double planX, double planY) => candidates.Count == 0
+            ? (0, 0)
+            : candidates.MinBy(item => Math.Pow(item.PlanX - planX, 2) + Math.Pow(item.PlanY - planY, 2)) is var best ? (best.X, best.Z) : (0, 0);
+
+        TarkovCompanion.Application.Services.Group.GroupMemberView Member(string name, TimeSpan since, params string[] quests) =>
+            new(name, mapId, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", null, null, null, [], quests) { Since = since };
+        TarkovCompanion.Application.Services.Group.GroupWaypointView Waypoint(long id, string by, double planX, double planY, string? label, string? reached, int minutesAgo)
+        {
+            var (x, z) = At(planX, planY);
+            return new(id, by, mapId, x, 0, z, label, reached) { CreatedUtc = now.AddMinutes(-minutesAgo) };
+        }
+
+        var (pingX, pingZ) = At(55, 30);
+        return new(true,
+            [
+                Member("Geo", TimeSpan.FromSeconds(4), "Delivery from the Past", "Debut"),
+                Member("Riley", TimeSpan.FromSeconds(9), "Delivery from the Past"),
+                Member("Sam", TimeSpan.FromMinutes(2), "Shortage"),
+            ],
+            "Sharing as Clay · 3 others here",
+            now)
+        {
+            Waypoints =
+            [
+                Waypoint(1, "Geo", 22, 35, "Dorms", "Riley", 6),
+                Waypoint(2, "Riley", 38, 58, null, null, 4),
+                Waypoint(3, "Geo", 60, 50, "Old gas station", null, 2),
+                Waypoint(4, "Clay", 78, 68, "RUAF roadblock", null, 1),
+            ],
+            Pings = [new(5, "Sam", mapId, pingX, 0, pingZ, null, now.AddSeconds(-12))],
+        };
     }
 
     private static void SaveFrame(Window window, string outputPath, int width, int height)

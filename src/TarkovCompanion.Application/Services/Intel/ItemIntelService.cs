@@ -18,12 +18,16 @@ public enum V2IntelKind
 /// <summary>The general price/need facts every catalog item has, regardless of kind.</summary>
 /// <param name="ValueRoubles">The best of flea and trader value, when either is known.</param>
 /// <param name="SaleChannelLabel">Which of those it came from ("Flea" or a trader name), if any.</param>
+/// <param name="OutstandingItems">How many of it uncompleted quests still ask for (a quantity, not a quest count).</param>
+/// <param name="OutstandingFoundInRaidItems">How many of those must be found in raid.</param>
 public sealed record V2IntelValueFacts(
     long? ValueRoubles,
     string? SaleChannelLabel,
     int QuestsNeedingIt,
     int TrackedQuestsNeedingIt,
-    int HideoutCount);
+    int HideoutCount,
+    int OutstandingItems = 0,
+    int OutstandingFoundInRaidItems = 0);
 
 /// <summary>What #308's key intelligence would call obtainability/associations, kept to real facts only.</summary>
 /// <param name="MapId">The map the key's lock is on, when the catalog has one.</param>
@@ -37,6 +41,22 @@ public sealed record V2IntelAmmoFacts(
     IReadOnlyDictionary<int, ArmorEffectiveness> ArmorClassRatings,
     string PracticalAdvice);
 
+/// <summary>One trader's buy-back price, as the catalog names the trader.</summary>
+public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
+
+/// <summary>
+/// Every price the local catalog holds for the item, for the Intel workspace's price panel
+/// (V2 rough package 17). Nothing here is a history: the 24-hour figures are the catalog's own
+/// summary of its last sync, not a series this application recorded.
+/// </summary>
+public sealed record V2IntelPriceFacts(
+    long? FleaRoubles,
+    long? Average24HourRoubles,
+    long? Low24HourRoubles,
+    long? High24HourRoubles,
+    IReadOnlyList<V2IntelTraderPrice> Traders,
+    DateTimeOffset UpdatedUtc);
+
 public sealed record V2ItemIntelResult(
     V2IntelKind Kind,
     string ItemId,
@@ -49,7 +69,9 @@ public sealed record V2ItemIntelResult(
     bool FleaEligible,
     V2IntelValueFacts? Value = null,
     V2IntelKeyFacts? Key = null,
-    V2IntelAmmoFacts? Ammo = null)
+    V2IntelAmmoFacts? Ammo = null,
+    string Description = "",
+    V2IntelPriceFacts? Prices = null)
 {
     public static V2ItemIntelResult NotFound(string itemId) =>
         new(V2IntelKind.Unknown, itemId, itemId, itemId, null, ItemCategory.Unknown, 0, 0, false);
@@ -82,6 +104,7 @@ public sealed class ItemIntelService(
         var price = await itemRepository.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(false);
         var needs = await questProgress.GetItemNeedsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var value = ValueFacts(price, needs);
+        var prices = PriceFacts(price);
 
         return item.Category switch
         {
@@ -89,7 +112,7 @@ public sealed class ItemIntelService(
                 await BuildAmmoAsync(item, value, cancellationToken).ConfigureAwait(false),
             ItemCategory.Key => await BuildKeyAsync(item, value, cancellationToken).ConfigureAwait(false),
             _ => Base(V2IntelKind.Item, item, value),
-        };
+        } with { Description = item.Description, Prices = prices };
     }
 
     private async Task<V2ItemIntelResult> BuildAmmoAsync(
@@ -136,11 +159,25 @@ public sealed class ItemIntelService(
         item.FleaEligible,
         value);
 
+    private static V2IntelPriceFacts? PriceFacts(ItemPriceSnapshot? price) => price is null
+        ? null
+        : new(
+            price.FleaPriceRoubles,
+            price.Average24HourRoubles,
+            price.Low24HourRoubles,
+            price.High24HourRoubles,
+            price.TraderOffers
+                .OrderByDescending(offer => offer.ValueRoubles)
+                .Select(offer => new V2IntelTraderPrice(offer.TraderName, offer.ValueRoubles))
+                .ToArray(),
+            price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc);
+
     private static V2IntelValueFacts ValueFacts(ItemPriceSnapshot? price, ItemNeedSummary needs)
     {
         if (price is null)
         {
-            return new(null, null, needs.QuestsNeedingIt, needs.TrackedQuestsNeedingIt, needs.HideoutCount);
+            return new(null, null, needs.QuestsNeedingIt, needs.TrackedQuestsNeedingIt, needs.HideoutCount,
+                needs.OutstandingItems, needs.OutstandingFoundInRaidItems);
         }
 
         var (valueRoubles, channelLabel) = price.BestSaleChannel switch
@@ -149,6 +186,7 @@ public sealed class ItemIntelService(
             SaleChannel.Trader => (price.BestTrader?.ValueRoubles, price.BestTrader?.TraderName),
             _ => ((long?)null, (string?)null),
         };
-        return new(valueRoubles, channelLabel, needs.QuestsNeedingIt, needs.TrackedQuestsNeedingIt, needs.HideoutCount);
+        return new(valueRoubles, channelLabel, needs.QuestsNeedingIt, needs.TrackedQuestsNeedingIt, needs.HideoutCount,
+            needs.OutstandingItems, needs.OutstandingFoundInRaidItems);
     }
 }

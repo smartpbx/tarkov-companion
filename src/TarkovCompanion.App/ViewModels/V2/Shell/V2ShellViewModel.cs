@@ -54,7 +54,7 @@ public sealed record V2NavigationContinuity(
 /// of composing services again: starting a preview must not create a second watcher, database
 /// connection, refresh loop, or capture path.
 /// </remarks>
-public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
+public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 {
     private readonly IRuntimeStateStore _runtime;
     private readonly IItemIntelService _intel;
@@ -249,6 +249,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
+        // V2 rough package 17 (team): the Team context panel's links move through this router.
+        _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -597,6 +599,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             if (SetProperty(ref _searchText, value))
             {
+                OnPropertyChanged(nameof(HasSearchText));
                 RaiseSuggestionsChanged();
             }
         }
@@ -739,18 +742,18 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
     public int ShellBodyRowSpan =>
-        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace ? 1 : 2;
+        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
         Registry[Router.Current.Location.Route].Content == V2RouteContent.StatePresenter ||
         (Surface.Kind != V2SurfaceStateKind.Ready && !ShowsWorkspace);
     public bool ShowsIntel => Router.Current.Location.Route == V2Routes.Item || Router.Current.Location.IntelItem is not null;
-    public bool ShowsIntelBeside => ShowsIntel && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
+    public bool ShowsIntelBeside => ShowsIntelCard && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
         V2ShellAdaptation.IntelFitsBeside(WidthClass);
-    public bool ShowsIntelInsteadOfPage => ShowsIntel && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
+    public bool ShowsIntelInsteadOfPage => ShowsIntelCard && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
         !V2ShellAdaptation.IntelFitsBeside(WidthClass);
-    public bool ShowsPrimaryContent => !ShowsIntel || ShowsIntelBeside;
+    public bool ShowsPrimaryContent => !ShowsIntelCard || ShowsIntelBeside;
     public int IntelColumn => ShowsIntelBeside ? 1 : 0;
     public int IntelColumnSpan => ShowsIntelBeside ? 1 : 2;
     public string IntelItem => Router.Current.Location.Item ?? Router.Current.Location.IntelItem ?? string.Empty;
@@ -1579,7 +1582,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         }
         foreach (var section in SectionItems)
         {
-            section.IsCurrent = Router.Current.Location.Route == section.Route;
+            section.IsCurrent = Router.Current.Location.Route == section.Route ||
+                (Router.Current.Location.Route == V2Routes.Item && section.Route == V2Routes.Items);
         }
 
         RefreshIntelIfNeeded();
@@ -1661,6 +1665,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             OnPropertyChanged(property);
         }
+
+        RaiseIntelWorkspaceChanged();
     }
 
     private IReadOnlyList<V2ShellIntelFactViewModel> BuildIntelFacts()
@@ -2322,6 +2328,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             OnPropertyChanged(property);
         }
+
+        RaiseIntelWorkspaceChanged();
     }
 
     private void Act(V2NavigationResult result)
@@ -2593,7 +2601,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
                 definition,
                 route => GoTo(route, V2ShellFocusTargets.Section(route)))
             {
-                IsCurrent = definition.Id == current,
+                // V2 rough package 17: an item open in the Intel workspace is still the Items tab.
+                IsCurrent = definition.Id == current || (current == V2Routes.Item && definition.Id == V2Routes.Items),
             })
             .ToArray();
         OnPropertyChanged(nameof(SectionItems));

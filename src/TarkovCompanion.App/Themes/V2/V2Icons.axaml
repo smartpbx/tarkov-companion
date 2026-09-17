@@ -18,13 +18,23 @@
   <StreamGeometry x:Key="V2.Icon.Gem">M6.5,4 L17.5,4 L21.5,9 L12,20.5 L2.5,9 Z M2.5,9 L21.5,9 M9,9 L12,20.5 L15,9 M9,9 L12,4 L15,9</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Target">M19,12 A7,7 0 1 1 5,12 A7,7 0 1 1 19,12 Z M14,12 A2,2 0 1 1 10,12 A2,2 0 1 1 14,12 Z M12,2 L12,5 M12,19 L12,22 M2,12 L5,12 M19,12 L22,12</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Pin">M12,21.5 C12,21.5 5,14.5 5,9.5 A7,7 0 0 1 19,9.5 C19,14.5 12,21.5 12,21.5 Z M14.5,9.5 A2.5,2.5 0 1 1 9.5,9.5 A2.5,2.5 0 1 1 14.5,9.5 Z</StreamGeometry>
+  <!-- V2 rough package 17 (Intel workspace). -->
+  <StreamGeometry x:Key="V2.Icon.Search">M17,10.5 A6.5,6.5 0 1 1 4,10.5 A6.5,6.5 0 1 1 17,10.5 Z M15.2,15.2 L20.5,20.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.Cart">M2.5,4 L5.5,4 L8,15.5 L18.5,15.5 L20.5,7.5 L6.4,7.5 M10.5,19.5 A1.2,1.2 0 1 1 8.1,19.5 A1.2,1.2 0 1 1 10.5,19.5 Z M18.5,19.5 A1.2,1.2 0 1 1 16.1,19.5 A1.2,1.2 0 1 1 18.5,19.5 Z</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.Home">M3.5,11 L12,4 L20.5,11 M6,9 L6,20 L18,20 L18,9 M10,20 L10,14.5 L14,14.5 L14,20</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.Check">M20,12 A8,8 0 1 1 4,12 A8,8 0 1 1 20,12 Z M8.2,12.3 L10.9,15 L15.9,9.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.MinusCircle">M20,12 A8,8 0 1 1 4,12 A8,8 0 1 1 20,12 Z M8.5,12 L15.5,12</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.Link">M10,14 L14,10 M10.5,6.5 L12.5,4.5 A3.9,3.9 0 0 1 19.5,11.5 L17.5,13.5 M13.5,17.5 L11.5,19.5 A3.9,3.9 0 0 1 4.5,12.5 L6.5,10.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Close">M6,6 L18,18 M18,6 L6,18</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Exit">M9,4 L4,4 L4,20 L9,20 M14,7 L19,12 L14,17 M19,12 L9,12</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Spawn">M12,21 A9,9 0 1 1 12,3 A9,9 0 1 1 12,21 Z M12,8 L12,16 M8,12 L16,12</StreamGeometry>
-  <!-- V2 rough package 17 (Plan workspace): bundle chevron, done check, hideout house, primary play, overflow. -->
+  <!-- V2 rough package 17 (Plan workspace): bundle chevron, done tick, hideout house, primary play, overflow. -->
   <StreamGeometry x:Key="V2.Icon.ChevronRight">M9,5 L16,12 L9,19</StreamGeometry>
-  <StreamGeometry x:Key="V2.Icon.Check">M4.5,12.5 L9.5,17.5 L19.5,6.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.Tick">M4.5,12.5 L9.5,17.5 L19.5,6.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.House">M3,11 L12,3.5 L21,11 M5.5,9 L5.5,20.5 L18.5,20.5 L18.5,9 M10,20.5 L10,14.5 L14,14.5 L14,20.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Play">M7,4.5 L19,12 L7,19.5 Z</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.More">M5,12 L5.01,12 M12,12 L12.01,12 M19,12 L19.01,12</StreamGeometry>
+  <!-- V2 rough package 17 (team): a paired tablet, and inviting one. -->
+  <StreamGeometry x:Key="V2.Icon.Tablet">M6,2.5 L18,2.5 L18,21.5 L6,21.5 Z M10.5,18.5 L13.5,18.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.PersonAdd">M13,8 A3.5,3.5 0 1 1 6,8 A3.5,3.5 0 1 1 13,8 Z M3,20 C3,14.5 16,14.5 16,20 M19,8 L19,14 M16,11 L22,11</StreamGeometry>
 </ResourceDictionary>

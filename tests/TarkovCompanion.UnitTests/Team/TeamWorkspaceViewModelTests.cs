@@ -1,11 +1,13 @@
 using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.UnitTests.V2Shell;
 
@@ -14,20 +16,54 @@ namespace TarkovCompanion.UnitTests.Team;
 public sealed class TeamWorkspaceViewModelTests
 {
     [Theory]
-    [InlineData(TeamWorkspaceSection.Overview, 0, 1, 2, 3)]
-    [InlineData(TeamWorkspaceSection.Group, 1, 2, 0, 3)]
-    [InlineData(TeamWorkspaceSection.Devices, 1, 2, 3, 0)]
-    public void The_active_route_brings_its_own_section_to_the_top_of_the_page(
-        TeamWorkspaceSection section, int presenceRow, int marksRow, int groupRow, int devicesRow)
+    [InlineData(TeamWorkspaceSection.Overview, true, false, false)]
+    [InlineData(TeamWorkspaceSection.Group, false, true, false)]
+    [InlineData(TeamWorkspaceSection.Devices, false, false, true)]
+    public void The_active_route_shows_its_own_pane(
+        TeamWorkspaceSection section, bool overview, bool group, bool devices)
     {
         var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
 
         viewModel.SetActiveSection(section);
 
-        Assert.Equal(presenceRow, viewModel.PresenceRow);
-        Assert.Equal(marksRow, viewModel.MarksRow);
-        Assert.Equal(groupRow, viewModel.GroupRow);
-        Assert.Equal(devicesRow, viewModel.DevicesRow);
+        Assert.Equal(overview, viewModel.IsOverview);
+        Assert.Equal(group, viewModel.IsGroupSection);
+        Assert.Equal(devices, viewModel.IsDevicesSection);
+    }
+
+    [Fact]
+    public void Context_panel_links_go_through_the_attached_navigation()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        // Unattached (as in a test or before the shell exists), a link does nothing rather than fail.
+        viewModel.OpenSharedPlanCommand.Execute(null);
+
+        var visited = new List<V2RouteId>();
+        viewModel.AttachNavigation(visited.Add);
+        viewModel.OpenSharedPlanCommand.Execute(null);
+        viewModel.ManageGroupCommand.Execute(null);
+        viewModel.ManageDevicesCommand.Execute(null);
+
+        Assert.Equal(new[] { V2Routes.Raid, V2Routes.Group, V2Routes.Tablet }, visited);
+    }
+
+    [Fact]
+    public void Members_read_as_map_and_raid_state_and_their_shared_quests_are_counted()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        var geo = Member("Geo") with { MapId = "streets-of-tarkov", RaidState = RaidLifecycleState.InRaid, Quests = ["Debut", "Shortage"] };
+        var riley = Member("Riley") with { MapId = null, RaidState = RaidLifecycleState.Unknown, Quests = ["shortage "] };
+        var group = new GroupSnapshot(true, [geo, riley], "Sharing", DateTimeOffset.UtcNow);
+
+        viewModel.Apply(SnapshotWithGroup(group));
+
+        Assert.Equal("Streets of Tarkov · In raid", viewModel.Presence.Single(row => row.Name == "Geo").Detail);
+        Assert.False(viewModel.Presence.Single(row => row.Name == "Riley").HasDetail);
+        Assert.Equal("2 sharing", viewModel.MemberCountLabel);
+        Assert.Collection(
+            viewModel.TeamQuests,
+            row => Assert.Equal(("Shortage", "2 members"), (row.Name, row.CountLabel)),
+            row => Assert.Equal(("Debut", "1 member"), (row.Name, row.CountLabel)));
     }
 
     [Fact]
@@ -152,11 +188,88 @@ public sealed class TeamWorkspaceViewModelTests
         Assert.Contains("reached by Geo", second.ByLabel, StringComparison.Ordinal);
         Assert.True(second.IsReached);
 
+        Assert.Equal(new[] { "1", "2" }, viewModel.Waypoints.Select(row => row.Number));
+        Assert.Equal("Waypoint 1", first.Title);
+        Assert.Equal("Customs · by Geo · 2m 0s ago", first.Detail);
+        Assert.Equal("Extract", second.Title);
+
         var pingRow = viewModel.Marks[2];
+        Assert.Same(pingRow, viewModel.Pings.Single());
+        Assert.Null(pingRow.Number);
         Assert.Equal("Ping", pingRow.Kind);
         Assert.Equal("Ping", pingRow.Name);
         Assert.NotNull(pingRow.RemainingLabel);
         Assert.True(pingRow.HasRemaining);
+    }
+
+    [Fact]
+    public void Waypoints_are_numbered_per_map_so_the_list_matches_each_map()
+    {
+        var waypoints = new GroupWaypointView[]
+        {
+            new(1, "Geo", "customs", 0, 0, 0, null, null),
+            new(2, "Geo", "woods", 0, 0, 0, null, null),
+            new(3, "Geo", "Customs", 0, 0, 0, null, null),
+        };
+
+        var numbered = TeamWorkspaceViewModel.NumberWaypoints(waypoints);
+
+        Assert.Equal(new[] { 1, 1, 2 }, numbered.Select(item => item.Number));
+    }
+
+    [Fact]
+    public void The_centre_map_draws_numbered_waypoints_joined_in_order_and_skips_what_it_cannot_place()
+    {
+        var group = new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow)
+        {
+            Waypoints =
+            [
+                new(1, "Geo", "customs", 10, 0, 10, "Dorms", null),
+                new(2, "Geo", "woods", 20, 0, 20, null, null),
+                new(3, "Riley", "customs", 30, 0, 30, null, "Geo"),
+                new(4, "Riley", "customs", -1, 0, -1, null, null),
+            ],
+            Pings = [new(5, "Sam", "customs", 40, 0, 40, null, DateTimeOffset.UtcNow)],
+        };
+
+        var (layer, objects) = TeamWorkspaceViewModel.BuildGroupMarks(
+            group,
+            mapId => mapId == "customs",
+            position => position.X < 0 ? null : new MapScenePoint(position.X, position.Z),
+            DateTimeOffset.UtcNow);
+
+        Assert.NotNull(layer);
+        var route = Assert.Single(objects, item => item.Kind == MapSceneObjectKind.Route);
+        Assert.Equal(new[] { 10.0, 30.0 }, route.Geometry.Points.Select(point => point.X));
+        var waypoints = objects.Where(item => item.Kind == MapSceneObjectKind.Waypoint).ToArray();
+        // The woods waypoint is off this map, and the fourth cannot be placed; numbers stay the list's.
+        Assert.Equal(new[] { "1", "2" }, waypoints.Select(item => item.Label));
+        Assert.Equal("group-waypoint:3", waypoints[1].Id.Value);
+        Assert.Contains("reached by Geo", waypoints[1].Detail, StringComparison.Ordinal);
+        Assert.Single(objects, item => item.Kind == MapSceneObjectKind.Ping);
+    }
+
+    [Fact]
+    public void Without_marks_on_the_map_there_is_no_marks_layer()
+    {
+        var (layer, objects) = TeamWorkspaceViewModel.BuildGroupMarks(
+            GroupSnapshot.Off, _ => true, position => new MapScenePoint(position.X, position.Z), DateTimeOffset.UtcNow);
+
+        Assert.Null(layer);
+        Assert.Empty(objects);
+    }
+
+    [Fact]
+    public void Without_a_raid_map_the_centre_map_says_how_to_get_one()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.RefreshMapPreview();
+
+        Assert.False(viewModel.HasMapPreview);
+        Assert.NotEmpty(viewModel.MapNote);
+        Assert.Equal("None yet", viewModel.MarksSummary);
+        Assert.NotNull(viewModel.PairTabletTooltip);
     }
 
     [Fact]

@@ -1668,8 +1668,11 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     private static bool IsNumberedStep(MapSceneObject item) =>
         item.Kind == MapSceneObjectKind.QuestObjective &&
         item.Truth == MapSceneTruthKind.PersonalPlan &&
-        item.Label.Length is > 0 and <= 3 &&
-        item.Label.All(char.IsAsciiDigit);
+        HasStepNumberLabel(item);
+
+    /// <summary>A label that is a 1–3 digit number: the numbered-marker convention Plan and Team share.</summary>
+    private static bool HasStepNumberLabel(MapSceneObject item) =>
+        item.Label.Length is > 0 and <= 3 && item.Label.All(char.IsAsciiDigit);
 
     private static string MarkerFor(MapSceneObject item) => IsNumberedStep(item) ? item.Label : item.Truth switch
     {
@@ -1681,7 +1684,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             MapSceneObjectKind.Extract => "⇱",
             MapSceneObjectKind.Transit => "↔",
             MapSceneObjectKind.QuestObjective => "◇",
-            MapSceneObjectKind.Waypoint => "◆",
+            // V2 rough package 17 (team): a waypoint labelled with its number draws that number,
+            // so the marker and its row in a marks list read as one thing.
+            MapSceneObjectKind.Waypoint => HasStepNumberLabel(item) ? item.Label : "◆",
             MapSceneObjectKind.Ping => "•",
             MapSceneObjectKind.Hazard => "!",
             MapSceneObjectKind.Lock => "⌑",

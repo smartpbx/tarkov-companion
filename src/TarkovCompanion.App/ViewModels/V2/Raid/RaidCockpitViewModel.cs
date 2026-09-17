@@ -675,13 +675,40 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IReadOnlyList<MapOverlayElement> objectives,
         MapSceneRendererViewModel? existing)
     {
-        if (Renderer is not { } current || _map.RenderModel is not { } model ||
-            !string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal))
+        ArgumentNullException.ThrowIfNull(objectives);
+        if (PreviewModel() is not { } model)
         {
             return null;
         }
 
         var nowUtc = _timeProvider.GetUtcNow();
+        return BuildPreview(
+            model,
+            objectives.Select(element => new MapSceneLegacyElement(element, new DataProvenance("quest-catalog", nowUtc))).ToArray(),
+            [],
+            [],
+            existing);
+    }
+
+    /// <summary>The render model a preview may be built from: only while this cockpit's own scene shows it.</summary>
+    private MapRenderModel? PreviewModel() =>
+        Renderer is { } current && _map.RenderModel is { } model &&
+        string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal)
+            ? model
+            : null;
+
+    /// <summary>
+    /// The one scene-building path behind both previews (Plan's objectives, Team's marks): its
+    /// own renderer view model over this cockpit's artwork, assembler and plan bounds, keeping
+    /// the existing preview's camera while it still shows the same map.
+    /// </summary>
+    private MapSceneRendererViewModel? BuildPreview(
+        MapRenderModel model,
+        IReadOnlyList<MapSceneLegacyElement> legacyElements,
+        IReadOnlyList<MapSceneLayer> layers,
+        IReadOnlyList<MapSceneObject> objects,
+        MapSceneRendererViewModel? existing)
+    {
         var sameMap = existing is not null &&
             string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
         var request = new MapSceneBuildRequest(
@@ -692,10 +719,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             sameMap
                 ? existing!.Scene.View
                 : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, new(50, 50, 1, 0, 0), []),
-            objectives.Select(element => new MapSceneLegacyElement(element, new DataProvenance("quest-catalog", nowUtc))).ToArray(),
-            [],
-            [],
-            current.Scene.Assets);
+            legacyElements,
+            layers,
+            objects,
+            Renderer!.Scene.Assets);
         if (_assembler.Build(request).Scene is not { } scene)
         {
             return null;
@@ -833,6 +860,38 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 new DataProvenance("local-mark", nowUtc)))
             .ToArray();
         return (layer, objects);
+    }
+
+    /// <summary>
+    /// V2 rough package 17 (team): a second, independent scene of the map this cockpit shows,
+    /// carrying only the group's marks, for the Team workspace's centre map.
+    /// </summary>
+    /// <remarks>
+    /// Built by the same BuildPreview as the Plan workspace's objective preview: its own renderer view model
+    /// (a renderer owns its viewport and camera, so two views cannot share one) over this
+    /// cockpit's artwork, assembler and plan bounds, so Team does not grow a second map
+    /// pipeline. <paramref name="buildMarks"/> is handed the map's id, which relay map ids
+    /// belong to it, and the world-to-plan projection, and returns the layer and objects to
+    /// draw. Null while this cockpit has no scene of its own.
+    /// </remarks>
+    internal MapSceneRendererViewModel? CreateMarksPreview(
+        Func<string, Func<string, bool>, Func<WorldPosition, MapScenePoint?>, (MapSceneLayer? Layer, IReadOnlyList<MapSceneObject> Objects)> buildMarks,
+        MapSceneRendererViewModel? existing)
+    {
+        ArgumentNullException.ThrowIfNull(buildMarks);
+        if (PreviewModel() is not { } model)
+        {
+            return null;
+        }
+
+        var compatible = TarkovCompanion.Application.Services.Quests.QuestMapProjectionService.CompatibleMapIds(model.Location, model.Variant);
+        var (layer, objects) = buildMarks(
+            model.Location.Id,
+            mapId => compatible.Contains(mapId),
+            position => model.TryMapPosition(position, out var point) && double.IsFinite(point.X) && double.IsFinite(point.Y)
+                ? new MapScenePoint(point.X, point.Y)
+                : null);
+        return BuildPreview(model, [], layer is null ? [] : [layer], objects, existing);
     }
 
     /// <summary>

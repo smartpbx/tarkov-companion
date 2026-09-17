@@ -262,7 +262,7 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2,0,0">
                           <Button Classes="v2-target v2-icon-btn v2-plan-link" Command="{Binding MarkObjectiveDoneCommand}"
                                   AutomationProperties.Name="Mark objective done" ToolTip.Tip="Mark objective done">
-                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Check}" />
+                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tick}" />
                           </Button>
                           <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="More actions"
                                   ToolTip.Tip="More actions">
