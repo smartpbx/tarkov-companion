@@ -21,11 +21,13 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- V2 rough package 20: 32px, not 48. Three dozen 48px boxes with letters in them covered
+         the plan; this is a marker, and the plan under it is the point. -->
     <Style Selector="ToggleButton.v2-map-marker, Button.v2-map-marker">
-      <Setter Property="Width" Value="48" />
-      <Setter Property="Height" Value="48" />
-      <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
-      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="MinHeight" Value="32" />
       <Setter Property="Padding" Value="2" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -77,6 +79,17 @@
     <Style Selector="TextBlock.v2-map-offer-unknown">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <Style Selector="Path.v2-map-marker-icon">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="18" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Stretch" Value="Uniform" />
+    </Style>
+    <Style Selector="TextBlock.v2-map-marker-number">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
     <Style Selector="Border.v2-map-grid">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
     </Style>
@@ -96,6 +109,14 @@
     <Style Selector="Border.v2-map-float">
       <Setter Property="Padding" Value="6" />
       <Setter Property="Opacity" Value="0.96" />
+    </Style>
+    <!-- V2 rough package 20: the one small chip allowed over the plan. -->
+    <Style Selector="Border.v2-map-chip">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,2" />
     </Style>
     <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -159,12 +180,18 @@
                    AutomationProperties.LiveSetting="Assertive"
                    AutomationProperties.Name="{Binding RendererNotice}"
                    Text="{Binding RendererNotice}" TextWrapping="Wrap" />
-        <TextBlock Classes="v2-label" IsVisible="{Binding HasDenseSceneNotice}"
-                   AutomationProperties.AutomationId="v2-map-live-polite"
-                   AutomationProperties.AccessibilityView="Control"
-                   AutomationProperties.LiveSetting="Polite"
-                   AutomationProperties.Name="{Binding DenseSceneNotice}"
-                   Text="{Binding DenseSceneNotice}" TextWrapping="Wrap" />
+        <!-- V2 rough package 20: a small chip, not the four-sentence paragraph this used to paint
+             across the plan. The full wording is the tooltip and the accessible name, so a screen
+             reader and a hovering player still get all of it. -->
+        <Border Classes="v2-map-chip" HorizontalAlignment="Left" IsVisible="{Binding HasDenseSceneNotice}"
+                ToolTip.Tip="{Binding DenseSceneNotice}"
+                AutomationProperties.AutomationId="v2-map-live-polite"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.LiveSetting="Polite"
+                AutomationProperties.HelpText="{Binding DenseSceneNotice}"
+                AutomationProperties.Name="{Binding DenseSceneNotice}">
+          <TextBlock Classes="v2-label" Text="{Binding DenseSceneChip}" TextWrapping="NoWrap" />
+        </Border>
       </StackPanel>
     </Border>
 
@@ -218,6 +245,7 @@
               PointerPressed="PlanPointerPressed"
               PointerMoved="PlanPointerMoved"
               PointerReleased="PlanPointerReleased"
+              PointerCaptureLost="PlanPointerCaptureLost"
               PointerWheelChanged="PlanPointerWheelChanged">
         <Canvas Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
@@ -272,15 +300,28 @@
                         <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
                       </TransformGroup>
                     </ToggleButton.RenderTransform>
-                    <Grid Width="40" Height="40" IsHitTestVisible="False">
-                      <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 Text="{Binding MarkerGlyph}" />
-                      <TextBlock Classes="v2-label" HorizontalAlignment="Left" VerticalAlignment="Top"
-                                 IsVisible="{Binding HasTruthGlyph}" Text="{Binding TruthGlyph}" />
-                      <TextBlock Classes="v2-label" HorizontalAlignment="Right" VerticalAlignment="Top"
-                                 IsVisible="{Binding HasFactionGlyph}" Text="{Binding FactionGlyph}" />
-                      <TextBlock Classes="v2-label" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                 IsVisible="{Binding HasOfferGlyph}" Text="{Binding OfferGlyph}" />
+                    <!-- V2 rough package 20: a drawn icon, or the waypoint/step number, and
+                         nothing else inside the marker. The letter badges that used to crowd
+                         three corners (and printed "?" whenever something was unknown) moved to
+                         the accessible name and the tooltip; the border colour still carries
+                         truth and offer state. -->
+                    <Grid Width="26" Height="26" IsHitTestVisible="False">
+                      <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
+                      <Panel IsVisible="{Binding ShowsMarkerIcon}">
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.Exit}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.Transit}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsObjectiveIcon}" Data="{DynamicResource V2.Icon.Objective}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsWaypointIcon}" Data="{DynamicResource V2.Icon.Pin}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsPingIcon}" Data="{DynamicResource V2.Icon.Ping}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsSpawnIcon}" Data="{DynamicResource V2.Icon.Spawn}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLootIcon}" Data="{DynamicResource V2.Icon.Gem}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsHazardIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLockIcon}" Data="{DynamicResource V2.Icon.Lock}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRouteIcon}" Data="{DynamicResource V2.Icon.Route}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRiskIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
+                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsGenericIcon}" Data="{DynamicResource V2.Icon.Target}" />
+                      </Panel>
                     </Grid>
                   </ToggleButton>
                 </DataTemplate>

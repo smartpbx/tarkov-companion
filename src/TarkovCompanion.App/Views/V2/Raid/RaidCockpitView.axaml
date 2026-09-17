@@ -83,7 +83,15 @@
        bottom strip carries the raid phase and the map's layer switches; a full-height right
        context panel carries the map header, extract options, marks, spawn areas and loot
        filters. -->
-  <Grid ColumnDefinitions="*,Auto">
+  <!-- V2 rough package 20: the context panel was a fixed 420px, so on Clayton's 3840-wide
+       ultrawide the map card took roughly 3000px for a plan that can only ever be as tall as the
+       card. A proportional column, clamped, keeps the map card near the concept's shape at every
+       width and gives the panel the room instead of leaving it as dead space. -->
+  <Grid>
+    <Grid.ColumnDefinitions>
+      <ColumnDefinition Width="2.6*" />
+      <ColumnDefinition Width="*" MinWidth="420" MaxWidth="760" />
+    </Grid.ColumnDefinitions>
     <Grid Grid.Column="0" RowDefinitions="*,Auto" RowSpacing="12" Margin="16,4,16,16">
       <Border Grid.Row="0" Classes="v2-raid-mapcard">
         <Grid>
@@ -173,8 +181,7 @@
       </Border>
     </Grid>
 
-    <Border Grid.Column="1" Width="420"
-            Classes="v2-raid-panel">
+    <Border Grid.Column="1" Classes="v2-raid-panel">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="16,12,16,16">
           <TextBlock Classes="v2-heading-2" Text="Raid plan" AutomationProperties.HeadingLevel="2" />
@@ -198,7 +205,11 @@
             </StackPanel>
           </Border>
 
-          <Border Classes="v2-card v2-raid-section v2-raid-accent"
+          <!-- V2 rough package 20: the accent edge is for a card with something in it. While the
+               game-data refresh is failing this one is a single muted line, and it should not be
+               the loudest thing in the panel. -->
+          <Border Classes="v2-card v2-raid-section"
+                  Classes.v2-raid-accent="{Binding HasMapExtracts}"
                   AutomationProperties.AutomationId="v2-raid-extract-options">
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Extract options" />
@@ -256,9 +267,15 @@
             </StackPanel>
           </Border>
 
-          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasMarks}">
+          <!-- V2 rough package 20: always present, so "where do I remove this waypoint" has a
+               fixed answer. Every row — ours and the group's — carries its own Remove; a
+               right-click on the marker itself removes it too. -->
+          <Border Classes="v2-card v2-raid-section"
+                  AutomationProperties.AutomationId="v2-raid-marks">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="My marks" />
+              <TextBlock Classes="v2-heading-3" Text="Marks" />
+              <TextBlock Classes="v2-label" IsVisible="{Binding !HasMarks}"
+                         Text="No marks yet. Arm Ping or Waypoint, then click the map." TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Marks}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -267,11 +284,13 @@
                   <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
                     <Border Classes="v2-raid-row">
                       <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                           <TextBlock Classes="v2-label" Text="{Binding KindLabel}" VerticalAlignment="Center" />
                           <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Label}" VerticalAlignment="Center"
                                      AutomationProperties.AutomationId="v2-raid-mark-label" />
-                          <Button Grid.Column="2" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                          <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center"
+                                     IsVisible="{Binding HasOwner}" Text="{Binding Owner}" />
+                          <Button Grid.Column="3" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
                                   AutomationProperties.AutomationId="v2-raid-mark-remove" />
                         </Grid>
                         <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->

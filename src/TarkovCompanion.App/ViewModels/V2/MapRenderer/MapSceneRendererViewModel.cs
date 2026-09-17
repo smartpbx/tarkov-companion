@@ -58,7 +58,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public const int MaximumGeometryObjects = 300;
     public const int ListPageSize = 50;
     public const int MaximumListItems = ListPageSize;
-    public const double MarkerExtent = 48;
+    /// <summary>The drawn marker's box, in pixels. Must match Views/V2/MapRenderer's own style.</summary>
+    public const double MarkerExtent = 32;
     public const int MaximumLootPresetPreservedLayers = 64;
 
     private const int ClusterColumns = 20;
@@ -88,6 +89,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
     private readonly bool _fillsViewport;
+    // The drawn plan's true width:height, taken from the decoded artwork once it resolves. Scene
+    // coordinates are the same normalized square for every map, so this is the only thing that
+    // knows Streets is wide and Factory is not. NaN until (or unless) artwork resolves.
+    private double _planAspect = double.NaN;
+    // V2 rough package 20: a drag used to move nothing until the pointer came up, then jump. The
+    // plan now follows the pointer 1:1 through these two numbers, which only feed the canvas's
+    // RenderTransform — no measure, no arrange, no marker rebuild per pointer delta. The camera
+    // itself is committed to the canonical scene once, when the drag ends.
+    private double _panOffsetX;
+    private double _panOffsetY;
+    private MapSceneCamera? _panStartCamera;
+    private MapSceneCamera? _panTargetCamera;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
@@ -213,8 +226,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double EmptyTop => Math.Max(72, (CanvasHeight - 100) / 2);
     public double CameraPreTranslateX => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).X;
     public double CameraPreTranslateY => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).Y;
-    public double CameraPostTranslateX => CanvasWidth / 2;
-    public double CameraPostTranslateY => CanvasHeight / 2;
+    public double CameraPostTranslateX => (CanvasWidth / 2) + _panOffsetX;
+    public double CameraPostTranslateY => (CanvasHeight / 2) + _panOffsetY;
+
+    /// <summary>True while a drag is in flight, so a host knows the plan is being moved by hand.</summary>
+    public bool IsPanning => _panStartCamera is not null;
     public double CameraZoom => _scene.View.Camera.Zoom;
     public double CameraRotationDegrees => -_scene.View.Camera.BearingDegrees;
     public string LocationLabel => _scene.LocationId;
@@ -258,6 +274,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public string BackgroundStatus { get; private set; } = string.Empty;
     public bool HasBackgroundStatus => !string.IsNullOrWhiteSpace(BackgroundStatus);
     public string DenseSceneNotice { get; private set; } = string.Empty;
+    /// <summary>The two-or-three-word form drawn over the plan; the full notice is its tooltip.</summary>
+    public string DenseSceneChip { get; private set; } = string.Empty;
     public bool HasDenseSceneNotice => !string.IsNullOrWhiteSpace(DenseSceneNotice);
     public string ModeFallbackNotice => _scene.View.Mode == MapSceneMode.Flat2D
         ? string.Empty
@@ -345,6 +363,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         _rendererNotice = presetRejected ? Text("Map.Loot.PresetConflict") : string.Empty;
+        if (changedSceneIdentity)
+        {
+            CancelPan();
+        }
+
         if (boundsChanged)
         {
             _projection = CreateProjection();
@@ -559,8 +582,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var sine = Math.Sin(radians);
         var unrotatedX = (cosine * viewportDeltaX) - (sine * viewportDeltaY);
         var unrotatedY = (sine * viewportDeltaX) + (cosine * viewportDeltaY);
-        var worldDeltaX = unrotatedX / (_projection.Scale * camera.Zoom);
-        var worldDeltaY = unrotatedY / (_projection.Scale * camera.Zoom);
+        var worldDeltaX = unrotatedX / (_projection.ScaleX * camera.Zoom);
+        var worldDeltaY = unrotatedY / (_projection.ScaleY * camera.Zoom);
         var bounds = _scene.Bounds;
         Request(new(
             MapSceneViewChangeKind.SetCamera,
@@ -570,6 +593,145 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 camera.Zoom,
                 camera.BearingDegrees,
                 camera.PitchDegrees)));
+    }
+
+    /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
+    public void BeginPan()
+    {
+        _panStartCamera = _scene.View.Camera;
+        _panTargetCamera = null;
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>
+    /// Moves the plan under an in-flight drag, by the pointer's total offset from where it went
+    /// down — not by the delta since the last event, so a dropped or coalesced move cannot make
+    /// the plan drift away from the pointer.
+    /// </summary>
+    /// <remarks>
+    /// The offset is derived from the camera the drag would actually commit, clamped to the
+    /// plan's bounds, so what the player sees while dragging is exactly what they get when they
+    /// let go: dragging past the edge stops rather than snapping back on release.
+    /// </remarks>
+    public void UpdatePan(double totalViewportDeltaX, double totalViewportDeltaY)
+    {
+        if (_panStartCamera is not { } start ||
+            !double.IsFinite(totalViewportDeltaX) || !double.IsFinite(totalViewportDeltaY))
+        {
+            return;
+        }
+
+        var target = PanTargetCamera(start, totalViewportDeltaX, totalViewportDeltaY);
+        _panTargetCamera = target;
+        // How far the applied (clamped) camera move is, in projected pixels before the camera's
+        // own zoom and rotation, then back through both to get the on-screen shift.
+        var movedX = (start.CenterX - target.CenterX) * _projection.ScaleX;
+        var movedY = (start.CenterY - target.CenterY) * _projection.ScaleY;
+        var radians = start.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        SetPanOffset(
+            start.Zoom * ((movedX * cosine) + (movedY * sine)),
+            start.Zoom * ((-movedX * sine) + (movedY * cosine)));
+    }
+
+    /// <summary>Ends a drag, committing the camera it arrived at through the canonical reducer.</summary>
+    public void CommitPan()
+    {
+        var target = _panTargetCamera;
+        _panStartCamera = null;
+        _panTargetCamera = null;
+        if (target is { } camera)
+        {
+            // Requested before the offset is cleared: the host applies and presents this
+            // synchronously, so the committed camera replaces the drag offset within the same
+            // frame and the plan does not flash back to where the drag started.
+            Request(new(MapSceneViewChangeKind.SetCamera, Camera: camera));
+        }
+
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>Abandons a drag (lost capture, a new scene) and puts the plan back.</summary>
+    public void CancelPan()
+    {
+        _panStartCamera = null;
+        _panTargetCamera = null;
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>
+    /// Zooms about a point in the viewport, so the place under the wheel (or the pinch centre)
+    /// stays under it. Plain <see cref="RequestZoom(double)"/> zooms about the camera centre,
+    /// which meant the feature the player was pointing at slid away as they zoomed in.
+    /// </summary>
+    public void RequestZoomAt(double direction, double viewportX, double viewportY)
+    {
+        if (!double.IsFinite(direction) || direction == 0 ||
+            !double.IsFinite(viewportX) || !double.IsFinite(viewportY) || !_projection.IsUsable)
+        {
+            RequestZoom(direction);
+            return;
+        }
+
+        var camera = _scene.View.Camera;
+        var zoom = Math.Clamp(camera.Zoom * (direction > 0 ? 1.25 : 0.8), 0.25, 16);
+        if (Math.Abs(zoom - camera.Zoom) < 1e-9)
+        {
+            return;
+        }
+
+        var radians = camera.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        var offsetX = viewportX - (CanvasWidth / 2);
+        var offsetY = viewportY - (CanvasHeight / 2);
+        var planX = (cosine * offsetX) - (sine * offsetY);
+        var planY = (sine * offsetX) + (cosine * offsetY);
+        // The projected centre has to move by the pointer offset scaled by the change in 1/zoom
+        // for the point under the pointer to stay put.
+        var change = (1 / camera.Zoom) - (1 / zoom);
+        var centre = _projection.Project(camera.CenterX, camera.CenterY);
+        var moved = _projection.Unproject(centre.X + (planX * change), centre.Y + (planY * change));
+        var bounds = _scene.Bounds;
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: new(
+                Math.Clamp(moved.X, bounds.MinimumX, bounds.MaximumX),
+                Math.Clamp(moved.Y, bounds.MinimumY, bounds.MaximumY),
+                zoom,
+                camera.BearingDegrees,
+                camera.PitchDegrees)));
+    }
+
+    private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)
+    {
+        var radians = start.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        var unrotatedX = (cosine * viewportDeltaX) - (sine * viewportDeltaY);
+        var unrotatedY = (sine * viewportDeltaX) + (cosine * viewportDeltaY);
+        var bounds = _scene.Bounds;
+        return new(
+            Math.Clamp(start.CenterX - (unrotatedX / (_projection.ScaleX * start.Zoom)), bounds.MinimumX, bounds.MaximumX),
+            Math.Clamp(start.CenterY - (unrotatedY / (_projection.ScaleY * start.Zoom)), bounds.MinimumY, bounds.MaximumY),
+            start.Zoom,
+            start.BearingDegrees,
+            start.PitchDegrees);
+    }
+
+    private void SetPanOffset(double x, double y)
+    {
+        if (Math.Abs(x - _panOffsetX) < 0.01 && Math.Abs(y - _panOffsetY) < 0.01)
+        {
+            return;
+        }
+
+        _panOffsetX = x;
+        _panOffsetY = y;
+        // Two notifications, both feeding a RenderTransform. Nothing here invalidates layout.
+        OnPropertyChanged(nameof(CameraPostTranslateX));
+        OnPropertyChanged(nameof(CameraPostTranslateY));
     }
 
     private void FitPlan()
@@ -641,7 +803,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void Request(MapSceneRendererChange change)
     {
-        if (_pendingRevision == _scene.Revision)
+        // A camera change is idempotent and last-write-wins, so it is never refused for an
+        // in-flight change: refusing one mid-gesture is what made a wheel spin or a fast drag
+        // stall and then jump, with "a change is already in flight" flashing over the plan.
+        if (change.Kind != MapSceneViewChangeKind.SetCamera && _pendingRevision == _scene.Revision)
         {
             SetRendererNotice(Text("Map.Change.Pending"));
             return;
@@ -1027,10 +1192,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 : _reviewedAssetResolver(asset);
         }
 
+        // The artwork is what says how wide this map really is; the scene's percent bounds do not.
+        var reprojected = AdoptPlanAspect();
         ReviewedAssetLabel = asset is null
             ? string.Empty
             : Format("Map.Asset.Label", asset.Attribution, asset.MapVersion, asset.GameVersion);
         UpdateBackgroundStatus(asset);
+        if (reprojected)
+        {
+            RaiseProjectionChanged();
+        }
     }
 
     private void UpdateBackgroundStatus(MapSceneAsset? asset) => BackgroundStatus = !_projection.IsUsable
@@ -1068,6 +1239,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         DenseSceneNotice = messages.Count == 0
             ? string.Empty
             : string.Join("; ", messages) + ". " + Text("Map.Dense.Suffix");
+        // What actually draws over the plan: two or three words. The sentences above stay as its
+        // tooltip and its accessible name, so nothing is lost, it just is not painted on the map.
+        DenseSceneChip = messages.Count switch
+        {
+            0 => string.Empty,
+            1 when outsideBounds > 0 => Format("Map.Dense.Chip.Outside", _presentation.Number(outsideBounds)),
+            _ => Format("Map.Dense.Chip.Many", _presentation.Number(messages.Count)),
+        };
     }
 
     private bool CanRenderMode(MapSceneMode mode) =>
@@ -1330,6 +1509,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(HasSpatialObjects));
             OnPropertyChanged(nameof(ShowsEmptyMap));
             OnPropertyChanged(nameof(DenseSceneNotice));
+            OnPropertyChanged(nameof(DenseSceneChip));
             OnPropertyChanged(nameof(HasDenseSceneNotice));
             RaiseListChanged();
         }
@@ -1381,7 +1561,32 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
-    private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport);
+    private MapSceneProjection CreateProjection() =>
+        new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport, _planAspect);
+
+    /// <summary>
+    /// Adopts the decoded artwork's shape, and reprojects when it differs from what is drawn.
+    /// </summary>
+    /// <remarks>
+    /// Returns whether anything changed, so the one caller that already raises projection
+    /// notifications does not raise a second, identical round on every background resolve.
+    /// </remarks>
+    private bool AdoptPlanAspect()
+    {
+        var size = BackgroundImage?.Size;
+        var aspect = size is { Width: > 0, Height: > 0 } bitmap ? bitmap.Width / bitmap.Height : double.NaN;
+        var unchanged = double.IsNaN(aspect) && double.IsNaN(_planAspect) ||
+            double.IsFinite(aspect) && double.IsFinite(_planAspect) && Math.Abs(aspect - _planAspect) < 0.0001;
+        if (unchanged)
+        {
+            return false;
+        }
+
+        _planAspect = aspect;
+        _projection = CreateProjection();
+        RebuildProjectedObjects();
+        return true;
+    }
 
     private static bool Equivalent<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) =>
         left.Count == right.Count && left.SequenceEqual(right);
@@ -1503,6 +1708,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         double markerInverseZoom,
         double markerUprightDegrees,
         string markerGlyph,
+        MapSceneMarkerIcon icon,
         string truthGlyph,
         string factionGlyph,
         string offerGlyph,
@@ -1527,6 +1733,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         _markerInverseZoom = markerInverseZoom;
         _markerUprightDegrees = markerUprightDegrees;
         MarkerGlyph = markerGlyph;
+        Icon = icon;
         TruthGlyph = truthGlyph;
         FactionGlyph = factionGlyph;
         OfferGlyph = offerGlyph;
@@ -1566,6 +1773,28 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public double MarkerInverseZoom => _markerInverseZoom;
     public double MarkerUprightDegrees => _markerUprightDegrees;
     public string MarkerGlyph { get; }
+
+    /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
+    public MapSceneMarkerIcon Icon { get; }
+
+    /// <summary>
+    /// A numbered waypoint or plan step draws its number instead of an icon, so the pin on the
+    /// plan and its row in the marks list are obviously the same thing.
+    /// </summary>
+    public bool HasMarkerNumber => MarkerGlyph.Length is > 0 and <= 3 && MarkerGlyph.All(char.IsAsciiDigit);
+    public bool ShowsMarkerIcon => !HasMarkerNumber;
+    public bool IsExtractIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Extract;
+    public bool IsTransitIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Transit;
+    public bool IsObjectiveIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Objective;
+    public bool IsWaypointIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Waypoint;
+    public bool IsPingIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Ping;
+    public bool IsSpawnIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Spawn;
+    public bool IsLootIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Loot;
+    public bool IsHazardIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Hazard;
+    public bool IsLockIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Lock;
+    public bool IsRouteIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Route;
+    public bool IsRiskIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Risk;
+    public bool IsGenericIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Generic;
     public string TruthGlyph { get; }
     public bool HasTruthGlyph => !string.IsNullOrWhiteSpace(TruthGlyph);
     public string FactionGlyph { get; }
@@ -1612,6 +1841,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             1 / camera.Zoom,
             camera.BearingDegrees,
             MarkerFor(sceneObject),
+            IconFor(sceneObject),
             IsNumberedStep(sceneObject) ? string.Empty : TruthGlyphFor(sceneObject.Truth),
             FactionGlyphFor(sceneObject),
             OfferGlyphFor(sceneObject),
@@ -1653,6 +1883,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             1 / camera.Zoom,
             camera.BearingDegrees,
             count > 99 ? "99+" : presentation.Number(count),
+            MapSceneMarkerIcon.Cluster,
             string.Empty,
             string.Empty,
             string.Empty,
@@ -1697,12 +1928,15 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         },
     };
 
+    // V2 rough package 20: nothing unknown draws a "?" on the map any more. An unknown truth,
+    // faction or offer state says nothing at all — the marker's own border colour already carries
+    // "potential" and "offer unknown", and a literal question mark beside every extract read as a
+    // rendering fault rather than as information.
     private static string TruthGlyphFor(MapSceneTruthKind truth) => truth switch
     {
         MapSceneTruthKind.HistoricalEstimate => "H",
         MapSceneTruthKind.LocalLastKnown => "L",
         MapSceneTruthKind.TeamSharedLastKnown => "T",
-        MapSceneTruthKind.PotentialSpawn => "?",
         MapSceneTruthKind.PersonalPlan => "P",
         MapSceneTruthKind.UserAuthored => "✎",
         _ => string.Empty,
@@ -1715,7 +1949,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
                 MapFeatureFaction.Pmc => "P",
                 MapFeatureFaction.Scav => "S",
                 MapFeatureFaction.Shared => "P/S",
-                _ => "?",
+                _ => string.Empty,
             }
             : string.Empty;
 
@@ -1725,9 +1959,26 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             {
                 MapSceneOfferState.Offered => "✓",
                 MapSceneOfferState.NotOffered => "×",
-                _ => "?",
+                _ => string.Empty,
             }
             : string.Empty;
+
+    /// <summary>Which drawn icon a marker shows, in place of the old text glyph.</summary>
+    internal static MapSceneMarkerIcon IconFor(MapSceneObject item) => item.Kind switch
+    {
+        MapSceneObjectKind.Extract => MapSceneMarkerIcon.Extract,
+        MapSceneObjectKind.Transit => MapSceneMarkerIcon.Transit,
+        MapSceneObjectKind.QuestObjective => MapSceneMarkerIcon.Objective,
+        MapSceneObjectKind.Waypoint => MapSceneMarkerIcon.Waypoint,
+        MapSceneObjectKind.Ping => MapSceneMarkerIcon.Ping,
+        MapSceneObjectKind.Hazard => MapSceneMarkerIcon.Hazard,
+        MapSceneObjectKind.Lock => MapSceneMarkerIcon.Lock,
+        MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => MapSceneMarkerIcon.Loot,
+        MapSceneObjectKind.SpawnArea => MapSceneMarkerIcon.Spawn,
+        MapSceneObjectKind.Route => MapSceneMarkerIcon.Route,
+        MapSceneObjectKind.Risk => MapSceneMarkerIcon.Risk,
+        _ => MapSceneMarkerIcon.Generic,
+    };
 }
 
 public sealed class MapSceneRendererGeometryViewModel
@@ -1852,6 +2103,28 @@ internal sealed class MapSceneRendererSemanticText(MapSceneRendererPresentation 
     }
 }
 
+/// <summary>
+/// V2 rough package 20: which drawn icon a map marker uses. The renderer used to put a text glyph
+/// in the marker box ("⇱", "↔", "◇") with letter badges beside it, which on Clayton's Streets
+/// screenshot read as "P/S ?" and "↔ ?" rather than as a map.
+/// </summary>
+public enum MapSceneMarkerIcon
+{
+    Generic,
+    Extract,
+    Transit,
+    Objective,
+    Waypoint,
+    Ping,
+    Spawn,
+    Loot,
+    Hazard,
+    Lock,
+    Route,
+    Risk,
+    Cluster,
+}
+
 public readonly record struct MapSceneProjectedPoint(double X, double Y);
 
 public sealed class MapSceneProjection
@@ -1860,12 +2133,22 @@ public sealed class MapSceneProjection
     private readonly double _canvasWidth;
     private readonly double _canvasHeight;
 
+    /// <param name="planAspect">
+    /// The drawn plan's true width-to-height ratio, from the decoded map artwork. Scene
+    /// coordinates are a normalized percent box (see <see cref="MapSceneRendererViewModel"/>'s
+    /// PlanBounds) that is the same 0-100 square for every map, so the bounds themselves cannot
+    /// say what shape the map is. Without this, Streets — which is far wider than it is tall —
+    /// was squashed into a square and every other map was distorted its own way. Non-finite or
+    /// non-positive falls back to the bounds' own ratio, which is what a synthetic test scene
+    /// and the map gallery want.
+    /// </param>
     public MapSceneProjection(
         MapSceneBounds bounds,
         double canvasWidth,
         double canvasHeight,
         double inset,
-        bool fillCanvas = false)
+        bool fillCanvas = false,
+        double planAspect = double.NaN)
     {
         _bounds = bounds;
         _canvasWidth = canvasWidth;
@@ -1874,45 +2157,64 @@ public sealed class MapSceneProjection
         var boundsHeight = bounds.Height;
         var finiteBounds = double.IsFinite(boundsWidth) && double.IsFinite(boundsHeight) &&
             boundsWidth > 0 && boundsHeight > 0;
+        var availableWidth = Math.Max(1, canvasWidth - (inset * 2));
+        var availableHeight = Math.Max(1, canvasHeight - (inset * 2));
         // "Contain" (the default) never crops the plan, at the cost of letterboxing when the
         // viewport's aspect ratio does not match the plan's. A host with its own fixed frame
-        // around the map (the Raid workspace) instead asks to "cover": fill the viewport edge to
-        // edge, cropping the plan's own overflow — PlanViewport already clips to its bounds.
-        var widthScale = Math.Max(1, canvasWidth - (inset * 2)) / boundsWidth;
-        var heightScale = Math.Max(1, canvasHeight - (inset * 2)) / boundsHeight;
-        var tentativeScale = finiteBounds
-            ? fillCanvas ? Math.Max(widthScale, heightScale) : Math.Min(widthScale, heightScale)
-            : double.NaN;
-        IsUsable = double.IsFinite(tentativeScale) && tentativeScale > 0;
+        // around the map instead asks to "cover": fill the viewport edge to edge, cropping the
+        // plan's own overflow — PlanViewport already clips to its bounds.
+        var aspect = double.IsFinite(planAspect) && planAspect > 0
+            ? planAspect
+            : finiteBounds ? boundsWidth / boundsHeight : double.NaN;
+        IsUsable = finiteBounds && double.IsFinite(aspect) && aspect > 0;
         if (!IsUsable)
         {
-            Scale = 1;
-            MapWidth = Math.Max(1, canvasWidth - (inset * 2));
-            MapHeight = Math.Max(1, canvasHeight - (inset * 2));
+            ScaleX = 1;
+            ScaleY = 1;
+            MapWidth = availableWidth;
+            MapHeight = availableHeight;
             MapLeft = inset;
             MapTop = inset;
             return;
         }
 
-        Scale = tentativeScale;
-        MapWidth = boundsWidth * Scale;
-        MapHeight = boundsHeight * Scale;
+        // One rectangle of the plan's true shape, fitted into the available rect and centred, so
+        // the artwork is never stretched and never cropped by the fit itself.
+        var byWidth = availableWidth;
+        var byHeight = availableHeight * aspect;
+        MapWidth = fillCanvas ? Math.Max(byWidth, byHeight) : Math.Min(byWidth, byHeight);
+        MapHeight = MapWidth / aspect;
         MapLeft = (canvasWidth - MapWidth) / 2;
         MapTop = (canvasHeight - MapHeight) / 2;
+        // Separate axis scales: scene space is a percent box, so mapping it onto a rectangle of
+        // the artwork's shape is exactly what puts a marker back over the feature it names.
+        ScaleX = MapWidth / boundsWidth;
+        ScaleY = MapHeight / boundsHeight;
     }
 
     public bool IsUsable { get; }
-    public double Scale { get; }
+    public double ScaleX { get; }
+    public double ScaleY { get; }
+
+    /// <summary>One representative scale, for tolerances that are not per-axis.</summary>
+    public double Scale => Math.Sqrt(ScaleX * ScaleY);
     public double MapLeft { get; }
     public double MapTop { get; }
     public double MapWidth { get; }
     public double MapHeight { get; }
 
+    /// <summary>The scene point a projected (canvas) position stands for, ignoring the camera.</summary>
+    public MapScenePoint Unproject(double projectedX, double projectedY) => IsUsable
+        ? new(
+            _bounds.MinimumX + ((projectedX - MapLeft) / ScaleX),
+            _bounds.MinimumY + ((projectedY - MapTop) / ScaleY))
+        : new(_bounds.MinimumX, _bounds.MinimumY);
+
     public MapSceneProjectedPoint Project(MapScenePoint point) => Project(point.X, point.Y);
 
     public MapSceneProjectedPoint Project(double x, double y) => new(
-        IsUsable ? MapLeft + ((x - _bounds.MinimumX) * Scale) : _canvasWidth / 2,
-        IsUsable ? MapTop + ((y - _bounds.MinimumY) * Scale) : _canvasHeight / 2);
+        IsUsable ? MapLeft + ((x - _bounds.MinimumX) * ScaleX) : _canvasWidth / 2,
+        IsUsable ? MapTop + ((y - _bounds.MinimumY) * ScaleY) : _canvasHeight / 2);
 
     public bool TryUnproject(
         double viewportX,
@@ -1937,9 +2239,11 @@ public sealed class MapSceneProjection
         var baseY = (sine * screenX) + (cosine * screenY);
         var cameraPoint = Project(camera.CenterX, camera.CenterY);
         point = new(
-            _bounds.MinimumX + ((cameraPoint.X + baseX - MapLeft) / Scale),
-            _bounds.MinimumY + ((cameraPoint.Y + baseY - MapTop) / Scale));
-        worldUnitsPerPixel = 1 / (Scale * camera.Zoom);
+            _bounds.MinimumX + ((cameraPoint.X + baseX - MapLeft) / ScaleX),
+            _bounds.MinimumY + ((cameraPoint.Y + baseY - MapTop) / ScaleY));
+        // The more forgiving axis, so a hit tolerance stays at least the requested pixels wide on
+        // a plan whose two axes no longer share a scale.
+        worldUnitsPerPixel = 1 / (Math.Min(ScaleX, ScaleY) * camera.Zoom);
         return true;
     }
 }

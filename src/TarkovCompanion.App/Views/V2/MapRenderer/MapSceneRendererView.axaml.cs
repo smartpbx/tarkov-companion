@@ -188,6 +188,9 @@ public sealed partial class MapSceneRendererView : UserControl
         _pointerDown = true;
         _dragging = false;
         _pointerStart = eventArgs.GetPosition(PlanViewport);
+        // V2 rough package 20: the drag is live from here. The plan follows the pointer through
+        // the canvas's RenderTransform, and only the camera it ends on reaches the scene.
+        (DataContext as MapSceneRendererViewModel)?.BeginPan();
         eventArgs.Pointer.Capture(PlanViewport);
         eventArgs.Handled = true;
     }
@@ -207,7 +210,19 @@ public sealed partial class MapSceneRendererView : UserControl
         }
 
         _dragging = true;
+        // The total offset from where the pointer went down, not the step since the last move:
+        // a coalesced or dropped move then cannot leave the plan drifting behind the pointer.
+        (DataContext as MapSceneRendererViewModel)?.UpdatePan(delta.X, delta.Y);
         eventArgs.Handled = true;
+    }
+
+    /// <summary>A drag that ends without a release (another control takes the pointer) puts the
+    /// plan back where it was rather than leaving it mid-drag.</summary>
+    private void PlanPointerCaptureLost(object? sender, PointerCaptureLostEventArgs eventArgs)
+    {
+        _pointerDown = false;
+        _dragging = false;
+        (DataContext as MapSceneRendererViewModel)?.CancelPan();
     }
 
     private void PlanPointerReleased(object? sender, PointerReleasedEventArgs eventArgs)
@@ -224,11 +239,12 @@ public sealed partial class MapSceneRendererView : UserControl
         {
             if (_dragging)
             {
-                var delta = current - _pointerStart;
-                renderer.RequestPan(delta.X, delta.Y);
+                renderer.UpdatePan(current.X - _pointerStart.X, current.Y - _pointerStart.Y);
+                renderer.CommitPan();
             }
             else
             {
+                renderer.CancelPan();
                 if (!renderer.TrySelectAt(current.X, current.Y))
                 {
                     renderer.ClearSelection();
@@ -252,7 +268,9 @@ public sealed partial class MapSceneRendererView : UserControl
             return;
         }
 
-        renderer.RequestZoom(eventArgs.Delta.Y);
+        // Zoom follows the pointer: the place under the cursor stays under it.
+        var position = eventArgs.GetPosition(PlanViewport);
+        renderer.RequestZoomAt(eventArgs.Delta.Y, position.X, position.Y);
         eventArgs.Handled = true;
     }
 

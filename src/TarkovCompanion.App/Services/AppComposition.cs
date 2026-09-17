@@ -599,7 +599,10 @@ public static class AppComposition
             provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
             provider.GetRequiredService<IRaidMarkStore>(),
             provider.GetRequiredService<TarkovDevMapAssetCache>(),
-            timeProvider));
+            timeProvider,
+            // [V2 rough package 20] so the Raid marks list can remove a group waypoint or ping
+            // too, through the same relay call the Team workspace uses.
+            provider.GetRequiredService<GroupSessionService>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2

@@ -251,6 +251,10 @@ public static class V2ShellText
         ["V2.Shell.Action.OpenTeam"] = "Open Team",
         ["V2.Shell.Action.ManagePairing"] = "Pair a tablet",
         ["V2.Shell.Action.SyncNow"] = "Sync now",
+        // V2 rough package 20: the one global-problem banner is a single line; its dismiss
+        // control and the "see the rest in the status pill" wording live here.
+        ["V2.Shell.Action.DismissBanner"] = "Dismiss",
+        ["V2.Shell.Banner.Dismissed"] = "Hidden until this changes. The status pill still has the detail.",
         ["V2.Shell.Action.OpenSetup"] = "Open Setup",
         ["V2.Shell.Action.OpenReadiness"] = "Open {0}",
 

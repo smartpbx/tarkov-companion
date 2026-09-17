@@ -91,6 +91,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private string? _dialogInvoker;
     private bool _captureShortcutEnabled = true;
     private bool _surfaceInitialized;
+    // V2 rough package 20: the global-problem banner is dismissible, per problem. Remembering the
+    // identity (kind + detail) rather than a plain flag means a *different* problem raises the
+    // banner again instead of staying silently hidden behind an earlier dismissal.
+    private bool _surfaceBannerDismissed;
+    private string _dismissedSurfaceIdentity = string.Empty;
     private bool _disposed;
     // V2 rough package 15 (shell chrome + Raid workspace): the #265 scaffold chrome (variant
     // labels, Back/Forward, address bar, pin/copy, the Commands button) confused Clayton as
@@ -275,6 +280,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             V2ShellDialogKind.Health,
             V2ShellFocusTargets.Health,
             V2ShellFocusTargets.HealthDialog));
+        DismissSurfaceBannerCommand = new DelegateCommand(DismissSurfaceBanner);
         PaletteCommand = new DelegateCommand(() => ToggleDialog(
             V2ShellDialogKind.Commands,
             V2ShellFocusTargets.Palette,
@@ -770,6 +776,22 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public bool ShowsStatePresenter =>
         Registry[Router.Current.Location.Route].Content == V2RouteContent.StatePresenter ||
         (Surface.Kind != V2SurfaceStateKind.Ready && !ShowsWorkspace);
+
+    // V2 rough package 20: a global problem has exactly one presentation, the single-line banner
+    // under the top bar. The page body used to draw the same block a second time, which on Raid
+    // pushed the map card down by about 400px on a 1080-high window. The banner can be dismissed
+    // for the current problem; the status pill keeps the detail and the recovery actions.
+    public bool ShowsSurfaceBanner => ShowsStatePresenter && !_surfaceBannerDismissed;
+
+    /// <summary>The banner's one line: the specific detail when there is one, else the state word.</summary>
+    public string SurfaceBannerText => string.IsNullOrWhiteSpace(Surface.Detail) ? SurfaceTitle : Surface.Detail;
+
+    public string SurfaceDismissLabel => V2ShellText.Get("V2.Shell.Action.DismissBanner");
+
+    /// <summary>Whether the status pill's dialog shows the current problem rather than only the checks.</summary>
+    public bool ShowsHealthSurface => !SurfaceIsReady;
+
+    public ICommand DismissSurfaceBannerCommand { get; }
     public bool ShowsIntel => Router.Current.Location.Route == V2Routes.Item || Router.Current.Location.IntelItem is not null;
     public bool ShowsIntelBeside => ShowsIntelCard && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
         V2ShellAdaptation.IntelFitsBeside(WidthClass);
@@ -1647,6 +1669,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             }
         }
 
+        // A new problem (or a recovered one) un-dismisses the banner; the same problem stays hidden.
+        var surfaceIdentity = SurfaceIdentity();
+        if (!string.Equals(_dismissedSurfaceIdentity, surfaceIdentity, StringComparison.Ordinal))
+        {
+            _surfaceBannerDismissed = false;
+            _dismissedSurfaceIdentity = string.Empty;
+        }
+
         _surfaceInitialized = true;
         RebuildCapturePresentation();
         RebuildSuggestions();
@@ -1823,6 +1853,17 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         RecoveryActions.Any(item => string.Equals(item.AutomationId, automationId, StringComparison.Ordinal)) ||
         _activeReadinessTarget is not null &&
         string.Equals(ReadinessTargetAutomationId, automationId, StringComparison.Ordinal);
+
+    /// <summary>Hides the global-problem banner until the problem itself changes.</summary>
+    private void DismissSurfaceBanner()
+    {
+        _surfaceBannerDismissed = true;
+        _dismissedSurfaceIdentity = SurfaceIdentity();
+        OnPropertyChanged(nameof(ShowsSurfaceBanner));
+        Announce(V2ShellText.Get("V2.Shell.Banner.Dismissed"), V2Announcement.Polite);
+    }
+
+    private string SurfaceIdentity() => string.Concat(Surface.Kind.ToString(), "\u001f", Surface.Detail);
 
     private void ExecuteRecovery(V2RecoveryAction action)
     {
@@ -2376,6 +2417,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
+            nameof(ShowsSurfaceBanner), nameof(SurfaceBannerText), nameof(ShowsHealthSurface),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
             nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
             nameof(ShowsRaidCockpit),

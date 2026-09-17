@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
@@ -53,6 +54,33 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
         RemoveCommand = new DelegateCommand(() => _ = remove(_id));
     }
 
+    /// <summary>
+    /// V2 rough package 20: a mark the group shared, listed beside our own so every mark drawn on
+    /// this map has a visible way to remove it in one place. Removal goes to the relay, which
+    /// accepts both waypoints and pings; there is nothing local to rename.
+    /// </summary>
+    public RaidMarkRowViewModel(long groupId, RaidMarkKind kind, string label, string owner, Func<long, Task> remove)
+    {
+        ArgumentNullException.ThrowIfNull(remove);
+        _id = Guid.Empty;
+        _rename = static (_, _) => Task.CompletedTask;
+        Kind = kind;
+        Label = label;
+        Owner = owner;
+        IsGroupMark = true;
+        _editableName = string.Empty;
+        RenameCommand = new DelegateCommand(static () => { });
+        RemoveCommand = new DelegateCommand(() => _ = remove(groupId));
+    }
+
+    /// <summary>Whose mark this is, when it came from the group; empty for our own.</summary>
+    public string Owner { get; } = string.Empty;
+
+    public bool HasOwner => Owner.Length > 0;
+
+    /// <summary>True for a relay mark: removal goes to the group, and it is never renamed here.</summary>
+    public bool IsGroupMark { get; }
+
     public Guid Id => _id;
 
     public RaidMarkKind Kind { get; }
@@ -60,10 +88,10 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
     /// <summary>The number, custom name, or "Ping" — whichever the map dot beside this row shows.</summary>
     public string Label { get; }
 
-    public string KindLabel => Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint";
+    public string KindLabel => (Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint") + (IsGroupMark ? " · group" : string.Empty);
 
     /// <summary>A ping is "look here now": it is never told apart from another ping by name.</summary>
-    public bool CanRename => Kind == RaidMarkKind.Waypoint;
+    public bool CanRename => Kind == RaidMarkKind.Waypoint && !IsGroupMark;
 
     /// <summary>The rename box's current text. Committing it empty clears back to the number.</summary>
     public string EditableName
@@ -126,6 +154,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly MapSceneAssembler _assembler;
     private readonly IHighValueLootRuntimeSource _lootSource;
     private readonly IRaidMarkStore _marks;
+    private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
     private readonly MapSceneRendererPresentation _presentation;
@@ -150,7 +179,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         HistoricalTrafficRuntimeService traffic,
         IRaidMarkStore marks,
         TarkovDevMapAssetCache assetCache,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        // V2 rough package 20: so the marks list can offer "Remove" on a group waypoint or ping
+        // too, instead of only on our own. Optional: a cockpit built without one simply lists no
+        // group marks, which is what the unit tests and the map gallery want.
+        GroupSessionService? groupSession = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
@@ -159,6 +192,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _lootSource = lootSource ?? throw new ArgumentNullException(nameof(lootSource));
         ArgumentNullException.ThrowIfNull(traffic);
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
+        _groupSession = groupSession;
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
@@ -475,11 +509,50 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var mapId = _map.RenderModel?.Location.Id;
         Marks = mapId is null
             ? []
-            : [.. LabelMarksForMap(_marks.Marks, mapId)
-                .OrderByDescending(item => item.Mark.CreatedUtc)
-                .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id)))];
+            : [
+                .. LabelMarksForMap(_marks.Marks, mapId)
+                    .OrderByDescending(item => item.Mark.CreatedUtc)
+                    .Select(item => new RaidMarkRowViewModel(item.Mark, item.Label, RenameMarkAsync, id => _marks.RemoveAsync(id))),
+                .. GroupMarkRows(mapId),
+            ];
         OnPropertyChanged(nameof(Marks));
         OnPropertyChanged(nameof(HasMarks));
+    }
+
+    /// <summary>
+    /// V2 rough package 20: the group's marks for this map, each with the relay removal the Team
+    /// workspace already uses, so "how do I get rid of this waypoint" has one answer wherever the
+    /// waypoint came from. Empty when this cockpit was built without a group session.
+    /// </summary>
+    private IEnumerable<RaidMarkRowViewModel> GroupMarkRows(string mapId)
+    {
+        if (_groupSession is not { } session)
+        {
+            yield break;
+        }
+
+        var group = _stateStore.Current.Group;
+        var number = 0;
+        foreach (var waypoint in group.Waypoints.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase)))
+        {
+            number++;
+            yield return new(
+                waypoint.Id,
+                RaidMarkKind.Waypoint,
+                string.IsNullOrWhiteSpace(waypoint.Label) ? number.ToString(CultureInfo.CurrentCulture) : waypoint.Label!,
+                waypoint.By,
+                id => session.RemoveMarkAsync(id, CancellationToken.None));
+        }
+
+        foreach (var ping in group.Pings.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase)))
+        {
+            yield return new(
+                ping.Id,
+                RaidMarkKind.Ping,
+                string.IsNullOrWhiteSpace(ping.Label) ? "Ping" : ping.Label!,
+                ping.By,
+                id => session.RemoveMarkAsync(id, CancellationToken.None));
+        }
     }
 
     private Task RenameMarkAsync(Guid id, string? name) => _marks.RenameAsync(id, name);

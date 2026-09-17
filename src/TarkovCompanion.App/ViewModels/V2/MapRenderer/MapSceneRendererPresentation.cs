@@ -183,6 +183,10 @@ public sealed class MapSceneRendererPresentation
             ["Map.Dense.List"] = "{0} details are available across {1} pages",
             ["Map.Dense.Outside"] = "{0} features outside reviewed bounds are list-only",
             ["Map.Dense.Suffix"] = "Use cluster drill-down, search, pages, or layer filters to reach every detail.",
+            // V2 rough package 20: the notice itself is a small chip over the plan, not a
+            // paragraph drawn across it; the sentences above are its tooltip.
+            ["Map.Dense.Chip.Outside"] = "{0} off-plan",
+            ["Map.Dense.Chip.Many"] = "{0} map notes",
             ["Map.Cluster.Label"] = "{0} nearby items",
             ["Map.Cluster.Detail"] = "Approximate grouping of sourced points. Open this cluster to inspect every record.",
             ["Map.Cluster.Kind"] = "Point cluster",
