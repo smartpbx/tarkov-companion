@@ -8,14 +8,17 @@ internal static class V2ShellTestData
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
-    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Scanner" and "Settings" are
-    /// deliberately absent: the Loot route hosts the real <c>LootScanView</c> instead of Scanner
-    /// (package 1, #282), and Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings
-    /// (package 6, #292), so neither v1 page is reachable through the V2 shell any more.
+    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner" and "Settings"
+    /// are deliberately absent: the Raid route now hosts the raid cockpit
+    /// (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's "Raid"
+    /// page, the Loot route hosts the real <c>LootScanView</c> instead of Scanner (package 1,
+    /// #282), and Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings (package 6,
+    /// #292). All three V1 pages remain reachable from V1 navigation; none is a V2 LegacyPage
+    /// route any more.
     /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Raid", "Squad", "Group", "Items", "Ammo", "Keys",
+        "Squad", "Group", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "History",
     ];
 

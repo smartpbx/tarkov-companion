@@ -7,14 +7,20 @@ using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Devices;
+using TarkovCompanion.CompanionProtocol;
+using TarkovCompanion.Infrastructure.Devices;
+using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -25,6 +31,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -258,6 +265,13 @@ public static class AppComposition
         services.AddSingleton<HighValueLootRuntimeSource>();
         services.AddSingleton<IHighValueLootRuntimeSource>(provider =>
             provider.GetRequiredService<HighValueLootRuntimeSource>());
+        // V2 Raid cockpit (package 2): the scene adapter, the historical-traffic runtime it
+        // registers but does not yet evaluate (see RaidCockpitViewModel's remark on why), and
+        // local pings/waypoints kept between runs.
+        services.AddSingleton<MapSceneAssembler>();
+        services.AddSingleton<HistoricalTrafficRuntimeService>();
+        services.AddSingleton<IRaidMarkStore>(_ =>
+            new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
@@ -502,7 +516,46 @@ public static class AppComposition
                     ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
+        // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
+        // The desktop is the sole authority over paired-device state, so the authority and its
+        // store are always available (list/revoke keeps working even when pairing cannot). The
+        // production IDeviceKeyProofVerifier pins the tablet web app's origin, so approving a new
+        // device additionally needs a group relay configured with an HTTPS DNS origin (group.json)
+        // and, for the desktop identity key, Windows DPAPI.
+        services.AddSingleton<IDeviceSignatureCounterStore>(_ => new JsonFileDeviceSignatureCounterStore(
+            Path.Combine(paths.Config, "Devices", "signature-counters.json")));
+        services.AddSingleton<IDesktopCompanionAuthorityStore>(_ => new JsonFileDesktopCompanionAuthorityStore(
+            Path.Combine(paths.Config, "Devices", "companion-authority.json")));
+        services.AddSingleton(provider => DesktopCompanionAuthority.OpenAsync(
+                provider.GetRequiredService<IDesktopCompanionAuthorityStore>(),
+                CreateInitialCompanionState(),
+                CancellationToken.None)
+            .AsTask().GetAwaiter().GetResult());
+        // The default every platform/configuration resolves unless the block below overrides it,
+        // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
+        services.AddSingleton(CompanionPairingAvailability.Unavailable);
+
+        var companionOrigin = ReadCompanionRelayOrigin(Path.Combine(paths.Config, "group.json"));
+        if (OperatingSystem.IsWindows() && companionOrigin is { } origin)
+        {
+            RegisterWindowsCompanionPairing(services, paths, origin);
+        }
+
+        services.AddSingleton<CompanionPairingViewModel>();
+
         services.AddSingleton<MainWindowViewModel>();
+        // V2 Raid cockpit (package 2): built from the V1 map/raid page a MainWindowViewModel
+        // singleton already owns, not from its own copies of them.
+        services.AddSingleton(provider => new RaidCockpitViewModel(
+            provider.GetRequiredService<MainWindowViewModel>().Map,
+            provider.GetRequiredService<MainWindowViewModel>().Raid,
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<MapSceneAssembler>(),
+            provider.GetRequiredService<IHighValueLootRuntimeSource>(),
+            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<IRaidMarkStore>(),
+            provider.GetRequiredService<TarkovDevMapAssetCache>(),
+            timeProvider));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
@@ -593,6 +646,101 @@ public static class AppComposition
             // of the base, so "catalog" without one would replace the group server's own path
             // rather than sit under it.
             return new Uri(uri.AbsoluteUri.TrimEnd('/') + "/catalog/");
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Registers the Windows-only half of paired-device pairing: the DPAPI-protected desktop
+    /// identity key and everything that needs it.
+    /// </summary>
+    /// <remarks>
+    /// A dedicated, attributed method rather than an inline guarded block: <see
+    /// cref="WindowsDpapiDesktopIdentitySigner"/> is <c>[SupportedOSPlatform("windows")]</c> at the
+    /// class level, and the platform-compatibility analyzer does not trace a runtime
+    /// <c>OperatingSystem.IsWindows()</c> guard through a reference to the type itself as a generic
+    /// argument (<c>GetRequiredService&lt;WindowsDpapiDesktopIdentitySigner&gt;()</c>) the way it
+    /// does an ordinary guarded call. Attributing the whole method covers every reference inside it.
+    /// </remarks>
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void RegisterWindowsCompanionPairing(IServiceCollection services, AppDataPaths paths, Uri origin)
+    {
+        services.AddSingleton(provider => WindowsDpapiDesktopIdentitySigner.OpenOrCreateAsync(
+                Path.Combine(paths.Config, "Devices", "identity-key.dat"),
+                CancellationToken.None)
+            .AsTask().GetAwaiter().GetResult());
+        services.AddSingleton<IDesktopIdentitySigner>(provider =>
+            provider.GetRequiredService<WindowsDpapiDesktopIdentitySigner>());
+        services.AddSingleton<IDeviceKeyProofVerifier>(provider => new WebAuthnDeviceKeyProofVerifier(
+            origin.IdnHost,
+            origin.GetLeftPart(UriPartial.Authority),
+            provider.GetRequiredService<IDeviceSignatureCounterStore>()));
+        services.AddSingleton(provider => new DesktopPairingCoordinator(
+            provider.GetRequiredService<DesktopCompanionAuthority>(),
+            provider.GetRequiredService<IDesktopIdentitySigner>(),
+            provider.GetRequiredService<IDeviceKeyProofVerifier>()));
+        services.AddSingleton(provider => new CompanionPairingAvailability(
+            provider.GetRequiredService<DesktopPairingCoordinator>(),
+            origin));
+    }
+
+    /// <summary>
+    /// The first-run paired-companion state: no workspace yet, no devices, nothing pending.
+    /// </summary>
+    /// <remarks>
+    /// Used only when the authority store is empty; every later launch loads the persisted state
+    /// instead, so the fresh identifiers minted here never change once a device has paired.
+    /// </remarks>
+    private static CanonicalCompanionState CreateInitialCompanionState() => new(
+        new AuthorityEpoch(Guid.NewGuid()),
+        new WorkspaceId(Guid.NewGuid()),
+        Environment.MachineName,
+        new GlobalRevision(0),
+        new CompanionDeviceId(Guid.NewGuid()),
+        new DeviceModeAggregate(AggregateCursor.Empty, [], null, null),
+        new WorkspaceAggregate(
+            AggregateCursor.Empty,
+            new WorkspaceProjection(WorkspaceKind.Raid, null, null, null, null, [], [], null, [], [], [], null)),
+        new MarkAggregate(AggregateCursor.Empty, []),
+        new CaptureIntentAggregate(AggregateCursor.Empty, null),
+        ProfilePreferencesAggregate.Empty);
+
+    /// <summary>
+    /// The group relay's origin, when it is one a paired tablet's device-key proof can be pinned
+    /// to, or null.
+    /// </summary>
+    /// <remarks>
+    /// Read from the file rather than through <c>IGroupSettingsStore</c> for the same reason
+    /// <see cref="ReadCatalogMirror"/> is: composition cannot await. <see cref="WebAuthnDeviceKeyProofVerifier"/>
+    /// requires an exact HTTPS DNS origin with no path, so an http, IP-address, or unset relay
+    /// leaves paired-device pairing unavailable rather than failing composition; the desktop's
+    /// existing paired devices keep working either way.
+    /// </remarks>
+    private static Uri? ReadCompanionRelayOrigin(string settingsPath)
+    {
+        try
+        {
+            if (!File.Exists(settingsPath))
+            {
+                return null;
+            }
+
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("serverUri", out var server) ||
+                server.ValueKind != System.Text.Json.JsonValueKind.String ||
+                !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
+                uri.Scheme != Uri.UriSchemeHttps ||
+                IPAddress.TryParse(uri.IdnHost, out _))
+            {
+                return null;
+            }
+
+            return new Uri(uri.GetLeftPart(UriPartial.Authority));
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)

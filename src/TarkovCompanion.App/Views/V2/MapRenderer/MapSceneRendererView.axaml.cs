@@ -26,6 +26,26 @@ public sealed partial class MapSceneRendererView : UserControl
         DataContextChanged += RendererDataContextChanged;
     }
 
+    /// <summary>
+    /// A plain click (not a drag or a pan) landed on the plan, at that scene point.
+    /// </summary>
+    /// <remarks>
+    /// Raised whatever the click hit, selection included, so a host arming "place a mark here"
+    /// does not have to duplicate this view's own hit-testing to find out where the pointer was.
+    /// A host that is not placing anything simply leaves this unhandled.
+    /// </remarks>
+    public event EventHandler<MapScenePoint>? PlanClicked;
+
+    /// <summary>
+    /// A right-click (or equivalent secondary gesture) landed on an object on the plan.
+    /// </summary>
+    /// <remarks>
+    /// Raised only when the gesture actually hit something; a right-click on bare map raises
+    /// nothing, so a host wiring "right-click removes a mark" never has to check what a bare-map
+    /// right-click used to do before this existed.
+    /// </remarks>
+    public event EventHandler<MapSceneObjectId>? MarkerRightClicked;
+
     /// <summary>Wires named XAML controls only after they exist in the visual tree.</summary>
     /// <remarks>
     /// Avalonia can finish the code-behind constructor before generated <c>x:Name</c> fields are
@@ -107,7 +127,25 @@ public sealed partial class MapSceneRendererView : UserControl
 
     private void PlanPointerPressed(object? sender, PointerPressedEventArgs eventArgs)
     {
-        if (!eventArgs.GetCurrentPoint(PlanViewport).Properties.IsLeftButtonPressed ||
+        var current = eventArgs.GetCurrentPoint(PlanViewport);
+        if (current.Properties.IsRightButtonPressed)
+        {
+            // Checked here rather than through the same TrySelectAt path a left click uses: a
+            // right click never changes selection, only asks what, if anything, it landed on.
+            if (DataContext is MapSceneRendererViewModel rightClickRenderer)
+            {
+                var position = eventArgs.GetPosition(PlanViewport);
+                if (rightClickRenderer.TryHitObjectAt(position.X, position.Y, out var objectId))
+                {
+                    MarkerRightClicked?.Invoke(this, objectId);
+                    eventArgs.Handled = true;
+                }
+            }
+
+            return;
+        }
+
+        if (!current.Properties.IsLeftButtonPressed ||
             (eventArgs.Source as StyledElement)?.DataContext is MapSceneRendererObjectViewModel)
         {
             return;
@@ -155,9 +193,17 @@ public sealed partial class MapSceneRendererView : UserControl
                 var delta = current - _pointerStart;
                 renderer.RequestPan(delta.X, delta.Y);
             }
-            else if (!renderer.TrySelectAt(current.X, current.Y))
+            else
             {
-                renderer.ClearSelection();
+                if (!renderer.TrySelectAt(current.X, current.Y))
+                {
+                    renderer.ClearSelection();
+                }
+
+                if (renderer.TryScenePointAt(current.X, current.Y, out var point))
+                {
+                    PlanClicked?.Invoke(this, point);
+                }
             }
         }
 

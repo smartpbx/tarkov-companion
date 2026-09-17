@@ -168,6 +168,12 @@ public sealed class GroupMarks
         return true;
     }
 
+    /// <summary>Removes a waypoint or a ping, whichever the id names — a mark is a mark.</summary>
+    /// <remarks>
+    /// A ping otherwise only leaves by expiring, which cost the group the ability to say "never
+    /// mind" about one it had just sent. Save() persists waypoints only (see its own remark);
+    /// removing a ping early needs no extra durability; it was already going to disappear.
+    /// </remarks>
     public bool Remove(string room, long id)
     {
         if (!_rooms.TryGetValue(room, out var entry))
@@ -175,18 +181,20 @@ public sealed class GroupMarks
             return false;
         }
 
-        bool removed;
+        bool removedWaypoint;
+        bool removedPing;
         lock (entry)
         {
-            removed = entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id) > 0;
+            removedWaypoint = entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id) > 0;
+            removedPing = !removedWaypoint && entry.Pings.RemoveAll(ping => ping.Id == id) > 0;
         }
 
-        if (removed)
+        if (removedWaypoint)
         {
             Save();
         }
 
-        return removed;
+        return removedWaypoint || removedPing;
     }
 
     /// <summary>Clears a map's waypoints, or only the ones already reached.</summary>

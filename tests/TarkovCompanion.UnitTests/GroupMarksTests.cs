@@ -35,6 +35,34 @@ public sealed class GroupMarksTests
         Assert.Empty(marks.Read("room").Pings);
     }
 
+    /// <summary>
+    /// The right-click that removes a waypoint also removes a ping early: whoever sent it gets
+    /// to say the group has moved on, rather than waiting out the forty-five-second fade.
+    /// </summary>
+    [Fact]
+    public void RemoveTakesOffAWaypointOrAPingById()
+    {
+        var marks = new GroupMarks(new MovableClock(Now));
+        var waypoint = marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null);
+        var ping = marks.AddPing("room", "MaxGooner", "customs", 4, 5, 6, null);
+
+        Assert.True(marks.Remove("room", ping.Id));
+        Assert.Empty(marks.Read("room").Pings);
+        Assert.Single(marks.Read("room").Waypoints);
+
+        Assert.True(marks.Remove("room", waypoint.Id));
+        Assert.Empty(marks.Read("room").Waypoints);
+    }
+
+    [Fact]
+    public void RemovingAnUnknownIdIsReportedRatherThanIgnored()
+    {
+        var marks = new GroupMarks(new MovableClock(Now));
+        marks.AddWaypoint("room", "MaxGooner", "customs", 1, 2, 3, null);
+
+        Assert.False(marks.Remove("room", 999_999));
+    }
+
     [Fact]
     public void ReachingOneRecordsWhoGotThere()
     {

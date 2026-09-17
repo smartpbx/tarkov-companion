@@ -127,7 +127,7 @@ public static class V2SurfaceStateResolver
                 V2SurfaceStateKind.Empty,
                 V2ShellText.Get("V2.Shell.Detail.NoTablet"),
                 "V2.Shell.Remainder.Tablet",
-                new V2RecoveryAction("open-team", "V2.Shell.Action.OpenTeam", V2Routes.Team));
+                new V2RecoveryAction("manage-pairing", "V2.Shell.Action.ManagePairing", null));
         }
 
         return route.UsesGameData ? ForGameData(snapshot, nowUtc, culture) : Ready();
