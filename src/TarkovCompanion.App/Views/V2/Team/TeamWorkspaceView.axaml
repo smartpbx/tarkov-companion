@@ -4,123 +4,544 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
              xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet">
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
-      <StackPanel Spacing="4">
-        <TextBlock Classes="v2-heading-1" Text="Team" AutomationProperties.HeadingLevel="1" />
-        <TextBlock Classes="v2-body" Text="{Binding ConnectionHealth}"
-                   AutomationProperties.AutomationId="v2-team-connection"
-                   AutomationProperties.LiveSetting="Polite" />
-        <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap" />
-      </StackPanel>
+  <UserControl.Styles>
+    <!-- A primary pane: the flat card the Raid map sits in. -->
+    <Style Selector="Border.v2-team-pane">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.v2-team-pane.v2-team-stage">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Border.v2-team-panel">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <!-- A context-panel section; the accented one takes the concept's cyan leading edge. -->
+    <Style Selector="Border.v2-team-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="18,14" />
+    </Style>
+    <Style Selector="Border.v2-team-section.v2-team-accent">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="3,1,1,1" />
+    </Style>
+    <!-- A member chip along the top, like the concept's Clayton/Maya/Jordan cards. -->
+    <Style Selector="Border.v2-team-member">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="14,9" />
+      <Setter Property="MinWidth" Value="200" />
+      <Setter Property="MinHeight" Value="58" />
+    </Style>
+    <Style Selector="Ellipse.v2-team-dot">
+      <Setter Property="Width" Value="12" />
+      <Setter Property="Height" Value="12" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Ellipse.v2-team-dot.v2-team-live">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Ellipse.v2-team-dot.v2-team-stale">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.v2-team-state">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-team-state.v2-team-live">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.v2-team-state.v2-team-stale">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.v2-team-strong">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Border.v2-team-pill">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,9" />
+    </Style>
+    <!-- The shared plan's route: numbered stops joined by a dashed line, like the map's own. -->
+    <Style Selector="Border.v2-team-stop">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-team-stop TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-team-row">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,9,6,9" />
+    </Style>
+    <Style Selector="Border.v2-team-row.v2-team-reached">
+      <Setter Property="Opacity" Value="0.75" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-team-success">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-team-warning">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- Buttons: one filled primary action per view, cyan outline for secondary ones, and plain
+         text for the rest, instead of a wall of bordered buttons. -->
+    <Style Selector="Button.v2-team-primary">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="Padding" Value="22,8" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-team-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.v2-team-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Button.v2-team-primary:pointerover">
+      <Setter Property="Opacity" Value="0.9" />
+    </Style>
+    <Style Selector="Button.v2-team-outline">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="16,6" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-team-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-team-outline:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-team-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+    </Style>
+    <Style Selector="Button.v2-team-icon">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Width" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Height" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ToggleSwitch.v2-team-switch">
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+  </UserControl.Styles>
 
-      <!-- Team, Group and Tablet all land here; the section each route is for leads the page
-           rather than sitting at a fixed spot (Group -> join/leave + presence, Tablet -> Your
-           devices), via TeamWorkspaceViewModel's per-route row order. -->
-      <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="16">
-      <Border Grid.Row="{Binding PresenceRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Presence" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoPresence}" Text="Nobody else is sharing right now." />
-          <ItemsControl ItemsSource="{Binding Presence}" IsVisible="{Binding HasPresence}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:TeamPresenceRowViewModel">
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
-                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Name}" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding SinceLabel}" />
-                  <Border Grid.Column="2" Background="{Binding StateColor}" CornerRadius="4" Padding="6,2">
-                    <TextBlock Text="{Binding StateLabel}" Foreground="Black" FontSize="11" />
-                  </Border>
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Border>
-
-      <Border Grid.Row="{Binding MarksRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Marks" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoMarks}" Text="No waypoints or pings yet." />
-          <ItemsControl ItemsSource="{Binding Marks}" IsVisible="{Binding HasMarks}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
-                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
-                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Name}" />
-                  <StackPanel Grid.Column="1" Spacing="0">
-                    <TextBlock Classes="v2-label" Text="{Binding ByLabel}" />
-                    <TextBlock Classes="v2-label" Text="{Binding MapId}" />
+  <!-- V2 rough package 17: laid out like docs/design/v2/v2-team-tablet-concept.png inside the
+       package-15 shell. Members run along the top; the tab's own pane fills the rest (Team: the
+       shared plan's waypoints, Group: joining and sharing, Tablet preview: paired devices); a
+       right context panel carries team quests, the group and devices at a glance, and the one
+       primary action. Team, Group and Tablet all land on this view (TeamWorkspaceViewModel). -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <ItemsControl ItemsSource="{Binding Presence}" IsVisible="{Binding HasPresence}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="10" LineSpacing="10" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:TeamPresenceRowViewModel">
+              <Border Classes="v2-team-member">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                  <Ellipse Classes="v2-team-dot"
+                           Classes.v2-team-live="{Binding IsLive}" Classes.v2-team-stale="{Binding IsStale}" />
+                  <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Name}" />
+                      <TextBlock Classes="v2-label" Text="·" IsVisible="{Binding HasDetail}" VerticalAlignment="Center" />
+                      <TextBlock Classes="v2-label" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <TextBlock Classes="v2-label v2-team-state"
+                                 Classes.v2-team-live="{Binding IsLive}" Classes.v2-team-stale="{Binding IsStale}"
+                                 Text="{Binding StateLabel}" />
+                      <TextBlock Classes="v2-label" Text="{Binding SinceLabel}" />
+                    </StackPanel>
                   </StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="0" HorizontalAlignment="Right">
-                    <TextBlock Classes="v2-label" Text="{Binding AgeLabel}" />
-                    <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
-                  </StackPanel>
-                  <Button Grid.Column="3" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}" />
                 </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Border>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Border Classes="v2-team-member" HorizontalAlignment="Left" IsVisible="{Binding HasNoPresence}">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <Ellipse Classes="v2-team-dot" />
+            <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
+                       Text="Nobody else is sharing right now." />
+          </Grid>
+        </Border>
 
-      <Border Grid.Row="{Binding GroupRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Group" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" Text="{Binding Status}"
-                     AutomationProperties.AutomationId="v2-team-group-status"
-                     AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
-          <CheckBox Content="Share this session" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
-          <StackPanel Spacing="4">
-            <TextBlock Classes="v2-label" Text="Server address" />
-            <TextBox Classes="v2-field-input" Text="{Binding ServerUri, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="v2-team-server-input" />
+        <Border Grid.Column="1" Classes="v2-team-pill" VerticalAlignment="Top" MinHeight="58">
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Ellipse Classes="v2-team-dot"
+                     Classes.v2-team-live="{Binding IsConnected}" Classes.v2-team-stale="{Binding IsReconnecting}" />
+            <TextBlock Classes="v2-body" Text="{Binding ConnectionHealth}" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="v2-team-connection"
+                       AutomationProperties.LiveSetting="Polite" />
           </StackPanel>
-          <StackPanel Spacing="4">
-            <TextBlock Classes="v2-label" Text="Display name" />
-            <TextBox Classes="v2-field-input" Text="{Binding DisplayName, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="v2-team-name-input" />
-          </StackPanel>
-          <StackPanel Spacing="4">
-            <TextBlock Classes="v2-label" Text="Group key — type a new one to create a group, or an existing one to join it" />
-            <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}"
-                      AutomationProperties.AutomationId="v2-team-key-input" />
-          </StackPanel>
-          <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
-          <CheckBox Content="Share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
-          <WrapPanel ItemSpacing="8" LineSpacing="8">
-            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-team-save"
-                    Content="Save" Command="{Binding SaveCommand}" />
-            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-team-leave"
-                    Content="{Binding LeaveLabel}" Command="{Binding LeaveCommand}" />
-          </WrapPanel>
-        </StackPanel>
-      </Border>
-
-      <Border Grid.Row="{Binding DevicesRow}" Classes="v2-card" AutomationProperties.AccessibilityView="Control">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Your devices" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoDevices}" Text="No paired devices yet." />
-          <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="tabletVm:PairedDeviceRowViewModel">
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="0,4">
-                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding DisplayName}" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Status}" />
-                  <Button Grid.Column="2" Classes="v2-target" Content="Revoke" Command="{Binding RevokeCommand}"
-                          IsVisible="{Binding CanRevoke}" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <Button Classes="v2-target" HorizontalAlignment="Left"
-                  AutomationProperties.AutomationId="v2-team-pair-tablet"
-                  Content="Pair a tablet" Command="{Binding PairTabletCommand}"
-                  IsEnabled="{Binding CanPairDevice}" />
-          <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
-                     IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
+        </Border>
       </Grid>
-    </StackPanel>
-  </ScrollViewer>
+
+      <Panel Grid.Row="1">
+        <!-- Team: the shared plan. The waypoints themselves are drawn on the Raid map; here they
+             read as the route they make, in the order (and with the numbers) the map uses. -->
+        <Border Classes="v2-team-pane v2-team-stage" IsVisible="{Binding IsOverview}">
+          <Grid RowDefinitions="Auto,*">
+            <Border Classes="v2-team-pill" HorizontalAlignment="Left" Margin="16,16,16,0">
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Pin}" />
+                <TextBlock Classes="v2-body v2-team-strong" VerticalAlignment="Center"
+                           Text="Shared plan · manual waypoints" AutomationProperties.HeadingLevel="2" />
+              </StackPanel>
+            </Border>
+
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasMarks}">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" MaxWidth="820" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Margin="28,24,28,24" Spacing="20">
+                  <Panel IsVisible="{Binding HasWaypoints}">
+                    <!-- One dashed line behind the stops, from the first circle's centre to the last. -->
+                    <Line StartPoint="0,0" EndPoint="0,1" Stretch="Fill" Width="2" HorizontalAlignment="Left"
+                          Margin="17,30,0,30" Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2"
+                          StrokeDashArray="3,3" Opacity="0.8" />
+                    <ItemsControl ItemsSource="{Binding Waypoints}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Spacing="14" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
+                            <Border Classes="v2-team-stop">
+                              <TextBlock Text="{Binding Number}" />
+                            </Border>
+                            <Border Grid.Column="1" Classes="v2-team-row" Classes.v2-team-reached="{Binding IsReached}">
+                              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <StackPanel Spacing="1" VerticalAlignment="Center">
+                                  <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
+                                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <Path Grid.Column="1" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
+                                      Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
+                                <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
+                                        AutomationProperties.Name="Remove waypoint" ToolTip.Tip="Remove">
+                                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                                </Button>
+                              </Grid>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Panel>
+
+                  <StackPanel Spacing="10" IsVisible="{Binding HasPings}">
+                    <TextBlock Classes="v2-label" Text="Pings" AutomationProperties.HeadingLevel="3" />
+                    <ItemsControl ItemsSource="{Binding Pings}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
+                          <Grid ColumnDefinitions="36,*" ColumnSpacing="16">
+                            <Path Classes="v2-icon v2-team-warning" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Data="{DynamicResource V2.Icon.Target}" />
+                            <Border Grid.Column="1" Classes="v2-team-row">
+                              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                <StackPanel Spacing="1" VerticalAlignment="Center">
+                                  <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
+                                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
+                                           Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
+                                <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
+                                        AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">
+                                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                                </Button>
+                              </Grid>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </ScrollViewer>
+
+            <StackPanel Grid.Row="1" IsVisible="{Binding HasNoMarks}" Spacing="10" MaxWidth="420"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+              <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Pin}" />
+              </Viewbox>
+              <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No shared waypoints yet" />
+              <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                         Text="Waypoints your group places on the Raid map appear here." />
+              <Button Classes="v2-team-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
+                      Content="Open Raid map" Command="{Binding OpenSharedPlanCommand}" />
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- Group: joining, creating and leaving a group, and what this desktop shares. -->
+        <Border Classes="v2-team-pane" IsVisible="{Binding IsGroupSection}">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <!-- Readable form width: the star column stops at 820 and the rest of the pane stays empty. -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="820" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel Margin="28,22,28,28" Spacing="18">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="v2-heading-2" Text="Group sharing" AutomationProperties.HeadingLevel="2" />
+                    <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-group-status"
+                               AutomationProperties.LiveSetting="Polite" />
+                  </StackPanel>
+                  <ToggleSwitch Grid.Column="1" Classes="v2-team-switch" VerticalAlignment="Center"
+                                IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                OnContent="Share this session" OffContent="Share this session"
+                                AutomationProperties.Name="Share this session" />
+                </Grid>
+
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="v2-label" Text="Server address" />
+                  <TextBox Classes="v2-field-input" Text="{Binding ServerUri, Mode=TwoWay}"
+                           Watermark="https://relay.example" AutomationProperties.Name="Server address"
+                           AutomationProperties.AutomationId="v2-team-server-input" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="v2-label" Text="Display name" />
+                    <TextBox Classes="v2-field-input" Text="{Binding DisplayName, Mode=TwoWay}"
+                             AutomationProperties.Name="Display name"
+                             AutomationProperties.AutomationId="v2-team-name-input" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="6">
+                    <TextBlock Classes="v2-label" Text="Group key" />
+                    <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}"
+                             AutomationProperties.Name="Group key"
+                             AutomationProperties.AutomationId="v2-team-key-input" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Classes="v2-label" Margin="0,-10,0,0" TextWrapping="Wrap"
+                           Text="A new key creates a group; an existing key joins it." />
+
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="v2-heading-3" Text="What you share" AutomationProperties.HeadingLevel="3" />
+                  <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesLoadout, Mode=TwoWay}"
+                                OnContent="My loadout" OffContent="My loadout" AutomationProperties.Name="Share my loadout" />
+                  <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesQuests, Mode=TwoWay}"
+                                OnContent="My quest progress" OffContent="My quest progress"
+                                AutomationProperties.Name="Share my quest progress" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                  <Button Classes="v2-team-primary" MinWidth="140" AutomationProperties.AutomationId="v2-team-save"
+                          Content="Save" Command="{Binding SaveCommand}" />
+                  <Button Classes="v2-team-plain" AutomationProperties.AutomationId="v2-team-leave"
+                          Content="{Binding LeaveLabel}" Command="{Binding LeaveCommand}" />
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </ScrollViewer>
+        </Border>
+
+        <!-- Tablet preview: this desktop's own paired devices, never the group's members. -->
+        <Border Classes="v2-team-pane" IsVisible="{Binding IsDevicesSection}">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <!-- Readable form width: the star column stops at 820 and the rest of the pane stays empty. -->
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="820" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel Margin="28,22,28,28" Spacing="16">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="v2-heading-2" Text="Your devices" AutomationProperties.HeadingLevel="2" />
+                    <TextBlock Classes="v2-label" Text="{Binding DevicesSummary}" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="v2-team-primary" VerticalAlignment="Center"
+                          AutomationProperties.AutomationId="v2-team-pair-tablet"
+                          Content="Pair a tablet" Command="{Binding PairTabletCommand}"
+                          IsEnabled="{Binding CanPairDevice}" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
+                           IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
+
+                <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="tabletVm:PairedDeviceRowViewModel">
+                      <Border Classes="v2-team-row">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                          <Path Classes="v2-icon v2-icon-muted" VerticalAlignment="Center" Data="{DynamicResource V2.Icon.Tablet}" />
+                          <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding DisplayName}" />
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                              <TextBlock Classes="v2-label" Text="{Binding Role}" />
+                              <TextBlock Classes="v2-label" Text="·" />
+                              <TextBlock Classes="v2-label" Text="{Binding Status}" />
+                            </StackPanel>
+                          </StackPanel>
+                          <Button Grid.Column="2" Classes="v2-team-plain" Content="Revoke" Command="{Binding RevokeCommand}"
+                                  IsVisible="{Binding CanRevoke}" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <StackPanel IsVisible="{Binding HasNoDevices}" Spacing="10" Margin="0,48,0,0" MaxWidth="420"
+                            HorizontalAlignment="Left">
+                  <Path Classes="v2-icon v2-icon-muted" HorizontalAlignment="Left" Data="{DynamicResource V2.Icon.Tablet}" />
+                  <TextBlock Classes="v2-heading-3" Text="No paired devices yet" />
+                  <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                             Text="Pair a tablet to follow the raid on a second screen." />
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </ScrollViewer>
+        </Border>
+      </Panel>
+    </Grid>
+
+    <!-- The context panel: the same on every Team tab. -->
+    <Border Grid.Column="1" Width="420" Classes="v2-team-panel">
+      <Grid RowDefinitions="*,Auto">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="12" Margin="16,12,16,16">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="v2-heading-2" Text="Team" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding MemberCountLabel}" />
+            </Grid>
+
+            <Border Classes="v2-team-section v2-team-accent">
+              <StackPanel Spacing="10">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Target}" />
+                  <TextBlock Classes="v2-heading-3" VerticalAlignment="Center" Text="Team quests"
+                             AutomationProperties.HeadingLevel="3" />
+                </StackPanel>
+                <TextBlock Classes="v2-label" IsVisible="{Binding !HasTeamQuests}" TextWrapping="Wrap"
+                           Text="No shared quests yet." />
+                <ItemsControl ItemsSource="{Binding TeamQuests}" IsVisible="{Binding HasTeamQuests}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TeamQuestRowViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding CountLabel}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-team-section">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.People}" />
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Group"
+                             AutomationProperties.HeadingLevel="3" />
+                  <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Ellipse Classes="v2-team-dot" Width="8" Height="8"
+                             Classes.v2-team-live="{Binding IsConnected}" Classes.v2-team-stale="{Binding IsReconnecting}" />
+                    <TextBlock Classes="v2-label" Text="{Binding ConnectionHealth}" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding ConnectionDetail}" TextWrapping="Wrap"
+                           IsVisible="{Binding ConnectionDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Button Classes="v2-team-outline" HorizontalAlignment="Stretch" Margin="0,4,0,0"
+                        Content="Manage group" Command="{Binding ManageGroupCommand}"
+                        IsVisible="{Binding !IsGroupSection}" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-team-section">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.PersonAdd}" />
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Devices"
+                             AutomationProperties.HeadingLevel="3" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding DevicesSummary}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,4,0,0">
+                  <Button Classes="v2-team-outline" HorizontalAlignment="Stretch"
+                          AutomationProperties.AutomationId="v2-team-panel-pair-tablet"
+                          Content="Pair a tablet" Command="{Binding PairTabletCommand}"
+                          IsEnabled="{Binding CanPairDevice}" />
+                  <Button Grid.Column="1" Classes="v2-team-plain" Content="Manage"
+                          Command="{Binding ManageDevicesCommand}" IsVisible="{Binding !IsDevicesSection}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="1" Classes="v2-team-primary" HorizontalAlignment="Stretch" Margin="16,0,16,16"
+                MinHeight="56" Command="{Binding OpenSharedPlanCommand}"
+                AutomationProperties.AutomationId="v2-team-open-shared-plan">
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <Path Classes="v2-icon" Stroke="{DynamicResource V2.Brush.Canvas}" Data="{DynamicResource V2.Icon.Map}" />
+            <TextBlock Text="Open shared plan" VerticalAlignment="Center" FontSize="17" />
+          </StackPanel>
+        </Button>
+      </Grid>
+    </Border>
+  </Grid>
 </UserControl>

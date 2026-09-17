@@ -2,10 +2,12 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Controls.ApplicationLifetimes;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Team;
 
@@ -13,8 +15,8 @@ namespace TarkovCompanion.App.ViewModels.V2.Team;
 /// <remarks>
 /// Team, Group and Tablet all render this one workspace rather than three different pages (see
 /// <see cref="TeamWorkspaceViewModel"/>'s own remarks), but each still names a real destination
-/// with its own heading, so the section that route was *for* should still lead the page rather
-/// than sit wherever it happened to land in a fixed list.
+/// with its own tab, so each shows its own primary pane (package 17: the shared plan, the group
+/// form, the paired devices) beside one shared context panel.
 /// </remarks>
 public enum TeamWorkspaceSection
 {
@@ -41,12 +43,20 @@ public sealed record TeamPresenceRowViewModel(string Name, string SinceLabel, Te
         _ => "Offline",
     };
 
-    public string StateColor => State switch
-    {
-        TeamPresenceState.Live => "#77B895",
-        TeamPresenceState.Stale => "#C6A15B",
-        _ => "#8F9BA6",
-    };
+    /// <summary>Where they are and what they are doing, e.g. "Customs · In raid"; empty when neither is known.</summary>
+    public string Detail { get; init; } = string.Empty;
+
+    public bool HasDetail => Detail.Length > 0;
+
+    public bool IsLive => State == TeamPresenceState.Live;
+
+    public bool IsStale => State == TeamPresenceState.Stale;
+}
+
+/// <summary>A quest somebody in the group shared, and how many of them are on it.</summary>
+public sealed record TeamQuestRowViewModel(string Name, int Members)
+{
+    public string CountLabel => Members == 1 ? "1 member" : $"{Members} members";
 }
 
 /// <summary>One of the group's marks — a waypoint or a ping — with who, when, and (for a ping) how long it has left.</summary>
@@ -61,6 +71,15 @@ public sealed record TeamMarkRowViewModel(
     bool IsReached)
 {
     public bool HasRemaining => RemainingLabel is { Length: > 0 };
+
+    /// <summary>The waypoint's number on the map, or null for a ping.</summary>
+    public string? Number { get; init; }
+
+    /// <summary>What the row is called when its <see cref="Name"/> is only its number.</summary>
+    public string Title { get; init; } = Name;
+
+    /// <summary>The map, who marked it and how long ago, on one line.</summary>
+    public string Detail { get; init; } = string.Empty;
 
     public ICommand? RemoveCommand { get; init; }
 }
@@ -96,14 +115,7 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     private readonly CompanionPairingViewModel? _pairing;
     private readonly TimeProvider _clock;
 
-    /// <summary>The section order for each route, "leading" section first, in <c>Grid.Row</c> terms.</summary>
-    private static readonly IReadOnlyDictionary<TeamWorkspaceSection, string[]> SectionOrder = new Dictionary<TeamWorkspaceSection, string[]>
-    {
-        [TeamWorkspaceSection.Overview] = ["presence", "marks", "group", "devices"],
-        [TeamWorkspaceSection.Group] = ["group", "presence", "marks", "devices"],
-        [TeamWorkspaceSection.Devices] = ["devices", "presence", "marks", "group"],
-    };
-
+    private Action<V2RouteId>? _navigate;
     private TeamWorkspaceSection _activeSection = TeamWorkspaceSection.Overview;
     private bool _confirmingLeave;
     private string _status = "Loading group settings…";
@@ -132,10 +144,29 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         SaveCommand = new AsyncDelegateCommand(SaveAsync);
         LeaveCommand = new AsyncDelegateCommand(LeaveAsync);
         PairTabletCommand = new DelegateCommand(OpenPairing);
+        OpenSharedPlanCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Raid));
+        ManageGroupCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Group));
+        ManageDevicesCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Tablet));
     }
 
     /// <summary>
-    /// Which route brought this workspace up, so its section can lead the page.
+    /// Lets the context panel's links move the shell, which owns the router.
+    /// </summary>
+    /// <remarks>
+    /// Set by <c>V2ShellViewModel</c> once it has a router; until then (and in tests that build
+    /// this view model alone) the links do nothing rather than fail.
+    /// </remarks>
+    public void AttachNavigation(Action<V2RouteId> navigate) => _navigate = navigate;
+
+    /// <summary>Goes to the Raid map, where the group's waypoints are drawn.</summary>
+    public ICommand OpenSharedPlanCommand { get; }
+
+    public ICommand ManageGroupCommand { get; }
+
+    public ICommand ManageDevicesCommand { get; }
+
+    /// <summary>
+    /// Which route brought this workspace up, so its own pane is the one shown.
     /// </summary>
     /// <remarks>
     /// Set by the shell (<c>V2ShellViewModel.Refresh</c>) from the current route on every
@@ -146,24 +177,19 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     {
         if (SetProperty(ref _activeSection, section, nameof(ActiveSection)))
         {
-            OnPropertyChanged(nameof(PresenceRow));
-            OnPropertyChanged(nameof(MarksRow));
-            OnPropertyChanged(nameof(GroupRow));
-            OnPropertyChanged(nameof(DevicesRow));
+            OnPropertyChanged(nameof(IsOverview));
+            OnPropertyChanged(nameof(IsGroupSection));
+            OnPropertyChanged(nameof(IsDevicesSection));
         }
     }
 
     public TeamWorkspaceSection ActiveSection => _activeSection;
 
-    public int PresenceRow => RowOf("presence");
+    public bool IsOverview => _activeSection == TeamWorkspaceSection.Overview;
 
-    public int MarksRow => RowOf("marks");
+    public bool IsGroupSection => _activeSection == TeamWorkspaceSection.Group;
 
-    public int GroupRow => RowOf("group");
-
-    public int DevicesRow => RowOf("devices");
-
-    private int RowOf(string key) => Array.IndexOf(SectionOrder[_activeSection], key);
+    public bool IsDevicesSection => _activeSection == TeamWorkspaceSection.Devices;
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
@@ -264,6 +290,10 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
     public string ConnectionHealth { get; private set; } = "Not in a group";
 
+    public bool IsConnected { get; private set; }
+
+    public bool IsReconnecting { get; private set; }
+
     public string ConnectionDetail { get; private set; } = string.Empty;
 
     public IReadOnlyList<TeamPresenceRowViewModel> Presence { get; private set; } = [];
@@ -278,6 +308,22 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
     public bool HasNoMarks => Marks.Count == 0;
 
+    public IReadOnlyList<TeamMarkRowViewModel> Waypoints { get; private set; } = [];
+
+    public bool HasWaypoints => Waypoints.Count > 0;
+
+    public IReadOnlyList<TeamMarkRowViewModel> Pings { get; private set; } = [];
+
+    public bool HasPings => Pings.Count > 0;
+
+    /// <summary>The quests the other members shared, most-shared first.</summary>
+    public IReadOnlyList<TeamQuestRowViewModel> TeamQuests { get; private set; } = [];
+
+    public bool HasTeamQuests => TeamQuests.Count > 0;
+
+    /// <summary>"3 sharing", or empty when nobody else is.</summary>
+    public string MemberCountLabel => Presence.Count == 0 ? string.Empty : $"{Presence.Count} sharing";
+
     /// <summary>Rebuilds presence and marks from the runtime snapshot the shell already refreshes on.</summary>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
@@ -291,6 +337,8 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 ? "Reconnecting"
                 : "Connected";
         ConnectionDetail = group.Detail;
+        IsConnected = group.IsSharing && group.StaleSince is null;
+        IsReconnecting = group.IsSharing && group.StaleSince is not null;
 
         // While reconnecting, the members list is the last good read rather than a current one,
         // so every member is shown as offline instead of live/stale — a stale connection cannot
@@ -302,7 +350,19 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 member.Since is { } since ? $"{GroupSessionService.Ago(since)} ago" : "just now",
                 reconnecting ? TeamPresenceState.Offline
                     : member.HasGoneQuiet ? TeamPresenceState.Stale
-                    : TeamPresenceState.Live))
+                    : TeamPresenceState.Live)
+            {
+                Detail = string.Join(" · ", new[] { MapLabel(member.MapId), RaidStateLabel(member.RaidState) }.Where(part => part.Length > 0)),
+            })
+            .ToArray();
+
+        TeamQuests = group.Members
+            .SelectMany(member => member.Quests.Distinct(StringComparer.OrdinalIgnoreCase))
+            .Where(quest => !string.IsNullOrWhiteSpace(quest))
+            .GroupBy(quest => quest.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(quests => new TeamQuestRowViewModel(quests.Key, quests.Count()))
+            .OrderByDescending(row => row.Members)
+            .ThenBy(row => row.Name, StringComparer.CurrentCulture)
             .ToArray();
 
         var marks = new List<TeamMarkRowViewModel>(group.Waypoints.Count + group.Pings.Count);
@@ -331,6 +391,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 reached)
             {
                 RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(waypoint.Id)),
+                Number = numbered.ToString(CultureInfo.CurrentCulture),
+                Title = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {numbered}" : waypoint.Label!,
+                Detail = JoinDetail(MapLabel(waypoint.MapId), reached ? $"by {waypoint.By} · reached by {waypoint.Reached}" : $"by {waypoint.By}", age),
             });
         }
 
@@ -349,13 +412,25 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 false)
             {
                 RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(ping.Id)),
+                Detail = JoinDetail(MapLabel(ping.MapId), $"by {ping.By}", $"{GroupSessionService.Ago(elapsed)} ago"),
             });
         }
 
         Marks = marks;
+        Waypoints = marks.Where(mark => mark.Number is not null).ToArray();
+        Pings = marks.Where(mark => mark.Number is null).ToArray();
 
         OnPropertyChanged(nameof(ConnectionHealth));
         OnPropertyChanged(nameof(ConnectionDetail));
+        OnPropertyChanged(nameof(IsConnected));
+        OnPropertyChanged(nameof(IsReconnecting));
+        OnPropertyChanged(nameof(MemberCountLabel));
+        OnPropertyChanged(nameof(TeamQuests));
+        OnPropertyChanged(nameof(HasTeamQuests));
+        OnPropertyChanged(nameof(Waypoints));
+        OnPropertyChanged(nameof(HasWaypoints));
+        OnPropertyChanged(nameof(Pings));
+        OnPropertyChanged(nameof(HasPings));
         OnPropertyChanged(nameof(Presence));
         OnPropertyChanged(nameof(HasPresence));
         OnPropertyChanged(nameof(HasNoPresence));
@@ -364,6 +439,36 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasNoMarks));
     }
 
+    private static string JoinDetail(params string[] parts) => string.Join(" · ", parts.Where(part => part.Length > 0));
+
+    /// <summary>
+    /// A map's catalog slug ("streets-of-tarkov") as a player reads it ("Streets of Tarkov").
+    /// </summary>
+    /// <remarks>
+    /// The relay carries the slug EftLogParser normalises every map to, not a display name, and
+    /// this view model has no map catalog to look one up in; the slugs are the names hyphenated.
+    /// </remarks>
+    internal static string MapLabel(string? mapId)
+    {
+        if (string.IsNullOrWhiteSpace(mapId))
+        {
+            return string.Empty;
+        }
+
+        var words = mapId.Trim().Split(['-', '_', ' '], StringSplitOptions.RemoveEmptyEntries);
+        return string.Join(' ', words.Select((word, index) =>
+            index > 0 && word is "of" ? word : char.ToUpperInvariant(word[0]) + word[1..]));
+    }
+
+    private static string RaidStateLabel(RaidLifecycleState state) => state switch
+    {
+        RaidLifecycleState.InRaid => "In raid",
+        RaidLifecycleState.LoadingRaid => "Loading in",
+        RaidLifecycleState.PostRaid => "After raid",
+        RaidLifecycleState.Menu => "In menu",
+        _ => string.Empty,
+    };
+
     private async Task RemoveMarkAsync(long id) =>
         await _groupSession.RemoveMarkAsync(id, CancellationToken.None).ConfigureAwait(true);
 
@@ -371,6 +476,13 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     public IReadOnlyList<PairedDeviceRowViewModel> Devices => _pairing?.Devices ?? [];
 
     public bool HasNoDevices => Devices.Count == 0;
+
+    public string DevicesSummary => Devices.Count switch
+    {
+        0 => "No paired devices",
+        1 => "1 paired device",
+        var count => $"{count} paired devices",
+    };
 
     public bool CanPairDevice => _pairing?.CanPair == true;
 
@@ -382,6 +494,7 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         {
             OnPropertyChanged(nameof(Devices));
             OnPropertyChanged(nameof(HasNoDevices));
+            OnPropertyChanged(nameof(DevicesSummary));
         }
     }
 

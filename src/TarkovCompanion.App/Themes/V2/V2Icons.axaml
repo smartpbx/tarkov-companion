@@ -28,4 +28,7 @@
   <StreamGeometry x:Key="V2.Icon.Close">M6,6 L18,18 M18,6 L6,18</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Exit">M9,4 L4,4 L4,20 L9,20 M14,7 L19,12 L14,17 M19,12 L9,12</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Spawn">M12,21 A9,9 0 1 1 12,3 A9,9 0 1 1 12,21 Z M12,8 L12,16 M8,12 L16,12</StreamGeometry>
+  <!-- V2 rough package 17 (team): a paired tablet, and inviting one. -->
+  <StreamGeometry x:Key="V2.Icon.Tablet">M6,2.5 L18,2.5 L18,21.5 L6,21.5 Z M10.5,18.5 L13.5,18.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.PersonAdd">M13,8 A3.5,3.5 0 1 1 6,8 A3.5,3.5 0 1 1 13,8 Z M3,20 C3,14.5 16,14.5 16,20 M19,8 L19,14 M16,11 L22,11</StreamGeometry>
 </ResourceDictionary>

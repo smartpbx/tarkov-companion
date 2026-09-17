@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
@@ -14,20 +15,54 @@ namespace TarkovCompanion.UnitTests.Team;
 public sealed class TeamWorkspaceViewModelTests
 {
     [Theory]
-    [InlineData(TeamWorkspaceSection.Overview, 0, 1, 2, 3)]
-    [InlineData(TeamWorkspaceSection.Group, 1, 2, 0, 3)]
-    [InlineData(TeamWorkspaceSection.Devices, 1, 2, 3, 0)]
-    public void The_active_route_brings_its_own_section_to_the_top_of_the_page(
-        TeamWorkspaceSection section, int presenceRow, int marksRow, int groupRow, int devicesRow)
+    [InlineData(TeamWorkspaceSection.Overview, true, false, false)]
+    [InlineData(TeamWorkspaceSection.Group, false, true, false)]
+    [InlineData(TeamWorkspaceSection.Devices, false, false, true)]
+    public void The_active_route_shows_its_own_pane(
+        TeamWorkspaceSection section, bool overview, bool group, bool devices)
     {
         var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
 
         viewModel.SetActiveSection(section);
 
-        Assert.Equal(presenceRow, viewModel.PresenceRow);
-        Assert.Equal(marksRow, viewModel.MarksRow);
-        Assert.Equal(groupRow, viewModel.GroupRow);
-        Assert.Equal(devicesRow, viewModel.DevicesRow);
+        Assert.Equal(overview, viewModel.IsOverview);
+        Assert.Equal(group, viewModel.IsGroupSection);
+        Assert.Equal(devices, viewModel.IsDevicesSection);
+    }
+
+    [Fact]
+    public void Context_panel_links_go_through_the_attached_navigation()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        // Unattached (as in a test or before the shell exists), a link does nothing rather than fail.
+        viewModel.OpenSharedPlanCommand.Execute(null);
+
+        var visited = new List<V2RouteId>();
+        viewModel.AttachNavigation(visited.Add);
+        viewModel.OpenSharedPlanCommand.Execute(null);
+        viewModel.ManageGroupCommand.Execute(null);
+        viewModel.ManageDevicesCommand.Execute(null);
+
+        Assert.Equal(new[] { V2Routes.Raid, V2Routes.Group, V2Routes.Tablet }, visited);
+    }
+
+    [Fact]
+    public void Members_read_as_map_and_raid_state_and_their_shared_quests_are_counted()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        var geo = Member("Geo") with { MapId = "streets-of-tarkov", RaidState = RaidLifecycleState.InRaid, Quests = ["Debut", "Shortage"] };
+        var riley = Member("Riley") with { MapId = null, RaidState = RaidLifecycleState.Unknown, Quests = ["shortage "] };
+        var group = new GroupSnapshot(true, [geo, riley], "Sharing", DateTimeOffset.UtcNow);
+
+        viewModel.Apply(SnapshotWithGroup(group));
+
+        Assert.Equal("Streets of Tarkov · In raid", viewModel.Presence.Single(row => row.Name == "Geo").Detail);
+        Assert.False(viewModel.Presence.Single(row => row.Name == "Riley").HasDetail);
+        Assert.Equal("2 sharing", viewModel.MemberCountLabel);
+        Assert.Collection(
+            viewModel.TeamQuests,
+            row => Assert.Equal(("Shortage", "2 members"), (row.Name, row.CountLabel)),
+            row => Assert.Equal(("Debut", "1 member"), (row.Name, row.CountLabel)));
     }
 
     [Fact]
@@ -152,7 +187,14 @@ public sealed class TeamWorkspaceViewModelTests
         Assert.Contains("reached by Geo", second.ByLabel, StringComparison.Ordinal);
         Assert.True(second.IsReached);
 
+        Assert.Equal(new[] { "1", "2" }, viewModel.Waypoints.Select(row => row.Number));
+        Assert.Equal("Waypoint 1", first.Title);
+        Assert.Equal("Customs · by Geo · 2m 0s ago", first.Detail);
+        Assert.Equal("Extract", second.Title);
+
         var pingRow = viewModel.Marks[2];
+        Assert.Same(pingRow, viewModel.Pings.Single());
+        Assert.Null(pingRow.Number);
         Assert.Equal("Ping", pingRow.Kind);
         Assert.Equal("Ping", pingRow.Name);
         Assert.NotNull(pingRow.RemainingLabel);
