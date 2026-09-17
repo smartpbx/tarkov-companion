@@ -3,10 +3,15 @@ using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Controls.ApplicationLifetimes;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.MapRenderer;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Team;
@@ -115,7 +120,16 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     private readonly CompanionPairingViewModel? _pairing;
     private readonly TimeProvider _clock;
 
+    private static readonly MapSceneLayerId GroupMarksLayerId = new("group-marks");
+    private const string WaypointObjectPrefix = "group-waypoint:";
+    private const string PingObjectPrefix = "group-ping:";
+
+    private readonly RaidCockpitViewModel? _raidCockpit;
     private Action<V2RouteId>? _navigate;
+    private GroupSnapshot _group = GroupSnapshot.Off;
+    private MapSceneRendererViewModel? _mapPreview;
+    private string? _mapPreviewSignature;
+    private string _mapNote = "Loading map…";
     private TeamWorkspaceSection _activeSection = TeamWorkspaceSection.Overview;
     private bool _confirmingLeave;
     private string _status = "Loading group settings…";
@@ -130,12 +144,21 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         GroupSessionService groupSession,
         IGroupSettingsStore groupSettings,
         CompanionPairingViewModel? pairing = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        RaidCockpitViewModel? raidCockpit = null)
     {
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _pairing = pairing;
         _clock = clock ?? TimeProvider.System;
+        _raidCockpit = raidCockpit;
+        if (_raidCockpit is not null)
+        {
+            // The centre map follows whichever map the Raid workspace shows (the top bar's map
+            // picker); a rebuild there raises its own property changes.
+            _raidCockpit.PropertyChanged += (_, _) => RefreshMapPreview();
+        }
+
         if (_pairing is not null)
         {
             _pairing.PropertyChanged += PairingChanged;
@@ -316,6 +339,210 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
     public bool HasPings => Pings.Count > 0;
 
+    /// <summary>"4 waypoints · 1 ping", for the collapsed marks section's header.</summary>
+    public string MarksSummary => Marks.Count == 0
+        ? "None yet"
+        : string.Join(" · ", new[]
+        {
+            Waypoints.Count switch { 0 => string.Empty, 1 => "1 waypoint", var count => $"{count} waypoints" },
+            Pings.Count switch { 0 => string.Empty, 1 => "1 ping", var count => $"{count} pings" },
+        }.Where(part => part.Length > 0));
+
+    /// <summary>The centre map: the Raid workspace's current map carrying only the group's marks.</summary>
+    public MapSceneRendererViewModel? MapPreview
+    {
+        get => _mapPreview;
+        private set
+        {
+            if (ReferenceEquals(_mapPreview, value))
+            {
+                return;
+            }
+
+            if (_mapPreview is not null)
+            {
+                _mapPreview.ViewChangeRequested -= MapPreviewViewChangeRequested;
+            }
+
+            _mapPreview = value;
+            if (value is not null)
+            {
+                value.ViewChangeRequested += MapPreviewViewChangeRequested;
+            }
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasMapPreview));
+        }
+    }
+
+    public bool HasMapPreview => MapPreview is not null;
+
+    /// <summary>Why the centre map is not showing; short and plain.</summary>
+    public string MapNote
+    {
+        get => _mapNote;
+        private set => SetProperty(ref _mapNote, value);
+    }
+
+    /// <summary>
+    /// Rebuilds the centre map when the Raid map or the group's marks have changed.
+    /// </summary>
+    /// <remarks>
+    /// Called on every shell refresh (the raid clock alone ticks once a second), so it compares a
+    /// signature of what it would draw and returns early rather than rebuilding a scene each time.
+    /// </remarks>
+    internal void RefreshMapPreview()
+    {
+        if (_raidCockpit?.Renderer is not { } raidMap)
+        {
+            MapPreview = null;
+            _mapPreviewSignature = null;
+            MapNote = _raidCockpit is null ? "The map isn't available." : "Pick a map in the top bar to see the shared plan.";
+            return;
+        }
+
+        var group = _group;
+        var signature = string.Join(
+            "|",
+            raidMap.Scene.LocationId,
+            raidMap.Scene.Revision.ToString(CultureInfo.InvariantCulture),
+            string.Join(",", group.Waypoints.Select(waypoint => $"{waypoint.Id}:{waypoint.MapId}:{waypoint.X}:{waypoint.Z}:{waypoint.Label}:{waypoint.Reached}")),
+            string.Join(",", group.Pings.Select(ping => $"{ping.Id}:{ping.MapId}:{ping.X}:{ping.Z}")));
+        if (MapPreview is not null && signature == _mapPreviewSignature)
+        {
+            return;
+        }
+
+        var now = _clock.GetUtcNow();
+        var preview = _raidCockpit.CreateMarksPreview(
+            (_, isOnMap, project) => BuildGroupMarks(group, isOnMap, project, now),
+            MapPreview);
+        _mapPreviewSignature = preview is null ? null : signature;
+        MapPreview = preview;
+        MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
+    }
+
+    private void MapPreviewViewChangeRequested(MapSceneViewChange change)
+    {
+        if (MapPreview is not { } preview)
+        {
+            return;
+        }
+
+        var result = MapSceneViewReducer.Apply(preview.Scene, change);
+        if (result.Status is MapSceneViewChangeStatus.Applied or MapSceneViewChangeStatus.Unchanged)
+        {
+            preview.Present(result.Scene);
+        }
+    }
+
+    /// <summary>Removes the group mark behind a map marker (the map's right-click, like Raid's).</summary>
+    public void RemoveMarkAt(MapSceneObjectId objectId)
+    {
+        var value = objectId.Value;
+        var prefix = value.StartsWith(WaypointObjectPrefix, StringComparison.Ordinal) ? WaypointObjectPrefix
+            : value.StartsWith(PingObjectPrefix, StringComparison.Ordinal) ? PingObjectPrefix
+            : null;
+        if (prefix is not null && long.TryParse(value.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        {
+            _ = RemoveMarkAsync(id);
+        }
+    }
+
+    /// <summary>
+    /// Every waypoint with its number: counted among the waypoints on the same map, in the
+    /// relay's order, which is how MapViewModel numbers the dots it draws.
+    /// </summary>
+    /// <remarks>
+    /// One numbering for both the marks list and the centre map's markers, so a row and the
+    /// marker it names can never disagree.
+    /// </remarks>
+    internal static IReadOnlyList<(GroupWaypointView Waypoint, int Number)> NumberWaypoints(IReadOnlyList<GroupWaypointView> waypoints)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<(GroupWaypointView, int)>(waypoints.Count);
+        foreach (var waypoint in waypoints)
+        {
+            var key = waypoint.MapId;
+            counts[key] = counts.GetValueOrDefault(key) + 1;
+            result.Add((waypoint, counts[key]));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// The group's marks on one map as scene objects: numbered waypoints, a line joining them
+    /// in order, and pings. Marks on other maps, or that the map's transform cannot place, are
+    /// left off the map (they stay in the list, where they can still be removed).
+    /// </summary>
+    internal static (MapSceneLayer? Layer, IReadOnlyList<MapSceneObject> Objects) BuildGroupMarks(
+        GroupSnapshot group,
+        Func<string, bool> isOnMap,
+        Func<WorldPosition, MapScenePoint?> project,
+        DateTimeOffset nowUtc)
+    {
+        var objects = new List<MapSceneObject>();
+        var route = new List<MapScenePoint>();
+        foreach (var (waypoint, number) in NumberWaypoints(group.Waypoints))
+        {
+            if (!isOnMap(waypoint.MapId) || project(new WorldPosition(waypoint.X, waypoint.Y, waypoint.Z)) is not { } point)
+            {
+                continue;
+            }
+
+            route.Add(point);
+            var name = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {number}" : waypoint.Label!;
+            objects.Add(new MapSceneObject(
+                new($"{WaypointObjectPrefix}{waypoint.Id}"),
+                GroupMarksLayerId,
+                MapSceneObjectKind.Waypoint,
+                MapSceneTruthKind.UserAuthored,
+                number.ToString(CultureInfo.InvariantCulture),
+                waypoint.Reached is { Length: > 0 } ? $"{name} · reached by {waypoint.Reached}" : $"{name} · marked by {waypoint.By}",
+                MapSceneGeometry.At(point),
+                [],
+                new DataProvenance("group-relay", waypoint.CreatedUtc == DateTimeOffset.UnixEpoch ? nowUtc : waypoint.CreatedUtc)));
+        }
+
+        foreach (var ping in group.Pings)
+        {
+            if (!isOnMap(ping.MapId) || project(new WorldPosition(ping.X, ping.Y, ping.Z)) is not { } point)
+            {
+                continue;
+            }
+
+            objects.Add(new MapSceneObject(
+                new($"{PingObjectPrefix}{ping.Id}"),
+                GroupMarksLayerId,
+                MapSceneObjectKind.Ping,
+                MapSceneTruthKind.UserAuthored,
+                "Ping",
+                $"{ping.By} is pointing here",
+                MapSceneGeometry.At(point),
+                [],
+                new DataProvenance("group-relay", ping.CreatedUtc)));
+        }
+
+        if (route.Count >= 2)
+        {
+            objects.Insert(0, new MapSceneObject(
+                new("group-route"),
+                GroupMarksLayerId,
+                MapSceneObjectKind.Route,
+                MapSceneTruthKind.UserAuthored,
+                "Shared route",
+                "The group's waypoints, in order",
+                new MapSceneGeometry(MapSceneGeometryKind.Line, route),
+                [],
+                new DataProvenance("group-relay", nowUtc)));
+        }
+
+        return objects.Count == 0
+            ? (null, [])
+            : (new MapSceneLayer(GroupMarksLayerId, "Group marks", 40, true), objects);
+    }
+
     /// <summary>The quests the other members shared, most-shared first.</summary>
     public IReadOnlyList<TeamQuestRowViewModel> TeamQuests { get; private set; } = [];
 
@@ -366,13 +593,11 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
             .ToArray();
 
         var marks = new List<TeamMarkRowViewModel>(group.Waypoints.Count + group.Pings.Count);
-        // Numbered in the same pass and the same order MapViewModel numbers them in, so a mark's
-        // number here matches the one on the map. Only waypoints are numbered; a ping is always
+        // Numbered by NumberWaypoints, the same numbering the centre map's markers carry (and in
+        // the order MapViewModel numbers them in). Only waypoints are numbered; a ping is always
         // "Ping" and never carries a custom name.
-        var numbered = 0;
-        foreach (var waypoint in group.Waypoints)
+        foreach (var (waypoint, numbered) in NumberWaypoints(group.Waypoints))
         {
-            numbered++;
             var reached = waypoint.Reached is { Length: > 0 };
             var name = string.IsNullOrWhiteSpace(waypoint.Label)
                 ? numbered.ToString(CultureInfo.CurrentCulture)
@@ -419,6 +644,7 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         Marks = marks;
         Waypoints = marks.Where(mark => mark.Number is not null).ToArray();
         Pings = marks.Where(mark => mark.Number is null).ToArray();
+        _group = group;
 
         OnPropertyChanged(nameof(ConnectionHealth));
         OnPropertyChanged(nameof(ConnectionDetail));
@@ -431,6 +657,8 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasWaypoints));
         OnPropertyChanged(nameof(Pings));
         OnPropertyChanged(nameof(HasPings));
+        OnPropertyChanged(nameof(MarksSummary));
+        RefreshMapPreview();
         OnPropertyChanged(nameof(Presence));
         OnPropertyChanged(nameof(HasPresence));
         OnPropertyChanged(nameof(HasNoPresence));
@@ -488,6 +716,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
     public string PairingUnavailableReason => _pairing?.UnavailableReason ?? "Pairing isn't available on this device.";
 
+    /// <summary>Why "Pair a tablet" is disabled, as its tooltip; null while pairing is available.</summary>
+    public string? PairTabletTooltip => CanPairDevice ? null : PairingUnavailableReason;
+
     private void PairingChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
         if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.Devices) or nameof(CompanionPairingViewModel.HasNoDevices))
@@ -495,6 +726,12 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(Devices));
             OnPropertyChanged(nameof(HasNoDevices));
             OnPropertyChanged(nameof(DevicesSummary));
+        }
+        else if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.CanPair) or nameof(CompanionPairingViewModel.UnavailableReason))
+        {
+            OnPropertyChanged(nameof(CanPairDevice));
+            OnPropertyChanged(nameof(PairingUnavailableReason));
+            OnPropertyChanged(nameof(PairTabletTooltip));
         }
     }
 

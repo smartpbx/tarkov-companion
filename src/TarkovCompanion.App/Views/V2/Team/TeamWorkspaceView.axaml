@@ -3,7 +3,19 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
-             xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet">
+             xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet"
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+  <UserControl.Resources>
+    <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a card row (as on Raid). -->
+    <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="Transparent" />
+  </UserControl.Resources>
   <UserControl.Styles>
     <!-- A primary pane: the flat card the Raid map sits in. -->
     <Style Selector="Border.v2-team-pane">
@@ -76,9 +88,9 @@
     </Style>
     <!-- The shared plan's route: numbered stops joined by a dashed line, like the map's own. -->
     <Style Selector="Border.v2-team-stop">
-      <Setter Property="Width" Value="36" />
-      <Setter Property="Height" Value="36" />
-      <Setter Property="CornerRadius" Value="18" />
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="CornerRadius" Value="15" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
@@ -95,6 +107,12 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="14,9,6,9" />
+    </Style>
+    <Style Selector="Grid.v2-team-reached">
+      <Setter Property="Opacity" Value="0.75" />
+    </Style>
+    <Style Selector="Expander.v2-team-expander">
+      <Setter Property="Padding" Value="12,4,12,12" />
     </Style>
     <Style Selector="Border.v2-team-row.v2-team-reached">
       <Setter Property="Opacity" Value="0.75" />
@@ -227,105 +245,40 @@
       </Grid>
 
       <Panel Grid.Row="1">
-        <!-- Team: the shared plan. The waypoints themselves are drawn on the Raid map; here they
-             read as the route they make, in the order (and with the numbers) the map uses. -->
+        <!-- Team: the shared plan, drawn on the map the Raid workspace shows (the top bar's map
+             picker): the group's waypoints numbered 1..N and joined in order, and pings. The
+             renderer is hosted the way Raid and Plan host it; the marks list sits in the context
+             panel with the same numbers. -->
         <Border Classes="v2-team-pane v2-team-stage" IsVisible="{Binding IsOverview}">
-          <Grid RowDefinitions="Auto,*">
-            <Border Classes="v2-team-pill" HorizontalAlignment="Left" Margin="16,16,16,0">
+          <Grid>
+            <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself, whose own
+                 DataContext is overridden to MapPreview (same as the Raid workspace). -->
+            <ContentControl IsVisible="{Binding HasMapPreview}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                            AutomationProperties.AutomationId="v2-team-map">
+              <map:MapSceneRendererView DataContext="{Binding MapPreview}" MarkerRightClicked="MapMarkerRightClicked" />
+            </ContentControl>
+            <StackPanel IsVisible="{Binding !HasMapPreview}" Spacing="10" MaxWidth="420"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+              <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Map}" />
+              </Viewbox>
+              <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                         Text="{Binding MapNote}" />
+              <Button Classes="v2-team-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
+                      Content="Open Raid map" Command="{Binding OpenSharedPlanCommand}" />
+            </StackPanel>
+
+            <!-- Bottom-left: the renderer's own presentation pill owns the top-left corner and its
+                 zoom group the top-right, as on Raid. -->
+            <Border Classes="v2-team-pill" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12">
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Pin}" />
                 <TextBlock Classes="v2-body v2-team-strong" VerticalAlignment="Center"
                            Text="Shared plan · manual waypoints" AutomationProperties.HeadingLevel="2" />
+                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="·" IsVisible="{Binding !HasMarks}" />
+                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="none yet" IsVisible="{Binding !HasMarks}" />
               </StackPanel>
             </Border>
-
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasMarks}">
-              <Grid>
-                <Grid.ColumnDefinitions>
-                  <ColumnDefinition Width="*" MaxWidth="820" />
-                  <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Margin="28,24,28,24" Spacing="20">
-                  <Panel IsVisible="{Binding HasWaypoints}">
-                    <!-- One dashed line behind the stops, from the first circle's centre to the last. -->
-                    <Line StartPoint="0,0" EndPoint="0,1" Stretch="Fill" Width="2" HorizontalAlignment="Left"
-                          Margin="17,30,0,30" Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2"
-                          StrokeDashArray="3,3" Opacity="0.8" />
-                    <ItemsControl ItemsSource="{Binding Waypoints}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><StackPanel Spacing="14" /></ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
-                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="16">
-                            <Border Classes="v2-team-stop">
-                              <TextBlock Text="{Binding Number}" />
-                            </Border>
-                            <Border Grid.Column="1" Classes="v2-team-row" Classes.v2-team-reached="{Binding IsReached}">
-                              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <StackPanel Spacing="1" VerticalAlignment="Center">
-                                  <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
-                                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                                <Path Grid.Column="1" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
-                                      Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
-                                <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
-                                        AutomationProperties.Name="Remove waypoint" ToolTip.Tip="Remove">
-                                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
-                                </Button>
-                              </Grid>
-                            </Border>
-                          </Grid>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </Panel>
-
-                  <StackPanel Spacing="10" IsVisible="{Binding HasPings}">
-                    <TextBlock Classes="v2-label" Text="Pings" AutomationProperties.HeadingLevel="3" />
-                    <ItemsControl ItemsSource="{Binding Pings}">
-                      <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
-                      </ItemsControl.ItemsPanel>
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
-                          <Grid ColumnDefinitions="36,*" ColumnSpacing="16">
-                            <Path Classes="v2-icon v2-team-warning" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                  Data="{DynamicResource V2.Icon.Target}" />
-                            <Border Grid.Column="1" Classes="v2-team-row">
-                              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                                <StackPanel Spacing="1" VerticalAlignment="Center">
-                                  <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
-                                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
-                                           Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
-                                <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
-                                        AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">
-                                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
-                                </Button>
-                              </Grid>
-                            </Border>
-                          </Grid>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                  </StackPanel>
-                </StackPanel>
-              </Grid>
-            </ScrollViewer>
-
-            <StackPanel Grid.Row="1" IsVisible="{Binding HasNoMarks}" Spacing="10" MaxWidth="420"
-                        HorizontalAlignment="Center" VerticalAlignment="Center">
-              <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
-                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Pin}" />
-              </Viewbox>
-              <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No shared waypoints yet" />
-              <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
-                         Text="Waypoints your group places on the Raid map appear here." />
-              <Button Classes="v2-team-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
-                      Content="Open Raid map" Command="{Binding OpenSharedPlanCommand}" />
-            </StackPanel>
           </Grid>
         </Border>
 
@@ -412,6 +365,7 @@
                   </StackPanel>
                   <Button Grid.Column="1" Classes="v2-team-primary" VerticalAlignment="Center"
                           AutomationProperties.AutomationId="v2-team-pair-tablet"
+                          ToolTip.Tip="{Binding PairTabletTooltip}" ToolTip.ShowOnDisabled="True"
                           Content="Pair a tablet" Command="{Binding PairTabletCommand}"
                           IsEnabled="{Binding CanPairDevice}" />
                 </Grid>
@@ -492,6 +446,74 @@
               </StackPanel>
             </Border>
 
+            <!-- The shared plan's marks, numbered like the map's markers, with their actions. -->
+            <Border Classes="v2-team-section" Padding="6,4" AutomationProperties.AutomationId="v2-team-marks">
+              <Expander Classes="v2-team-expander" HorizontalAlignment="Stretch" IsExpanded="True">
+                <Expander.Header>
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                    <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Pin}" />
+                    <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Marks"
+                               AutomationProperties.HeadingLevel="3" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding MarksSummary}" />
+                  </Grid>
+                </Expander.Header>
+                <StackPanel Spacing="6">
+                  <TextBlock Classes="v2-label" IsVisible="{Binding HasNoMarks}" TextWrapping="Wrap"
+                             Text="Waypoints your group places on the Raid map appear here." />
+                  <ItemsControl ItemsSource="{Binding Waypoints}" IsVisible="{Binding HasWaypoints}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10"
+                              Classes.v2-team-reached="{Binding IsReached}">
+                          <Border Classes="v2-team-stop">
+                            <TextBlock Text="{Binding Number}" />
+                          </Border>
+                          <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <Path Grid.Column="2" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
+                                Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
+                          <Button Grid.Column="3" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
+                                  AutomationProperties.Name="Remove waypoint" ToolTip.Tip="Remove">
+                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                          </Button>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ItemsControl ItemsSource="{Binding Pings}" IsVisible="{Binding HasPings}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                          <Panel Width="30" Height="30">
+                            <Path Classes="v2-icon v2-team-warning" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Data="{DynamicResource V2.Icon.Target}" />
+                          </Panel>
+                          <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
+                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center"
+                                     Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
+                          <Button Grid.Column="3" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
+                                  AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">
+                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                          </Button>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Expander>
+            </Border>
+
             <Border Classes="v2-team-section">
               <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
@@ -523,6 +545,7 @@
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,4,0,0">
                   <Button Classes="v2-team-outline" HorizontalAlignment="Stretch"
                           AutomationProperties.AutomationId="v2-team-panel-pair-tablet"
+                          ToolTip.Tip="{Binding PairTabletTooltip}" ToolTip.ShowOnDisabled="True"
                           Content="Pair a tablet" Command="{Binding PairTabletCommand}"
                           IsEnabled="{Binding CanPairDevice}" />
                   <Button Grid.Column="1" Classes="v2-team-plain" Content="Manage"

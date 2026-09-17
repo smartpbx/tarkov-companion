@@ -155,7 +155,7 @@ internal static class Program
             if (shell is not null && args.Contains("--team-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
-                var demo = TeamDemoGroup();
+                var demo = TeamDemoGroup(viewModel.Map.RenderModel);
                 for (var i = 0; i < 6; i++)
                 {
                     // The shell re-applies the store's snapshot on every refresh (the raid clock
@@ -192,28 +192,59 @@ internal static class Program
         }
     }
 
-    private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup()
+    private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup(
+        TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
     {
         var now = DateTimeOffset.UtcNow;
-        TarkovCompanion.Application.Services.Group.GroupMemberView Member(string name, string map, TimeSpan since, params string[] quests) =>
-            new(name, map, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", null, null, null, [], quests) { Since = since };
+        var mapId = model?.Location.Id ?? "customs";
+
+        // World positions that land at chosen spots on the selected map's plan, found by probing
+        // its own transform, so the demo marks sit on the map rather than off its edge.
+        var candidates = new List<(double X, double Z, double PlanX, double PlanY)>();
+        if (model is not null)
+        {
+            for (var x = -1200.0; x <= 1200; x += 15)
+            {
+                for (var z = -1200.0; z <= 1200; z += 15)
+                {
+                    if (model.TryMapPosition(new(x, 0, z), out var point) && point.X is > 5 and < 95 && point.Y is > 5 and < 95)
+                    {
+                        candidates.Add((x, z, point.X, point.Y));
+                    }
+                }
+            }
+        }
+
+        (double X, double Z) At(double planX, double planY) => candidates.Count == 0
+            ? (0, 0)
+            : candidates.MinBy(item => Math.Pow(item.PlanX - planX, 2) + Math.Pow(item.PlanY - planY, 2)) is var best ? (best.X, best.Z) : (0, 0);
+
+        TarkovCompanion.Application.Services.Group.GroupMemberView Member(string name, TimeSpan since, params string[] quests) =>
+            new(name, mapId, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", null, null, null, [], quests) { Since = since };
+        TarkovCompanion.Application.Services.Group.GroupWaypointView Waypoint(long id, string by, double planX, double planY, string? label, string? reached, int minutesAgo)
+        {
+            var (x, z) = At(planX, planY);
+            return new(id, by, mapId, x, 0, z, label, reached) { CreatedUtc = now.AddMinutes(-minutesAgo) };
+        }
+
+        var (pingX, pingZ) = At(55, 30);
         return new(true,
             [
-                Member("Geo", "customs", TimeSpan.FromSeconds(4), "Delivery from the Past", "Debut"),
-                Member("Riley", "customs", TimeSpan.FromSeconds(9), "Delivery from the Past"),
-                Member("Sam", "customs", TimeSpan.FromMinutes(2), "Shortage"),
+                Member("Geo", TimeSpan.FromSeconds(4), "Delivery from the Past", "Debut"),
+                Member("Riley", TimeSpan.FromSeconds(9), "Delivery from the Past"),
+                Member("Sam", TimeSpan.FromMinutes(2), "Shortage"),
             ],
             "Sharing as Clay · 3 others here",
             now)
         {
             Waypoints =
             [
-                new(1, "Geo", "customs", 0, 0, 0, "Dorms", "Riley") { CreatedUtc = now.AddMinutes(-6) },
-                new(2, "Riley", "customs", 0, 0, 0, null, null) { CreatedUtc = now.AddMinutes(-4) },
-                new(3, "Geo", "customs", 0, 0, 0, "Old gas station", null) { CreatedUtc = now.AddMinutes(-2) },
-                new(4, "Clay", "customs", 0, 0, 0, "RUAF roadblock", null) { CreatedUtc = now.AddMinutes(-1) },
+                Waypoint(1, "Geo", 22, 35, "Dorms", "Riley", 6),
+                Waypoint(2, "Riley", 38, 58, null, null, 4),
+                Waypoint(3, "Geo", 60, 50, "Old gas station", null, 2),
+                Waypoint(4, "Clay", 78, 68, "RUAF roadblock", null, 1),
             ],
-            Pings = [new(5, "Sam", "customs", 0, 0, 0, null, now.AddSeconds(-12))],
+            Pings = [new(5, "Sam", mapId, pingX, 0, pingZ, null, now.AddSeconds(-12))],
         };
     }
 

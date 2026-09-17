@@ -7,6 +7,7 @@ using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.UnitTests.V2Shell;
 
@@ -199,6 +200,76 @@ public sealed class TeamWorkspaceViewModelTests
         Assert.Equal("Ping", pingRow.Name);
         Assert.NotNull(pingRow.RemainingLabel);
         Assert.True(pingRow.HasRemaining);
+    }
+
+    [Fact]
+    public void Waypoints_are_numbered_per_map_so_the_list_matches_each_map()
+    {
+        var waypoints = new GroupWaypointView[]
+        {
+            new(1, "Geo", "customs", 0, 0, 0, null, null),
+            new(2, "Geo", "woods", 0, 0, 0, null, null),
+            new(3, "Geo", "Customs", 0, 0, 0, null, null),
+        };
+
+        var numbered = TeamWorkspaceViewModel.NumberWaypoints(waypoints);
+
+        Assert.Equal(new[] { 1, 1, 2 }, numbered.Select(item => item.Number));
+    }
+
+    [Fact]
+    public void The_centre_map_draws_numbered_waypoints_joined_in_order_and_skips_what_it_cannot_place()
+    {
+        var group = new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow)
+        {
+            Waypoints =
+            [
+                new(1, "Geo", "customs", 10, 0, 10, "Dorms", null),
+                new(2, "Geo", "woods", 20, 0, 20, null, null),
+                new(3, "Riley", "customs", 30, 0, 30, null, "Geo"),
+                new(4, "Riley", "customs", -1, 0, -1, null, null),
+            ],
+            Pings = [new(5, "Sam", "customs", 40, 0, 40, null, DateTimeOffset.UtcNow)],
+        };
+
+        var (layer, objects) = TeamWorkspaceViewModel.BuildGroupMarks(
+            group,
+            mapId => mapId == "customs",
+            position => position.X < 0 ? null : new MapScenePoint(position.X, position.Z),
+            DateTimeOffset.UtcNow);
+
+        Assert.NotNull(layer);
+        var route = Assert.Single(objects, item => item.Kind == MapSceneObjectKind.Route);
+        Assert.Equal(new[] { 10.0, 30.0 }, route.Geometry.Points.Select(point => point.X));
+        var waypoints = objects.Where(item => item.Kind == MapSceneObjectKind.Waypoint).ToArray();
+        // The woods waypoint is off this map, and the fourth cannot be placed; numbers stay the list's.
+        Assert.Equal(new[] { "1", "2" }, waypoints.Select(item => item.Label));
+        Assert.Equal("group-waypoint:3", waypoints[1].Id.Value);
+        Assert.Contains("reached by Geo", waypoints[1].Detail, StringComparison.Ordinal);
+        Assert.Single(objects, item => item.Kind == MapSceneObjectKind.Ping);
+    }
+
+    [Fact]
+    public void Without_marks_on_the_map_there_is_no_marks_layer()
+    {
+        var (layer, objects) = TeamWorkspaceViewModel.BuildGroupMarks(
+            GroupSnapshot.Off, _ => true, position => new MapScenePoint(position.X, position.Z), DateTimeOffset.UtcNow);
+
+        Assert.Null(layer);
+        Assert.Empty(objects);
+    }
+
+    [Fact]
+    public void Without_a_raid_map_the_centre_map_says_how_to_get_one()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.RefreshMapPreview();
+
+        Assert.False(viewModel.HasMapPreview);
+        Assert.NotEmpty(viewModel.MapNote);
+        Assert.Equal("None yet", viewModel.MarksSummary);
+        Assert.NotNull(viewModel.PairTabletTooltip);
     }
 
     [Fact]

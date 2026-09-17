@@ -1670,7 +1670,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             MapSceneObjectKind.Extract => "⇱",
             MapSceneObjectKind.Transit => "↔",
             MapSceneObjectKind.QuestObjective => "◇",
-            MapSceneObjectKind.Waypoint => "◆",
+            // V2 rough package 17 (team): a waypoint labelled with its number draws that number,
+            // so the marker and its row in a marks list read as one thing.
+            MapSceneObjectKind.Waypoint => item.Label.Length is > 0 and <= 3 && item.Label.All(char.IsAsciiDigit) ? item.Label : "◆",
             MapSceneObjectKind.Ping => "•",
             MapSceneObjectKind.Hazard => "!",
             MapSceneObjectKind.Lock => "⌑",
