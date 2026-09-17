@@ -139,13 +139,24 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             LastKnownPosition = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
             // The trail belongs to the raid it was walked in, so a new one starts empty.
             PositionTrail = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,
-            ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
+            // Belongs to the raid it was scanned in, exactly like the trail. This used to be
+            // cleared only on enteringNewRaid, not enteringRaid, so a raid confirmed to have
+            // begun directly (an extract-list bootstrap, never having passed through
+            // LoadingRaid) inherited the extract scan of whatever raid the player was in
+            // before: a leftover "PMC exfil confirmed" line carried into a scav run.
+            ActiveExtracts = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
             // A clock belongs to the raid it was read in, exactly like the trail.
             RaidClock = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClock,
             RaidClockReadUtc = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClockReadUtc,
             // And so does what the display said. A bar read in the last raid describes a body
             // that raid is over for.
             Hud = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.Hud,
+            // These describe one reading of one screen and are otherwise only ever replaced,
+            // never cleared, by ApplyExtracts -- so without this a raid that began before the
+            // player rescanned the extract list kept reading the previous raid's unmatched
+            // lines and transit offers.
+            ExtractLinesNotMatched = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.ExtractLinesNotMatched,
+            Transits = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.Transits,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not
             // overwrite what an earlier, better-informed line already established. The basis

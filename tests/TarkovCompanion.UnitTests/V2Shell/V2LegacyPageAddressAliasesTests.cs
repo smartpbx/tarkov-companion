@@ -82,7 +82,7 @@ public sealed class V2LegacyPageAddressAliasesTests
     [Theory]
     [InlineData("Squad", "team")]
     [InlineData("Group", "team/group")]
-    public void EveryStillHostedV1PageNameResolvesThroughTheRegistryForVariantB(string requestedPage, string expectedAddress)
+    public void SquadAndGroupResolveToTheTeamWorkspaceBecauseThoseRoutesNowHostItInstead(string requestedPage, string expectedAddress)
     {
         var resolved = V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.B, requestedPage);
 

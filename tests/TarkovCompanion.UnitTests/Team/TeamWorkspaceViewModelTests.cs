@@ -1,0 +1,244 @@
+using System.Net;
+using System.Net.Http;
+using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Team;
+using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.UnitTests.V2Shell;
+
+namespace TarkovCompanion.UnitTests.Team;
+
+public sealed class TeamWorkspaceViewModelTests
+{
+    [Theory]
+    [InlineData(TeamWorkspaceSection.Overview, 0, 1, 2, 3)]
+    [InlineData(TeamWorkspaceSection.Group, 1, 2, 0, 3)]
+    [InlineData(TeamWorkspaceSection.Devices, 1, 2, 3, 0)]
+    public void The_active_route_brings_its_own_section_to_the_top_of_the_page(
+        TeamWorkspaceSection section, int presenceRow, int marksRow, int groupRow, int devicesRow)
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.SetActiveSection(section);
+
+        Assert.Equal(presenceRow, viewModel.PresenceRow);
+        Assert.Equal(marksRow, viewModel.MarksRow);
+        Assert.Equal(groupRow, viewModel.GroupRow);
+        Assert.Equal(devicesRow, viewModel.DevicesRow);
+    }
+
+    [Fact]
+    public async Task Loading_reads_the_stored_group_settings_into_the_form()
+    {
+        var settings = new FakeGroupSettingsStore(new(
+            true, "https://relay.example.test/", "Clay", "a-key-long-enough", true, false));
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), settings);
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.IsEnabled);
+        Assert.Equal("https://relay.example.test/", viewModel.ServerUri);
+        Assert.Equal("Clay", viewModel.DisplayName);
+        Assert.Equal("a-key-long-enough", viewModel.Key);
+        Assert.True(viewModel.SharesLoadout);
+        Assert.False(viewModel.SharesQuests);
+    }
+
+    [Fact]
+    public async Task Saving_writes_the_form_through_to_the_settings_store()
+    {
+        var settings = new FakeGroupSettingsStore(GroupSharingSettings.Off);
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), settings)
+        {
+            IsEnabled = true,
+            ServerUri = "https://relay.example.test/",
+            DisplayName = "Clay",
+            Key = "a-key-long-enough",
+        };
+
+        await ((AsyncDelegateCommand)viewModel.SaveCommand).ExecuteAsync();
+
+        Assert.NotNull(settings.LastSaved);
+        Assert.True(settings.LastSaved!.IsEnabled);
+        Assert.Equal("Clay", settings.LastSaved.DisplayName);
+        Assert.Contains("Saved", viewModel.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Leaving_needs_a_second_press_before_it_turns_sharing_off()
+    {
+        var settings = new FakeGroupSettingsStore(new(
+            true, "https://relay.example.test/", "Clay", "a-key-long-enough", false, false));
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), settings);
+        await viewModel.LoadAsync();
+
+        await ((AsyncDelegateCommand)viewModel.LeaveCommand).ExecuteAsync();
+
+        Assert.Equal("Confirm leave", viewModel.LeaveLabel);
+        Assert.True(viewModel.IsEnabled);
+        Assert.Null(settings.LastSaved);
+
+        await ((AsyncDelegateCommand)viewModel.LeaveCommand).ExecuteAsync();
+
+        Assert.False(viewModel.IsEnabled);
+        Assert.NotNull(settings.LastSaved);
+        Assert.False(settings.LastSaved!.IsEnabled);
+        Assert.Equal("Leave group", viewModel.LeaveLabel);
+    }
+
+    [Fact]
+    public void Applying_a_snapshot_reads_connection_health_from_whether_the_group_is_stale()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.Apply(SnapshotWithGroup(GroupSnapshot.Off));
+        Assert.Equal("Not in a group", viewModel.ConnectionHealth);
+
+        var connected = new GroupSnapshot(true, [], "Sharing as Clay · nobody else here", DateTimeOffset.UtcNow);
+        viewModel.Apply(SnapshotWithGroup(connected));
+        Assert.Equal("Connected", viewModel.ConnectionHealth);
+
+        var reconnecting = connected with { StaleSince = DateTimeOffset.UtcNow.AddSeconds(-10) };
+        viewModel.Apply(SnapshotWithGroup(reconnecting));
+        Assert.Equal("Reconnecting", viewModel.ConnectionHealth);
+    }
+
+    [Fact]
+    public void Presence_rows_are_live_stale_or_offline()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        var live = Member("Geo") with { Since = TimeSpan.FromSeconds(3) };
+        var quiet = Member("Riley") with { Since = TimeSpan.FromMinutes(2) };
+        var group = new GroupSnapshot(true, [live, quiet], "Sharing", DateTimeOffset.UtcNow);
+
+        viewModel.Apply(SnapshotWithGroup(group));
+
+        Assert.Equal(2, viewModel.Presence.Count);
+        Assert.Equal(TeamPresenceState.Live, viewModel.Presence.Single(row => row.Name == "Geo").State);
+        Assert.Equal(TeamPresenceState.Stale, viewModel.Presence.Single(row => row.Name == "Riley").State);
+
+        // Reconnecting on a last-good read: nobody can be vouched for as live or stale any more.
+        viewModel.Apply(SnapshotWithGroup(group with { StaleSince = DateTimeOffset.UtcNow }));
+        Assert.All(viewModel.Presence, row => Assert.Equal(TeamPresenceState.Offline, row.State));
+    }
+
+    [Fact]
+    public void Waypoints_are_numbered_like_the_map_list_and_pings_carry_remaining_time()
+    {
+        var clock = new Clock();
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off), clock: clock);
+        var waypointA = new GroupWaypointView(1, "Geo", "customs", 0, 0, 0, null, null) { CreatedUtc = clock.GetUtcNow().AddMinutes(-2) };
+        var waypointB = new GroupWaypointView(2, "Riley", "customs", 0, 0, 0, "Extract", "Geo") { CreatedUtc = clock.GetUtcNow().AddMinutes(-1) };
+        var ping = new GroupPingView(3, "Geo", "customs", 0, 0, 0, null, clock.GetUtcNow().AddSeconds(-40));
+        var group = new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow)
+        {
+            Waypoints = [waypointA, waypointB],
+            Pings = [ping],
+        };
+
+        viewModel.Apply(SnapshotWithGroup(group));
+
+        Assert.Equal(3, viewModel.Marks.Count);
+        var first = viewModel.Marks[0];
+        Assert.Equal("1", first.Name);
+        Assert.Equal("marked by Geo", first.ByLabel);
+        Assert.False(first.IsReached);
+
+        var second = viewModel.Marks[1];
+        Assert.Equal("Extract", second.Name);
+        Assert.Contains("reached by Geo", second.ByLabel, StringComparison.Ordinal);
+        Assert.True(second.IsReached);
+
+        var pingRow = viewModel.Marks[2];
+        Assert.Equal("Ping", pingRow.Kind);
+        Assert.Equal("Ping", pingRow.Name);
+        Assert.NotNull(pingRow.RemainingLabel);
+        Assert.True(pingRow.HasRemaining);
+    }
+
+    [Fact]
+    public async Task Removing_a_mark_calls_through_to_the_group_session()
+    {
+        long? deleted = null;
+        var handler = new StubHandler(request =>
+        {
+            if (request.Method == HttpMethod.Delete)
+            {
+                deleted = long.Parse(request.RequestUri!.Segments[^1], System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        });
+        var session = GroupSession(handler);
+        var viewModel = new TeamWorkspaceViewModel(session, new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        var waypoint = new GroupWaypointView(42, "Geo", "customs", 0, 0, 0, null, null);
+        viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow) { Waypoints = [waypoint] }));
+
+        await ((AsyncDelegateCommand)viewModel.Marks.Single().RemoveCommand!).ExecuteAsync();
+
+        Assert.Equal(42, deleted);
+    }
+
+    [Fact]
+    public void Without_a_pairing_view_model_the_devices_section_degrades_clearly()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        Assert.True(viewModel.HasNoDevices);
+        Assert.False(viewModel.CanPairDevice);
+        Assert.False(string.IsNullOrWhiteSpace(viewModel.PairingUnavailableReason));
+
+        // Never throws even with nothing to pair against.
+        viewModel.PairTabletCommand.Execute(null);
+    }
+
+    private static GroupMemberView Member(string name) =>
+        new(name, null, RaidLifecycleState.Unknown, null, null, null, null, [], []);
+
+    private static ApplicationRuntimeSnapshot SnapshotWithGroup(GroupSnapshot group) =>
+        V2ShellTestData.Snapshot() with { Group = group };
+
+    /// <summary>
+    /// A <see cref="GroupSessionService"/> to hand to the workspace's constructor. Its own
+    /// settings are usable (unlike the workspace's own <see cref="FakeGroupSettingsStore"/> in
+    /// most tests here) because <see cref="GroupSessionService.RemoveMarkAsync"/> refuses to call
+    /// the relay at all when its settings are not — the two stores are logically the same one in
+    /// production, but nothing in these tests depends on that.
+    /// </summary>
+    private static GroupSessionService GroupSession(StubHandler? handler = null) => new(
+        new FakeGroupSettingsStore(new(
+            true, "https://relay.example.test/", "Clay", "a-key-long-enough", false, false)),
+        new RuntimeStateStore(new(false, true, GameMode.Regular, "en", TimeSpan.FromHours(9), TimeSpan.FromMinutes(5))),
+        new HttpClient(handler ?? new StubHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)))) { Timeout = Timeout.InfiniteTimeSpan },
+        NullLogger<GroupSessionService>.Instance);
+
+    private sealed class Clock : TimeProvider
+    {
+        private readonly DateTimeOffset _now = new(2026, 9, 15, 18, 0, 0, TimeSpan.Zero);
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    private sealed class StubHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) => respond(request);
+    }
+
+    private sealed class FakeGroupSettingsStore(GroupSharingSettings stored) : IGroupSettingsStore
+    {
+        public GroupSharingSettings? LastSaved { get; private set; }
+
+        public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken) => Task.FromResult(stored);
+
+        public Task SaveAsync(GroupSharingSettings settings, CancellationToken cancellationToken)
+        {
+            LastSaved = settings;
+            return Task.CompletedTask;
+        }
+    }
+}

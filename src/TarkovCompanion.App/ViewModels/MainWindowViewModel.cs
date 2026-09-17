@@ -340,9 +340,18 @@ public sealed class RaidPageViewModel : PageViewModel
     private string _extractsNotMatched = string.Empty;
     private string _transits = string.Empty;
     private RaidSummaryViewModel? _summary;
+    private DateTimeOffset? _summaryShownUtc;
     private RaidSnapshot? _lastInRaid;
     private string? _lastInRaidMode;
     private RaidLifecycleState _previousState = RaidLifecycleState.Unknown;
+
+    /// <summary>How long the summary stays up before it closes on its own.</summary>
+    /// <remarks>
+    /// Reported as "it just stays open right now": today it only closes on its dismiss button,
+    /// Escape, or the next raid starting. Fifteen minutes is well past the ninety seconds or so
+    /// somebody actually reads it in, so this only ever fires on a card genuinely left open.
+    /// </remarks>
+    private static readonly TimeSpan SummaryAutoDismissAfter = TimeSpan.FromMinutes(15);
     private Guid? _summaryRaidId;
     private Guid? _scanRaidId;
     private DateTimeOffset _lastScanObservedUtc = DateTimeOffset.MinValue;
@@ -557,22 +566,30 @@ public sealed class RaidPageViewModel : PageViewModel
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"X {raid.LastKnownPosition.Position.X:F1}, Y {raid.LastKnownPosition.Position.Y:F1}, Z {raid.LastKnownPosition.Position.Z:F1} · screenshot {FormatAge(raid.LastKnownPosition.Timestamp, nowUtc)}");
-        Extracts = raid.ActiveExtracts
-            .Select(extract => new ActiveExtractViewModel(
-                extract.Name,
-                string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
-                extract.Source))
-            .ToArray();
-        ExtractsNotMatched = raid.ExtractLinesNotMatched.Count switch
-        {
-            0 => string.Empty,
-            1 => $"1 line on that screen was not matched to an exit: {raid.ExtractLinesNotMatched[0]}",
-            var count => string.Create(
-                CultureInfo.CurrentCulture,
-                $"{count} lines on that screen were not matched to an exit: ") +
-                string.Join(" · ", raid.ExtractLinesNotMatched.Take(12)),
-        };
-        Transits = raid.Transits.Count == 0
+        // The active-extracts panel is only about the raid running right now. Without this
+        // gate it kept showing the just-finished raid's confirmed exits and transit offers
+        // straight through PostRaid, on top of a summary card describing that same raid.
+        var isInRaid = raid.State == RaidLifecycleState.InRaid;
+        Extracts = !isInRaid
+            ? []
+            : raid.ActiveExtracts
+                .Select(extract => new ActiveExtractViewModel(
+                    extract.Name,
+                    string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
+                    extract.Source))
+                .ToArray();
+        ExtractsNotMatched = !isInRaid
+            ? string.Empty
+            : raid.ExtractLinesNotMatched.Count switch
+            {
+                0 => string.Empty,
+                1 => $"1 line on that screen was not matched to an exit: {raid.ExtractLinesNotMatched[0]}",
+                var count => string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{count} lines on that screen were not matched to an exit: ") +
+                    string.Join(" · ", raid.ExtractLinesNotMatched.Take(12)),
+            };
+        Transits = !isInRaid || raid.Transits.Count == 0
             ? string.Empty
             : "Transits offered: " + string.Join(" · ", raid.Transits);
         _lastRaid = raid;
@@ -582,7 +599,7 @@ public sealed class RaidPageViewModel : PageViewModel
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
         UpdateTonight(snapshot);
-        ObserveLifecycle(snapshot);
+        ObserveLifecycle(snapshot, nowUtc);
     }
 
     /// <summary>
@@ -797,6 +814,13 @@ public sealed class RaidPageViewModel : PageViewModel
     /// </remarks>
     public void Tick(DateTimeOffset nowUtc)
     {
+        if (Summary is not null &&
+            _summaryShownUtc is { } shownUtc &&
+            nowUtc - shownUtc >= SummaryAutoDismissAfter)
+        {
+            DismissSummary();
+        }
+
         if (_lastRaid is { } raid)
         {
             UpdateTimeLeft(raid, nowUtc);
@@ -881,10 +905,21 @@ public sealed class RaidPageViewModel : PageViewModel
     /// not from the snapshot that ends it: returning to the menu clears the map, the start
     /// time and the last-known position out of the raid state.
     /// </remarks>
-    private void ObserveLifecycle(ApplicationRuntimeSnapshot snapshot)
+    private void ObserveLifecycle(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc)
     {
         var raid = snapshot.Raid;
         TrackScans(snapshot);
+
+        // The next raid starting closes the summary of the one before it, so a stale card is
+        // never still open once there is a fresh raid to look at. A transfer keeps the state
+        // at InRaid throughout, so it is not this edge and never closes anything.
+        var wasNotRunning = _previousState is not (RaidLifecycleState.LoadingRaid or RaidLifecycleState.InRaid);
+        var isNowRunning = raid.State is RaidLifecycleState.LoadingRaid or RaidLifecycleState.InRaid;
+        if (wasNotRunning && isNowRunning && Summary is not null)
+        {
+            DismissSummary();
+        }
+
         if (raid.State == RaidLifecycleState.InRaid)
         {
             _lastInRaid = raid;
@@ -903,6 +938,7 @@ public sealed class RaidPageViewModel : PageViewModel
         // same summary and reset the history line that is already being filled in.
         _lastInRaid = null;
         _summaryRaidId = lastInRaid.RaidId;
+        _summaryShownUtc = nowUtc;
         Summary = RaidSummaryViewModel.Create(
             ResolveMapName(lastInRaid.MapId),
             lastInRaid.StartedUtc,
@@ -1121,6 +1157,7 @@ public sealed class RaidPageViewModel : PageViewModel
     private void DismissSummary()
     {
         _summaryRaidId = null;
+        _summaryShownUtc = null;
         Summary = null;
     }
 
@@ -3203,11 +3240,18 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Settings.Apply(snapshot);
         FollowRaidMap(snapshot);
         // The map's own marker comes straight off the raid snapshot, so a screenshot taken
-        // mid-raid appears without the player having to touch the map page.
-        Map.ShowPlayer(snapshot.Raid.LastKnownPosition, snapshot.Raid.PositionTrail);
+        // mid-raid appears without the player having to touch the map page. Held back once the
+        // raid is not running: the trail, the "where the others started" panel and the spawn
+        // lines built from it are about the raid that just finished, not something to leave
+        // drawn through PostRaid on top of its own summary card.
+        var isInRaid = snapshot.Raid.State == RaidLifecycleState.InRaid;
+        Map.ShowPlayer(
+            isInRaid ? snapshot.Raid.LastKnownPosition : null,
+            isInRaid ? snapshot.Raid.PositionTrail : []);
         // The extracts a raid actually offers come from the player scanning the list, so the
-        // map can mark them out from the ten it knows the map has.
-        Map.ShowActiveExtracts(snapshot.Raid.ActiveExtracts);
+        // map can mark them out from the ten it knows the map has. Same gate: an exit marked
+        // "offered" by a raid that is over reads as still offered by the one that follows it.
+        Map.ShowActiveExtracts(isInRaid ? snapshot.Raid.ActiveExtracts : []);
         // A PMC exit is not a worse option for a scav, it is not an option, so the map stops
         // drawing the ones this raid cannot use.
         Map.ShowSide(snapshot.Raid.Side);

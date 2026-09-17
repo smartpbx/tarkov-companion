@@ -278,7 +278,17 @@ public sealed record GroupWaypointView(
     double Y,
     double Z,
     string? Label,
-    string? Reached);
+    string? Reached)
+{
+    /// <summary>
+    /// When this waypoint was marked, or the epoch from a relay too old to send it.
+    /// </summary>
+    /// <remarks>
+    /// Appended rather than positional, like <see cref="GroupMemberView.Since"/>: an older relay
+    /// simply omits it, which reads as "unknown age" rather than a deserialization failure.
+    /// </remarks>
+    public DateTimeOffset CreatedUtc { get; init; } = DateTimeOffset.UnixEpoch;
+}
 
 /// <summary>A place somebody is pointing at right now, which fades.</summary>
 public sealed record GroupPingView(

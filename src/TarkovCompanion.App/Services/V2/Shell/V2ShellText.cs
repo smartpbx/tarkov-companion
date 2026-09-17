@@ -47,7 +47,7 @@ public static class V2ShellText
         ["V2.Shell.Route.Hideout"] = "Hideout",
         ["V2.Shell.Route.Loadout"] = "Loadout",
         ["V2.Shell.Route.Events"] = "Events",
-        ["V2.Shell.Route.Squad"] = "Squad",
+        ["V2.Shell.Route.Squad"] = "Team",
         ["V2.Shell.Route.Group"] = "Group",
         ["V2.Shell.Route.Tablet"] = "Tablet preview",
         ["V2.Shell.Route.History"] = "History",
