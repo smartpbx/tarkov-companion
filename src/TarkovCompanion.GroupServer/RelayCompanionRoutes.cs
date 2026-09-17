@@ -63,9 +63,17 @@ public sealed record RelayFrameBatchResponse(int ProtocolVersion, bool RequiresR
         batch.Frames.Select(RelayFrameEnvelope.From).ToArray());
 }
 
-public sealed record RelayFrameEnvelope(long DeliveryId, OpaqueRelayFrame Frame)
+/// <summary>
+/// <see cref="Frame"/> is embedded as the exact bytes <see cref="CompanionProtocolJson"/> writes for
+/// an <see cref="OpaqueRelayFrame"/> — not re-serialized by the default request JSON options this
+/// envelope's own fields use, which would flatten none of its nested identifier types the way the
+/// paired-device wire format requires. A caller reads it back with
+/// <c>CompanionProtocolJson.Deserialize&lt;OpaqueRelayFrame&gt;(frame.GetRawText())</c>.
+/// </summary>
+public sealed record RelayFrameEnvelope(long DeliveryId, JsonElement Frame)
 {
-    public static RelayFrameEnvelope From(RelayQueuedFrame queued) => new(queued.DeliveryId, queued.Frame);
+    public static RelayFrameEnvelope From(RelayQueuedFrame queued) =>
+        new(queued.DeliveryId, JsonDocument.Parse(CompanionProtocolJson.Serialize(queued.Frame)).RootElement.Clone());
 }
 
 /// <summary>Bounded per-source and relay-wide admission for the admin-key owner-claim route.</summary>

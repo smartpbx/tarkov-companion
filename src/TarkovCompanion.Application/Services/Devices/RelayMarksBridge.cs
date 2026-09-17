@@ -222,19 +222,19 @@ public sealed class RelayMarksBridge : IAsyncDisposable
         }
 
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-        var batch = JsonSerializer.Deserialize<RelayFrameBatchWire>(json, WireJsonOptions);
-        if (batch is null)
+        var frames = ParseFrameBatch(json);
+
+        foreach (var (deliveryId, frame) in frames)
         {
-            return;
+            if (frame is not null)
+            {
+                await HandleInboundFrameAsync(frame, cancellationToken).ConfigureAwait(false);
+            }
+
+            _afterDeliveryId = Math.Max(_afterDeliveryId, deliveryId);
         }
 
-        foreach (var envelope in batch.Frames)
-        {
-            await HandleInboundFrameAsync(envelope, cancellationToken).ConfigureAwait(false);
-            _afterDeliveryId = Math.Max(_afterDeliveryId, envelope.DeliveryId);
-        }
-
-        if (batch.Frames.Count > 0)
+        if (frames.Count > 0)
         {
             using var ack = new HttpRequestMessage(HttpMethod.Post, $"v2/companion/relay/frames/{_afterDeliveryId}/ack");
             AddBearer(ack, owner);
@@ -243,12 +243,12 @@ public sealed class RelayMarksBridge : IAsyncDisposable
         }
     }
 
-    private async Task HandleInboundFrameAsync(RelayFrameEnvelopeWire envelope, CancellationToken cancellationToken)
+    private async Task HandleInboundFrameAsync(OpaqueRelayFrame frame, CancellationToken cancellationToken)
     {
         PairedSessionState? state;
         lock (_gate)
         {
-            _sessionsById.TryGetValue(envelope.Frame.SessionId, out state);
+            _sessionsById.TryGetValue(frame.SessionId.Value, out state);
         }
 
         if (state is null)
@@ -262,7 +262,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable
             payload = PairingCryptography.OpenRelayFrame(
                 state.TabletToDesktopKey,
                 PairingTrafficDirection.TabletToDesktop,
-                envelope.Frame.ToProtocol());
+                frame);
         }
         catch (System.Security.Cryptography.CryptographicException)
         {
@@ -276,8 +276,8 @@ public sealed class RelayMarksBridge : IAsyncDisposable
 
         var command = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(payload.Json.Span);
         var authenticatedFrame = new AuthenticatedPairedFrame(
-            new DeviceSessionId(envelope.Frame.SessionId),
-            envelope.Frame.KeyEpoch,
+            frame.SessionId,
+            frame.KeyEpoch,
             "relay-marks-bridge",
             Now());
         PairedCommandApplication application;
@@ -508,44 +508,57 @@ public sealed class RelayMarksBridge : IAsyncDisposable
         public long NextSenderSequence() => Interlocked.Increment(ref _senderSequence);
     }
 
-    // The relay's JSON shape for RelayFrameBatchResponse/RelayFrameEnvelope (RelayCompanionRoutes),
-    // read with ordinary System.Text.Json rather than CompanionProtocolJson: the envelope itself is
-    // not a paired-device wire root, only the OpaqueRelayFrame nested inside one field of it is.
+    /// <summary>
+    /// Parses a <c>GET /v2/companion/relay/frames</c> response body (RelayCompanionRoutes'
+    /// <c>RelayFrameBatchResponse</c>): ordinary System.Text.Json for the envelope, since it is not
+    /// itself a paired-device wire root, but each nested frame is read back through
+    /// <see cref="CompanionProtocolJson"/> — the exact boundary the relay wrote it with — rather than
+    /// re-modeled with default request JSON options, which would not reproduce every nested
+    /// identifier's wire shape. A frame that fails that check comes back as a null
+    /// <see cref="OpaqueRelayFrame"/> paired with its still-valid delivery id, so the caller can
+    /// still advance past it without losing the rest of the batch.
+    /// </summary>
+    public static IReadOnlyList<(long DeliveryId, OpaqueRelayFrame? Frame)> ParseFrameBatch(string json)
+    {
+        RelayFrameBatchWire? batch;
+        try
+        {
+            batch = JsonSerializer.Deserialize<RelayFrameBatchWire>(json, WireJsonOptions);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+
+        if (batch is null)
+        {
+            return [];
+        }
+
+        var results = new List<(long, OpaqueRelayFrame?)>(batch.Frames.Count);
+        foreach (var envelope in batch.Frames)
+        {
+            OpaqueRelayFrame? frame;
+            try
+            {
+                frame = CompanionProtocolJson.Deserialize<OpaqueRelayFrame>(Encoding.UTF8.GetBytes(envelope.Frame.GetRawText()));
+            }
+            catch (JsonException)
+            {
+                frame = null;
+            }
+
+            results.Add((envelope.DeliveryId, frame));
+        }
+
+        return results;
+    }
+
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web);
 
     private sealed record RelayFrameBatchWire(int ProtocolVersion, bool RequiresReconnect, DateTimeOffset ServerUtc, IReadOnlyList<RelayFrameEnvelopeWire> Frames);
 
-    private sealed record RelayFrameEnvelopeWire(long DeliveryId, RelayFrameWire Frame);
-
-    private sealed record RelayFrameWire(
-        int ProtocolVersionMajor,
-        int ProtocolVersionMinor,
-        Guid ChannelId,
-        Guid SessionId,
-        long KeyEpoch,
-        long SenderSequence,
-        int CipherSuite,
-        string NonceBase64Url,
-        int CiphertextLength,
-        IReadOnlyList<string> CiphertextChunksBase64Url,
-        string AuthenticationTagBase64Url,
-        DateTimeOffset IssuedUtc,
-        DateTimeOffset ExpiresUtc)
-    {
-        public OpaqueRelayFrame ToProtocol() => new(
-            new CompanionProtocolVersion(ProtocolVersionMajor, ProtocolVersionMinor),
-            new RelayChannelId(ChannelId),
-            new DeviceSessionId(SessionId),
-            KeyEpoch,
-            SenderSequence,
-            (RelayCipherSuite)CipherSuite,
-            NonceBase64Url,
-            CiphertextLength,
-            CiphertextChunksBase64Url,
-            AuthenticationTagBase64Url,
-            IssuedUtc,
-            ExpiresUtc);
-    }
+    private sealed record RelayFrameEnvelopeWire(long DeliveryId, JsonElement Frame);
 }
 
 /// <summary>

@@ -1,16 +1,52 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text.Json;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.GroupServer;
 using TarkovCompanion.GroupServer.Security;
+using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
 
 namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 
 public sealed class RelayCompanionRoutesTests
 {
+    [Fact]
+    public async Task GetFramesResponseRoundTripsThroughTheDesktopBridgesParser()
+    {
+        // RelayFrameBatchResponse is written with the framework's own default request JSON
+        // options (it is not itself a paired-device wire root); this proves that a frame nested
+        // inside it still comes back byte-identical through RelayMarksBridge.ParseFrameBatch's
+        // CompanionProtocolJson boundary, rather than losing every nested identifier's shape to
+        // the outer envelope's default (int-enum, unwrapped-id) serialization.
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var frame = RelaySecurityTestFactory.Frame(owner, RelaySecurityTestFactory.Now, senderSequence: 1);
+        var batch = new RelayFrameBatch(
+            CompanionProtocolVersion.Current,
+            [new RelayQueuedFrame(7, frame, RelaySecurityTestFactory.Now)],
+            RequiresReconnect: false,
+            RelaySecurityTestFactory.Now);
+
+        var responseJson = JsonSerializer.Serialize(
+            RelayFrameBatchResponse.From(batch),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var parsed = RelayMarksBridge.ParseFrameBatch(responseJson);
+
+        var (deliveryId, roundTripped) = Assert.Single(parsed);
+        Assert.Equal(7, deliveryId);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(frame.SessionId, roundTripped!.SessionId);
+        Assert.Equal(frame.ChannelId, roundTripped.ChannelId);
+        Assert.Equal(frame.KeyEpoch, roundTripped.KeyEpoch);
+        Assert.Equal(frame.SenderSequence, roundTripped.SenderSequence);
+        Assert.Equal(frame.ProtocolVersion, roundTripped.ProtocolVersion);
+        Assert.Equal(frame.NonceBase64Url, roundTripped.NonceBase64Url);
+        Assert.Equal(frame.AuthenticationTagBase64Url, roundTripped.AuthenticationTagBase64Url);
+    }
+
     [Fact]
     public async Task ClientJsonBodyRoundTripsIntoAWorkingClaim()
     {
