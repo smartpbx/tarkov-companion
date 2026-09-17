@@ -27,6 +27,7 @@ public static class SqliteMigrationLedger
         new("0009_drop_unread_map_tables", true, "Remove duplicated unread map tables"),
         new("0010_drop_quest_catalog_orphans", true, "Remove superseded quest orphan cache"),
         new("0011_v2_data_platform", true, "Compact, recoverable V2 persistence platform"),
+        new("0012_task_wiki_link", false, "Task wiki deep links"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>

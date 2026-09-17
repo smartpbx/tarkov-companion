@@ -4,6 +4,8 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.StashScan;
+using TarkovCompanion.Application.Services.Wiki;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -37,6 +39,13 @@ public sealed record StashItemRowViewModel(
     public string GroupLabel => Group.ToString();
 
     public ICommand? SelectCommand { get; init; }
+
+    /// <summary>The catalog's wiki link for this item, when it has one.</summary>
+    public string? WikiUri { get; init; }
+
+    public bool HasWikiLink => WikiLinkPolicy.IsAllowed(WikiUri);
+
+    public ICommand? OpenWikiCommand { get; init; }
 }
 
 public sealed record StashAmmoSummaryRowViewModel(string Caliber, int RoundCount, int StackCount)
@@ -74,6 +83,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IRuntimeStateStore _runtime;
     private readonly TimeProvider _clock;
+    // Optional so a composition without an item catalog is still a valid composition: without
+    // one, results rows have no wiki link, which is what they had until now.
+    private readonly IItemRepository? _itemRepository;
+    private readonly IWikiLinkOpener? _wikiOpener;
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
     private IReadOnlyDictionary<string, KeyFacts>? _keyFactsByItemId;
     private StashSnapshotRecord? _selected;
@@ -88,7 +101,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         InMemoryStashReviewCommandSink reviewCommands,
         IItemFactCatalog catalog,
         IRuntimeStateStore runtime,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IItemRepository? itemRepository = null,
+        IWikiLinkOpener? wikiOpener = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow));
@@ -96,6 +111,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _clock = clock ?? TimeProvider.System;
+        _itemRepository = itemRepository;
+        _wikiOpener = wikiOpener;
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         DeleteSelectedCommand = new AsyncDelegateCommand(DeleteSelectedAsync);
@@ -290,7 +307,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         _selected = record;
-        BuildItemBreakdown(record);
+        await BuildItemBreakdownAsync(record, cancellationToken).ConfigureAwait(true);
         PendingCorrections = record.Recognition.Result.Value is { } recognized
             ? ReviewCommandsFor(recognized.SnapshotId)
             : [];
@@ -435,10 +452,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 command.Reason))
             .ToArray();
 
-    private void BuildItemBreakdown(StashSnapshotRecord record)
+    private async Task BuildItemBreakdownAsync(StashSnapshotRecord record, CancellationToken cancellationToken)
     {
         var ammoByItemId = _ammoByItemId ?? new Dictionary<string, AmmoStats>(StringComparer.Ordinal);
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
+        var wikiUriByItemId = new Dictionary<string, string?>(StringComparer.Ordinal);
         var stash = record.Recognition.Result.Value!;
 
         var items = new List<StashItemRowViewModel>();
@@ -476,14 +494,22 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     continue;
                 }
 
+                var wikiUri = await WikiUriForAsync(canonicalId, wikiUriByItemId, cancellationToken).ConfigureAwait(true);
                 var row = new StashItemRowViewModel(
                     itemKey,
                     displayName,
                     region.ContainerPath,
                     quantity == 1 ? "x1" : $"x{quantity.ToString(CultureInfo.CurrentCulture)}",
                     DescribeProvenance(cell.Item.Provenance),
-                    StashPlanGroup.Review);
-                items.Add(row with { SelectCommand = new DelegateCommand(() => SelectedItem = row) });
+                    StashPlanGroup.Review)
+                {
+                    WikiUri = wikiUri,
+                };
+                items.Add(row with
+                {
+                    SelectCommand = new DelegateCommand(() => SelectedItem = row),
+                    OpenWikiCommand = new DelegateCommand(() => _wikiOpener?.TryOpen(wikiUri)),
+                });
             }
         }
 
@@ -506,6 +532,26 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             })
             .OrderBy(row => row.DisplayName, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    private async Task<string?> WikiUriForAsync(
+        string? canonicalId,
+        Dictionary<string, string?> cache,
+        CancellationToken cancellationToken)
+    {
+        if (canonicalId is null || _itemRepository is null)
+        {
+            return null;
+        }
+
+        if (cache.TryGetValue(canonicalId, out var cached))
+        {
+            return cached;
+        }
+
+        var definition = await _itemRepository.GetAsync(canonicalId, cancellationToken).ConfigureAwait(true);
+        cache[canonicalId] = definition?.WikiUri;
+        return definition?.WikiUri;
     }
 
     private static string CoverageDescription(StashContainerCoverage coverage)

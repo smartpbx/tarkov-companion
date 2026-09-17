@@ -335,6 +335,7 @@ internal static class TarkovDevDatasetValidator
             OptionalIdentifier(task.Map, sourceKey, $"task '{task.Id}' primary map id");
             OptionalIdentifier(task.FactionName, sourceKey, $"task '{task.Id}' faction");
             OptionalIdentifier(task.RequiredPrestige, sourceKey, $"task '{task.Id}' required prestige id");
+            OptionalText(task.WikiLink, sourceKey, $"task '{task.Id}' wiki URL", MaximumUriUtf8Bytes);
             if (task.MinPlayerLevel is < 0 || task.AvailableDelaySecondsMin is < 0 ||
                 task.AvailableDelaySecondsMax is < 0)
             {
