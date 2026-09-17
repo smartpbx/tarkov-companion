@@ -324,7 +324,7 @@ public sealed class LootScanViewModel : BindableViewModel
     private LootScanGridTileViewModel LootTile(GridCellAddress anchor, RecognizedItem? item, LootScanDecisionViewModel? decision) =>
         new(anchor, item?.WidthCells.Value ?? 1, item?.HeightCells.Value ?? 1,
             decision?.Name ?? item?.DisplayName.Value ?? _text.UnknownItem,
-            decision?.ShortValuePerSquareLabel ?? string.Empty,
+            decision?.ShortValueLabel ?? string.Empty,
             LootScanTileKind.Loot, decision);
 
     private LootScanGridViewModel? BuildCarriedGrid()
@@ -473,10 +473,26 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     {
         get
         {
+            // The planner's own reasons are full sentences meant for the evidence disclosure; a
+            // row gets the short form of what actually decided it.
+            var code = _decision.Reasons.FirstOrDefault()?.Code;
+            var planner = code switch
+            {
+                "capacity.visible-fit" => _text.ReasonFits,
+                "capacity.bounded-swap" => _text.ReasonSwapFits,
+                "capacity.no-supported-fit" => _text.ReasonNoRoom,
+                "swap.cost-exceeds-value" => _text.ReasonSwapCosts,
+                _ => null,
+            };
             var category = _decision.Recommendation?.Decision.Value?.Reasons
                 .OrderBy(reason => reason.Priority)
                 .Select(reason => (RecommendationReasonCategory?)reason.Category)
                 .FirstOrDefault(value => value is not (RecommendationReasonCategory.Economics or RecommendationReasonCategory.EvidenceQuality));
+            if (category is null && planner is not null)
+            {
+                return planner;
+            }
+
             return category switch
             {
                 RecommendationReasonCategory.ExplicitOverride => _text.ReasonExplicit,
@@ -489,10 +505,15 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 RecommendationReasonCategory.SpecialistUtility => _text.ReasonUtility,
                 RecommendationReasonCategory.PinOrWishlist => _text.ReasonPinned,
                 RecommendationReasonCategory.ScarcityOrObtainability => _text.ReasonScarce,
-                _ => _decision.Reasons.FirstOrDefault()?.Explanation ?? string.Empty,
+                _ => planner ?? _text.ReasonValueOnly,
             };
         }
     }
+
+    /// <summary>"₽68k": the whole item's value, short enough for a grid tile.</summary>
+    public string ShortValueLabel => _decision.Economics?.BestNetValueRoubles is { } value
+        ? CompactRoubles(value, _culture)
+        : string.Empty;
 
     /// <summary>"₽68k / sq", or empty when the value per square is unknown.</summary>
     public string ShortValuePerSquareLabel => _decision.Economics?.ValuePerSquareRoubles is { } value
@@ -502,7 +523,12 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     public bool HasShortValuePerSquare => ShortValuePerSquareLabel.Length > 0;
 
     /// <summary>What the selected swap gives up, as one line per carried item.</summary>
-    public string DropSummary => string.Join(", ", _decision.Drops.Select(drop => ItemName(drop.Item, drop.Anchor)));
+    public string DropSummary => _decision.Drops.Count == 0
+        ? string.Empty
+        : Message(
+            _text.DropSummaryTemplate,
+            ("items", string.Join(", ", _decision.Drops.Select(drop => ItemName(drop.Item, drop.Anchor)))),
+            ("cost", CompactRoubles(_decision.ReplacementCostRoubles.GetValueOrDefault(), _culture)));
 
     public string ReplacementCostLabel => _decision.ReplacementCostRoubles is { } cost
         ? Message(_text.GivesUpTemplate, ("value", CompactRoubles(cost, _culture)))
@@ -924,6 +950,7 @@ public sealed record LootScanPresentationText
     public string AnalysedInTemplate { get; init; } = "Analysed in {duration}";
     public string ShortPerSquareTemplate { get; init; } = "{value} / sq";
     public string GivesUpTemplate { get; init; } = "gives up {value}";
+    public string DropSummaryTemplate { get; init; } = "Drop {items} · {cost} given up";
     public string GridSizeTemplate { get; init; } = "{columns} × {rows} squares";
     public string FreeSquaresTemplate { get; init; } = "{count} free squares";
     public string OneFreeSquare { get; init; } = "1 free square";
@@ -938,6 +965,11 @@ public sealed record LootScanPresentationText
     public string ReasonUtility { get; init; } = "Useful gear";
     public string ReasonPinned { get; init; } = "Pinned";
     public string ReasonScarce { get; init; } = "Hard to find";
+    public string ReasonValueOnly { get; init; } = "Value only";
+    public string ReasonFits { get; init; } = "Fits the free space";
+    public string ReasonSwapFits { get; init; } = "Fits after a swap";
+    public string ReasonNoRoom { get; init; } = "No room for it";
+    public string ReasonSwapCosts { get; init; } = "A swap would cost more than it gains";
 
     public static LootScanPresentationText Default { get; } = new();
 }
@@ -994,7 +1026,7 @@ public enum LootScanTileKind
 /// </summary>
 public sealed class LootScanGridViewModel
 {
-    public const double CellSize = 64;
+    public const double CellSize = 80;
 
     public LootScanGridViewModel(
         int? rows,
@@ -1046,6 +1078,9 @@ public sealed class LootScanGridViewModel
     public double PixelWidth => Columns * CellSize;
 
     public double PixelHeight => Rows * CellSize;
+
+    /// <summary>How far the view may scale a small grid up before its squares stop reading as squares.</summary>
+    public double MaxPixelWidth => PixelWidth * 1.4;
 
     public IReadOnlyList<LootScanGridTileViewModel> Tiles { get; }
 }
@@ -1119,11 +1154,27 @@ public sealed class LootScanGridTileViewModel : BindableViewModel
 
     public bool IsIncoming => Kind == LootScanTileKind.Incoming;
 
+    /// <summary>
+    /// Where a take or swap would land is drawn over what is already carried, so only the
+    /// selected call's placement, and the carried items it gives up, are marked; drawing every
+    /// call's placement at once stacked four labels on the same squares.
+    /// </summary>
+    public bool ShowsTile => Kind != LootScanTileKind.Incoming || IsSelected;
+
+    public bool IsGivenUp => IsDrop && IsSelected;
+
     public string AutomationName => HasDetail ? $"{Name}, {Detail}" : Name;
 
     public bool IsSelected
     {
         get => _isSelected;
-        set => SetProperty(ref _isSelected, value);
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+            {
+                OnPropertyChanged(nameof(ShowsTile));
+                OnPropertyChanged(nameof(IsGivenUp));
+            }
+        }
     }
 }

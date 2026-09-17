@@ -16,18 +16,19 @@
 
     <!-- A reviewed grid at a fixed square size, scaled down as a whole to fit its pane. -->
     <DataTemplate x:Key="LootGridTemplate" x:DataType="vm:LootScanGridViewModel">
-      <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" VerticalAlignment="Top">
+      <Viewbox Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Top"
+               MaxWidth="{Binding MaxPixelWidth}">
         <Border Width="{Binding PixelWidth}" Height="{Binding PixelHeight}" CornerRadius="2"
                 BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1" ClipToBounds="True">
           <Border.Background>
-            <DrawingBrush TileMode="Tile" Stretch="None" SourceRect="0,0,64,64" DestinationRect="0,0,64,64">
+            <DrawingBrush TileMode="Tile" Stretch="None" SourceRect="0,0,80,80" DestinationRect="0,0,80,80">
               <DrawingBrush.Drawing>
                 <GeometryDrawing Brush="{DynamicResource V2.Brush.Canvas}">
                   <GeometryDrawing.Pen>
                     <Pen Brush="{DynamicResource V2.Brush.SurfaceRaised}" Thickness="1" />
                   </GeometryDrawing.Pen>
                   <GeometryDrawing.Geometry>
-                    <RectangleGeometry Rect="0.5,0.5,63,63" />
+                    <RectangleGeometry Rect="0.5,0.5,79,79" />
                   </GeometryDrawing.Geometry>
                 </GeometryDrawing>
               </DrawingBrush.Drawing>
@@ -48,14 +49,22 @@
                 <Button Classes="loot-tile" Width="{Binding Width}" Height="{Binding Height}"
                         Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                         Classes.review="{Binding IsReview}" Classes.carried="{Binding IsCarried}"
-                        Classes.drop="{Binding IsDrop}" Classes.incoming="{Binding IsIncoming}"
+                        Classes.drop="{Binding IsGivenUp}" Classes.incoming="{Binding IsIncoming}"
+                        IsVisible="{Binding ShowsTile}"
                         Classes.v2-selected="{Binding IsSelected}"
                         IsHitTestVisible="{Binding CanSelect}"
                         Command="{Binding SelectCommand}"
                         AutomationProperties.Name="{Binding AutomationName}">
                   <Panel>
-                    <TextBlock Classes="loot-tile-name" Text="{Binding Name}" VerticalAlignment="Top" />
-                    <TextBlock Classes="loot-tile-detail" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
+                    <!-- A take or swap lands on top of what it replaces; dashes say "would go here". -->
+                    <Rectangle IsVisible="{Binding IsIncoming}" RadiusX="2" RadiusY="2"
+                               Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2" StrokeDashArray="3,2" />
+                    <!-- A carried item the selected swap gives up keeps its outline but hands its
+                         label to the incoming item drawn over it. -->
+                    <TextBlock Classes="loot-tile-name" Text="{Binding Name}" VerticalAlignment="Top" MaxLines="2"
+                               IsVisible="{Binding !IsGivenUp}" />
+                    <TextBlock Classes="loot-tile-detail" Text="{Binding Detail}"
+                               IsVisible="{Binding HasDetail}" />
                   </Panel>
                 </Button>
               </DataTemplate>
@@ -167,12 +176,18 @@
     <Style Selector="Button.loot-tile.drop">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
       <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="Opacity" Value="0.55" />
     </Style>
     <Style Selector="Button.loot-tile.incoming">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Button.loot-tile.incoming TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.loot-tile.drop TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
     <Style Selector="Button.loot-tile.v2-selected">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -294,7 +309,7 @@
 
         <!-- The backpack, with where each take lands and what a swap drops, then the selected call. -->
         <Border Grid.Column="1" Classes="v2-pane">
-          <Grid RowDefinitions="Auto,*,Auto,Auto" RowSpacing="12">
+          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
             <Grid ColumnDefinitions="*,Auto">
               <TextBlock Classes="v2-heading-2" Text="{DynamicResource V2.String.LootScan.Backpack}"
                          AutomationProperties.HeadingLevel="2" />
@@ -313,7 +328,7 @@
                          HorizontalAlignment="Center" VerticalAlignment="Center"
                          Text="{DynamicResource V2.String.LootScan.NoBackpack}" />
             </Panel>
-            <ContentControl Grid.Row="2" Content="{Binding CarriedGrid}">
+            <ContentControl Grid.Row="2" Content="{Binding CarriedGrid}" VerticalAlignment="Top">
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="vm:LootScanGridViewModel">
                   <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding HasFreeSquares}">
@@ -324,7 +339,7 @@
               </ContentControl.ContentTemplate>
             </ContentControl>
 
-            <ContentControl Grid.Row="3" Content="{Binding SelectedDecision}">
+            <ContentControl Grid.Row="4" Content="{Binding SelectedDecision}">
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="vm:LootScanDecisionViewModel">
                   <Border Classes="v2-section v2-section-accent"
@@ -344,15 +359,7 @@
                         <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SizeLabel}" />
                       </Grid>
                       <TextBlock Classes="v2-body" Text="{Binding PlacementLabel}" IsVisible="{Binding HasPlacement}" />
-                      <TextBlock Classes="v2-body" Text="{Binding SwapLabel}" IsVisible="{Binding HasSwap}" />
-                      <ItemsControl ItemsSource="{Binding DropLabels}" IsVisible="{Binding HasSwap}"
-                                    AutomationProperties.Name="{DynamicResource V2.String.LootScan.DropPlan}">
-                        <ItemsControl.ItemTemplate>
-                          <DataTemplate>
-                            <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
-                          </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                      </ItemsControl>
+                      <TextBlock Classes="v2-body" Text="{Binding DropSummary}" IsVisible="{Binding HasSwap}" TextWrapping="Wrap" />
                       <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                         <StackPanel Spacing="1">
                           <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.BestValue}" />
@@ -369,6 +376,15 @@
                                   AutomationProperties.Name="{Binding EvidenceDisclosureName}">
                           <StackPanel Spacing="4">
                             <TextBlock Classes="v2-label" Text="{Binding WhyLabel}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding SwapLabel}" IsVisible="{Binding HasSwap}" TextWrapping="Wrap" />
+                            <ItemsControl ItemsSource="{Binding DropLabels}" IsVisible="{Binding HasSwap}"
+                                          AutomationProperties.Name="{DynamicResource V2.String.LootScan.DropPlan}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                  <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                             <TextBlock Classes="v2-label" Text="{Binding PriceBasisLabel}" />
                             <TextBlock Classes="v2-label" Text="{Binding AttributesLabel}" TextWrapping="Wrap" />
                             <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" TextWrapping="Wrap" />
@@ -449,13 +465,14 @@
                             Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                             Classes.review="{Binding IsReview}" />
                     <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" Margin="0,8">
-                      <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                         <TextBlock Classes="v2-body loot-verdict"
                                    Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
                                    Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
                                    Text="{Binding VerdictLabel}" />
-                        <TextBlock Classes="v2-body loot-strong" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                      </StackPanel>
+                        <TextBlock Grid.Column="1" Classes="v2-body loot-strong" Text="{Binding Name}"
+                                   TextTrimming="CharacterEllipsis" />
+                      </Grid>
                       <TextBlock Classes="v2-label" Text="{Binding HeadlineReason}" TextTrimming="CharacterEllipsis" />
                     </StackPanel>
                     <TextBlock Grid.Column="2" Classes="v2-body loot-strong" VerticalAlignment="Center"
