@@ -135,40 +135,8 @@ public static class RelayCompanionRoutes
         // is configured — there is otherwise no way to reach OwnerRecoveryProtector.CreateGrant at
         // all). Rate limited per source and relay-wide (ABUSE-ADMIN-KEY-GUESS) before the body is
         // even read.
-        app.MapPost("/admin/relay/claim", async Task<IResult> (HttpRequest request, CancellationToken cancellationToken) =>
-        {
-            if (recovery is null || registry is null)
-            {
-                return Results.StatusCode(StatusCodes.Status501NotImplemented);
-            }
-
-            if (!RelayAdmin.IsAuthorised(request))
-            {
-                return Results.Unauthorized();
-            }
-
-            var admission = claimGate.Admit(request.HttpContext.Connection.RemoteIpAddress);
-            if (!admission.Allowed)
-            {
-                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
-            }
-
-            var claim = await ReadRelayDeviceClaimAsync(request, cancellationToken).ConfigureAwait(false);
-            if (claim is null)
-            {
-                return Results.BadRequest("A completed self-pairing is required.");
-            }
-
-            var attempt = claim.ToCompletedAttempt();
-            var deviceId = attempt.Establishment!.Assignment.DeviceId;
-            var keyId = attempt.Request!.DeviceKey.KeyId;
-            var grant = recovery.CreateGrant(deviceId, keyId);
-            var recovered = await registry.RecoverOwnerAsync(grant, attempt, CompanionSurfaceKind.Desktop, cancellationToken)
-                .ConfigureAwait(false);
-            return recovered.Succeeded
-                ? Results.Ok(RelaySessionCredentialResponse.From(recovered.Value!))
-                : Results.BadRequest(recovered.Code);
-        });
+        app.MapPost("/admin/relay/claim", (HttpRequest request, CancellationToken cancellationToken) =>
+            HandleClaimAsync(request, registry, recovery, claimGate, cancellationToken));
 
         // Whether this relay already has a live owner, and which device key thumbprint holds it —
         // gated by the admin key, the same as every other relay-wide status this operator panel
@@ -289,6 +257,55 @@ public static class RelayCompanionRoutes
             var acknowledged = hub.Acknowledge(principal, deliveryId);
             return acknowledged.Accepted ? Results.Ok() : Results.BadRequest(acknowledged.Code);
         });
+    }
+
+    /// <summary>
+    /// The <c>/admin/relay/claim</c> handler, extracted so a test can drive it directly against a
+    /// <see cref="DefaultHttpContext"/> without a running server — the ordering here (admit, then
+    /// authorise) is exactly what ABUSE-ADMIN-KEY-GUESS requires and is easy to silently invert
+    /// while touching this route.
+    /// </summary>
+    public static async Task<IResult> HandleClaimAsync(
+        HttpRequest request,
+        RelayDeviceRegistry? registry,
+        OwnerRecoveryProtector? recovery,
+        RelayOwnerClaimGate claimGate,
+        CancellationToken cancellationToken)
+    {
+        if (recovery is null || registry is null)
+        {
+            return Results.StatusCode(StatusCodes.Status501NotImplemented);
+        }
+
+        // Admitted before the key is even checked, so a wrong guess still spends this caller's
+        // (and the relay-wide) budget — the whole point of rate limiting an admin-key check is
+        // bounding guesses, including the ones that fail (ABUSE-ADMIN-KEY-GUESS).
+        var admission = claimGate.Admit(request.HttpContext.Connection.RemoteIpAddress);
+        if (!admission.Allowed)
+        {
+            return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        if (!RelayAdmin.IsAuthorised(request))
+        {
+            return Results.Unauthorized();
+        }
+
+        var claim = await ReadRelayDeviceClaimAsync(request, cancellationToken).ConfigureAwait(false);
+        if (claim is null)
+        {
+            return Results.BadRequest("A completed self-pairing is required.");
+        }
+
+        var attempt = claim.ToCompletedAttempt();
+        var deviceId = attempt.Establishment!.Assignment.DeviceId;
+        var keyId = attempt.Request!.DeviceKey.KeyId;
+        var grant = recovery.CreateGrant(deviceId, keyId);
+        var recovered = await registry.RecoverOwnerAsync(grant, attempt, CompanionSurfaceKind.Desktop, cancellationToken)
+            .ConfigureAwait(false);
+        return recovered.Succeeded
+            ? Results.Ok(RelaySessionCredentialResponse.From(recovered.Value!))
+            : Results.BadRequest(recovered.Code);
     }
 
     /// <summary>

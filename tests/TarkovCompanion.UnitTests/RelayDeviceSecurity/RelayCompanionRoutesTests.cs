@@ -1,6 +1,8 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -13,6 +15,45 @@ namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 
 public sealed class RelayCompanionRoutesTests
 {
+    [Fact]
+    public async Task RepeatedWrongAdminKeysAreRateLimitedNotJustRejected()
+    {
+        // TARKOV_RELAY_ADMIN_KEY is unset in this process (no test anywhere sets it — it is
+        // process-global and would race other tests), so RelayAdmin.IsAuthorised refuses every
+        // call here regardless of header value, which is exactly "every guess is wrong". The
+        // point under test is ordering: does a wrong guess still consume the rate-limit budget
+        // (ABUSE-ADMIN-KEY-GUESS), or does the route return 401 forever without ever tripping 429?
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        using var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x33, 32).ToArray(), clock);
+        var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
+        var gate = new RelayOwnerClaimGate(clock);
+        var address = IPAddress.Parse("203.0.113.42");
+
+        var results = new List<IResult>();
+        for (var attempt = 0; attempt < 6; attempt++)
+        {
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = address;
+            context.Request.Method = "POST";
+            context.Request.Headers["X-Admin-Key"] = "guess-" + attempt;
+            context.Request.Body = new MemoryStream();
+            results.Add(await RelayCompanionRoutes.HandleClaimAsync(
+                context.Request, registry, recovery, gate, CancellationToken.None));
+        }
+
+        var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        var statusCodes = new List<int>();
+        foreach (var result in results)
+        {
+            var context = new DefaultHttpContext { RequestServices = services };
+            await result.ExecuteAsync(context);
+            statusCodes.Add(context.Response.StatusCode);
+        }
+
+        Assert.Equal(Enumerable.Repeat(StatusCodes.Status401Unauthorized, 5), statusCodes.Take(5));
+        Assert.Equal(StatusCodes.Status429TooManyRequests, statusCodes[5]);
+    }
+
     [Fact]
     public async Task GetFramesResponseRoundTripsThroughTheDesktopBridgesParser()
     {
