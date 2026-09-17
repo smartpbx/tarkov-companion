@@ -154,7 +154,27 @@ internal static class Program
                 if (picked is not null)
                 {
                     picked.SelectCommand.Execute(null);
+                    // V2 rough package 20: the scene rebuild and the artwork decode are async, so
+                    // 40 dispatcher turns was enough for the catalog's first map and not for a
+                    // switch to another one — a --map streets run rendered Customs. Wait for the
+                    // renderer to actually be showing the map that was asked for.
+                    for (var i = 0; i < 400; i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        if (string.Equals(raid.Renderer?.Scene.LocationId, picked.MapId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            break;
+                        }
+
+                        Thread.Sleep(25);
+                    }
+
                     Pump(40);
+                    if (!string.Equals(raid.Renderer?.Scene.LocationId, picked.MapId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.Error.WriteLine(
+                            $"The Raid map never became '{picked.MapId}' (showing '{raid.Renderer?.Scene.LocationId}').");
+                    }
                 }
                 else if (raid.MapPicker.Count == 0)
                 {
@@ -164,6 +184,11 @@ internal static class Program
                 {
                     Pump(80);
                 }
+
+                // V2 rough package 20: which maps a --map value can name, so a render run that
+                // asks for one that is not in this install's catalog says so instead of quietly
+                // rendering whichever map came first.
+                Console.WriteLine("Maps: " + string.Join(", ", raid.MapPicker.Select(item => item.MapId)));
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and

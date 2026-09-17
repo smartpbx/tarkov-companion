@@ -93,6 +93,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     // coordinates are the same normalized square for every map, so this is the only thing that
     // knows Streets is wide and Factory is not. NaN until (or unless) artwork resolves.
     private double _planAspect = double.NaN;
+    // V2 rough package 20: a drag used to move nothing until the pointer came up, then jump. The
+    // plan now follows the pointer 1:1 through these two numbers, which only feed the canvas's
+    // RenderTransform — no measure, no arrange, no marker rebuild per pointer delta. The camera
+    // itself is committed to the canonical scene once, when the drag ends.
+    private double _panOffsetX;
+    private double _panOffsetY;
+    private MapSceneCamera? _panStartCamera;
+    private MapSceneCamera? _panTargetCamera;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
@@ -218,8 +226,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double EmptyTop => Math.Max(72, (CanvasHeight - 100) / 2);
     public double CameraPreTranslateX => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).X;
     public double CameraPreTranslateY => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).Y;
-    public double CameraPostTranslateX => CanvasWidth / 2;
-    public double CameraPostTranslateY => CanvasHeight / 2;
+    public double CameraPostTranslateX => (CanvasWidth / 2) + _panOffsetX;
+    public double CameraPostTranslateY => (CanvasHeight / 2) + _panOffsetY;
+
+    /// <summary>True while a drag is in flight, so a host knows the plan is being moved by hand.</summary>
+    public bool IsPanning => _panStartCamera is not null;
     public double CameraZoom => _scene.View.Camera.Zoom;
     public double CameraRotationDegrees => -_scene.View.Camera.BearingDegrees;
     public string LocationLabel => _scene.LocationId;
@@ -352,6 +363,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         _rendererNotice = presetRejected ? Text("Map.Loot.PresetConflict") : string.Empty;
+        if (changedSceneIdentity)
+        {
+            CancelPan();
+        }
+
         if (boundsChanged)
         {
             _projection = CreateProjection();
@@ -579,6 +595,145 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 camera.PitchDegrees)));
     }
 
+    /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
+    public void BeginPan()
+    {
+        _panStartCamera = _scene.View.Camera;
+        _panTargetCamera = null;
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>
+    /// Moves the plan under an in-flight drag, by the pointer's total offset from where it went
+    /// down — not by the delta since the last event, so a dropped or coalesced move cannot make
+    /// the plan drift away from the pointer.
+    /// </summary>
+    /// <remarks>
+    /// The offset is derived from the camera the drag would actually commit, clamped to the
+    /// plan's bounds, so what the player sees while dragging is exactly what they get when they
+    /// let go: dragging past the edge stops rather than snapping back on release.
+    /// </remarks>
+    public void UpdatePan(double totalViewportDeltaX, double totalViewportDeltaY)
+    {
+        if (_panStartCamera is not { } start ||
+            !double.IsFinite(totalViewportDeltaX) || !double.IsFinite(totalViewportDeltaY))
+        {
+            return;
+        }
+
+        var target = PanTargetCamera(start, totalViewportDeltaX, totalViewportDeltaY);
+        _panTargetCamera = target;
+        // How far the applied (clamped) camera move is, in projected pixels before the camera's
+        // own zoom and rotation, then back through both to get the on-screen shift.
+        var movedX = (start.CenterX - target.CenterX) * _projection.ScaleX;
+        var movedY = (start.CenterY - target.CenterY) * _projection.ScaleY;
+        var radians = start.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        SetPanOffset(
+            start.Zoom * ((movedX * cosine) + (movedY * sine)),
+            start.Zoom * ((-movedX * sine) + (movedY * cosine)));
+    }
+
+    /// <summary>Ends a drag, committing the camera it arrived at through the canonical reducer.</summary>
+    public void CommitPan()
+    {
+        var target = _panTargetCamera;
+        _panStartCamera = null;
+        _panTargetCamera = null;
+        if (target is { } camera)
+        {
+            // Requested before the offset is cleared: the host applies and presents this
+            // synchronously, so the committed camera replaces the drag offset within the same
+            // frame and the plan does not flash back to where the drag started.
+            Request(new(MapSceneViewChangeKind.SetCamera, Camera: camera));
+        }
+
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>Abandons a drag (lost capture, a new scene) and puts the plan back.</summary>
+    public void CancelPan()
+    {
+        _panStartCamera = null;
+        _panTargetCamera = null;
+        SetPanOffset(0, 0);
+    }
+
+    /// <summary>
+    /// Zooms about a point in the viewport, so the place under the wheel (or the pinch centre)
+    /// stays under it. Plain <see cref="RequestZoom(double)"/> zooms about the camera centre,
+    /// which meant the feature the player was pointing at slid away as they zoomed in.
+    /// </summary>
+    public void RequestZoomAt(double direction, double viewportX, double viewportY)
+    {
+        if (!double.IsFinite(direction) || direction == 0 ||
+            !double.IsFinite(viewportX) || !double.IsFinite(viewportY) || !_projection.IsUsable)
+        {
+            RequestZoom(direction);
+            return;
+        }
+
+        var camera = _scene.View.Camera;
+        var zoom = Math.Clamp(camera.Zoom * (direction > 0 ? 1.25 : 0.8), 0.25, 16);
+        if (Math.Abs(zoom - camera.Zoom) < 1e-9)
+        {
+            return;
+        }
+
+        var radians = camera.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        var offsetX = viewportX - (CanvasWidth / 2);
+        var offsetY = viewportY - (CanvasHeight / 2);
+        var planX = (cosine * offsetX) - (sine * offsetY);
+        var planY = (sine * offsetX) + (cosine * offsetY);
+        // The projected centre has to move by the pointer offset scaled by the change in 1/zoom
+        // for the point under the pointer to stay put.
+        var change = (1 / camera.Zoom) - (1 / zoom);
+        var centre = _projection.Project(camera.CenterX, camera.CenterY);
+        var moved = _projection.Unproject(centre.X + (planX * change), centre.Y + (planY * change));
+        var bounds = _scene.Bounds;
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: new(
+                Math.Clamp(moved.X, bounds.MinimumX, bounds.MaximumX),
+                Math.Clamp(moved.Y, bounds.MinimumY, bounds.MaximumY),
+                zoom,
+                camera.BearingDegrees,
+                camera.PitchDegrees)));
+    }
+
+    private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)
+    {
+        var radians = start.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        var unrotatedX = (cosine * viewportDeltaX) - (sine * viewportDeltaY);
+        var unrotatedY = (sine * viewportDeltaX) + (cosine * viewportDeltaY);
+        var bounds = _scene.Bounds;
+        return new(
+            Math.Clamp(start.CenterX - (unrotatedX / (_projection.ScaleX * start.Zoom)), bounds.MinimumX, bounds.MaximumX),
+            Math.Clamp(start.CenterY - (unrotatedY / (_projection.ScaleY * start.Zoom)), bounds.MinimumY, bounds.MaximumY),
+            start.Zoom,
+            start.BearingDegrees,
+            start.PitchDegrees);
+    }
+
+    private void SetPanOffset(double x, double y)
+    {
+        if (Math.Abs(x - _panOffsetX) < 0.01 && Math.Abs(y - _panOffsetY) < 0.01)
+        {
+            return;
+        }
+
+        _panOffsetX = x;
+        _panOffsetY = y;
+        // Two notifications, both feeding a RenderTransform. Nothing here invalidates layout.
+        OnPropertyChanged(nameof(CameraPostTranslateX));
+        OnPropertyChanged(nameof(CameraPostTranslateY));
+    }
+
     private void FitPlan()
     {
         var bounds = _scene.Bounds;
@@ -648,7 +803,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void Request(MapSceneRendererChange change)
     {
-        if (_pendingRevision == _scene.Revision)
+        // A camera change is idempotent and last-write-wins, so it is never refused for an
+        // in-flight change: refusing one mid-gesture is what made a wheel spin or a fast drag
+        // stall and then jump, with "a change is already in flight" flashing over the plan.
+        if (change.Kind != MapSceneViewChangeKind.SetCamera && _pendingRevision == _scene.Revision)
         {
             SetRendererNotice(Text("Map.Change.Pending"));
             return;
@@ -2044,6 +2202,13 @@ public sealed class MapSceneProjection
     public double MapTop { get; }
     public double MapWidth { get; }
     public double MapHeight { get; }
+
+    /// <summary>The scene point a projected (canvas) position stands for, ignoring the camera.</summary>
+    public MapScenePoint Unproject(double projectedX, double projectedY) => IsUsable
+        ? new(
+            _bounds.MinimumX + ((projectedX - MapLeft) / ScaleX),
+            _bounds.MinimumY + ((projectedY - MapTop) / ScaleY))
+        : new(_bounds.MinimumX, _bounds.MinimumY);
 
     public MapSceneProjectedPoint Project(MapScenePoint point) => Project(point.X, point.Y);
 

@@ -245,6 +245,7 @@
               PointerPressed="PlanPointerPressed"
               PointerMoved="PlanPointerMoved"
               PointerReleased="PlanPointerReleased"
+              PointerCaptureLost="PlanPointerCaptureLost"
               PointerWheelChanged="PlanPointerWheelChanged">
         <Canvas Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                 HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
