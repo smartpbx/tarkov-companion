@@ -281,6 +281,21 @@ for that request, which the updater consumes. Authenticated updater history and 
 separate root-owned directories. Live member positions and pings remain memory-only and are not
 written as movement history.
 
+## Paired-device pairing (separate from the group key)
+
+A paired tablet (`docs/PAIRED_DEVICE_PROTOCOL.md`) is one device of one desktop, not a group
+member, and does not use the group key. The relay carries only the pairing ceremony's plaintext
+messages under `/v2/companion/pairing/*` — an offer, a request, a nonce reveal, a challenge, a
+device-key proof, and a session establishment, one attempt at a time, keyed by attempt ID and
+swept once the attempt's own offer expires. `CompanionPairingMailbox` is the whole of it: it never
+advances the pairing state machine, verifies a signature, or sees a device name, a nonce, or a
+traffic key, the same way this file's group routes never see anything the client did not choose to
+publish. A code is rate-limited per source the same way `/admin/rooms` gates by key, but consumed
+under `NormalizePairingCode`, not `GroupKey`.
+
+This is the pairing hop only. The established session's own traffic — commands, marks, capture
+arming — has no relay route yet; see the package PR for why and what is deferred.
+
 ## Which version everything speaks
 
 Every room reply and `/health` carry `protocol`, a whole number.

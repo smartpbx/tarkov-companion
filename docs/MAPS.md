@@ -104,3 +104,26 @@ the compact extract list as `Location unavailable` and is not plotted. Speculati
 candidate-confidence, name-shape, 64-character, and sixteen-row bounded; trusted matches take
 priority. A `catalog-gap:` row cannot highlight a static marker by a partial name. Unlabelled OCR
 text and near-tied catalog matches remain unmatched or ambiguous rather than becoming map facts.
+
+## Raid cockpit (V2)
+
+`RaidCockpitViewModel` (`src/TarkovCompanion.App/ViewModels/V2/Raid/`) is the first production
+caller of `MapSceneAssembler`: it turns the V1 map's render model, the extracts and quest-objective
+overlays it already carries, the high-value-loot layer (`IHighValueLootRuntimeSource`), and local
+marks into one canonical `MapSceneSnapshot`, and hosts the existing `MapSceneRendererView`
+unchanged. It follows the raid's current map, offers a manual map picker over `MapViewModel`'s own
+catalog, and reuses `RaidPageViewModel` for the timer and extract panel rather than recomputing
+either.
+
+Local pings and waypoints are stored as `RaidMark` rows (`Core`'s `MapMarkState` payload plus a
+kind and timestamp) in `Config/raid-marks.json` via `IRaidMarkStore`, kept deliberately
+shaped like `TarkovCompanion.CompanionProtocol`'s own `MapMark` so a paired-device sync can adapt
+one to the other without a new local model. They render as `MapSceneObjectKind.Ping`/`Waypoint`
+objects on their own scene layer, exactly like any other object the assembler places.
+
+The historical-traffic layer is registered (`HistoricalTrafficRuntimeService`) but not yet
+evaluated: nothing in this pass supplies the installed `TrafficModelPublication` its scope
+(game version, wipe, cohort) needs, so the cockpit shows a static "no installed model" notice
+rather than inventing one. The V2 renderer also does not yet decode the reviewed map asset into a
+picture — only its hashed identity and licence are carried into the scene — so the cockpit shows
+every layer's objects on an empty plan until that rasterization work lands.

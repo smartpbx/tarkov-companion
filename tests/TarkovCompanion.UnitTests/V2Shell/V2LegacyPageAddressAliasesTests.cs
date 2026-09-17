@@ -24,6 +24,20 @@ public sealed class V2LegacyPageAddressAliasesTests
     }
 
     [Theory]
+    [InlineData("Raid")]
+    [InlineData("raid")]
+    public void RaidResolvesToTheRaidRouteBecauseThatRouteNowHostsTheCockpitInstead(string requestedPage)
+    {
+        var registry = V2RouteRegistry.Default;
+
+        var addressA = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.A, requestedPage);
+        var addressB = V2LegacyPageAddressAliases.TryResolve(registry, V2ShellVariants.B, requestedPage);
+
+        Assert.Equal(V2ShellVariants.A.Addresses[V2Routes.Raid], addressA);
+        Assert.Equal(V2ShellVariants.B.Addresses[V2Routes.Raid], addressB);
+    }
+
+    [Theory]
     [InlineData("History")]
     [InlineData("history")]
     public void HistoryResolvesToTheDebriefRouteBecauseThatRouteNowHostsTheDebriefWorkspaceInstead(string requestedPage)
@@ -38,7 +52,6 @@ public sealed class V2LegacyPageAddressAliasesTests
     }
 
     [Theory]
-    [InlineData("Raid", "raid")]
     [InlineData("Squad", "team")]
     [InlineData("Group", "team/group")]
     [InlineData("Quests", "prepare")]
