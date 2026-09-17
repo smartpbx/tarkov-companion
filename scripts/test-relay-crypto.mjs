@@ -115,6 +115,40 @@ try {
 }
 check("opening with the wrong direction (wrong AAD) throws rather than returning garbage", tamperThrew);
 
+// --- Sealed relay credential (v2r-tablet-marks-sync, ABUSE-PAIRED-LIVE-BEARER-THEFT) -----------
+const credentialAttemptId = "5a1d3c2e-7b10-4c00-8a00-000000000010";
+const credentialTrafficKey = crypto.base64UrlDecode("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY");
+const credentialExpiresUtc = Date.parse("2026-09-17T12:01:00.000Z");
+const sealedCredential = await crypto.sealPairingCredential({
+  trafficKey: credentialTrafficKey,
+  attemptId: credentialAttemptId,
+  credential: "a-tablet-bearer-secret",
+  expiresUtc: credentialExpiresUtc,
+});
+check(
+  "sealPairingCredential's tag is 16 bytes",
+  crypto.base64UrlDecode(sealedCredential.authenticationTagBase64Url).length === 16,
+);
+
+const openedCredential = await crypto.openPairingCredential({
+  trafficKey: credentialTrafficKey,
+  attemptId: credentialAttemptId,
+  sealedCredential,
+});
+check("openPairingCredential recovers the exact sealed secret", openedCredential === "a-tablet-bearer-secret");
+
+let wrongAttemptThrew = false;
+try {
+  await crypto.openPairingCredential({
+    trafficKey: credentialTrafficKey,
+    attemptId: "00000000-0000-0000-0000-000000000000",
+    sealedCredential,
+  });
+} catch {
+  wrongAttemptThrew = true;
+}
+check("opening a sealed credential against the wrong attempt id throws (AAD binds it)", wrongAttemptThrew);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

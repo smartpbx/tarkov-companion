@@ -174,6 +174,62 @@ public sealed class CompanionPairingMailboxTests
         Assert.True(mailbox.IsDenied(offer.AttemptId));
     }
 
+    /// <summary>
+    /// v2r-tablet-marks-sync, ABUSE-PAIRED-LIVE-BEARER-THEFT: the relay session credential is a
+    /// bearer secret, not a plaintext message like <c>established</c> — it must never be readable
+    /// twice, so a second GET behaves exactly like a miss rather than replaying it.
+    /// </summary>
+    [Fact]
+    public void ARelaySessionCredentialIsReadableExactlyOnce()
+    {
+        var clock = new FixedTimeProvider(Now);
+        var mailbox = new CompanionPairingMailbox(clock);
+        var offer = MakeOffer(Now);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE66", "192.0.2.61").Succeeded);
+        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+
+        Assert.Null(mailbox.ReadRelaySession(offer.AttemptId));
+
+        var submitted = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential);
+        Assert.True(submitted.Succeeded);
+
+        var firstRead = mailbox.ReadRelaySession(offer.AttemptId);
+        Assert.Equal(sealedCredential, firstRead);
+
+        var secondRead = mailbox.ReadRelaySession(offer.AttemptId);
+        Assert.Null(secondRead);
+    }
+
+    [Fact]
+    public void ARelaySessionCredentialCannotBeSubmittedForAnUnregisteredAttempt()
+    {
+        var clock = new FixedTimeProvider(Now);
+        var mailbox = new CompanionPairingMailbox(clock);
+        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+
+        var submitted = mailbox.SubmitRelaySession(new PairingAttemptId(Guid.NewGuid()), sealedCredential);
+
+        Assert.False(submitted.Succeeded);
+        Assert.Equal("pairing-rejected", submitted.Code);
+    }
+
+    [Fact]
+    public void ResubmittingTheSameRelaySessionCredentialIsIdempotentButADifferentOneIsRejected()
+    {
+        var clock = new FixedTimeProvider(Now);
+        var mailbox = new CompanionPairingMailbox(clock);
+        var offer = MakeOffer(Now);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE77", "192.0.2.71").Succeeded);
+        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+        Assert.True(mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential).Succeeded);
+
+        var sameAgain = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential);
+        var different = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential with { CiphertextBase64Url = "different" });
+
+        Assert.True(sameAgain.Succeeded);
+        Assert.False(different.Succeeded);
+    }
+
     private static PairingOffer MakeOffer(DateTimeOffset now)
     {
         using var identityKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);

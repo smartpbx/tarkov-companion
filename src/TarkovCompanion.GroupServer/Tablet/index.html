@@ -1356,14 +1356,22 @@
     renderTeamMarks();
 
     // The desktop registers this tablet on the relay right after establishing the session and
-    // hands its bearer secret through the same bounded mailbox `established` just came through.
+    // hands its bearer secret through the same bounded mailbox `established` just came through —
+    // sealed with this pairing's own desktop-to-tablet traffic key (RelayFrameCrypto.openPairingCredential),
+    // since the relay only ever holds and forwards ciphertext (ABUSE-PAIRED-LIVE-BEARER-THEFT).
     const deadline = Date.now() + 60_000;
     while (!live.credential && Date.now() < deadline) {
       try {
-        const credential = await getJson(`/v2/companion/pairing/relay-session/${attemptId}`);
-        if (credential) live.credential = credential.credential;
+        const sealedCredential = await getJson(`/v2/companion/pairing/relay-session/${attemptId}`);
+        if (sealedCredential) {
+          live.credential = await RelayFrameCrypto.openPairingCredential({
+            trafficKey: desktopToTabletKey,
+            attemptId,
+            sealedCredential,
+          });
+        }
       } catch {
-        // Transient; keep trying until the deadline.
+        // Transient (or a decryption failure the desktop cannot retry); keep trying until the deadline.
       }
 
       if (!live.credential) await new Promise((resolve) => setTimeout(resolve, 2000));

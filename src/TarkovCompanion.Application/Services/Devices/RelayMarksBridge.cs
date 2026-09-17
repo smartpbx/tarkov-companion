@@ -149,11 +149,20 @@ public sealed class RelayMarksBridge : IAsyncDisposable
             // Handed to the tablet through the same bounded pairing mailbox that carried
             // `established` — the tablet has everything else it needs (session id, channel id,
             // key epoch) from its own copy of that message, so only the bearer secret travels here.
+            // Sealed with this same pairing's desktop-to-tablet traffic key first
+            // (RelayCredentialCryptography): the relay only ever holds and forwards ciphertext, and
+            // a caller who merely resolved the offer during the mailbox's window cannot read it
+            // (ABUSE-PAIRED-LIVE-BEARER-THEFT).
+            var sealedCredential = RelayCredentialCryptography.Seal(
+                session.DesktopToTabletKey.Span,
+                attemptId.Value,
+                registered.Credential,
+                registered.ExpiresUtc);
             using var credentialRequest = new HttpRequestMessage(
                 HttpMethod.Post,
                 $"v2/companion/pairing/relay-session/{attemptId.Value:D}")
             {
-                Content = JsonContent.Create(new { credential = registered.Credential, expiresUtc = registered.ExpiresUtc }),
+                Content = JsonContent.Create(sealedCredential, options: WireJsonOptions),
             };
             using var credentialResponse = await relay.SendAsync(credentialRequest, cancellationToken).ConfigureAwait(false);
             _ = credentialResponse; // best-effort; a tablet that missed it can be re-paired

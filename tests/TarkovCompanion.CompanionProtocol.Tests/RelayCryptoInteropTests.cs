@@ -1,3 +1,4 @@
+using System.Text.Json;
 using static TarkovCompanion.CompanionProtocol.Tests.ProtocolTestData;
 
 namespace TarkovCompanion.CompanionProtocol.Tests;
@@ -60,5 +61,57 @@ public sealed class RelayCryptoInteropTests
 
         Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
             PairingCryptography.OpenRelayFrame(wrongKey, PairingTrafficDirection.TabletToDesktop, TabletSealedFrame()));
+    }
+
+    // The attempt id the JS fixture generator sealed this credential for
+    // ("5a1d3c2e-7b10-4c00-8a00-000000000010" — the same value pairing-offer.json/pairing-challenge.json
+    // already use for an attempt id elsewhere in Golden/handshake).
+    private static readonly Guid CredentialAttemptId = Guid.Parse("5a1d3c2e-7b10-4c00-8a00-000000000010");
+
+    private static SealedRelayCredential TabletSealedCredential() =>
+        JsonSerializer.Deserialize<SealedRelayCredential>(
+            File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Interop", "tablet-sealed-relay-credential.json")),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    [Fact]
+    public void DesktopOpensATabletSealedRelayCredential()
+    {
+        var sealedCredential = TabletSealedCredential();
+
+        var credential = RelayCredentialCryptography.Open(TrafficKey, CredentialAttemptId, sealedCredential);
+
+        Assert.Equal("relay-bearer-secret-for-the-tablet", credential);
+    }
+
+    [Fact]
+    public void OpeningASealedCredentialForTheWrongAttemptFailsClosed() =>
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            RelayCredentialCryptography.Open(TrafficKey, Guid.NewGuid(), TabletSealedCredential()));
+
+    [Fact]
+    public void OpeningASealedCredentialWithTheWrongKeyFailsClosed()
+    {
+        var wrongKey = (byte[])TrafficKey.Clone();
+        wrongKey[0] ^= 0xFF;
+
+        Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() =>
+            RelayCredentialCryptography.Open(wrongKey, CredentialAttemptId, TabletSealedCredential()));
+    }
+
+    [Fact]
+    public void DesktopSealedCredentialRoundTripsBackThroughItself()
+    {
+        var attemptId = Guid.NewGuid();
+        var expiresUtc = DateTimeOffset.UtcNow.AddMinutes(2);
+
+        var sealedCredential = RelayCredentialCryptography.Seal(TrafficKey, attemptId, "a-fresh-bearer-secret", expiresUtc);
+        var recovered = RelayCredentialCryptography.Open(TrafficKey, attemptId, sealedCredential);
+
+        Assert.Equal("a-fresh-bearer-secret", recovered);
+        // A ciphertext sealed for this purpose is structurally unrelated to an OpaqueRelayFrame —
+        // it carries no channel/session/keyEpoch/senderSequence at all — so it cannot be replayed
+        // into RelayDeviceRegistry.AdvanceFrameSequenceAsync the way a captured frame could be.
+        Assert.NotNull(sealedCredential.CiphertextBase64Url);
+        Assert.NotNull(sealedCredential.AuthenticationTagBase64Url);
     }
 }

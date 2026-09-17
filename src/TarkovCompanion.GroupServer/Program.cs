@@ -414,12 +414,14 @@ app.MapGet("/v2/companion/pairing/established/{attemptId:guid}", (Guid attemptId
         : Results.NotFound());
 
 // v2r-tablet-marks-sync: the tablet's own relay bearer secret, handed through once the desktop has
-// registered it on the relay (POST /v2/companion/relay/devices). Not a CompanionProtocolJson wire
-// root — see RelayTabletCredential's remarks — so this is plain JSON, the same as every other
-// GroupServer-local request/response body.
+// registered it on the relay (POST /v2/companion/relay/devices) — sealed with the pairing's own
+// desktop-to-tablet traffic key (RelayCredentialCryptography), never plaintext, so this relay never
+// holds or forwards a readable bearer secret (ABUSE-PAIRED-LIVE-BEARER-THEFT). Not a
+// CompanionProtocolJson wire root, so this is plain JSON, the same as every other GroupServer-local
+// request/response body.
 app.MapPost("/v2/companion/pairing/relay-session/{attemptId:guid}", (
     Guid attemptId,
-    RelayTabletCredential body,
+    SealedRelayCredential body,
     CompanionPairingMailbox mailbox) =>
     mailbox.SubmitRelaySession(new PairingAttemptId(attemptId), body).Succeeded
         ? Results.Ok()

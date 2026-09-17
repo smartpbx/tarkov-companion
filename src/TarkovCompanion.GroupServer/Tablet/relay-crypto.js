@@ -18,6 +18,7 @@
   "use strict";
 
   const RELAY_AAD_DOMAIN = "TarkovCompanion.PairedDevice/v2/relay-aad";
+  const RELAY_CREDENTIAL_AAD_DOMAIN = "TarkovCompanion.PairedDevice/v2/relay-credential";
   const RELAY_NONCE_BYTES = 12;
   const RELAY_TAG_BYTES = 16;
   const RELAY_CIPHERTEXT_CHUNK_CHARACTERS = 1024;
@@ -244,16 +245,70 @@
     return { kind, json: plaintext.slice(2) };
   }
 
+  // keyEpoch=0, senderSequence=0 encoded the same way encodeRelayNonce would — reserved because
+  // neither value is ever valid for a real OpaqueRelayFrame under this same key, so a sealed
+  // credential's ciphertext can never be replayed into POST /v2/companion/relay/frames and opened
+  // there as one.
+  const RESERVED_CREDENTIAL_NONCE = new Uint8Array(RELAY_NONCE_BYTES);
+
+  function encodeRelayCredentialAad(attemptId, expiresUnixMs) {
+    return concatBytes(writeUtf8(RELAY_CREDENTIAL_AAD_DOMAIN), uuidToBytes(attemptId), writeInt64BE(expiresUnixMs));
+  }
+
+  /// The tablet's own relay bearer secret, sealed for its one-time trip through the pairing
+  /// mailbox (v2r-tablet-marks-sync, ABUSE-PAIRED-LIVE-BEARER-THEFT). Mirrors
+  /// TarkovCompanion.CompanionProtocol.RelayCredentialCryptography.Seal byte for byte, reusing
+  /// this same module's AES-256-GCM primitive but with its own domain-separated AAD — never call
+  /// this with a session/channel/keyEpoch the way sealRelayFrame is, it has none.
+  async function sealPairingCredential({ trafficKey, attemptId, credential, expiresUtc }) {
+    const plaintext = textEncoder.encode(credential);
+    const aad = encodeRelayCredentialAad(attemptId, expiresUtc);
+    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["encrypt"]);
+    const sealed = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: RESERVED_CREDENTIAL_NONCE, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 },
+        key,
+        plaintext,
+      ),
+    );
+    const ciphertext = sealed.slice(0, sealed.length - RELAY_TAG_BYTES);
+    const tag = sealed.slice(sealed.length - RELAY_TAG_BYTES);
+    return {
+      ciphertextBase64Url: base64UrlEncode(ciphertext),
+      authenticationTagBase64Url: base64UrlEncode(tag),
+      expiresUtc: new Date(expiresUtc).toISOString(),
+    };
+  }
+
+  /// Opens a sealed credential; any authentication failure throws.
+  async function openPairingCredential({ trafficKey, attemptId, sealedCredential }) {
+    const ciphertext = base64UrlDecode(sealedCredential.ciphertextBase64Url);
+    const tag = base64UrlDecode(sealedCredential.authenticationTagBase64Url);
+    const aad = encodeRelayCredentialAad(attemptId, Date.parse(sealedCredential.expiresUtc));
+    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["decrypt"]);
+    const plaintext = new Uint8Array(
+      await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: RESERVED_CREDENTIAL_NONCE, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 },
+        key,
+        concatBytes(ciphertext, tag),
+      ),
+    );
+    return textDecoder.decode(plaintext);
+  }
+
   return {
     PAYLOAD_KIND,
     DIRECTION,
     RELAY_AAD_DOMAIN,
+    RELAY_CREDENTIAL_AAD_DOMAIN,
     base64UrlEncode,
     base64UrlDecode,
     encodeRelayNonce,
     encodeRelayAdditionalAuthenticatedData,
     sealRelayFrame,
     openRelayFrame,
+    sealPairingCredential,
+    openPairingCredential,
     textDecoder,
     textEncoder,
   };
