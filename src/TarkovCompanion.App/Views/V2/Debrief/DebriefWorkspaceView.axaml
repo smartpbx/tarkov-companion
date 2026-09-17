@@ -1,0 +1,77 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Debrief.DebriefWorkspaceView"
+             x:DataType="vm:DebriefWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="Debrief" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-body" Text="{Binding Status}"
+                   AutomationProperties.AutomationId="v2-debrief-status"
+                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <WrapPanel ItemSpacing="8" LineSpacing="8">
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-refresh"
+                Content="Refresh" Command="{Binding RefreshCommand}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-export-csv"
+                Content="Export CSV" Command="{Binding ExportCsvCommand}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-debrief-export-json"
+                Content="Export JSON" Command="{Binding ExportJsonCommand}" />
+      </WrapPanel>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Raids" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoRaids}" Text="No raids recorded yet." />
+          <ItemsControl ItemsSource="{Binding Raids}" IsVisible="{Binding HasRaids}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:DebriefRaidRowViewModel">
+                <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Command="{Binding SelectCommand}">
+                  <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
+                    <StackPanel Grid.Column="0" Spacing="2">
+                      <TextBlock Classes="v2-body" Text="{Binding MapLabel}" />
+                      <TextBlock Classes="v2-label" Text="{Binding StartedLabel}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Mode}" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding DurationLabel}" />
+                    <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Outcome}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Raid detail" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" Text="{Binding SelectedMapLabel}" />
+          <TextBlock Classes="v2-label" Text="{Binding SelectedModeLabel}" />
+          <TextBlock Classes="v2-label" Text="{Binding SelectedDurationLabel}" />
+          <TextBlock Classes="v2-label" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+          <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
+
+          <TextBlock Classes="v2-heading-3" Text="Correct outcome or notes" AutomationProperties.HeadingLevel="3" />
+          <StackPanel Spacing="4">
+            <TextBlock Classes="v2-label" Text="Outcome" />
+            <TextBox Classes="v2-field-input" Text="{Binding CorrectedOutcome}"
+                      AutomationProperties.AutomationId="v2-debrief-outcome-input" />
+          </StackPanel>
+          <StackPanel Spacing="4">
+            <TextBlock Classes="v2-label" Text="Notes" />
+            <TextBox Classes="v2-field-input" AcceptsReturn="True" Height="80"
+                      Text="{Binding CorrectedNotes}"
+                      AutomationProperties.AutomationId="v2-debrief-notes-input" />
+          </StackPanel>
+          <Button Classes="v2-target" HorizontalAlignment="Left"
+                  AutomationProperties.AutomationId="v2-debrief-save-correction"
+                  Content="Save correction" Command="{Binding SaveCorrectionCommand}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

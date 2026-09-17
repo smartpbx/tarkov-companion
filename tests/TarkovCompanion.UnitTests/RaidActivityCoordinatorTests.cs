@@ -305,6 +305,12 @@ public sealed class RaidActivityCoordinatorTests
             string? notes,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
+        public Task CorrectAsync(
+            Guid raidId,
+            string? outcome,
+            string? notes,
+            CancellationToken cancellationToken) => Task.CompletedTask;
+
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 
@@ -359,6 +365,16 @@ public sealed class RaidActivityCoordinatorTests
             CancellationToken cancellationToken)
         {
             Calls.Add("end");
+            return Task.CompletedTask;
+        }
+
+        public Task CorrectAsync(
+            Guid raidId,
+            string? outcome,
+            string? notes,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("correct");
             return Task.CompletedTask;
         }
 

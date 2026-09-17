@@ -8,8 +8,10 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Intel;
@@ -54,6 +56,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private readonly IRuntimeStateStore _runtime;
     private readonly IItemIntelService _intel;
     private readonly IWikiLinkOpener _wikiOpener;
+    private readonly StashScanWorkspaceViewModel? _stashScan;
+    private readonly DebriefWorkspaceViewModel? _debrief;
     private readonly V2ShellPreviewStore _preview;
     private readonly V2ShellPersistenceQueue _persistence;
     private readonly TimeProvider _clock;
@@ -109,6 +113,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         IItemIntelService intel,
         IWikiLinkOpener wikiOpener,
         CompanionPairingViewModel companionPairing,
+        StashScanWorkspaceViewModel? stashScan = null,
+        DebriefWorkspaceViewModel? debrief = null,
         // V2 Raid cockpit (package 2): resolved by DI like every other registered service here;
         // optional so this constructor's shape does not change for a caller that predates it.
         RaidCockpitViewModel? raidCockpit = null,
@@ -127,7 +133,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             save: null,
             reset: null,
             intel,
-            wikiOpener)
+            wikiOpener,
+            stashScan,
+            debrief)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
     }
@@ -141,7 +149,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Func<V2ShellPreviewState, CancellationToken, Task>? save = null,
         Func<CancellationToken, Task>? reset = null,
         IItemIntelService? intel = null,
-        IWikiLinkOpener? wikiOpener = null)
+        IWikiLinkOpener? wikiOpener = null,
+        StashScanWorkspaceViewModel? stashScan = null,
+        DebriefWorkspaceViewModel? debrief = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -153,7 +163,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             save,
             reset,
             intel,
-            wikiOpener)
+            wikiOpener,
+            stashScan,
+            debrief)
     {
     }
 
@@ -168,10 +180,14 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Func<V2ShellPreviewState, CancellationToken, Task>? save,
         Func<CancellationToken, Task>? reset,
         IItemIntelService? intel = null,
-        IWikiLinkOpener? wikiOpener = null)
+        IWikiLinkOpener? wikiOpener = null,
+        StashScanWorkspaceViewModel? stashScan = null,
+        DebriefWorkspaceViewModel? debrief = null)
     {
         _lifetimeToken = _lifetime.Token;
         _runtime = runtime;
+        _stashScan = stashScan;
+        _debrief = debrief;
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
@@ -244,10 +260,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
         Router.Navigated += RouterNavigated;
         _runtime.Changed += RuntimeChanged;
+        if (_stashScan is not null)
+        {
+            _stashScan.ScanRequested += StashScanRequested;
+        }
+
         WireLegacyContext();
         Restore(requestedAddress);
         SynchronizeLegacyRoute();
         RebuildSectionItems();
+        LoadCurrentWorkspace();
         Refresh(announceBackgroundChange: false);
         if (_dispatcherContext is not null)
         {
@@ -603,18 +625,34 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsSectionNavigation => SectionItems.Count > 1;
     public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
+    /// <summary>
+    /// Whether the current route hosts a self-contained V2 workspace (stash scan, debrief).
+    /// </summary>
+    /// <remarks>
+    /// A workspace owns its own loading/empty/error presentation the way LootScanView does, so
+    /// unlike <see cref="ShowsStatePresenter"/> it does not also key off <see cref="Surface"/> —
+    /// that resolver has no fact source for these routes yet (see
+    /// <c>V2SurfaceStateResolver.Resolve</c>), so it would otherwise hide a working workspace
+    /// behind a permanently stale "empty" badge.
+    /// </remarks>
+    public bool ShowsWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.Workspace;
+    public object? WorkspaceContent => Router.Current.Location.Route == V2Routes.Stash
+        ? (object?)_stashScan
+        : Router.Current.Location.Route == V2Routes.Debrief
+            ? _debrief
+            : null;
     // V2 Raid cockpit (package 2): a full-page workspace like the legacy page it replaced on
     // this route, so it takes the same row span.
     public bool ShowsRaidCockpit => Registry[Router.Current.Location.Route].Content == V2RouteContent.RaidCockpit;
     public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
     public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
-    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
+    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
         Registry[Router.Current.Location.Route].Content == V2RouteContent.StatePresenter ||
-        Surface.Kind != V2SurfaceStateKind.Ready;
+        (Surface.Kind != V2SurfaceStateKind.Ready && !ShowsWorkspace);
     public bool ShowsIntel => Router.Current.Location.Route == V2Routes.Item || Router.Current.Location.IntelItem is not null;
     public bool ShowsIntelBeside => ShowsIntel && Variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage &&
         V2ShellAdaptation.IntelFitsBeside(WidthClass);
@@ -946,6 +984,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(CaptureArmLabel));
     }
 
+    /// <summary>
+    /// Opens the shared capture dialog with the workspace's requested intent pre-selected. It
+    /// still asks the player to press Arm — this never starts a capture session on its own.
+    /// </summary>
+    private void StashScanRequested(object? sender, ScanIntent intent)
+    {
+        SelectCaptureIntent(intent);
+        ToggleDialog(V2ShellDialogKind.Capture, V2ShellFocusTargets.Capture, V2ShellFocusTargets.CaptureDialog);
+    }
+
     private void ArmSelectedCaptureIntent()
     {
         var requested = CaptureArmRequested;
@@ -1184,12 +1232,27 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         RebuildSavedAddresses();
         RebuildSectionItems();
         _playerActionStateFocus = null;
+        LoadCurrentWorkspace();
         Refresh(
             announceBackgroundChange: false,
             playerAction: change.Kind != V2NavigationKind.Restore);
         if (!resetting)
         {
             QueueSave();
+        }
+    }
+
+    /// <summary>Loads the workspace for whichever route is now current, if it needs one.</summary>
+    private void LoadCurrentWorkspace()
+    {
+        var route = Router.Current.Location.Route;
+        if (route == V2Routes.Stash && _stashScan is not null)
+        {
+            _ = _stashScan.LoadAsync();
+        }
+        else if (route == V2Routes.Debrief && _debrief is not null)
+        {
+            _ = _debrief.LoadAsync();
         }
     }
 
@@ -2025,7 +2088,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsRaidCockpit),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
+            nameof(ShowsRaidCockpit),
             nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
@@ -2460,6 +2524,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _headerTimer = null;
         _runtime.Changed -= RuntimeChanged;
         Router.Navigated -= RouterNavigated;
+        if (_stashScan is not null)
+        {
+            _stashScan.ScanRequested -= StashScanRequested;
+        }
+
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;
         _persistence.Completed -= PersistenceCompleted;
         foreach (var source in _legacyContextSources)

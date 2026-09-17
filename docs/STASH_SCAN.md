@@ -71,6 +71,17 @@ resolution/UI scale/theme/localization, and the duplicate count before and after
 corpus without those measurements is unmeasured, not passing. Thresholds are release gates rather
 than claims that the current synthetic fixtures meet them.
 
+## V2 workspace
+
+`Views/V2/StashScan` is the first caller of this backend outside its own tests. It registers
+`StashScanWorkflow` and its dependencies in `AppComposition.cs`, lists and browses persisted
+snapshots, and shows an ammo and key summary by joining recognized items against
+`IItemFactCatalog`. Starting a scan arms the shell's existing capture chrome with the Stash, Ammo,
+or Keys intent; nothing yet bridges an accepted capture into `StashScanAssembler`; the workspace
+manages only snapshots already produced some other way (see the package's PR for what's deferred).
+Keep/Sell/Use soon grouping via `StashOrganizationPlanner` and #308 ammo/key intelligence is not
+wired either — general items are listed under Review.
+
 ## Safety
 
 The feature is external and read-only relative to Escape from Tarkov. It uses only screenshots or
