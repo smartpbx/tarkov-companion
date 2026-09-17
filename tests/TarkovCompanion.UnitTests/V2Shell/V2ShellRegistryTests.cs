@@ -52,6 +52,15 @@ public sealed class V2ShellRegistryTests
     }
 
     [Fact]
+    public void TheRaidRouteHostsTheCockpitRatherThanTheLegacyPage()
+    {
+        var raid = V2RouteRegistry.Default[V2Routes.Raid];
+
+        Assert.Equal(V2RouteContent.RaidCockpit, raid.Content);
+        Assert.Null(raid.LegacyPage);
+    }
+
+    [Fact]
     public void Both_variants_expose_every_capability_and_the_same_ones()
     {
         var registry = V2RouteRegistry.Default;

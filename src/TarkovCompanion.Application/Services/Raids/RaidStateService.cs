@@ -278,7 +278,15 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         ArgumentNullException.ThrowIfNull(extracts);
         observedUtc = observedUtc.ToUniversalTime();
 
-        if (Current.State != RaidLifecycleState.InRaid)
+        // Bootstrapping from this screen proves only that a raid is running, not when it began:
+        // unlike a log confirmation line, an extract-list observation carries no start time. The
+        // Apply below still stamps StartedUtc = observedUtc on the enteringRaid transition, which
+        // is corrected a few lines down whenever this same screen also gives a real clock
+        // reading. Without one, that guess reads as "the raid just began", and RaidTimer counts
+        // down from the map's full length instead of admitting the start time is unknown — the
+        // defect a player photographing the extract list mid-raid actually saw.
+        var bootstrapping = Current.State != RaidLifecycleState.InRaid;
+        if (bootstrapping)
         {
             Apply(new RaidEvidence(
                 RaidEvidenceKind.ManualOverride,
@@ -294,6 +302,9 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             ActiveExtracts = extracts.ToArray(),
             UpdatedUtc = Later(observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.85)),
+            // A start time this call itself invented and cannot correct with a real reading is
+            // worse than admitting it is unknown: see the remark above.
+            StartedUtc = bootstrapping && raidClock is null ? null : Current.StartedUtc,
             // Kept only when this screenshot carried one. A scan that could not read the clock
             // must not erase the last one that could.
             RaidClock = raidClock ?? Current.RaidClock,

@@ -3,11 +3,15 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Controls.ApplicationLifetimes;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -92,6 +96,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private V2ItemIntelResult? _intelResult;
     private bool _intelLoading;
     private CancellationTokenSource? _intelLoadCts;
+    // v2r-pairing-tablet: null under the internal test constructor, which builds a V2 graph
+    // without the desktop's paired-device authority. The one caller of it, "manage-pairing",
+    // no-ops when it is null.
+    private readonly CompanionPairingViewModel? _companionPairing;
 
     public V2ShellViewModel(
         AppCommandLine options,
@@ -100,12 +108,17 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         MainWindowViewModel legacy,
         IItemIntelService intel,
         IWikiLinkOpener wikiOpener,
+        CompanionPairingViewModel companionPairing,
+        // V2 Raid cockpit (package 2): resolved by DI like every other registered service here;
+        // optional so this constructor's shape does not change for a caller that predates it.
+        RaidCockpitViewModel? raidCockpit = null,
         TimeProvider? clock = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
             runtime,
             legacy,
+            raidCockpit,
             new V2ShellPreviewStore(
                 (paths ?? throw new ArgumentNullException(nameof(paths))).Config,
                 options.UiShell,
@@ -116,6 +129,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             intel,
             wikiOpener)
     {
+        _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
     }
 
     /// <summary>Builds the actual shell behavior in tests without composing a second V1 graph.</summary>
@@ -133,6 +147,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             requestedAddress: null,
             runtime,
             legacy: null,
+            raidCockpit: null,
             new V2ShellPreviewStore(configDirectory, mode, clock),
             clock,
             save,
@@ -147,6 +162,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         string? requestedAddress,
         IRuntimeStateStore runtime,
         MainWindowViewModel? legacy,
+        RaidCockpitViewModel? raidCockpit,
         V2ShellPreviewStore preview,
         TimeProvider? clock,
         Func<V2ShellPreviewState, CancellationToken, Task>? save,
@@ -160,6 +176,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _intel = intel ?? NullItemIntelService.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
         Legacy = legacy;
+        RaidCockpit = raidCockpit;
         Registry = V2RouteRegistry.Default;
         Variant = V2ShellVariants.For(mode);
         Router = new V2ShellRouter(Variant, Registry);
@@ -258,6 +275,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     public MainWindowViewModel? Legacy { get; }
     public object? LegacyPage => Legacy?.CurrentPage;
+    // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
+    public object? RaidCockpit { get; }
     public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
     public V2RouteRegistry Registry { get; }
     public V2ShellVariantDefinition Variant { get; }
@@ -584,10 +603,13 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsSectionNavigation => SectionItems.Count > 1;
     public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
+    // V2 Raid cockpit (package 2): a full-page workspace like the legacy page it replaced on
+    // this route, so it takes the same row span.
+    public bool ShowsRaidCockpit => Registry[Router.Current.Location.Route].Content == V2RouteContent.RaidCockpit;
     public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
     public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
-    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsLootScan ? 1 : 2;
+    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -1526,6 +1548,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             case "open-capture":
                 ToggleDialog(V2ShellDialogKind.Capture, $"v2-shell-recovery-{action.Id}", V2ShellFocusTargets.CaptureDialog);
                 break;
+            case "manage-pairing":
+                OpenCompanionPairingWindow();
+                break;
             case "sync":
                 if (Legacy is not null)
                 {
@@ -1540,6 +1565,37 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             default:
                 Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Opens the paired-device pairing panel as its own window.
+    /// </summary>
+    /// <remarks>
+    /// A separate window rather than a fourth <see cref="V2ShellDialogKind"/>: pairing is a
+    /// focused, occasional management task, not part of the shell's own navigation surface, and
+    /// this keeps the shell's dialog/focus-target plumbing untouched by a package that only owns
+    /// the Tablet route.
+    /// </remarks>
+    private void OpenCompanionPairingWindow()
+    {
+        if (_companionPairing is null)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
+            return;
+        }
+
+        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            var window = new CompanionPairingWindow(_companionPairing);
+            if (desktop.MainWindow is { } owner)
+            {
+                window.Show(owner);
+            }
+            else
+            {
+                window.Show();
+            }
         }
     }
 
@@ -1969,8 +2025,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsLootScan), nameof(LootScanResult),
-            nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsRaidCockpit),
+            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),
