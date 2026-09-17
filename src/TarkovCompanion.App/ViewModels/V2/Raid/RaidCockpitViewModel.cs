@@ -774,6 +774,70 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     }
 
     /// <summary>
+    /// V2 rough package 17 (team): a second, independent scene of the map this cockpit shows,
+    /// carrying only the group's marks, for the Team workspace's centre map.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as the Plan workspace's objective preview: its own renderer view model
+    /// (a renderer owns its viewport and camera, so two views cannot share one) over this
+    /// cockpit's artwork, assembler and plan bounds, so Team does not grow a second map
+    /// pipeline. <paramref name="buildMarks"/> is handed the map's id, which relay map ids
+    /// belong to it, and the world-to-plan projection, and returns the layer and objects to
+    /// draw. Null while this cockpit has no scene of its own.
+    /// </remarks>
+    internal MapSceneRendererViewModel? CreateMarksPreview(
+        Func<string, Func<string, bool>, Func<WorldPosition, MapScenePoint?>, (MapSceneLayer? Layer, IReadOnlyList<MapSceneObject> Objects)> buildMarks,
+        MapSceneRendererViewModel? existing)
+    {
+        ArgumentNullException.ThrowIfNull(buildMarks);
+        if (Renderer is not { } current || _map.RenderModel is not { } model ||
+            !string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var compatible = TarkovCompanion.Application.Services.Quests.QuestMapProjectionService.CompatibleMapIds(model.Location, model.Variant);
+        var (layer, objects) = buildMarks(
+            model.Location.Id,
+            mapId => compatible.Contains(mapId),
+            position => model.TryMapPosition(position, out var point) && double.IsFinite(point.X) && double.IsFinite(point.Y)
+                ? new MapScenePoint(point.X, point.Y)
+                : null);
+        var sameMap = existing is not null &&
+            string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
+        var request = new MapSceneBuildRequest(
+            (existing?.Scene.Revision ?? 0) + 1,
+            model,
+            PlanBounds,
+            model.Variant.Key,
+            sameMap
+                ? existing!.Scene.View
+                : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, new(50, 50, 1, 0, 0), []),
+            [],
+            layer is null ? [] : [layer],
+            objects,
+            current.Scene.Assets);
+        if (_assembler.Build(request).Scene is not { } scene)
+        {
+            return null;
+        }
+
+        if (sameMap)
+        {
+            existing!.Present(scene);
+            return existing;
+        }
+
+        return new MapSceneRendererViewModel(
+            scene,
+            _presentation,
+            nextChangeId: Guid.NewGuid,
+            reviewedAssetResolver: ResolveBackgroundImage,
+            showsDetailsPanel: false,
+            fillsViewport: false);
+    }
+
+    /// <summary>
     /// Every mark on a map, in placement order, paired with the label its scene object and its
     /// row in the marks list must both show.
     /// </summary>

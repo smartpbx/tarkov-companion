@@ -248,6 +248,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
+        // V2 rough package 17 (team): the Team context panel's links move through this router.
+        _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
