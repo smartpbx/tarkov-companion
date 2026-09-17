@@ -146,6 +146,14 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool HasSelectedItem => SelectedItem is not null;
 
+    /// <summary>
+    /// Never null so the "Correct the selected item" card can bind it directly: that card's
+    /// bindings evaluate even while <see cref="HasSelectedItem"/> keeps it hidden, and a gallery
+    /// walk that visits every state without ever selecting an item would otherwise bind
+    /// <c>SelectedItem.DisplayName</c> against a null <see cref="SelectedItem"/>.
+    /// </summary>
+    public string SelectedItemDisplayName => SelectedItem?.DisplayName ?? string.Empty;
+
     public string TotalsLabel => _selected is null
         ? string.Empty
         : $"{_selected.Recognition.Result.Value!.TotalKnownValueRoubles.Value?.ToString("N0", CultureInfo.CurrentCulture) ?? "unknown"} roubles known · " +
@@ -179,6 +187,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             if (SetProperty(ref _selectedItem, value))
             {
                 OnPropertyChanged(nameof(HasSelectedItem));
+                OnPropertyChanged(nameof(SelectedItemDisplayName));
             }
         }
     }

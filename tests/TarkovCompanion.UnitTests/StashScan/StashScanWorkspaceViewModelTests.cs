@@ -41,6 +41,22 @@ public sealed class StashScanWorkspaceViewModelTests
     }
 
     [Fact]
+    public void SelectedItemDisplayNameIsNeverNullSoTheHiddenCorrectionCardNeverBindsAgainstNull()
+    {
+        var store = new FakeSnapshotStore();
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()));
+
+        Assert.False(viewModel.HasSelectedItem);
+        Assert.Equal(string.Empty, viewModel.SelectedItemDisplayName);
+    }
+
+    [Fact]
     public async Task Selecting_a_snapshot_splits_ammo_keys_and_general_items()
     {
         var store = new FakeSnapshotStore();

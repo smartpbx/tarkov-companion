@@ -125,7 +125,7 @@
         <Border Classes="v2-card" IsVisible="{Binding HasSelectedItem}">
           <StackPanel Spacing="8">
             <TextBlock Classes="v2-heading-3" Text="Correct the selected item" AutomationProperties.HeadingLevel="2" />
-            <TextBlock Classes="v2-body" Text="{Binding SelectedItem.DisplayName}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-body" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-label" Text="{Binding CorrectionsNotice}" TextWrapping="Wrap" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <TextBox Classes="v2-field-input" Width="220" PlaceholderText="Corrected item id"
