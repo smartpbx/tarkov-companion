@@ -283,6 +283,15 @@ public sealed record LootScanResult
     public IReadOnlyList<LootScanIssue> Issues { get; }
     public IReadOnlyList<LootScanStageTiming> Timings { get; }
 
+    /// <summary>
+    /// The reviewed loot and carried grids the decisions were planned against, when read. The
+    /// decisions alone name only the items they move; a review surface that draws the container
+    /// and the backpack as grids needs every occupied footprint and the grid size as well.
+    /// </summary>
+    public GridRecognition? VisibleLootGrid { get; init; }
+
+    public GridRecognition? CarriedGrid { get; init; }
+
     private static ReadOnlyCollection<T> Copy<T>(IReadOnlyList<T> values, int maximum, string parameterName)
         where T : class
     {

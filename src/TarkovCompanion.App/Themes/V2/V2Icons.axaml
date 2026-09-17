@@ -37,4 +37,7 @@
   <!-- V2 rough package 17 (team): a paired tablet, and inviting one. -->
   <StreamGeometry x:Key="V2.Icon.Tablet">M6,2.5 L18,2.5 L18,21.5 L6,21.5 Z M10.5,18.5 L13.5,18.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.PersonAdd">M13,8 A3.5,3.5 0 1 1 6,8 A3.5,3.5 0 1 1 13,8 Z M3,20 C3,14.5 16,14.5 16,20 M19,8 L19,14 M16,11 L22,11</StreamGeometry>
+  <!-- V2 rough package 17 (scan): the reconstructed-stash view toggles. -->
+  <StreamGeometry x:Key="V2.Icon.Grid">M4,4 L10.5,4 L10.5,10.5 L4,10.5 Z M13.5,4 L20,4 L20,10.5 L13.5,10.5 Z M4,13.5 L10.5,13.5 L10.5,20 L4,20 Z M13.5,13.5 L20,13.5 L20,20 L13.5,20 Z</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.List">M4,6 L6,6 M9,6 L20,6 M4,12 L6,12 M9,12 L20,12 M4,18 L6,18 M9,18 L20,18</StreamGeometry>
 </ResourceDictionary>

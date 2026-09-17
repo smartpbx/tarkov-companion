@@ -290,6 +290,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         RetryPersistenceCommand = new DelegateCommand(RetryPersistence);
         PaletteAddressCommand = new DelegateCommand(OpenPaletteAddress);
         ArmCaptureCommand = new DelegateCommand(ArmSelectedCaptureIntent);
+        // V2 rough package 17 (scan): the Loot decision tab's "Scan loot" / "Scan again".
+        ScanLootCommand = new DelegateCommand(() => StashScanRequested(this, ScanIntent.Loot));
         Commands = V2ShellCommands.For(Variant, Registry);
         CommandItems = new ObservableCollection<V2ShellCommandViewModel>(
             Commands.Select(command => new V2ShellCommandViewModel(command, CreateCommand(command))));
@@ -753,6 +755,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
     public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
+    public string LootScanEmptyTitle => V2ShellText.Get("V2.Shell.LootScan.EmptyTitle");
+    public string LootScanActionLabel => V2ShellText.Get("V2.Shell.LootScan.Scan");
+
+    /// <summary>Opens the capture dialog with Loot decision selected; the player still presses Arm.</summary>
+    public ICommand ScanLootCommand { get; }
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
     public int ShellBodyRowSpan =>
         ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
@@ -1060,6 +1067,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         ArgumentNullException.ThrowIfNull(result);
         void Apply()
         {
+            if (Volatile.Read(ref _lootScanResult) is { } previous)
+            {
+                previous.ScanAgainRequested -= LootScanAgainRequested;
+            }
+
+            result.ScanAgainRequested += LootScanAgainRequested;
             Volatile.Write(ref _lootScanResult, result);
             GoTo(V2Routes.Loot);
         }
@@ -1073,6 +1086,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _dispatcherContext.Post(_ => Apply(), null);
         }
     }
+
+    private void LootScanAgainRequested(object? sender, EventArgs e) => ScanLootCommand.Execute(null);
 
     /// <summary>Accepts plan-owned suggestions without making the shell own plan persistence.</summary>
     public void UpdatePlannedSuggestions(IReadOnlyList<V2PlannedItemSuggestion> suggestions)

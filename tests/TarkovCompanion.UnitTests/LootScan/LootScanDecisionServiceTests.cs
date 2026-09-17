@@ -1497,6 +1497,87 @@ public sealed class LootScanDecisionServiceTests
             replacementCostRoubles: long.MaxValue));
     }
 
+    [Fact]
+    public void ReviewViewModelDrawsBothReviewedGridsWithOneTilePerReadFootprint()
+    {
+        var loot = new GridCellAddress(0, 0);
+        var carried = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 2, 3, Cell(loot, "loot", 1, 2)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 2, 2, Cell(carried, "carried", 1, 1)),
+            [Recommendation(loot, "loot")],
+            [Droppable(carried, "carried", 1_000)]);
+
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+
+        Assert.Equal((2, 3), (viewModel.LootGrid!.Rows, viewModel.LootGrid.Columns));
+        var lootTile = Assert.Single(viewModel.LootGrid.Tiles);
+        Assert.Equal((0, 0, 1, 2), (lootTile.Row, lootTile.Column, lootTile.WidthCells, lootTile.HeightCells));
+        Assert.True(lootTile.IsTake);
+
+        // The carried grid keeps what is already carried, counts what is left, and marks where the
+        // take would land.
+        Assert.Equal(3, viewModel.CarriedGrid!.FreeSquares);
+        Assert.Contains(viewModel.CarriedGrid.Tiles, tile => tile.IsCarried && tile.Name == "carried");
+        Assert.Contains(viewModel.CarriedGrid.Tiles, tile => tile.IsIncoming && tile.Name == "loot");
+    }
+
+    [Fact]
+    public void ReviewViewModelOpensOnTheSwapAndShowsOnlyThatCallsPlacement()
+    {
+        var take = new GridCellAddress(0, 0);
+        var swap = new GridCellAddress(1, 0);
+        var occupied = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 2, 2, Cell(take, "small", 1, 1), Cell(swap, "big", 2, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 2, Cell(occupied, "carried", 1, 1)),
+            [Recommendation(take, "small"), Recommendation(swap, "big", valueRoubles: 200_000, occupiedSquares: 2)],
+            [Droppable(occupied, "carried", 1_000)]);
+
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+
+        var selected = Assert.Single(viewModel.Decisions, decision => decision.IsSwap);
+        Assert.Same(selected, viewModel.SelectedDecision);
+        Assert.All(
+            viewModel.CarriedGrid!.Tiles.Where(tile => tile.IsIncoming),
+            tile => Assert.Equal(ReferenceEquals(tile.Decision, selected), tile.ShowsTile));
+        Assert.Contains(viewModel.CarriedGrid.Tiles, tile => tile.IsGivenUp);
+
+        // Choosing another call moves both the row selection and what the backpack draws.
+        var other = Assert.Single(viewModel.Decisions, decision => !decision.IsSwap);
+        other.SelectCommand.Execute(null);
+        Assert.Same(other, viewModel.SelectedDecision);
+        Assert.False(selected.IsSelected);
+        Assert.DoesNotContain(viewModel.CarriedGrid.Tiles, tile => tile.IsGivenUp);
+    }
+
+    [Fact]
+    public void ReviewViewModelFiltersTheDecisionListByVerdictAndAsksForAnotherScan()
+    {
+        var take = new GridCellAddress(0, 0);
+        var leave = new GridCellAddress(1, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 2, 1, Cell(take, "wanted", 1, 1), Cell(leave, "cheap", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [
+                Recommendation(take, "wanted"),
+                Recommendation(leave, "cheap", RecommendationReasonCategory.Economics, valueRoubles: 1_000),
+            ]);
+
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+        var takeFilter = Assert.Single(viewModel.Filters, filter => filter.Verdict == LootScanVerdict.Take);
+        takeFilter.SelectCommand.Execute(null);
+
+        Assert.True(takeFilter.IsSelected);
+        Assert.All(viewModel.VisibleDecisions, decision => Assert.True(decision.IsTake));
+        Assert.Contains("Take", viewModel.DecisionSummary, StringComparison.Ordinal);
+
+        var asked = 0;
+        viewModel.ScanAgainRequested += (_, _) => asked++;
+        viewModel.ScanAgainCommand.Execute(null);
+        Assert.Equal(1, asked);
+    }
+
     private static LootScanResult Evaluate(
         GridReconstructionResult visible,
         GridReconstructionResult carried,

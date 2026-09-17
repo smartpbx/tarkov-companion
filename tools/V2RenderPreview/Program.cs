@@ -198,6 +198,33 @@ internal static class Program
                 }
             }
 
+            // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
+            // workspaces can be seen populated. Both go through the real services (the loot
+            // planner, the snapshot store), so nothing here invents presentation state.
+            if (shell is not null && args.Contains("--loot-demo"))
+            {
+                var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
+                    .Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
+                var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
+                    profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
+                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
+                    ScanDemo.LootResult(scope)));
+                Pump(20);
+            }
+
+            if (shell is not null && args.Contains("--stash-demo"))
+            {
+                var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
+                    .Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
+                var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
+                    profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
+                var store = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashSnapshotStore>();
+                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope), CancellationToken.None));
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>()
+                    .LoadAsync());
+                Pump(20);
+            }
+
             SaveFrame(window, outputPath, width, height);
             rendered = true;
             return 0;

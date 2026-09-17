@@ -27,6 +27,31 @@ public sealed record StashSnapshotRowViewModel(
     public bool IsSelected { get; init; }
 }
 
+/// <summary>A scan target chip: what the next guided capture is for.</summary>
+public sealed class StashScanTargetViewModel : BindableViewModel
+{
+    private bool _isSelected;
+
+    public StashScanTargetViewModel(ScanIntent intent, string label, Action<ScanIntent> select)
+    {
+        Intent = intent;
+        Label = label;
+        SelectCommand = new DelegateCommand(() => select(intent));
+    }
+
+    public ScanIntent Intent { get; }
+
+    public string Label { get; }
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
 /// <summary>One recognized item, shown under its rough Keep/Sell/Use soon/Review group.</summary>
 public sealed record StashItemRowViewModel(
     string ItemKey,
@@ -46,6 +71,138 @@ public sealed record StashItemRowViewModel(
     public bool HasWikiLink => WikiLinkPolicy.IsAllowed(WikiUri);
 
     public ICommand? OpenWikiCommand { get; init; }
+}
+
+/// <summary>
+/// One captured container, drawn as the grid it was read from: every footprint at its own anchor,
+/// on a fixed square size the view scales down as a whole.
+/// </summary>
+public sealed class StashRegionViewModel
+{
+    public const double CellSize = 56;
+
+    public StashRegionViewModel(string title, int? rows, int? columns, IReadOnlyList<StashGridTileViewModel> tiles)
+    {
+        Title = title;
+        Tiles = tiles;
+        var extentRows = tiles.Select(tile => tile.Row + tile.HeightCells).DefaultIfEmpty(1).Max();
+        var extentColumns = tiles.Select(tile => tile.Column + tile.WidthCells).DefaultIfEmpty(1).Max();
+        Rows = Math.Max(rows ?? extentRows, extentRows);
+        Columns = Math.Max(columns ?? extentColumns, extentColumns);
+        SizeLabel = rows is null || columns is null
+            ? $"{tiles.Count.ToString(CultureInfo.CurrentCulture)} stacks"
+            : $"{Columns.ToString(CultureInfo.CurrentCulture)} × {Rows.ToString(CultureInfo.CurrentCulture)} squares";
+    }
+
+    public string Title { get; }
+
+    public int Rows { get; }
+
+    public int Columns { get; }
+
+    public string SizeLabel { get; }
+
+    public double PixelWidth => Columns * CellSize;
+
+    public double PixelHeight => Rows * CellSize;
+
+    /// <summary>How far the view may scale a small container up before its squares stop reading as squares.</summary>
+    public double MaxPixelWidth => PixelWidth * 1.15;
+
+    public IReadOnlyList<StashGridTileViewModel> Tiles { get; }
+}
+
+/// <summary>One footprint on a reconstructed container grid.</summary>
+public sealed class StashGridTileViewModel : BindableViewModel
+{
+    private const double Gap = 2;
+    private bool _isSelected;
+
+    public StashGridTileViewModel(
+        GridCellAddress anchor,
+        int widthCells,
+        int heightCells,
+        string name,
+        string detail,
+        StashTileKind kind,
+        StashItemRowViewModel? row)
+    {
+        Row = anchor.Row;
+        Column = anchor.Column;
+        WidthCells = Math.Max(1, widthCells);
+        HeightCells = Math.Max(1, heightCells);
+        Name = name;
+        Detail = detail;
+        Kind = kind;
+        ItemRow = row;
+        SelectCommand = new DelegateCommand(() => row?.SelectCommand?.Execute(null));
+    }
+
+    public int Row { get; }
+
+    public int Column { get; }
+
+    public int WidthCells { get; }
+
+    public int HeightCells { get; }
+
+    public double Left => (Column * StashRegionViewModel.CellSize) + Gap;
+
+    public double Top => (Row * StashRegionViewModel.CellSize) + Gap;
+
+    public double Width => (WidthCells * StashRegionViewModel.CellSize) - (2 * Gap);
+
+    public double Height => (HeightCells * StashRegionViewModel.CellSize) - (2 * Gap);
+
+    public string Name { get; }
+
+    public string Detail { get; }
+
+    public bool HasDetail => Detail.Length > 0;
+
+    public StashTileKind Kind { get; }
+
+    public StashItemRowViewModel? ItemRow { get; }
+
+    public string ItemKey => ItemRow?.ItemKey ?? string.Empty;
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsAmmo => Kind == StashTileKind.Ammo;
+
+    public bool IsKey => Kind == StashTileKind.Key;
+
+    public bool IsUnresolved => Kind == StashTileKind.Unresolved;
+
+    public string AutomationName => HasDetail ? $"{Name}, {Detail}" : Name;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
+public enum StashTileKind
+{
+    Item = 1,
+    Ammo,
+    Key,
+    Unresolved,
+}
+
+/// <summary>A Keep / Sell / Use soon / Review tile over the sort plan.</summary>
+public sealed record StashPlanTileViewModel(StashPlanGroup Group, string Label, int Count, bool IsWired)
+{
+    public string CountLabel => IsWired ? Count.ToString(CultureInfo.CurrentCulture) : "—";
+
+    public bool IsKeep => Group == StashPlanGroup.Keep;
+
+    public bool IsSell => Group == StashPlanGroup.Sell;
+
+    public bool IsUseSoon => Group == StashPlanGroup.UseSoon;
+
+    public bool IsReview => Group == StashPlanGroup.Review;
 }
 
 public sealed record StashAmmoSummaryRowViewModel(string Caliber, int RoundCount, int StackCount)
@@ -94,6 +251,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private string _identityCorrection = string.Empty;
     private string _quantityCorrection = string.Empty;
     private StashItemRowViewModel? _selectedItem;
+    private ScanIntent _scanTarget = ScanIntent.Stash;
+    private bool _isGridView = true;
 
     public StashScanWorkspaceViewModel(
         IStashSnapshotStore store,
@@ -123,7 +282,112 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         StartFullScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Stash));
         StartAmmoScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Ammo));
         StartKeysScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Keys));
+        StartSelectedScanCommand = new DelegateCommand(() => RequestScan(ScanTarget));
+        ShowGridCommand = new DelegateCommand(() => IsGridView = true);
+        ShowListCommand = new DelegateCommand(() => IsGridView = false);
+        ScanTargets =
+        [
+            new StashScanTargetViewModel(ScanIntent.Stash, "Full stash", SelectScanTarget) { IsSelected = true },
+            new StashScanTargetViewModel(ScanIntent.Ammo, "Ammo", SelectScanTarget),
+            new StashScanTargetViewModel(ScanIntent.Keys, "Keys", SelectScanTarget),
+        ];
     }
+
+    /// <summary>What the next guided capture is for; the chips above the scan button pick it.</summary>
+    public ScanIntent ScanTarget
+    {
+        get => _scanTarget;
+        private set => SetProperty(ref _scanTarget, value);
+    }
+
+    public IReadOnlyList<StashScanTargetViewModel> ScanTargets { get; }
+
+    public ICommand StartSelectedScanCommand { get; }
+
+    public ICommand ShowGridCommand { get; }
+
+    public ICommand ShowListCommand { get; }
+
+    /// <summary>The reconstructed stash is shown as its grids by default, or as a plain list.</summary>
+    public bool IsGridView
+    {
+        get => _isGridView;
+        private set
+        {
+            if (SetProperty(ref _isGridView, value))
+            {
+                OnPropertyChanged(nameof(IsListView));
+            }
+        }
+    }
+
+    public bool IsListView => !IsGridView;
+
+    public IReadOnlyList<StashRegionViewModel> Regions { get; private set; } = [];
+
+    public bool HasRegions => Regions.Count > 0;
+
+    public IReadOnlyList<StashPlanTileViewModel> PlanTiles { get; private set; } = [];
+
+    /// <summary>"218 stacks · 3 cells unresolved", or just the stack count when the scan read every cell.</summary>
+    public string ReconstructionLabel
+    {
+        get
+        {
+            if (_selected is null)
+            {
+                return string.Empty;
+            }
+
+            var stacks = Regions.Sum(region => region.Tiles.Count);
+            var unresolved = _selected.Recognition.Result.Value!.UnresolvedCells.Value;
+            var stacksLabel = $"{stacks.ToString(CultureInfo.CurrentCulture)} stacks";
+            return unresolved is > 0
+                ? $"{stacksLabel} · {unresolved.Value.ToString(CultureInfo.CurrentCulture)} cells unresolved"
+                : stacksLabel;
+        }
+    }
+
+    /// <summary>The snapshot's known value, compactly: "₽18.6M". Empty when no price was read.</summary>
+    public string StashValueLabel
+    {
+        get
+        {
+            var value = _selected?.Recognition.Result.Value?.TotalKnownValueRoubles.Value;
+            return value is null ? string.Empty : CompactRoubles(value.Value);
+        }
+    }
+
+    public bool HasStashValue => StashValueLabel.Length > 0;
+
+    public string UpdatedLabel => _selected is null ? string.Empty : $"Scanned {RecordedLabel}";
+
+    public string RecordedLabel => _selected is null
+        ? string.Empty
+        : _selected.RecordedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+
+    public string AmmoCountLabel => $"{AmmoSummary.Count.ToString(CultureInfo.CurrentCulture)} calibres";
+
+    public string KeyCountLabel => $"{KeySummary.Count.ToString(CultureInfo.CurrentCulture)} keys";
+
+    public string ItemCountLabel => $"{Items.Count.ToString(CultureInfo.CurrentCulture)} items";
+
+    private void SelectScanTarget(ScanIntent intent)
+    {
+        ScanTarget = intent;
+        foreach (var target in ScanTargets)
+        {
+            target.IsSelected = target.Intent == intent;
+        }
+    }
+
+    private static string CompactRoubles(long value) => Math.Abs(value) switch
+    {
+        >= 1_000_000 => "₽" + (value / 1_000_000d).ToString("0.#", CultureInfo.CurrentCulture) + "M",
+        >= 10_000 => "₽" + (value / 1_000d).ToString("0", CultureInfo.CurrentCulture) + "k",
+        >= 1_000 => "₽" + (value / 1_000d).ToString("0.#", CultureInfo.CurrentCulture) + "k",
+        _ => "₽" + value.ToString("N0", CultureInfo.CurrentCulture),
+    };
 
     /// <summary>Raised when the player asks to start a guided capture session for this workspace.</summary>
     /// <remarks>
@@ -203,6 +467,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         {
             if (SetProperty(ref _selectedItem, value))
             {
+                foreach (var tile in Regions.SelectMany(region => region.Tiles))
+                {
+                    tile.IsSelected = value is not null &&
+                        string.Equals(tile.ItemKey, value.ItemKey, StringComparison.Ordinal);
+                }
+
                 OnPropertyChanged(nameof(HasSelectedItem));
                 OnPropertyChanged(nameof(SelectedItemDisplayName));
             }
@@ -262,9 +532,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     IsSelected = _selected?.SnapshotId == summary.SnapshotId,
                 })
                 .ToArray();
-            Status = Snapshots.Count == 0
-                ? "No stash snapshots yet. Start a scan to build the first one."
-                : $"{Snapshots.Count} snapshot(s).";
+            Status = Snapshots.Count switch
+            {
+                0 => "No stash snapshots yet. Start a scan to build the first one.",
+                1 => "1 snapshot.",
+                var count => $"{count.ToString(CultureInfo.CurrentCulture)} snapshots.",
+            };
 
             if (_selected is null)
             {
@@ -300,6 +573,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             Status = "That snapshot no longer exists.";
             _selected = null;
             Items = [];
+            Regions = [];
             AmmoSummary = [];
             KeySummary = [];
             RaiseAll();
@@ -460,11 +734,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var stash = record.Recognition.Result.Value!;
 
         var items = new List<StashItemRowViewModel>();
+        var regions = new List<StashRegionViewModel>();
         var ammoRounds = new Dictionary<string, (int Rounds, int Stacks)>(StringComparer.Ordinal);
         var keyOccurrences = new Dictionary<string, (string DisplayName, int Duplicates)>(StringComparer.Ordinal);
 
         foreach (var region in stash.CapturedRegions)
         {
+            var tiles = new List<StashGridTileViewModel>();
             foreach (var cell in region.Grid.Cells)
             {
                 var item = cell.Item.Value;
@@ -478,24 +754,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 var quantity = item.Quantity.Value ?? 1;
                 var itemKey = $"{region.ContainerPath}@{cell.Anchor.Row}:{cell.Anchor.Column}";
 
-                if (canonicalId is not null && ammoByItemId.TryGetValue(canonicalId, out var ammo))
-                {
-                    var running = ammoRounds.GetValueOrDefault(ammo.Caliber);
-                    ammoRounds[ammo.Caliber] = (running.Rounds + quantity, running.Stacks + 1);
-                    continue;
-                }
-
-                if (canonicalId is not null && keyFactsByItemId.TryGetValue(canonicalId, out _))
-                {
-                    var running = keyOccurrences.GetValueOrDefault(
-                        canonicalId,
-                        (DisplayName: displayName, Duplicates: 0));
-                    keyOccurrences[canonicalId] = (displayName, running.Duplicates + 1);
-                    continue;
-                }
-
                 var wikiUri = await WikiUriForAsync(canonicalId, wikiUriByItemId, cancellationToken).ConfigureAwait(true);
-                var row = new StashItemRowViewModel(
+                var bare = new StashItemRowViewModel(
                     itemKey,
                     displayName,
                     region.ContainerPath,
@@ -505,15 +765,64 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 {
                     WikiUri = wikiUri,
                 };
-                items.Add(row with
+                var row = bare with
                 {
-                    SelectCommand = new DelegateCommand(() => SelectedItem = row),
+                    SelectCommand = new DelegateCommand(() => SelectedItem = bare),
                     OpenWikiCommand = new DelegateCommand(() => _wikiOpener?.TryOpen(wikiUri)),
-                });
+                };
+
+                // Every read footprint is drawn on its container's grid, including the ammo and
+                // key stacks the summaries below fold together rather than list.
+                var kind = StashTileKind.Item;
+                if (canonicalId is not null && ammoByItemId.TryGetValue(canonicalId, out var ammo))
+                {
+                    var running = ammoRounds.GetValueOrDefault(ammo.Caliber);
+                    ammoRounds[ammo.Caliber] = (running.Rounds + quantity, running.Stacks + 1);
+                    kind = StashTileKind.Ammo;
+                }
+                else if (canonicalId is not null && keyFactsByItemId.TryGetValue(canonicalId, out _))
+                {
+                    var running = keyOccurrences.GetValueOrDefault(
+                        canonicalId,
+                        (DisplayName: displayName, Duplicates: 0));
+                    keyOccurrences[canonicalId] = (displayName, running.Duplicates + 1);
+                    kind = StashTileKind.Key;
+                }
+                else if (item.DisplayName.Value is null && canonicalId is null)
+                {
+                    kind = StashTileKind.Unresolved;
+                }
+                else
+                {
+                    items.Add(row);
+                }
+
+                tiles.Add(new StashGridTileViewModel(
+                    cell.Anchor,
+                    item.WidthCells.Value ?? 1,
+                    item.HeightCells.Value ?? 1,
+                    displayName,
+                    quantity > 1 ? $"x{quantity.ToString(CultureInfo.CurrentCulture)}" : string.Empty,
+                    kind,
+                    row));
             }
+
+            regions.Add(new StashRegionViewModel(
+                ContainerTitle(region.ContainerPath),
+                region.Grid.Geometry.Rows.Value,
+                region.Grid.Geometry.Columns.Value,
+                tiles));
         }
 
         Items = items;
+        Regions = regions;
+        PlanTiles =
+        [
+            new(StashPlanGroup.Keep, "Keep", Count(items, StashPlanGroup.Keep), IsWired: false),
+            new(StashPlanGroup.Sell, "Sell", Count(items, StashPlanGroup.Sell), IsWired: false),
+            new(StashPlanGroup.UseSoon, "Use soon", Count(items, StashPlanGroup.UseSoon), IsWired: false),
+            new(StashPlanGroup.Review, "Review", Count(items, StashPlanGroup.Review), IsWired: true),
+        ];
         AmmoSummary = ammoRounds
             .Select(entry => new StashAmmoSummaryRowViewModel(entry.Key, entry.Value.Rounds, entry.Value.Stacks))
             .OrderBy(row => row.Caliber, StringComparer.Ordinal)
@@ -554,13 +863,27 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         return definition?.WikiUri;
     }
 
+    private static int Count(IReadOnlyList<StashItemRowViewModel> rows, StashPlanGroup group) =>
+        rows.Count(row => row.Group == group);
+
+    /// <summary>"stash/ammo case" reads as "Ammo case"; a raw container path never reaches the view.</summary>
+    private static string ContainerTitle(string containerPath)
+    {
+        var last = containerPath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? containerPath;
+        last = last.Replace('-', ' ').Replace('_', ' ').Trim();
+        return last.Length == 0
+            ? containerPath
+            : char.ToUpper(last[0], CultureInfo.CurrentCulture) + last[1..];
+    }
+
     private static string CoverageDescription(StashContainerCoverage coverage)
     {
         var observed = coverage.ObservedCells.Value;
         var total = coverage.TotalCells.Value;
+        var container = ContainerTitle(coverage.ContainerPath);
         return observed is null || total is null
-            ? $"{coverage.ContainerPath}: coverage unresolved"
-            : $"{coverage.ContainerPath}: {observed}/{total} cells";
+            ? $"{container}: coverage unresolved"
+            : $"{container}: {observed}/{total} cells";
     }
 
     private static string DescribeProvenance(EvidenceProvenance provenance) =>
@@ -591,5 +914,16 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasPendingCorrections));
         OnPropertyChanged(nameof(TotalsLabel));
         OnPropertyChanged(nameof(CoverageLabel));
+        OnPropertyChanged(nameof(Regions));
+        OnPropertyChanged(nameof(HasRegions));
+        OnPropertyChanged(nameof(PlanTiles));
+        OnPropertyChanged(nameof(ReconstructionLabel));
+        OnPropertyChanged(nameof(StashValueLabel));
+        OnPropertyChanged(nameof(HasStashValue));
+        OnPropertyChanged(nameof(RecordedLabel));
+        OnPropertyChanged(nameof(UpdatedLabel));
+        OnPropertyChanged(nameof(AmmoCountLabel));
+        OnPropertyChanged(nameof(KeyCountLabel));
+        OnPropertyChanged(nameof(ItemCountLabel));
     }
 }

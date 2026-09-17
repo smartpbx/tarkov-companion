@@ -173,7 +173,11 @@ public sealed class LootScanDecisionService
             status,
             decisions.ToArray(),
             issues.ToArray(),
-            [new("decision-planning", Math.Max(0, (long)elapsed.TotalMilliseconds))]);
+            [new("decision-planning", Math.Max(0, (long)elapsed.TotalMilliseconds))])
+        {
+            VisibleLootGrid = request.VisibleLoot.Recognition,
+            CarriedGrid = request.CarriedInventory.Recognition,
+        };
     }
 
     private LootScanDecision EvaluateResolved(

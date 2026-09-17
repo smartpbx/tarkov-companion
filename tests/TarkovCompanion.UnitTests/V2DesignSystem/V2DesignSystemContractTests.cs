@@ -173,6 +173,9 @@ public sealed class V2DesignSystemContractTests
     {
         var defined = AdapterResourceKeys();
         defined.UnionWith(KeysOf(ReadXaml(TokensPath)));
+        // The icon geometry dictionary is part of the same design system (package 15); a view
+        // under this contract may draw one, so its keys count as defined.
+        defined.UnionWith(KeysOf(ReadXaml(IconsPath)));
         defined.UnionWith(ReadStrings(EnglishStringsPath).Keys);
 
         var undefined = DynamicResourceKeys(ReadText(GalleryPath))
