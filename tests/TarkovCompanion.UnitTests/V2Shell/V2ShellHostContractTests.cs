@@ -151,7 +151,13 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("<ContentControl Grid.Row=\"1\" IsVisible=\"{Binding ShowsLegacyPage}\"", shell, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding SectionItems}\"", shell, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"v2-shell-sections\"", shell, StringComparison.Ordinal);
-        Assert.Contains("Content=\"{Binding DisplayLabel}\"", shell, StringComparison.Ordinal);
+        // V2 rough package 21: the primary destinations row dropped DisplayLabel's "› " current
+        // marker (it changed that button's measured content length inside the same WrapPanel the
+        // "Changing border geometry" comment above already warns about, and Variant B's own
+        // landing page — Home — starts current, so this row hit the hazard on its very first
+        // narrow layout). Setup's separate, non-wrapping entries still carry the marker.
+        Assert.Contains("Content=\"{Binding SetupDestination.DisplayLabel}\"", shell, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content=\"{Binding DisplayLabel}\"", shell, StringComparison.Ordinal);
     }
 
     [Fact]

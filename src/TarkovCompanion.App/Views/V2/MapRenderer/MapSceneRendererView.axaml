@@ -21,51 +21,62 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
-    <!-- V2 rough package 20: 32px, not 48. Three dozen 48px boxes with letters in them covered
-         the plan; this is a marker, and the plan under it is the point. -->
+    <!-- V2 rough package 21: the drawn chip stays 32px (three dozen 48px boxes with letters in
+         them covered the plan; this is a marker, and the plan under it is the point), but the
+         button itself is a 44px transparent hit area so touch/automation targets still clear the
+         44x44 floor. Border.v2-map-marker-chip carries the drawn box; the state styles below key
+         off the button's classes and restyle that inner chip. -->
     <Style Selector="ToggleButton.v2-map-marker, Button.v2-map-marker">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="MinWidth" Value="44" />
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-map-marker-chip">
       <Setter Property="Width" Value="32" />
       <Setter Property="Height" Value="32" />
-      <Setter Property="MinWidth" Value="32" />
-      <Setter Property="MinHeight" Value="32" />
       <Setter Property="Padding" Value="2" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="2" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker:checked">
+    <Style Selector="ToggleButton.v2-map-marker:checked Border.v2-map-marker-chip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     </Style>
-    <Style Selector="Button.v2-map-marker.cluster">
+    <Style Selector="Button.v2-map-marker.cluster Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.historical">
+    <Style Selector="ToggleButton.v2-map-marker.historical Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.local-observed">
+    <Style Selector="ToggleButton.v2-map-marker.local-observed Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
       <Setter Property="BorderThickness" Value="3" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.team-observed">
+    <Style Selector="ToggleButton.v2-map-marker.team-observed Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
       <Setter Property="BorderThickness" Value="3" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.potential">
+    <Style Selector="ToggleButton.v2-map-marker.potential Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
       <Setter Property="Opacity" Value="0.82" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.offer-offered">
+    <Style Selector="ToggleButton.v2-map-marker.offer-offered Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.offer-not-offered">
+    <Style Selector="ToggleButton.v2-map-marker.offer-not-offered Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="Opacity" Value="0.72" />
     </Style>
-    <Style Selector="ToggleButton.v2-map-marker.offer-unknown">
+    <Style Selector="ToggleButton.v2-map-marker.offer-unknown Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
     <Style Selector="TextBlock.v2-map-offered">
@@ -304,25 +315,29 @@
                          nothing else inside the marker. The letter badges that used to crowd
                          three corners (and printed "?" whenever something was unknown) moved to
                          the accessible name and the tooltip; the border colour still carries
-                         truth and offer state. -->
-                    <Grid Width="26" Height="26" IsHitTestVisible="False">
-                      <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
-                      <Panel IsVisible="{Binding ShowsMarkerIcon}">
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.Exit}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.Transit}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsObjectiveIcon}" Data="{DynamicResource V2.Icon.Objective}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsWaypointIcon}" Data="{DynamicResource V2.Icon.Pin}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsPingIcon}" Data="{DynamicResource V2.Icon.Ping}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsSpawnIcon}" Data="{DynamicResource V2.Icon.Spawn}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLootIcon}" Data="{DynamicResource V2.Icon.Gem}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsHazardIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLockIcon}" Data="{DynamicResource V2.Icon.Lock}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRouteIcon}" Data="{DynamicResource V2.Icon.Route}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRiskIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
-                        <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsGenericIcon}" Data="{DynamicResource V2.Icon.Target}" />
-                      </Panel>
-                    </Grid>
+                         truth and offer state. V2 rough package 21: the drawn chip is a nested
+                         32px Border so the button around it can be a 44px hit area without
+                         growing the visible box. -->
+                    <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                      <Grid Width="26" Height="26">
+                        <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
+                        <Panel IsVisible="{Binding ShowsMarkerIcon}">
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.Exit}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.Transit}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsObjectiveIcon}" Data="{DynamicResource V2.Icon.Objective}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsWaypointIcon}" Data="{DynamicResource V2.Icon.Pin}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsPingIcon}" Data="{DynamicResource V2.Icon.Ping}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsSpawnIcon}" Data="{DynamicResource V2.Icon.Spawn}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLootIcon}" Data="{DynamicResource V2.Icon.Gem}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsHazardIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLockIcon}" Data="{DynamicResource V2.Icon.Lock}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRouteIcon}" Data="{DynamicResource V2.Icon.Route}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsRiskIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
+                          <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsGenericIcon}" Data="{DynamicResource V2.Icon.Target}" />
+                        </Panel>
+                      </Grid>
+                    </Border>
                   </ToggleButton>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
@@ -348,10 +363,12 @@
                         <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
                       </TransformGroup>
                     </Button.RenderTransform>
-                    <Grid Width="40" Height="40" IsHitTestVisible="False">
-                      <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 Text="{Binding MarkerGlyph}" />
-                    </Grid>
+                    <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                      <Grid Width="40" Height="40">
+                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Text="{Binding MarkerGlyph}" />
+                      </Grid>
+                    </Border>
                   </Button>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

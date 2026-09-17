@@ -154,6 +154,16 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void Marker_hit_extent_clears_the_44px_touch_target_floor()
+    {
+        // V2 rough package 21: the drawn chip is 32px (see MapSceneRendererView's
+        // v2-map-marker-chip style), but the button's own hit/automation box — what this
+        // constant positions markers and clusters by — must not regress below the touch-target
+        // floor the Windows page gallery measures.
+        Assert.True(MapSceneRendererViewModel.MarkerExtent >= 44);
+    }
+
+    [Fact]
     public void Dense_scenes_offer_cluster_drilldown_search_and_pages_for_every_object()
     {
         var clustered = Enumerable.Range(0, 305)
