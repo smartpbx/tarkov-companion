@@ -1,0 +1,143 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupWorkspaceView"
+             x:DataType="vm:V2SetupWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <StackPanel Classes="v2-stack">
+    <ItemsControl ItemsSource="{Binding Sections}"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-setup-sections"
+                  AutomationProperties.LandmarkType="Navigation"
+                  AutomationProperties.Name="{Binding SectionsRegionName}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:V2SetupSectionTabViewModel">
+          <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                  AutomationProperties.Name="{Binding Label}"
+                  Content="{Binding DisplayLabel}" Command="{Binding SelectCommand}" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsGameProfileSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
+        <TextBlock Classes="v2-body" Text="{Binding Settings.WatchedFolders}" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.GameFolderStatus}" />
+        <StackPanel Classes="v2-field">
+          <TextBlock Classes="v2-label" Text="{Binding ScreenshotFolderLabel}" />
+          <TextBox Classes="v2-field-input" Text="{Binding Settings.ScreenshotFolder}"
+                    AutomationProperties.AutomationId="v2-setup-screenshot-folder"
+                    AutomationProperties.Name="{Binding ScreenshotFolderLabel}" />
+        </StackPanel>
+        <StackPanel Classes="v2-field">
+          <TextBlock Classes="v2-label" Text="{Binding LogFolderLabel}" />
+          <TextBox Classes="v2-field-input" Text="{Binding Settings.LogFolder}"
+                    AutomationProperties.AutomationId="v2-setup-log-folder"
+                    AutomationProperties.Name="{Binding LogFolderLabel}" />
+        </StackPanel>
+        <Button Classes="v2-target" HorizontalAlignment="Left"
+                AutomationProperties.AutomationId="v2-setup-save-folders"
+                Content="{Binding SaveFoldersLabel}" Command="{Binding Settings.SaveGameFoldersCommand}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsRecognitionSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding Settings.RecognitionProvider}" />
+        <TextBlock Classes="v2-label" IsVisible="{Binding Settings.RecognitionNeedsRuntime}"
+                   Text="{Binding RecognitionRuntimeWarning}" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.ScanProvider}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsDataSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding Settings.DataStatus}" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.DatabasePath}" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.DiagnosticChannel}" />
+        <Button Classes="v2-target" HorizontalAlignment="Left"
+                AutomationProperties.AutomationId="v2-setup-sync"
+                Content="{Binding SyncLabel}" Command="{Binding Settings.SyncCommand}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsTeamDevicesSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
+        <Button Classes="v2-target" HorizontalAlignment="Left"
+                AutomationProperties.AutomationId="v2-setup-open-team"
+                Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsUpdatesSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" Text="{Binding Settings.InstalledBuild}" />
+        <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
+                  IsEnabled="{Binding Settings.CanCheckForUpdate}"
+                  Content="{Binding CheckUpdateLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
+          <Button Classes="v2-target" IsVisible="{Binding Settings.CanDownloadUpdate}"
+                  AutomationProperties.AutomationId="v2-setup-download-update"
+                  Content="{Binding DownloadUpdateLabel}" Command="{Binding Settings.DownloadUpdateCommand}" />
+          <Button Classes="v2-target primary" IsVisible="{Binding Settings.CanRestartForUpdate}"
+                  AutomationProperties.AutomationId="v2-setup-restart-update"
+                  Content="{Binding RestartUpdateLabel}" Command="{Binding Settings.RestartForUpdateCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsPrivacySelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding ScreenshotIntro}" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
+                  IsEnabled="{Binding Settings.CanTidyScreenshots}"
+                  Content="{Binding Settings.ScreenshotTidyingLabel}" Command="{Binding Settings.ToggleScreenshotTidyingCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-choose-retention"
+                  IsEnabled="{Binding Settings.CanTidyScreenshots}"
+                  Content="{Binding RetentionLabel}" Command="{Binding Settings.ChooseRetentionCommand}" />
+        </WrapPanel>
+        <TextBlock Classes="v2-label" Text="{Binding DebugCaptureLabel}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsAppearanceSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-smaller"
+                  Content="{Binding SmallerLabel}" Command="{Binding DecreaseScaleCommand}" />
+          <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Legacy.InterfaceScaleLabel}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-larger"
+                  Content="{Binding LargerLabel}" Command="{Binding IncreaseScaleCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-reset"
+                  Content="{Binding ResetLabel}" Command="{Binding ResetScaleCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsDisplaysSelected}">
+      <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" />
+    </Border>
+
+    <Border Classes="v2-card" IsVisible="{Binding IsDiagnosticsSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" Text="{Binding Settings.CompanionLogPath}" />
+        <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
+                  Content="{Binding CopyDiagnosticsLabel}" Command="{Binding Settings.CopyDiagnosticsCommand}" />
+          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
+                  Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>
