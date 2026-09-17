@@ -32,46 +32,19 @@
     </DataTemplate>
   </UserControl.DataTemplates>
   <UserControl.Resources>
-    <!-- V2 rough package 15: small vector rail icons — Rectangle/Ellipse shapes, not a font
+    <!-- V2 rough package 15: outline rail icons (Themes/V2/V2Icons.axaml), not a font
          glyph. Shared between the rail's destinations and its Setup gear so both draw the same
          way. Purely decorative: AccessibilityView="Raw", and the button around it always carries
          the real accessible Name (Label). -->
     <DataTemplate x:Key="V2RailIconTemplate" x:DataType="vm:V2ShellDestinationViewModel">
-      <Grid Width="18" Height="18" AutomationProperties.AccessibilityView="Raw">
-        <Grid IsVisible="{Binding IsRaid}">
-          <Ellipse Width="14" Height="14" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
-          <Ellipse Width="5" Height="5" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-        </Grid>
-        <Grid IsVisible="{Binding IsIntel}">
-          <Rectangle Width="12" Height="16" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1" RadiusY="1" />
-          <StackPanel Width="7" Spacing="3">
-            <Rectangle Height="1.4" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-            <Rectangle Height="1.4" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-            <Rectangle Height="1.4" Width="4" HorizontalAlignment="Left" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-          </StackPanel>
-        </Grid>
-        <Grid IsVisible="{Binding IsPlan}">
-          <Rectangle Width="13" Height="16" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1" RadiusY="1" />
-          <Rectangle Width="6" Height="3" VerticalAlignment="Top" Margin="0,-1,0,0"
-                     Fill="{DynamicResource V2.Brush.TextPrimary}" RadiusX="1" RadiusY="1" />
-        </Grid>
-        <Grid IsVisible="{Binding IsTeam}">
-          <Ellipse Width="10" Height="10" Margin="0,0,7,0"
-                   Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
-          <Ellipse Width="10" Height="10" Margin="7,0,0,0"
-                   Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
-        </Grid>
-        <Grid IsVisible="{Binding IsDebrief}">
-          <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Bottom">
-            <Rectangle Width="4" Height="8" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-            <Rectangle Width="4" Height="14" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-            <Rectangle Width="4" Height="11" VerticalAlignment="Bottom" Fill="{DynamicResource V2.Brush.TextPrimary}" />
-          </StackPanel>
-        </Grid>
-        <Grid IsVisible="{Binding IsSetup}">
-          <Ellipse Width="15" Height="15" Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="2.5" />
-        </Grid>
-      </Grid>
+      <Panel Width="24" Height="24" AutomationProperties.AccessibilityView="Raw">
+        <Path Classes="v2-icon" IsVisible="{Binding IsRaid}" Data="{DynamicResource V2.Icon.Map}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsIntel}" Data="{DynamicResource V2.Icon.Document}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsPlan}" Data="{DynamicResource V2.Icon.Clipboard}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsTeam}" Data="{DynamicResource V2.Icon.People}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsDebrief}" Data="{DynamicResource V2.Icon.Chart}" />
+        <Path Classes="v2-icon" IsVisible="{Binding IsSetup}" Data="{DynamicResource V2.Icon.Gear}" />
+      </Panel>
     </DataTemplate>
   </UserControl.Resources>
   <UserControl.Styles>
@@ -117,20 +90,40 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Space.Md.Inset}" />
+      <Setter Property="Padding" Value="20,0,12,0" />
+      <Setter Property="Height" Value="60" />
+    </Style>
+    <Style Selector="Rectangle.v2-topbar-sep">
+      <Setter Property="Width" Value="1" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ComboBox.v2-topbar-map">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Border.v2-topbar-tag">
-      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="4,0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Border.v2-status-pill">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="Padding" Value="14,6" />
+    </Style>
+    <Style Selector="Border.v2-status-pill TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-status-pill.v2-availability-ready TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Button.v2-topbar-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Border.v2-status-pill.v2-availability-ready">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
@@ -143,15 +136,20 @@
     <Style Selector="Border.v2-tabbar">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="0,0,0,1" />
-      <Setter Property="Padding" Value="0,0,0,4" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
     </Style>
     <Style Selector="Button.v2-tab">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0,0,0,2" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
+      <Setter Property="Padding" Value="4,6" />
+      <Setter Property="Margin" Value="0,0,12,0" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-tab.selected">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
     <Style Selector="Button.v2-tab.selected">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -163,7 +161,15 @@
       <Setter Property="BorderThickness" Value="3,0,0,0" />
       <Setter Property="BorderBrush" Value="Transparent" />
       <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="9,8,12,8" />
+      <Setter Property="Padding" Value="19,0,12,0" />
+      <Setter Property="Height" Value="60" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    </Style>
+    <Style Selector="Button.v2-rail-item.selected TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-rail-item.selected Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="Button.v2-rail-item.selected">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -173,8 +179,8 @@
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="HorizontalAlignment" Value="Left" />
-      <Setter Property="Margin" Value="12" />
-      <Setter Property="Padding" Value="8" />
+      <Setter Property="Margin" Value="12,12,12,16" />
+      <Setter Property="Padding" Value="10" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <Style Selector="Button.v2-rail-gear.selected">
@@ -193,14 +199,17 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.ControlTypeOverride="ToolBar"
               AutomationProperties.Name="{Binding AppName}">
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
-          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <TextBlock Classes="v2-heading-3" Text="{Binding AppName}" />
-            <Border Classes="v2-topbar-tag">
+        <!-- Left to right like the concepts: name, map, mode, raid clock, data freshness; then
+             search/setup/capture and the status pill at the far right. -->
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="16">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <TextBlock Classes="v2-heading-3" FontSize="20" Text="{Binding AppName}" />
+            <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
               <TextBlock Classes="v2-label" Text="{Binding AppTag}" />
             </Border>
           </StackPanel>
-          <ComboBox Grid.Column="2" MinWidth="120" VerticalAlignment="Center"
+          <Rectangle Grid.Column="1" Classes="v2-topbar-sep" IsVisible="{Binding ShowsMapSelector}" />
+          <ComboBox Grid.Column="2" Classes="v2-topbar-map" MinWidth="120" VerticalAlignment="Center"
                      IsVisible="{Binding ShowsMapSelector}"
                      ItemsSource="{Binding RaidCockpitWorkspace.MapPicker}"
                      SelectedItem="{Binding RaidCockpitWorkspace.SelectedMap, Mode=OneWay}"
@@ -213,20 +222,23 @@
               </DataTemplate>
             </ComboBox.ItemTemplate>
           </ComboBox>
-          <TextBlock Grid.Column="3" Classes="v2-label" VerticalAlignment="Center"
+          <Rectangle Grid.Column="3" Classes="v2-topbar-sep" />
+          <TextBlock Grid.Column="4" Classes="v2-label" VerticalAlignment="Center"
                      AutomationProperties.AutomationId="v2-shell-topbar-mode"
                      Text="{Binding TopBarModeLabel}" />
-          <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <TextBlock Classes="v2-glyph" Text="◷" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-topbar-clock"
+          <Rectangle Grid.Column="5" Classes="v2-topbar-sep" />
+          <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
+            <TextBlock Classes="v2-body" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-clock"
                        Text="{Binding RaidClockLabel}" />
           </StackPanel>
-          <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <TextBlock Classes="v2-glyph" Text="↻" AutomationProperties.AccessibilityView="Raw" />
-            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
+          <Rectangle Grid.Column="7" Classes="v2-topbar-sep" />
+          <StackPanel Grid.Column="8" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Viewbox Width="20" Height="20"><Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" /></Viewbox>
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" AutomationProperties.AutomationId="v2-shell-topbar-freshness"
                        Text="{Binding DataFreshnessLabel}" />
           </StackPanel>
-          <StackPanel Grid.Column="6" Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">
+          <StackPanel Grid.Column="10" Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">
             <TextBox Classes="v2-field-input" MinWidth="160" Width="180"
                      Text="{Binding SearchText}"
                      PlaceholderText="{Binding SearchPlaceholder}"
@@ -235,7 +247,7 @@
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-header-search-open"
                     Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
           </StackPanel>
-          <Button Grid.Column="7" Classes="v2-target v2-destination"
+          <Button Grid.Column="11" Classes="v2-target v2-destination"
                   Classes.selected="{Binding SetupDestination.IsCurrent}"
                   IsVisible="{Binding ShowsHeaderSetup}"
                   AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
@@ -243,27 +255,21 @@
                   AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
                   Content="{Binding SetupDestination.DisplayLabel}"
                   Command="{Binding SetupDestination.NavigateCommand}" />
-          <Button Grid.Column="8" Classes="v2-target v2-icon-btn"
-                  AutomationProperties.AutomationId="v2-shell-capture"
+          <Button Grid.Column="12" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-shell-capture" ToolTip.Tip="{Binding CaptureLabel}"
                   AutomationProperties.Name="{Binding CaptureLabel}" Command="{Binding CaptureCommand}">
-            <!-- A small camera outline: body + viewfinder bump + lens. -->
-            <Grid Width="18" Height="14" AutomationProperties.AccessibilityView="Raw">
-              <Rectangle Width="18" Height="12" VerticalAlignment="Bottom"
-                         Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" RadiusX="1.5" RadiusY="1.5" />
-              <Rectangle Width="6" Height="3" VerticalAlignment="Top" HorizontalAlignment="Center"
-                         Fill="{DynamicResource V2.Brush.TextPrimary}" />
-              <Ellipse Width="6" Height="6" Margin="0,2,0,0"
-                       Stroke="{DynamicResource V2.Brush.TextPrimary}" StrokeThickness="1.5" />
-            </Grid>
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
           </Button>
-          <Button Grid.Column="9" Classes="v2-target" Padding="0"
+          <Button Grid.Column="13" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-shell-health"
                   AutomationProperties.Name="{Binding HealthLabel}" Command="{Binding HealthCommand}">
             <Border Classes="v2-status-pill" Classes.v2-availability-ready="{Binding SurfaceIsReady}">
-              <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}"
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Ellipse Width="10" Height="10" VerticalAlignment="Center" IsVisible="{Binding SurfaceIsReady}"
+                         Fill="{DynamicResource V2.Brush.Success}" AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}" IsVisible="{Binding !SurfaceIsReady}"
                            AutomationProperties.AccessibilityView="Raw" />
-                <TextBlock Classes="v2-label" Text="{Binding SurfaceTitle}" />
+                <TextBlock Classes="v2-body" Text="{Binding SurfaceTitle}" />
               </StackPanel>
             </Border>
           </Button>
@@ -409,13 +415,13 @@
 
       <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
         <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
-        <Border Grid.Column="0" Width="240" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
+        <Border Grid.Column="0" Width="168" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.LandmarkType="Navigation"
                 AutomationProperties.Name="{Binding NavigationRegionName}">
           <Grid RowDefinitions="*,Auto">
             <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,8"
+              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,12"
                             AutomationProperties.AutomationId="v2-shell-navigation-rail">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
@@ -425,10 +431,11 @@
                             AutomationProperties.Name="{Binding Label}"
                             AutomationProperties.ItemStatus="{Binding SelectionDescription}"
                             Command="{Binding NavigateCommand}">
-                      <StackPanel Orientation="Horizontal" Spacing="10">
+                      <StackPanel Orientation="Horizontal" Spacing="14">
                         <ContentControl Content="{Binding}" ContentTemplate="{StaticResource V2RailIconTemplate}"
+                                        VerticalAlignment="Center"
                                         AutomationProperties.AccessibilityView="Raw" />
-                        <TextBlock Text="{Binding Label}" />
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
                       </StackPanel>
                     </Button>
                   </DataTemplate>
@@ -440,6 +447,7 @@
                     AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                     AutomationProperties.Name="{Binding SetupDestination.Label}"
                     AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                    ToolTip.Tip="{Binding SetupDestination.Label}"
                     Command="{Binding SetupDestination.NavigateCommand}">
               <ContentControl Content="{Binding SetupDestination}" ContentTemplate="{StaticResource V2RailIconTemplate}"
                               AutomationProperties.AccessibilityView="Raw" />
@@ -457,7 +465,7 @@
           <Grid Grid.Column="0" IsVisible="{Binding ShowsPrimaryContent}" RowDefinitions="Auto,*">
           <ScrollViewer Grid.Row="0" Grid.RowSpan="{Binding ShellBodyRowSpan}"
                         HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Classes="v2-page">
+            <StackPanel Classes="v2-page" Margin="16,6,16,0" Spacing="8">
               <!-- The rail already names the current destination, and the section tabs (when a
                    route has any) repeat it as their own first tab — a visible heading here said
                    the same word a third time. It stays in the tree, off-screen, only for the

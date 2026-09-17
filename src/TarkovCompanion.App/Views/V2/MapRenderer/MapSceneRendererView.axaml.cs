@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Core.Domain.Maps.Scene;
@@ -22,7 +24,11 @@ public sealed partial class MapSceneRendererView : UserControl
 
     public MapSceneRendererView()
     {
-        AvaloniaXamlLoader.Load(this);
+        // InitializeComponent, not AvaloniaXamlLoader.Load: only the generated method assigns the
+        // x:Name fields (PlanViewport, RendererBody, ...). With Load alone every one stayed null,
+        // so the responsive layout and viewport sizing below silently never ran and the plan kept
+        // its default 1000x700 canvas beside an empty details column.
+        InitializeComponent();
         DataContextChanged += RendererDataContextChanged;
     }
 
@@ -82,7 +88,20 @@ public sealed partial class MapSceneRendererView : UserControl
         base.OnDetachedFromVisualTree(eventArgs);
     }
 
-    private void RendererDataContextChanged(object? sender, EventArgs eventArgs) => UpdateViewport();
+    private void RendererDataContextChanged(object? sender, EventArgs eventArgs)
+    {
+        // A host can swap in a new renderer view model while this view is already laid out at
+        // its final size (the Raid workspace does, on its first scene). Neither SizeChanged
+        // handler fires then, so the new model would keep its default canvas size and the
+        // details column this model may not want. Re-apply both now and once more after layout.
+        UpdateResponsiveLayout();
+        UpdateViewport();
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateResponsiveLayout();
+            UpdateViewport();
+        }, DispatcherPriority.Loaded);
+    }
 
     private void RendererSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
@@ -108,7 +127,13 @@ public sealed partial class MapSceneRendererView : UserControl
         Grid.SetColumn(RendererCommands, narrowHeader ? 0 : 1);
         Grid.SetRow(RendererCommands, narrowHeader ? 1 : 0);
         RendererBody.ColumnDefinitions = new(!showsDetails ? "*" : compact ? "*" : "2*,*");
-        RendererBody.RowDefinitions = new(showsDetails && compact ? "Auto,Auto" : "Auto");
+        RendererBody.RowDefinitions = new(showsDetails && compact ? "Auto,Auto" : showsDetails ? "Auto" : "*");
+        // Without its own details column the map is the whole view: give the plan the host's
+        // finite height instead of letting the canvas's previous size decide it inside a scroller.
+        if (RendererScroll is not null)
+        {
+            RendererScroll.VerticalScrollBarVisibility = showsDetails ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
+        }
         Grid.SetColumn(PlanViewport, 0);
         Grid.SetRow(PlanViewport, 0);
         Grid.SetColumn(DetailsPanel, compact ? 0 : 1);

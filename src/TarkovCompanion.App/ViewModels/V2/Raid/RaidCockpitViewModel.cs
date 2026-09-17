@@ -15,6 +15,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
+using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.App.ViewModels.V2.Raid;
@@ -74,6 +75,32 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
     public ICommand RenameCommand { get; }
 
     public ICommand RemoveCommand { get; }
+}
+
+/// <summary>
+/// V2 rough package 15: one extract (or transit) on the current map for the Raid workspace's
+/// "Extract options" list, taken from the canonical scene so it lists the same points the map
+/// draws, with the same offer state.
+/// </summary>
+public sealed class RaidExtractRowViewModel(string name, string detail, MapSceneOfferState offerState)
+{
+    public string Name { get; } = name;
+
+    /// <summary>Faction or "Transit": who can use it, in one or two words.</summary>
+    public string Detail { get; } = detail;
+
+    public bool IsOffered => offerState == MapSceneOfferState.Offered;
+
+    public bool IsNotOffered => offerState == MapSceneOfferState.NotOffered;
+
+    public string OfferLabel => offerState switch
+    {
+        MapSceneOfferState.Offered => "Offered",
+        MapSceneOfferState.NotOffered => "Not offered",
+        _ => "",
+    };
+
+    public bool HasOfferLabel => offerState != MapSceneOfferState.Unknown;
 }
 
 /// <summary>
@@ -203,6 +230,39 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public string Transits => _raid.Transits;
 
     public bool HasTransits => !string.IsNullOrWhiteSpace(Transits);
+
+    /// <summary>The raid clock when one is running, otherwise a quiet "In raid" / "Not in raid"
+    /// rather than the legacy page's "Unknown" plus a full sentence.</summary>
+    public string RaidPhaseLabel =>
+        !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeft)
+            ? TimeLeft
+            : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
+
+    /// <summary>False while no raid clock is running, so the quiet phase label stands alone.</summary>
+    public bool HasRaidPhaseDetail =>
+        !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeftDetail);
+
+    /// <summary>The current map's name for the context panel header, e.g. "CUSTOMS".</summary>
+    public string MapTitle => (SelectedMap?.Name ?? Renderer?.LocationLabel ?? string.Empty).ToUpper(CultureInfo.CurrentCulture);
+
+    /// <summary>"12 extracts · 5 spawn areas" for the context panel header.</summary>
+    public string MapSummary => string.Join(
+        " · ",
+        new[]
+        {
+            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} {(MapExtracts.Count == 1 ? "extract" : "extracts")}",
+            SpawnAreas.Count == 0 ? null : $"{SpawnAreas.Count} {(SpawnAreas.Count == 1 ? "spawn area" : "spawn areas")}",
+        }.Where(part => part is not null));
+
+    /// <summary>Extracts and transits on the current map, offered first.</summary>
+    public IReadOnlyList<RaidExtractRowViewModel> MapExtracts { get; private set; } = [];
+
+    public bool HasMapExtracts => MapExtracts.Count > 0;
+
+    /// <summary>Named spawn areas on the current map (potential spawns, never observed players).</summary>
+    public IReadOnlyList<string> SpawnAreas { get; private set; } = [];
+
+    public bool HasSpawnAreas => SpawnAreas.Count > 0;
 
     /// <summary>
     /// The host calls this from a plan click while a mark tool is armed. It is a no-op
@@ -376,9 +436,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
+                OnPropertyChanged(nameof(RaidPhaseLabel));
+                OnPropertyChanged(nameof(HasRaidPhaseDetail));
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
+                OnPropertyChanged(nameof(HasRaidPhaseDetail));
                 break;
             case nameof(RaidPageViewModel.Extracts):
                 OnPropertyChanged(nameof(Extracts));
@@ -395,7 +458,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
     }
 
-    private void RuntimeStateChanged(object? sender, EventArgs e) => _ = RebuildAsync();
+    private void RuntimeStateChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(RaidPhaseLabel));
+        _ = RebuildAsync();
+    }
 
     private void MarksChanged()
     {
@@ -570,10 +637,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // copy of the same map beside it. Loot filtering stays reachable through
                 // Renderer.HighValueLoot in this page's own right panel.
                 showsDetailsPanel: false,
-                // The Raid workspace's map card is its own fixed frame around the plan, like
-                // docs/design/v2/v2-raid-intelligence-concept.png: it fills edge to edge rather
-                // than letterboxing when its aspect ratio does not match the plan's own.
-                fillsViewport: true);
+                // Fit is "contain, centred": the whole plan stays visible (an extract at the edge
+                // is never cropped away) and the map card's own surface fills around it.
+                fillsViewport: false);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             Renderer = renderer;
@@ -585,6 +651,49 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         OnPropertyChanged(nameof(HasRenderer));
+        RefreshSceneLists(scene);
+    }
+
+    /// <summary>Internal for direct coverage (see the unit tests).</summary>
+    internal static IReadOnlyList<RaidExtractRowViewModel> BuildExtractRows(IReadOnlyList<MapSceneObject> objects) => objects
+        .Where(item => item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit)
+        .GroupBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
+        .Select(group => group.OrderByDescending(item => item.OfferState == MapSceneOfferState.Offered).First())
+        .OrderBy(item => item.OfferState switch
+        {
+            MapSceneOfferState.Offered => 0,
+            MapSceneOfferState.Unknown => 1,
+            _ => 2,
+        })
+        .ThenBy(item => item.Kind)
+        .ThenBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase)
+        .Select(item => new RaidExtractRowViewModel(
+            item.Label,
+            item.Kind == MapSceneObjectKind.Transit ? "Transit" : item.Faction switch
+            {
+                MapFeatureFaction.Pmc => "PMC",
+                MapFeatureFaction.Scav => "Scav",
+                MapFeatureFaction.Shared => "PMC · Scav",
+                _ => "",
+            },
+            item.OfferState))
+        .ToArray();
+
+    private void RefreshSceneLists(MapSceneSnapshot scene)
+    {
+        MapExtracts = BuildExtractRows(scene.Objects);
+        SpawnAreas = scene.Objects
+            .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
+            .Select(item => item.Label)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(label => label, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        OnPropertyChanged(nameof(MapExtracts));
+        OnPropertyChanged(nameof(HasMapExtracts));
+        OnPropertyChanged(nameof(SpawnAreas));
+        OnPropertyChanged(nameof(HasSpawnAreas));
+        OnPropertyChanged(nameof(MapTitle));
+        OnPropertyChanged(nameof(MapSummary));
     }
 
     private void ViewChangeRequested(MapSceneViewChange change)

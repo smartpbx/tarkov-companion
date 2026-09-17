@@ -1,10 +1,11 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- The one dictionary a V2 host merges; V1 remains untouched until #267. The three parts do not
+  <!-- The one dictionary a V2 host merges; V1 remains untouched until #267. The four parts do not
        include one another, so each can be loaded and checked on its own. -->
   <ResourceDictionary.MergedDictionaries>
     <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2ThemeVariants.axaml" />
     <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Tokens.axaml" />
     <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Strings.axaml" />
+    <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Icons.axaml" />
   </ResourceDictionary.MergedDictionaries>
 </ResourceDictionary>

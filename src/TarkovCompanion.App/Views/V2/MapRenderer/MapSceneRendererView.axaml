@@ -90,10 +90,21 @@
     </Style>
     <Style Selector="ToggleButton.v2-segment:checked">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- Floating controls over the map: a translucent surface so the plan still reads beneath. -->
+    <Style Selector="Border.v2-map-float">
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="Opacity" Value="0.96" />
+    </Style>
+    <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
     </Style>
   </UserControl.Styles>
 
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" x:Name="RendererScroll">
   <Grid>
     <!-- V2 rough package 15: the map fills the whole area edge to edge; presentation, zoom and
          the floor selector float compactly over its corners instead of taking their own rows
@@ -101,8 +112,9 @@
          code-behind's responsive layout still targets them by name); only where they sit moved. -->
     <!-- One compact floating pill: presentation mode as a segmented control, then the floor
          selector. No card behind the zoom/fit/loot group on the other corner — see below. -->
-    <Border ZIndex="1" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Classes="v2-card" Opacity="0.97" MaxWidth="380">
+    <Border ZIndex="1" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Classes="v2-card v2-map-float" MaxWidth="560">
       <StackPanel Spacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="8">
         <ItemsControl ItemsSource="{Binding Modes}" AutomationProperties.Name="{Binding PresentationLabel}">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="0" /></ItemsPanelTemplate>
@@ -117,6 +129,22 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
+        <!-- A compact selector rather than a row of radio buttons with raw layer ids: only the
+             floor actually visible in the ComboBox needs an id, so the closed control shows the
+             human floor name instead. The label stays for assistive technology only. -->
+        <ComboBox MinWidth="130" ItemsSource="{Binding Floors}" IsVisible="{Binding HasFloorFilters}"
+                  SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
+                  SelectionChanged="FloorSelectionChanged"
+                  ToolTip.Tip="{Binding FloorLabel}"
+                  AutomationProperties.AutomationId="v2-map-floor-picker"
+                  AutomationProperties.Name="{Binding FloorLabel}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        </WrapPanel>
         <TextBlock Classes="v2-body" IsVisible="{Binding ShowsModeFallback}"
                    AutomationProperties.AutomationId="v2-map-mode-fallback"
                    AutomationProperties.AccessibilityView="Control"
@@ -134,23 +162,6 @@
                    AutomationProperties.LiveSetting="Polite"
                    AutomationProperties.Name="{Binding DenseSceneNotice}"
                    Text="{Binding DenseSceneNotice}" TextWrapping="Wrap" />
-        <!-- A compact selector rather than a row of radio buttons with raw layer ids: only the
-             floor actually visible in the ComboBox needs an id, so the closed control shows the
-             human floor name instead. -->
-        <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorFilters}">
-          <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding FloorLabel}" />
-          <ComboBox MinWidth="140" ItemsSource="{Binding Floors}"
-                    SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
-                    SelectionChanged="FloorSelectionChanged"
-                    AutomationProperties.AutomationId="v2-map-floor-picker"
-                    AutomationProperties.Name="{Binding FloorLabel}">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
-                <TextBlock Text="{Binding Name}" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-        </StackPanel>
       </StackPanel>
     </Border>
 
@@ -169,17 +180,26 @@
       <StackPanel x:Name="RendererCommands" Grid.Column="1" Spacing="8">
         <Button Classes="v2-target v2-icon-btn" Command="{Binding ZoomOutCommand}"
                 AutomationProperties.AutomationId="v2-map-zoom-out"
-                AutomationProperties.Name="{Binding ZoomOutLabel}" Content="−" />
+                AutomationProperties.Name="{Binding ZoomOutLabel}" ToolTip.Tip="{Binding ZoomOutLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Minus}" />
+        </Button>
         <Button Classes="v2-target v2-icon-btn" Command="{Binding ZoomInCommand}"
                 AutomationProperties.AutomationId="v2-map-zoom-in"
-                AutomationProperties.Name="{Binding ZoomInLabel}" Content="+" />
+                AutomationProperties.Name="{Binding ZoomInLabel}" ToolTip.Tip="{Binding ZoomInLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Plus}" />
+        </Button>
         <Button Classes="v2-target v2-icon-btn" Command="{Binding FitPlanCommand}"
                 AutomationProperties.AutomationId="v2-map-fit"
-                AutomationProperties.Name="{Binding FitPlanLabel}" Content="⛶" />
+                AutomationProperties.Name="{Binding FitPlanLabel}" ToolTip.Tip="{Binding FitPlanLabel}">
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Fit}" />
+        </Button>
         <Button Classes="v2-target v2-icon-btn" Command="{Binding HighValueLootPresetCommand}"
                 IsVisible="{Binding HasHighValueLoot}"
                 AutomationProperties.AutomationId="v2-map-loot-preset"
-                AutomationProperties.Name="{Binding HighValueLootPresetLabel}" Content="$" />
+                AutomationProperties.Name="{Binding HighValueLootPresetLabel}" ToolTip.Tip="{Binding HighValueLootPresetLabel}">
+          <!-- A gem, not "$": this shows the high-value loot layer, named in the tooltip. -->
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Gem}" />
+        </Button>
       </StackPanel>
     </Grid>
 
@@ -210,7 +230,7 @@
             <Border Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
                     Width="{Binding MapWidth}" Height="{Binding MapHeight}"
                     Background="{DynamicResource V2.Brush.SurfaceRaised}"
-                    BorderBrush="{DynamicResource V2.Brush.Border}" BorderThickness="1">
+                    BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1">
               <Image Source="{Binding BackgroundImage}" IsVisible="{Binding HasBackgroundImage}" Stretch="Fill" />
             </Border>
 
@@ -292,7 +312,8 @@
             </ItemsControl>
           </Canvas>
 
-          <Border Canvas.Left="12" Canvas.Top="12" Classes="v2-card" Padding="8" IsHitTestVisible="False">
+          <Border Canvas.Left="12" Canvas.Top="12" Classes="v2-card" Padding="8" IsHitTestVisible="False"
+                  IsVisible="{Binding ShowsDetailsPanel}">
             <StackPanel Spacing="2">
               <TextBlock Classes="v2-label" Text="{Binding ModeLabel}" />
               <TextBlock Classes="v2-label" Text="{Binding ReviewedAssetLabel}"
