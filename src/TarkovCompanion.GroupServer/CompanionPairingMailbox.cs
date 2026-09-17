@@ -36,17 +36,27 @@ public sealed class CompanionPairingMailbox
     private readonly Lock _gate = new();
     private readonly Dictionary<PairingAttemptId, Entry> _entries = [];
     private PairingRateState _rateState = PairingRateState.Empty;
+    private PairingRateState _registerRateState = PairingRateState.Empty;
 
     public CompanionPairingMailbox(TimeProvider timeProvider)
     {
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
 
-    public MailboxResult<bool> RegisterOffer(PairingOffer offer, string? pairingCode)
+    /// <summary>Registers a desktop-created offer, bounded the same way a resolve is.</summary>
+    /// <remarks>
+    /// <see cref="PairingOffer"/> only bounds <c>ExpiresUtc - OfferedUtc</c> to at most ten
+    /// minutes; <c>OfferedUtc</c> itself is whatever the caller wrote into the JSON body. Without
+    /// a clock check, a future-dated offer's expiry is future-dated too, so <see cref="Sweep"/>
+    /// never reclaims it: 64 such offers fill the table and every real pairing on this relay sees
+    /// "invitation-limit" until the process restarts. The same per-source rate limit
+    /// <see cref="ResolveOffer"/> already applies to code lookups applies here to registrations.
+    /// </remarks>
+    public MailboxResult<bool> RegisterOffer(PairingOffer offer, string? pairingCode, string remoteAddress)
     {
         ArgumentNullException.ThrowIfNull(offer);
         var now = Now();
-        if (offer.ExpiresUtc <= now)
+        if (offer.OfferedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) || offer.ExpiresUtc <= now)
         {
             return MailboxResult<bool>.Reject("pairing-rejected");
         }
@@ -64,6 +74,23 @@ public sealed class CompanionPairingMailbox
         lock (_gate)
         {
             Sweep(now);
+            var sourceHash = Base64Url.EncodeToString(Digest(_sourceHashKey, remoteAddress));
+            PairingRateDecision rate;
+            try
+            {
+                rate = PairingRateLimiter.TryConsume(_registerRateState, sourceHash, now);
+            }
+            catch (ArgumentException)
+            {
+                return MailboxResult<bool>.Reject("pairing-rejected");
+            }
+
+            _registerRateState = rate.State;
+            if (!rate.Accepted)
+            {
+                return MailboxResult<bool>.Reject("rate-limited", rate.RetryAfterUtc);
+            }
+
             if (_entries.ContainsKey(offer.AttemptId))
             {
                 return MailboxResult<bool>.Reject("pairing-rejected");
