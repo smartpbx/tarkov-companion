@@ -718,6 +718,18 @@ public interface IRaidHistoryService
 
     Task EndAsync(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Fixes an outcome or notes field the player says is wrong, after the raid already ended.
+    /// </summary>
+    /// <remarks>
+    /// The game never records an outcome (see <see cref="EndAsync"/>'s callers), so most of this
+    /// row is the player's own account of the raid, entered or corrected by hand. Unlike a
+    /// game-observed event, an explicit correction from Debrief has no delivery-ordering
+    /// relationship with the rest of a raid's history, so it does not need the outbox's
+    /// durable-replay guarantee and is not part of its closed command set.
+    /// </remarks>
+    Task CorrectAsync(Guid raidId, string? outcome, string? notes, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>

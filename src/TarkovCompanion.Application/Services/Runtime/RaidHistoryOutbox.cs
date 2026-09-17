@@ -199,6 +199,17 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         CancellationToken cancellationToken) =>
         AcceptAsync([RaidHistoryCommand.EndRaid(raidId, endUtc, outcome, notes)], cancellationToken);
 
+    /// <summary>
+    /// Writes straight through to the target instead of the durable queue.
+    /// </summary>
+    /// <remarks>
+    /// A manual Debrief correction is a one-off UI action with no delivery-ordering relationship
+    /// to the game-observed events above; it is not part of the outbox's closed command set (see
+    /// <see cref="Encode"/>) and does not need at-least-once replay.
+    /// </remarks>
+    public Task CorrectAsync(Guid raidId, string? outcome, string? notes, CancellationToken cancellationToken) =>
+        _inner.CorrectAsync(raidId, outcome, notes, cancellationToken);
+
     public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
         _inner.ListAsync(cancellationToken);
 

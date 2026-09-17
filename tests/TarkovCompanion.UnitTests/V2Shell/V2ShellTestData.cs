@@ -8,17 +8,18 @@ internal static class V2ShellTestData
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
-    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid" and "Scanner" are
-    /// deliberately absent: the Raid route now hosts the raid cockpit
+    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner", and "History"
+    /// are deliberately absent: the Raid route now hosts the raid cockpit
     /// (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's "Raid"
-    /// page, and the Loot route now hosts the real <c>LootScanView</c> instead (package 1,
-    /// #282). Both V1 pages remain reachable from V1 navigation; neither is a V2 LegacyPage
-    /// route any more.
+    /// page, the Loot route now hosts the real <c>LootScanView</c> instead (package 1, #282), and
+    /// the Debrief route now hosts the real <c>DebriefWorkspaceView</c> instead (package 3, #291).
+    /// All three V1 pages remain reachable from V1 navigation; none is a V2 LegacyPage route any
+    /// more.
     /// </summary>
     public static readonly string[] V1Destinations =
     [
         "Squad", "Group", "Items", "Ammo", "Keys",
-        "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings",
+        "Flea", "Quests", "Hideout", "Events", "Loadout", "Settings",
     ];
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>
