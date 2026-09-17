@@ -430,6 +430,67 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Empty(shell.IntelFacts);
     }
 
+    [Fact]
+    public async Task An_item_opened_from_the_search_workspace_shows_in_the_workspace_not_the_side_card()
+    {
+        await using var shell = CreateShell(intel: new FakeItemIntelService());
+        shell.GoTo(V2Routes.Items);
+        Assert.True(shell.ShowsIntelWorkspace);
+        Assert.True(shell.ShowsIntelNoSelection);
+        shell.UpdatePlannedSuggestions([new("item-gpu", "Graphics card", "Bitcoin farm", "Level 1")]);
+
+        Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned).OpenCommand.Execute(null);
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+
+        Assert.True(shell.ShowsIntelWorkspace);
+        Assert.False(shell.ShowsIntelCard);
+        Assert.True(shell.ShowsPrimaryContent);
+        Assert.True(shell.IntelHasResult);
+        Assert.Equal("Graphics card", shell.IntelName);
+        Assert.Equal(2, shell.IntelSlotColumns);
+        Assert.Equal(2, shell.IntelSlotCells.Count);
+    }
+
+    [Fact]
+    public async Task The_context_panel_reports_needs_and_every_price_from_the_intel_result()
+    {
+        await using var shell = CreateShell(intel: new FakeItemIntelService());
+        shell.GoTo(V2Routes.Items);
+        shell.UpdatePlannedSuggestions([new("item-gpu", "Graphics card", "Bitcoin farm", "Level 1")]);
+        Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned).OpenCommand.Execute(null);
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+
+        // Two outstanding for quests plus one for the hideout.
+        Assert.Equal("Keep 3", shell.IntelVerdictHeadline);
+        Assert.Contains(shell.IntelNeedLines, line => line.IsActive && line.Text == "1 needed for your active quests");
+        Assert.Contains(shell.IntelNeedLines, line => !line.IsActive && line.Text == "0 later quests need it");
+        Assert.Equal("Best sale: Flea market", shell.IntelBestSaleLabel);
+        Assert.True(shell.IntelHasPrices);
+        Assert.Equal("Mechanic", shell.IntelTraderCaption);
+
+        var sources = shell.IntelPriceSources;
+        Assert.Equal(["Flea market", "Mechanic", "Therapist"], sources.Select(source => source.Name));
+        Assert.True(sources[0].IsBest);
+        Assert.Equal(1.0, sources[0].Share);
+        Assert.Equal(0.5, sources[1].Share, 3);
+    }
+
+    [Fact]
+    public async Task An_item_the_catalog_lacks_reads_as_unknown_with_no_price_panel()
+    {
+        await using var shell = CreateShell(intel: new FakeItemIntelService());
+        shell.GoTo(V2Routes.Items);
+        shell.UpdatePlannedSuggestions([new("item-missing", "Missing", "Somewhere", "Reason")]);
+        Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned).OpenCommand.Execute(null);
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+
+        Assert.True(shell.ShowsIntelDetailStatus);
+        Assert.False(shell.IntelHasResult);
+        Assert.False(shell.IntelHasPrices);
+        Assert.Empty(shell.IntelPriceSources);
+        Assert.Equal(string.Empty, shell.IntelVerdictHeadline);
+    }
+
     private V2ShellViewModel CreateShell(
         TestRuntimeStore? runtime = null,
         Func<V2ShellPreviewState, CancellationToken, Task>? save = null,
@@ -476,7 +537,26 @@ public sealed class V2ShellViewModelTests : IDisposable
                     1,
                     true,
                     new V2IntelValueFacts(45000, "Flea", 1, 1, 0))
-                : V2ItemIntelResult.NotFound(itemId));
+                : itemId == "item-gpu"
+                    ? new V2ItemIntelResult(
+                        V2IntelKind.Item,
+                        itemId,
+                        "Graphics card",
+                        "GPU",
+                        null,
+                        ItemCategory.Barter,
+                        2,
+                        1,
+                        true,
+                        new V2IntelValueFacts(400_000, "Flea", 1, 1, 1, OutstandingItems: 2),
+                        Prices: new V2IntelPriceFacts(
+                            400_000,
+                            null,
+                            null,
+                            null,
+                            [new("Mechanic", 200_000), new("Therapist", 100_000)],
+                            DateTimeOffset.UnixEpoch))
+                    : V2ItemIntelResult.NotFound(itemId));
     }
 
     private sealed class TestRuntimeStore(ApplicationRuntimeSnapshot current) : IRuntimeStateStore
