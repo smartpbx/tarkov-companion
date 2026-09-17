@@ -23,6 +23,7 @@ internal static partial class V2DesignSystemFiles
     public static readonly string[] TokensPath = ["src", "TarkovCompanion.App", "Themes", "V2", "V2Tokens.axaml"];
     public static readonly string[] StringsXamlPath = ["src", "TarkovCompanion.App", "Themes", "V2", "V2Strings.axaml"];
     public static readonly string[] StylesPath = ["src", "TarkovCompanion.App", "Themes", "V2", "V2PrimitiveStyles.axaml"];
+    public static readonly string[] IconsPath = ["src", "TarkovCompanion.App", "Themes", "V2", "V2Icons.axaml"];
     public static readonly string[] GalleryPath = ["src", "TarkovCompanion.App", "Views", "V2", "Primitives", "V2PrimitiveGallery.axaml"];
     public static readonly string[] LootScanViewPath = ["src", "TarkovCompanion.App", "Views", "V2", "LootScan", "LootScanView.axaml"];
 

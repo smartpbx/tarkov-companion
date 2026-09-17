@@ -24,6 +24,7 @@ public sealed class StashScanWorkspaceViewModelTests
 {
     private static readonly Guid ProfileId = Guid.Parse("30000000-0000-0000-0000-000000000001");
     private static readonly Guid SnapshotId = Guid.Parse("30000000-0000-0000-0000-000000000002");
+    private static readonly DataProvenance Fixture = new("fixture", DateTimeOffset.UnixEpoch);
 
     [Fact]
     public async Task Loading_without_a_profile_says_so_and_stays_empty()
@@ -140,6 +141,68 @@ public sealed class StashScanWorkspaceViewModelTests
         Assert.True(row.HasWikiLink);
         row.OpenWikiCommand!.Execute(null);
         Assert.Equal("https://escapefromtarkov.fandom.com/wiki/Gas_analyzer", wikiOpener.LastOpened);
+    }
+
+    [Fact]
+    public async Task A_loaded_snapshot_is_drawn_as_its_containers_with_every_read_footprint()
+    {
+        var store = new FakeSnapshotStore();
+        store.Seed(Record());
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog(
+                [new AmmoStats("ammo-9x19", "9x19mm", 10, 20, null, null, 1, null, null, null, false, false, Fixture)],
+                [new KeyFacts("key-101", "customs", 20, [], ["quest-1"], null, 0, 0, false, 0, Fixture)]),
+            new FakeRuntimeStateStore(RuntimeSnapshot()));
+
+        await viewModel.LoadAsync();
+
+        var region = Assert.Single(viewModel.Regions);
+        Assert.Equal("Stash", region.Title);
+        // Ammo and keys are folded into their own summaries, but still occupy squares on the grid.
+        Assert.Equal(3, region.Tiles.Count);
+        Assert.Contains(region.Tiles, tile => tile.IsAmmo);
+        Assert.Contains(region.Tiles, tile => tile.IsKey);
+        Assert.Equal("1 items", viewModel.ItemCountLabel);
+
+        // Nothing is sorted into Keep/Sell/Use soon yet, and the tiles say so rather than "0".
+        Assert.Equal("—", Assert.Single(viewModel.PlanTiles, tile => tile.IsKeep).CountLabel);
+        Assert.Equal("1", Assert.Single(viewModel.PlanTiles, tile => tile.IsReview).CountLabel);
+    }
+
+    [Fact]
+    public async Task Selecting_an_item_marks_its_square_and_the_capture_chips_choose_what_is_scanned()
+    {
+        var store = new FakeSnapshotStore();
+        store.Seed(Record());
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()));
+        await viewModel.LoadAsync();
+
+        var tile = Assert.Single(Assert.Single(viewModel.Regions).Tiles, item => item.Name == "Gas analyzer");
+        tile.SelectCommand.Execute(null);
+        Assert.Equal("Gas analyzer", viewModel.SelectedItemDisplayName);
+        Assert.True(tile.IsSelected);
+
+        ScanIntent? requested = null;
+        viewModel.ScanRequested += (_, intent) => requested = intent;
+        Assert.Single(viewModel.ScanTargets, target => target.Intent == ScanIntent.Keys).SelectCommand.Execute(null);
+        viewModel.StartSelectedScanCommand.Execute(null);
+
+        Assert.Equal(ScanIntent.Keys, viewModel.ScanTarget);
+        Assert.Equal(ScanIntent.Keys, requested);
+
+        Assert.True(viewModel.IsGridView);
+        viewModel.ShowListCommand.Execute(null);
+        Assert.True(viewModel.IsListView);
     }
 
     private static StashScanWorkflow Workflow(IStashSnapshotStore store, InMemoryStashReviewCommandSink reviewCommands) =>
