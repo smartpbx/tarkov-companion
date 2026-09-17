@@ -186,6 +186,59 @@ public sealed class CompanionPairingMailbox
 
     public SessionEstablished? ReadEstablished(PairingAttemptId attemptId) => Get(attemptId)?.Established;
 
+    /// <summary>
+    /// The desktop hands the tablet's own relay bearer secret through once it has registered the
+    /// device on the relay (v2r-relay-owner's <c>POST /v2/companion/relay/devices</c>).
+    /// <paramref name="relaySession"/> is <see cref="RelayCredentialCryptography.Seal"/>'s output
+    /// (sealed with the pairing's own desktop-to-tablet traffic key, ABUSE-PAIRED-LIVE-BEARER-THEFT)
+    /// — this mailbox never sees, stores, or forwards the plaintext bearer secret. First write wins
+    /// — every other slot here allows an idempotent resubmission of the identical value, but
+    /// <see cref="RelayCredentialCryptography.Seal"/> reseals with a fresh random nonce every call,
+    /// so a retried registration never produces byte-identical ciphertext even for the same secret;
+    /// accepting "the same value" here would have to mean "decrypts to the same plaintext", and
+    /// this mailbox deliberately never decrypts anything. <see cref="ReadRelaySession"/> additionally
+    /// consumes it on its first successful read, bounded the same way every other slot expires with
+    /// the offer.
+    /// </summary>
+    public MailboxResult<bool> SubmitRelaySession(PairingAttemptId attemptId, SealedRelayCredential relaySession)
+    {
+        ArgumentNullException.ThrowIfNull(relaySession);
+        var now = Now();
+        lock (_gate)
+        {
+            Sweep(now);
+            if (!_entries.TryGetValue(attemptId, out var entry) || entry.Offer.ExpiresUtc <= now)
+            {
+                return MailboxResult<bool>.Reject("pairing-rejected");
+            }
+
+            if (entry.RelaySessionSubmitted)
+            {
+                return MailboxResult<bool>.Reject("pairing-rejected");
+            }
+
+            _entries[attemptId] = entry with { RelaySession = relaySession, RelaySessionSubmitted = true };
+            return MailboxResult<bool>.Success(true);
+        }
+    }
+
+    /// <summary>Consumes the sealed relay session credential: null after the first successful read, the same as a miss.</summary>
+    public SealedRelayCredential? ReadRelaySession(PairingAttemptId attemptId)
+    {
+        var now = Now();
+        lock (_gate)
+        {
+            Sweep(now);
+            if (!_entries.TryGetValue(attemptId, out var entry) || entry.RelaySession is not { } relaySession)
+            {
+                return null;
+            }
+
+            _entries[attemptId] = entry with { RelaySession = null };
+            return relaySession;
+        }
+    }
+
     /// <summary>Lets the desktop tell a waiting tablet its request was declined.</summary>
     public MailboxResult<bool> Deny(PairingAttemptId attemptId)
     {
@@ -289,5 +342,7 @@ public sealed class CompanionPairingMailbox
         HandshakeChallenge? Challenge = null,
         DeviceKeyProof? Proof = null,
         SessionEstablished? Established = null,
+        SealedRelayCredential? RelaySession = null,
+        bool RelaySessionSubmitted = false,
         bool Denied = false);
 }

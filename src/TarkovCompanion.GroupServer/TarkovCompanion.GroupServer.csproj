@@ -18,6 +18,7 @@
          one file and a page that has to sit next to it is a deployment that works until
          somebody moves the file. -->
     <EmbeddedResource Include="Tablet/index.html" LogicalName="TarkovCompanion.GroupServer.Tablet.index.html" />
+    <EmbeddedResource Include="Tablet/relay-crypto.js" LogicalName="TarkovCompanion.GroupServer.Tablet.relay-crypto.js" />
     <EmbeddedResource Include="Admin/index.html" LogicalName="TarkovCompanion.GroupServer.Admin.index.html" />
   </ItemGroup>
 

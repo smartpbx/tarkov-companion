@@ -18,13 +18,21 @@ namespace TarkovCompanion.GroupServer;
 public static class Tablet
 {
     private const string ResourceName = "TarkovCompanion.GroupServer.Tablet.index.html";
+    private const string RelayCryptoResourceName = "TarkovCompanion.GroupServer.Tablet.relay-crypto.js";
 
-    public static string Page { get; } = Read();
+    public static string Page { get; } = Read(ResourceName);
 
-    private static string Read()
+    /// <summary>
+    /// The relay-frame sealing/opening this page's live sync uses (v2r-tablet-marks-sync), served
+    /// separately so it stays plain, `require`-able JavaScript for Node tests
+    /// (<c>scripts/test-relay-crypto.mjs</c>) rather than text embedded inside <see cref="Page"/>.
+    /// </summary>
+    public static string RelayCryptoScript { get; } = Read(RelayCryptoResourceName);
+
+    private static string Read(string resourceName)
     {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ResourceName)
-            ?? throw new InvalidOperationException($"The embedded page '{ResourceName}' was not found.");
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"The embedded page '{resourceName}' was not found.");
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }
