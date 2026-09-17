@@ -10,13 +10,17 @@ namespace TarkovCompanion.Application.Services.Raids;
 public sealed record ScreenshotRetentionSettings(bool IsEnabled, int RetentionHours)
 {
     /// <summary>
-    /// A day, which is long enough to go back for one worth keeping.
+    /// What a player who has never touched this setting gets: nothing tidied, at a day once they
+    /// turn it on.
     /// </summary>
     /// <remarks>
-    /// The point of a delay rather than deleting on read is that a player sometimes wants a
-    /// screenshot afterwards, and a day covers an evening's play plus the next morning.
+    /// #309: tidying is off until the player chooses it, on a fresh install and after a migration
+    /// with nothing to import alike. A day, once enabled, is long enough to go back for a
+    /// screenshot worth keeping: the point of a delay rather than deleting on read is that a
+    /// player sometimes wants one afterwards, and a day covers an evening's play plus the
+    /// following morning.
     /// </remarks>
-    public static ScreenshotRetentionSettings Default { get; } = new(true, 24);
+    public static ScreenshotRetentionSettings Default { get; } = new(false, 24);
 
     /// <summary>Bounds that keep a hand-edited file from doing something surprising.</summary>
     public int SafeRetentionHours => Math.Clamp(RetentionHours, 1, 24 * 30);

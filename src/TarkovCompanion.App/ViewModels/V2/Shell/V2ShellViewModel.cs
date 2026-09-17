@@ -12,6 +12,7 @@ using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views.V2.Tablet;
@@ -223,6 +224,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         SetupDestination = new(
             Variant.Setup,
             route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        // #292: built once, from the same view models V1's Settings page binds. Null only in the
+        // handful of tests above that build a shell without a legacy graph to adapt.
+        SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -327,6 +331,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public V2ShellRouter Router { get; }
     public ObservableCollection<V2ShellDestinationViewModel> PrimaryDestinations { get; }
     public V2ShellDestinationViewModel SetupDestination { get; }
+    public V2SetupWorkspaceViewModel? SetupWorkspace { get; }
     public IReadOnlyList<V2ShellSectionViewModel> SectionItems { get; private set; } = [];
     public IReadOnlyList<V2ShellCommand> Commands { get; }
     public ObservableCollection<V2ShellCommandViewModel> CommandItems { get; }
@@ -672,7 +677,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
     public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
-    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
+    public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
+    public int ShellBodyRowSpan =>
+        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -1718,6 +1725,13 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             return;
         }
 
+        // #292: several readiness rows share Setup; open the section that actually fixes each one
+        // instead of leaving the workspace wherever it last was.
+        if (check.ActionRoute == V2Routes.Setup && V2SetupWorkspaceViewModel.TryMapReadinessCheck(check.Id, out var section))
+        {
+            SetupWorkspace?.Select(section);
+        }
+
         // A readiness row names a specific thing to inspect. Several rows share Setup, and a
         // same-page Navigate result only focuses the generic page heading, so preserve the row's
         // identity in a visible action target and focus that target in every case.
@@ -2129,7 +2143,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
             nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
             nameof(ShowsRaidCockpit),
-            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
+            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
+            nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),

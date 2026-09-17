@@ -29,7 +29,7 @@ public sealed class ScreenshotRetentionServiceTests : IDisposable
         Write("2026-09-10[14-05]_1.0, 2.0, 3.0_0.0, 0.0, 0.0, 1.0_12.34 (0).png", Now.AddHours(-48));
         Write("2026-09-12[19-00]_4.0, 5.0, 6.0_0.0, 0.0, 0.0, 1.0_12.34 (0).png", Now.AddMinutes(-60));
 
-        var tidied = Tidy();
+        var tidied = Tidy(ScreenshotRetentionSettings.Default with { IsEnabled = true });
 
         Assert.Equal(1, tidied);
         Assert.Contains(_bin.Recycled, path => path.Contains("2026-09-10", StringComparison.Ordinal));
@@ -42,7 +42,7 @@ public sealed class ScreenshotRetentionServiceTests : IDisposable
         // itself completely after a break from the game reads as a bug rather than as tidying.
         Write("2026-01-01[10-00]_1.0, 2.0, 3.0_0.0, 0.0, 0.0, 1.0_12.34 (0).png", Now.AddDays(-90));
 
-        Assert.Equal(0, Tidy());
+        Assert.Equal(0, Tidy(ScreenshotRetentionSettings.Default with { IsEnabled = true }));
         Assert.Empty(_bin.Recycled);
     }
 
@@ -55,8 +55,16 @@ public sealed class ScreenshotRetentionServiceTests : IDisposable
         Write("notes.txt", Now.AddDays(-30));
         Write("2026-09-12[19-00]_4.0, 5.0, 6.0_0.0, 0.0, 0.0, 1.0_12.34 (0).png", Now.AddMinutes(-5));
 
-        Assert.Equal(0, Tidy());
+        Assert.Equal(0, Tidy(ScreenshotRetentionSettings.Default with { IsEnabled = true }));
         Assert.Empty(_bin.Recycled);
+    }
+
+    [Fact]
+    public void TidiesNothingByDefaultUntilTurnedOn()
+    {
+        // #309: nobody who has never opened Settings should come back to a folder that has
+        // already been swept, on a fresh install or after a migration with nothing to import.
+        Assert.False(ScreenshotRetentionSettings.Default.IsEnabled);
     }
 
     [Fact]

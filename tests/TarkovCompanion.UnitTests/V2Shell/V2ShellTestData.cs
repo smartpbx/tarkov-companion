@@ -9,18 +9,19 @@ internal static class V2ShellTestData
 
     /// <summary>
     /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner", "History",
-    /// "Quests", and "Hideout" are deliberately absent: the Raid route now hosts the raid cockpit
-    /// (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to V1's "Raid"
-    /// page, the Loot route now hosts the real <c>LootScanView</c> instead (package 1, #282), the
-    /// Debrief route now hosts the real <c>DebriefWorkspaceView</c> instead (package 3, #291), and
-    /// the Plan and Hideout routes now host the real Plan workspace and its Hideout section
-    /// instead (package 10, #288). All five V1 pages remain reachable from V1 navigation; none is
-    /// a V2 LegacyPage route any more.
+    /// "Quests", "Hideout", and "Settings" are deliberately absent: the Raid route now hosts the
+    /// raid cockpit (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of a passthrough to
+    /// V1's "Raid" page, the Loot route now hosts the real <c>LootScanView</c> instead of Scanner
+    /// (package 1, #282), the Debrief route now hosts the real <c>DebriefWorkspaceView</c> instead
+    /// of History (package 3, #291), the Plan and Hideout routes now host the real Plan workspace
+    /// and its Hideout section instead (package 10, #288), and Setup hosts the real
+    /// <c>V2SetupWorkspaceView</c> instead of Settings (package 6, #292). All six V1 pages remain
+    /// reachable from V1 navigation; none is a V2 LegacyPage route any more.
     /// </summary>
     public static readonly string[] V1Destinations =
     [
         "Squad", "Group", "Items", "Ammo", "Keys",
-        "Flea", "Events", "Loadout", "Settings",
+        "Flea", "Events", "Loadout",
     ];
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>

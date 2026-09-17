@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace TarkovCompanion.GroupServer;
 
@@ -39,6 +40,19 @@ public sealed class ProblemReports(TimeProvider timeProvider)
     public const int MaximumPerRoomPerHour = 3;
 
     private static readonly TimeSpan Window = TimeSpan.FromHours(1);
+
+    /// <summary>The shape <see cref="Store"/> names a file, so a listed reference is always one
+    /// <see cref="Read"/> can look up again.</summary>
+    /// <remarks>
+    /// #310: <see cref="List"/> used to hand back the whole basename - timestamp prefix and all -
+    /// while <see cref="Read"/> only ever accepted the twelve-hex reference, so a report a player
+    /// could see never had a URL that could read it. Matched here instead of trusted, because
+    /// this directory is state the updater does not replace and a name that does not fit the
+    /// shape this class writes is skipped rather than believed.
+    /// </remarks>
+    private static readonly Regex ReportFileName = new(
+        @"^\d{8}-\d{6}-(?<reference>[0-9a-f]{12})\.md$",
+        RegexOptions.CultureInvariant);
 
     private readonly ConcurrentDictionary<string, List<DateTimeOffset>> _filed = new(StringComparer.Ordinal);
 
@@ -114,11 +128,13 @@ public sealed class ProblemReports(TimeProvider timeProvider)
                 .. new DirectoryInfo(directory)
                     .EnumerateFiles("*.md")
                     .OrderByDescending(file => file.Name, StringComparer.Ordinal)
+                    .Select(file => (file, match: ReportFileName.Match(file.Name)))
+                    .Where(entry => entry.match.Success)
                     .Take(50)
-                    .Select(file => new StoredReport(
-                        Path.GetFileNameWithoutExtension(file.Name),
-                        file.Length,
-                        new DateTimeOffset(file.CreationTimeUtc, TimeSpan.Zero))),
+                    .Select(entry => new StoredReport(
+                        entry.match.Groups["reference"].Value,
+                        entry.file.Length,
+                        new DateTimeOffset(entry.file.CreationTimeUtc, TimeSpan.Zero))),
             ];
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
