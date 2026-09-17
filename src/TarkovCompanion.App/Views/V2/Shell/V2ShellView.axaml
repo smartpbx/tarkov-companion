@@ -370,11 +370,18 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
+                  <!-- V2 rough package 21: plain Label, not DisplayLabel's "› " current-marker
+                       prefix, for the same reason the style above reserves the selected border
+                       geometry — this button sits in the same WrapPanel, and a per-item content
+                       length that changes with IsCurrent (Home is current on Variant B's own
+                       landing page) is exactly the "exact wrap boundary" remeasure hazard that
+                       comment already describes. The rail already carries the current state with
+                       Classes.selected alone; this row now matches it. -->
                   <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
                           AutomationProperties.AutomationId="{Binding AutomationId}"
                           AutomationProperties.Name="{Binding Label}"
                           AutomationProperties.ItemStatus="{Binding SelectionDescription}"
-                          Content="{Binding DisplayLabel}" Command="{Binding NavigateCommand}" />
+                          Content="{Binding Label}" Command="{Binding NavigateCommand}" />
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

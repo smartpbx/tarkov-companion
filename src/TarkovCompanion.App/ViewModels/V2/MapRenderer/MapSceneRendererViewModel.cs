@@ -58,8 +58,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public const int MaximumGeometryObjects = 300;
     public const int ListPageSize = 50;
     public const int MaximumListItems = ListPageSize;
-    /// <summary>The drawn marker's box, in pixels. Must match Views/V2/MapRenderer's own style.</summary>
-    public const double MarkerExtent = 32;
+    /// <summary>
+    /// A marker's interactive hit box, in pixels (its touch/automation target, not its drawn
+    /// box — that stays a 32px chip inside this button; see Views/V2/MapRenderer's
+    /// v2-map-marker-chip style). Must match Views/V2/MapRenderer's v2-map-marker style.
+    /// </summary>
+    public const double MarkerExtent = 44;
     public const int MaximumLootPresetPreservedLayers = 64;
 
     private const int ClusterColumns = 20;
