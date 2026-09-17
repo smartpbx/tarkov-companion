@@ -9,10 +9,10 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// <remarks>
 /// Most v1 names still resolve because <see cref="V2RouteRegistry"/> records them as
 /// <see cref="V2RouteDefinition.LegacyPage"/>, and <see cref="V2ShellAddress.Parse"/> already
-/// matches segments case-insensitively. "Scanner" does not: its route (Loot) now hosts the real
-/// <c>LootScanView</c> instead of the legacy Scanner page, so there is no registry entry left to
-/// read. The single override below is that one historical mapping, not a general escape hatch — a
-/// route that never had a v1 page has nothing to alias, and gets none.
+/// matches segments case-insensitively. "Scanner" and "History" do not: their routes (Loot,
+/// Debrief) now host real V2 workspaces instead of the legacy Scanner/History pages, so there is
+/// no registry entry left to read. The overrides below are those historical mappings, not a
+/// general escape hatch — a route that never had a v1 page has nothing to alias, and gets none.
 /// </remarks>
 public static class V2LegacyPageAddressAliases
 {
@@ -20,6 +20,7 @@ public static class V2LegacyPageAddressAliases
         new Dictionary<string, V2RouteId>(StringComparer.OrdinalIgnoreCase)
         {
             ["Scanner"] = V2Routes.Loot,
+            ["History"] = V2Routes.Debrief,
         };
 
     /// <summary>The current variant's address for the route this v1 page name now belongs to, or null.</summary>
