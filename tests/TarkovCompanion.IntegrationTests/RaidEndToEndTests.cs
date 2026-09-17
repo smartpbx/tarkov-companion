@@ -4,6 +4,8 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Persistence;
 
@@ -133,16 +135,134 @@ public sealed class RaidEndToEndTests
         }
     }
 
-    private static async Task ApplyAsync(EftLogParser parser, RaidActivityCoordinator coordinator, string line)
+    /// <summary>
+    /// Reported: "it just stays open right now" -- the summary used to close only via its own
+    /// dismiss button or the next full history read.
+    /// </summary>
+    [Fact]
+    public async Task TheSummaryClosesWhenTheNextRaidStarts()
     {
-        var evidence = parser.ParseLine(line, DateTimeOffset.UtcNow);
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = await BuildAsync(root);
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var parser = services.GetRequiredService<EftLogParser>();
+            var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
+            parser.ParseLine(SelfProfileLine, DateTimeOffset.UtcNow);
+
+            await ApplyAsync(parser, coordinator, Notification("userConfirmed", "Busy", eventId: "E1"));
+            await ApplyAsync(parser, coordinator, Notification("userMatchOver", "Free", eventId: "E1"));
+            Assert.True(viewModel.Raid.HasSummary);
+
+            // A different event id: the game's own confirmation that a second, distinct raid
+            // has begun, not a second copy of the first one's notification.
+            await ApplyAsync(parser, coordinator, Notification("userConfirmed", "Busy", eventId: "E2"));
+
+            Assert.False(viewModel.Raid.HasSummary);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    /// <summary>The summary closes on its own after fifteen minutes, whatever else happens.</summary>
+    [Fact]
+    public async Task TheSummaryClosesFifteenMinutesAfterItAppears()
+    {
+        var root = TemporaryRoot();
+        var time = new FixedTimeProvider(new DateTimeOffset(2026, 9, 17, 20, 0, 0, TimeSpan.Zero));
+        try
+        {
+            await using var services = await BuildAsync(root, time);
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var parser = services.GetRequiredService<EftLogParser>();
+            var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
+            parser.ParseLine(SelfProfileLine, time.GetUtcNow());
+
+            await ApplyAsync(parser, coordinator, Notification("userConfirmed", "Busy"), time);
+            await ApplyAsync(parser, coordinator, Notification("userMatchOver", "Free"), time);
+            Assert.True(viewModel.Raid.HasSummary);
+
+            time.Advance(TimeSpan.FromMinutes(14));
+            viewModel.Raid.Tick(time.GetUtcNow());
+            Assert.True(viewModel.Raid.HasSummary);
+
+            time.Advance(TimeSpan.FromMinutes(2));
+            viewModel.Raid.Tick(time.GetUtcNow());
+            Assert.False(viewModel.Raid.HasSummary);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    /// <summary>
+    /// The active-extracts panel is only about the raid running right now, so it must not still
+    /// be showing the finished raid's confirmed exits once that raid has ended.
+    /// </summary>
+    [Fact]
+    public async Task ActiveExtractsClearOnceTheRaidEnds()
+    {
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = await BuildAsync(root);
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var parser = services.GetRequiredService<EftLogParser>();
+            var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
+            parser.ParseLine(SelfProfileLine, DateTimeOffset.UtcNow);
+
+            await ApplyAsync(parser, coordinator, Notification("userConfirmed", "Busy"));
+            await coordinator.ApplyExtractsAsync(
+                [new ActiveExtract("extract:1", "Crossroads", new Confidence(0.9), "extracts-scan")],
+                DateTimeOffset.UtcNow,
+                TestContext.Current.CancellationToken,
+                linesNotMatched: ["Unreadable line"],
+                transits: ["Factory"]);
+
+            Assert.True(viewModel.Raid.HasExtracts);
+            Assert.True(viewModel.Raid.HasExtractsNotMatched);
+            Assert.True(viewModel.Raid.HasTransits);
+
+            await ApplyAsync(parser, coordinator, Notification("userMatchOver", "Free"));
+
+            Assert.False(viewModel.Raid.HasExtracts);
+            Assert.False(viewModel.Raid.HasExtractsNotMatched);
+            Assert.False(viewModel.Raid.HasTransits);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    private static async Task ApplyAsync(
+        EftLogParser parser,
+        RaidActivityCoordinator coordinator,
+        string line,
+        TimeProvider? time = null)
+    {
+        var evidence = parser.ParseLine(line, time?.GetUtcNow() ?? DateTimeOffset.UtcNow);
         Assert.NotNull(evidence);
         await coordinator.ApplyEvidenceAsync(evidence, TestContext.Current.CancellationToken);
     }
 
-    private static string Notification(string type, string status) =>
+    private static string Notification(string type, string status, string eventId = "E1") =>
         "2026-09-12 01:23:54.000|1.1.5.0.47242|Info|backend|NOTIFICATION [EVENTID] " + type + " " +
-        $$"""[{"type":"{{type}}","eventId":"E1","profileid":"SELFPROFILE1","location":"TarkovStreets","status":"{{status}}"}]""";
+        $$"""[{"type":"{{type}}","eventId":"{{eventId}}","profileid":"SELFPROFILE1","location":"TarkovStreets","status":"{{status}}"}]""";
+
+    /// <summary>A clock the test moves by hand, so a fifteen-minute timeout does not cost fifteen minutes.</summary>
+    private sealed class FixedTimeProvider(DateTimeOffset start) : TimeProvider
+    {
+        private DateTimeOffset _now = start;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan amount) => _now += amount;
+    }
 
     /// <summary>
     /// Builds the application's own container, with its database schema in place.
@@ -157,14 +277,14 @@ public sealed class RaidEndToEndTests
     /// cleanup. Teardown that can throw is how a failing test disguises itself, which is a
     /// second reason the scratch directory helper now refuses to.
     /// </remarks>
-    private static async Task<ServiceProvider> BuildAsync(string root)
+    private static async Task<ServiceProvider> BuildAsync(string root, TimeProvider? time = null)
     {
         // Demo mode is how every other test builds the window view model headlessly. It
         // changes nothing this exercises: the raid state service only treats it as permission
         // to accept simulator evidence, and everything here is an ordinary log line.
         var services = AppComposition.Build(
             new AppCommandLine(false, true, true, false, null, null, null),
-            new(DataRoot: root, Offline: true));
+            new(DataRoot: root, Offline: true, TimeProvider: time));
         await services.GetRequiredService<SqliteMigrationRunner>()
             .ApplyAsync(TestContext.Current.CancellationToken);
         return services;

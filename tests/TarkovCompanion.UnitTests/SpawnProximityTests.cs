@@ -7,26 +7,53 @@ namespace TarkovCompanion.UnitTests;
 /// Where the other players in this raid started, from where this one did.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The side and category values asserted here are the feed's own, counted across every map:
 /// 3018 spawn points, sides "all" on 860, "pmc" on 528, "scav" on 1628, and categories
 /// "player", "bot", "boss", "botpmc" and "sniper" in combination.
+/// </para>
+/// <para>
+/// Built from the same <see cref="SpawnGrouping"/> the map markers use, so most anchors below
+/// sit well past <see cref="SpawnGrouping.WithinMetres"/> from every spawn: close enough and the
+/// "leave out my own start" rule (tested on its own further down) would quietly remove a row a
+/// test means to assert on.
+/// </para>
 /// </remarks>
 public sealed class SpawnProximityTests
 {
     [Fact]
-    public void Lists_player_spawns_near_the_start_nearest_first()
+    public void Lists_player_spawn_areas_near_the_start_nearest_first()
     {
         var features = new[]
         {
-            Spawn("Near", 40, 0, "pmc", "player"),
-            Spawn("Nearer", 10, 0, "all", "player"),
-            Spawn("Far", 400, 0, "pmc", "player"),
+            Spawn("Near", 100, 0, "pmc", "player"),
+            Spawn("Nearer", 60, 0, "all", "player"),
+            Spawn("Far", 450, 0, "pmc", "player"),
         };
 
         var found = SpawnProximity.Near(features, At(0, 0), At(0, 0), MapFeatureFaction.Pmc);
 
         Assert.Equal(["Nearer", "Near"], found.Select(spawn => spawn.Name));
-        Assert.Equal(10, found[0].MetresFromStart, 3);
+        Assert.Equal(60, found[0].MetresFromStart, 3);
+    }
+
+    [Fact]
+    public void Several_points_in_one_area_become_one_row()
+    {
+        // The bug this whole package is about: "Spawn · Village 0 m from your start", "10 m",
+        // "13 m", "13 m", "15 m", "16 m", "17 m" for what is one place, not seven rows.
+        var features = new[]
+        {
+            Spawn("Village", 200, 0, "pmc", "player"),
+            Spawn("Village", 210, 5, "pmc", "player"),
+            Spawn("Village", 190, 10, "pmc", "player"),
+            Spawn("Village", 205, -5, "pmc", "player"),
+        };
+
+        var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc);
+
+        var row = Assert.Single(found);
+        Assert.Equal("Village · 4 points", row.Name);
     }
 
     [Fact]
@@ -36,11 +63,11 @@ public sealed class SpawnProximityTests
         // would be a panel nobody reads, which is the same as not having one.
         var features = new[]
         {
-            Spawn("Player", 10, 0, "pmc", "player"),
-            Spawn("Bot", 12, 0, "scav", "bot"),
-            Spawn("Boss", 14, 0, "scav", "boss,bot"),
-            Spawn("Scripted", 16, 0, "scav", "botpmc"),
-            Spawn("Sniper", 18, 0, "scav", "bot,sniper"),
+            Spawn("Player", 100, 0, "pmc", "player"),
+            Spawn("Bot", 102, 0, "scav", "bot"),
+            Spawn("Boss", 104, 0, "scav", "boss,bot"),
+            Spawn("Scripted", 106, 0, "scav", "botpmc"),
+            Spawn("Sniper", 108, 0, "scav", "bot,sniper"),
         };
 
         var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown);
@@ -53,11 +80,10 @@ public sealed class SpawnProximityTests
     {
         // The commonest value in the feed. Treating it as unknown left the largest group of
         // player spawns with no side at all.
-        var shared = Spawn("Shared", 10, 0, "all", "player");
+        var shared = Spawn("Shared", 60, 0, "all", "player");
 
         Assert.Equal(MapFeatureFaction.Shared, shared.Side);
         Assert.Single(SpawnProximity.Near([shared], At(0, 0), null, MapFeatureFaction.Pmc));
-        Assert.Single(SpawnProximity.Near([shared], At(0, 0), null, MapFeatureFaction.Scav));
     }
 
     [Fact]
@@ -65,12 +91,13 @@ public sealed class SpawnProximityTests
     {
         var features = new[]
         {
-            Spawn("PMC start", 10, 0, "pmc", "player"),
-            Spawn("Scav start", 20, 0, "scav", "bot,player"),
+            Spawn("PMC start", 100, 0, "pmc", "player"),
+            Spawn("Scav start", 150, 0, "scav", "bot,player"),
         };
 
-        Assert.Equal(["PMC start"], SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc).Select(s => s.Name));
-        Assert.Equal(["Scav start"], SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Scav).Select(s => s.Name));
+        Assert.Equal(
+            ["PMC start"],
+            SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc).Select(s => s.Name));
     }
 
     [Fact]
@@ -79,31 +106,95 @@ public sealed class SpawnProximityTests
         // An empty panel on a raid whose side was never established reads as a broken feature.
         var features = new[]
         {
-            Spawn("PMC start", 10, 0, "pmc", "player"),
-            Spawn("Scav start", 20, 0, "scav", "bot,player"),
+            Spawn("PMC start", 100, 0, "pmc", "player"),
+            Spawn("Scav start", 150, 0, "scav", "bot,player"),
         };
 
         Assert.Equal(2, SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown).Count);
     }
 
+    [Theory]
+    [InlineData("pmc")]
+    [InlineData("scav")]
+    [InlineData("all")]
+    public void Lists_nothing_on_a_scav_run(string catalogSide)
+    {
+        // A scav joins twenty minutes in and arrives wherever the game puts them, so neither
+        // where the PMCs started nor where the other scavs may arrive is a question they are
+        // asking. The map's spawn layer is already empty for a scav; this now agrees with it.
+        var features = new[] { Spawn("Start", 100, 0, catalogSide, "player") };
+
+        Assert.Empty(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Scav));
+    }
+
+    [Fact]
+    public void Leaves_out_the_area_the_player_started_in()
+    {
+        var features = new[]
+        {
+            Spawn("Mine", 10, 0, "pmc", "player"),
+            Spawn("Theirs", 100, 0, "pmc", "player"),
+        };
+
+        // The anchor sits inside the "Mine" area (well under SpawnGrouping.WithinMetres from
+        // it), so that is where this player started, not one of "the others".
+        var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc);
+
+        Assert.Equal(["Theirs"], found.Select(spawn => spawn.Name));
+    }
+
+    [Fact]
+    public void Keeps_the_only_area_when_it_is_the_players_own()
+    {
+        var features = new[] { Spawn("Mine", 5, 0, "pmc", "player") };
+
+        Assert.Empty(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc));
+    }
+
+    [Fact]
+    public void Does_not_exclude_an_area_the_anchor_merely_happens_to_be_nearest_to()
+    {
+        // Nearest is not the same as "mine". An anchor a hundred metres from the closest area
+        // did not start there; it started somewhere the catalog has no point for, or ran before
+        // taking its first screenshot.
+        var features = new[] { Spawn("Not mine", 100, 0, "pmc", "player") };
+
+        var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Pmc);
+
+        Assert.Equal(["Not mine"], found.Select(spawn => spawn.Name));
+    }
+
     [Fact]
     public void Stops_at_the_radius()
     {
-        var features = new[] { Spawn("Just outside", 151, 0, "pmc", "player") };
+        var features = new[] { Spawn("Just outside", 301, 0, "pmc", "player") };
 
         Assert.Empty(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown));
-        Assert.Single(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown, radiusMetres: 200));
+        Assert.Single(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown, radiusMetres: 350));
+    }
+
+    [Fact]
+    public void Widened_to_three_hundred_metres_by_default()
+    {
+        var features = new[] { Spawn("Edge of the old radius", 200, 0, "pmc", "player") };
+
+        // A hundred and fifty used to be the cutoff; areas call for a wider one, and 200 m must
+        // now come back without callers asking for it explicitly.
+        Assert.Single(SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown));
+        Assert.Equal(300, SpawnProximity.DefaultRadiusMetres);
     }
 
     [Fact]
     public void Keeps_the_list_short_enough_to_read_while_a_raid_starts()
     {
+        // Areas spaced well past the grouping radius so each stays its own row, and a large
+        // explicit radius so this is a test of the row cap, not the distance cutoff.
         var features = Enumerable
             .Range(1, 20)
-            .Select(index => Spawn($"Spawn {index}", index, 0, "pmc", "player"))
+            .Select(index => Spawn($"Spawn {index}", index * 100, 0, "pmc", "player"))
             .ToArray();
 
-        var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown);
+        var found = SpawnProximity.Near(features, At(0, 0), null, MapFeatureFaction.Unknown, radiusMetres: 10_000);
 
         Assert.Equal(8, found.Count);
         Assert.Equal("Spawn 1", found[0].Name);
@@ -123,10 +214,36 @@ public sealed class SpawnProximityTests
     [Fact]
     public void Says_nothing_about_distance_from_a_player_who_has_not_been_seen()
     {
-        var found = Assert.Single(SpawnProximity.Near([Spawn("A", 10, 0, "pmc", "player")], At(0, 0), null, MapFeatureFaction.Unknown));
+        var found = Assert.Single(
+            SpawnProximity.Near([Spawn("A", 60, 0, "pmc", "player")], At(0, 0), null, MapFeatureFaction.Unknown));
 
         Assert.Null(found.MetresFromPlayer);
         Assert.Null(found.Bearing);
+    }
+
+    [Fact]
+    public void Panel_rows_are_the_same_areas_the_map_draws()
+    {
+        // MapFeatureProjection draws one marker per SpawnGrouping area; the panel and the threat
+        // lines built from it must be the same areas, or a row, a line and a marker could each
+        // answer a different question.
+        var features = new[]
+        {
+            Spawn("Village A", 500, 500, "pmc", "player"),
+            Spawn("Village B", 510, 505, "pmc", "player"),
+            Spawn("Ridge", 900, 500, "pmc", "player"),
+        };
+
+        var grouped = SpawnGrouping.Collapse(features)
+            .Where(feature => feature.Kind == MapFeatureKind.Spawn)
+            .Select(feature => feature.Position)
+            .ToArray();
+        var near = SpawnProximity
+            .Near(features, At(0, 0), null, MapFeatureFaction.Pmc, radiusMetres: 5_000)
+            .Select(spawn => spawn.Position)
+            .ToArray();
+
+        Assert.Equal(grouped, near);
     }
 
     [Theory]
