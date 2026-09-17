@@ -1,4 +1,7 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions.V2;
 
@@ -25,6 +28,26 @@ public sealed record DesktopRelayOwnerClaimMaterial(
         Challenge,
         Establishment,
         Establishment.EstablishedUtc);
+
+    /// <summary>
+    /// The relay's <c>/admin/relay/claim</c> and <c>/v2/companion/relay/devices</c> wire shape:
+    /// <c>{offer, desktopNonceBase64Url, codeConsumedUtc, request, challenge, establishment}</c>,
+    /// with each nested field written through the same <see cref="CompanionProtocolJson"/> boundary
+    /// the relay reads it back through.
+    /// </summary>
+    public byte[] ToJsonBody()
+    {
+        var body = new JsonObject
+        {
+            ["offer"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Offer)),
+            ["desktopNonceBase64Url"] = DesktopNonceBase64Url,
+            ["codeConsumedUtc"] = CodeConsumedUtc,
+            ["request"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Request)),
+            ["challenge"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Challenge)),
+            ["establishment"] = JsonNode.Parse(CompanionProtocolJson.Serialize(Establishment)),
+        };
+        return Encoding.UTF8.GetBytes(body.ToJsonString());
+    }
 }
 
 /// <summary>
