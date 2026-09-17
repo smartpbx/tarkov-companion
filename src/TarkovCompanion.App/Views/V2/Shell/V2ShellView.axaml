@@ -603,7 +603,19 @@
                page above, mutually exclusive with it by route content. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
-          <TextBlock Grid.Row="1" Classes="v2-body" IsVisible="{Binding ShowsLootScanEmpty}" Text="{Binding LootScanEmptyLabel}" />
+          <!-- V2 rough package 17 (scan): a quiet empty state with the one action that fills it. -->
+          <StackPanel Grid.Row="1" IsVisible="{Binding ShowsLootScanEmpty}" Spacing="10" MaxWidth="420"
+                      HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
+            </Viewbox>
+            <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="{Binding LootScanEmptyTitle}" />
+            <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       Text="{Binding LootScanEmptyLabel}" />
+            <Button Classes="v2-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
+                    AutomationProperties.AutomationId="v2-loot-scan-start"
+                    Content="{Binding LootScanActionLabel}" Command="{Binding ScanLootCommand}" />
+          </StackPanel>
           <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsSetupWorkspace}" HorizontalScrollBarVisibility="Disabled">
             <ContentControl Content="{Binding SetupWorkspace}" />
           </ScrollViewer>

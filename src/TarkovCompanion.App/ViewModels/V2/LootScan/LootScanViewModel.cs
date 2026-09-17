@@ -18,6 +18,8 @@ public sealed class LootScanViewModel : BindableViewModel
     private readonly CultureInfo _culture;
     private readonly LootScanPresentationText _text;
     private int _pageIndex;
+    private LootScanVerdict? _filter;
+    private LootScanDecisionViewModel? _selected;
 
     public LootScanViewModel(
         LootScanResult result,
@@ -29,11 +31,30 @@ public sealed class LootScanViewModel : BindableViewModel
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
         Decisions = result.Decisions
-            .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text))
+            .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text)
+            {
+                SelectAction = Select,
+            })
             .ToArray();
         Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
         PreviousPageCommand = new DelegateCommand(PreviousPage);
         NextPageCommand = new DelegateCommand(NextPage);
+        ScanAgainCommand = new DelegateCommand(() => ScanAgainRequested?.Invoke(this, EventArgs.Empty));
+        Filters =
+        [
+            new LootScanFilterViewModel(null, _text.FilterAll, Decisions.Count, SetFilter) { IsSelected = true },
+            new LootScanFilterViewModel(LootScanVerdict.Take, _text.FilterTake, TakeCount, SetFilter),
+            new LootScanFilterViewModel(LootScanVerdict.Swap, _text.FilterSwap, SwapCount, SetFilter),
+            new LootScanFilterViewModel(LootScanVerdict.Leave, _text.FilterLeave, LeaveCount, SetFilter),
+            new LootScanFilterViewModel(LootScanVerdict.Review, _text.FilterReview, ReviewCount, SetFilter),
+        ];
+        LootGrid = BuildLootGrid();
+        CarriedGrid = BuildCarriedGrid();
+
+        // The concept opens on its most consequential call: a swap first, then a take.
+        Select(Decisions.FirstOrDefault(item => item.IsSwap) ??
+               Decisions.FirstOrDefault(item => item.IsTake) ??
+               Decisions.FirstOrDefault());
     }
 
     public LootScanResult Result { get; }
@@ -48,7 +69,7 @@ public sealed class LootScanViewModel : BindableViewModel
     /// be read. Paging is deliberately fixed-size so the review cost stays bounded on desktop and
     /// on the paired tablet surface.
     /// </summary>
-    public IReadOnlyList<LootScanDecisionViewModel> VisibleDecisions => Decisions
+    public IReadOnlyList<LootScanDecisionViewModel> VisibleDecisions => FilteredDecisions
         .Skip(_pageIndex * DecisionsPerPage)
         .Take(DecisionsPerPage)
         .ToArray();
@@ -152,7 +173,7 @@ public sealed class LootScanViewModel : BindableViewModel
         _text.HiddenIssuesTemplate,
         ("count", (Issues.Count - VisibleIssueLimit).ToString(_culture)));
 
-    public int PageCount => Math.Max(1, (Decisions.Count + DecisionsPerPage - 1) / DecisionsPerPage);
+    public int PageCount => Math.Max(1, (FilteredDecisions.Count + DecisionsPerPage - 1) / DecisionsPerPage);
 
     public bool HasMultiplePages => PageCount > 1;
 
@@ -164,7 +185,7 @@ public sealed class LootScanViewModel : BindableViewModel
         _text.PageTemplate,
         ("page", (_pageIndex + 1).ToString(_culture)),
         ("pages", PageCount.ToString(_culture)),
-        ("items", Decisions.Count.ToString(_culture)));
+        ("items", FilteredDecisions.Count.ToString(_culture)));
 
     public bool IsComplete =>
         Result.Status.Completeness == ResultCompleteness.Complete &&
@@ -173,6 +194,194 @@ public sealed class LootScanViewModel : BindableViewModel
     public bool IsPartial =>
         Result.Status.Completeness == ResultCompleteness.Partial ||
         Result.Status.Freshness != FreshnessState.Current;
+
+    /// <summary>Asks whoever hosts this result to arm another loot capture (the shell's capture dialog).</summary>
+    public event EventHandler? ScanAgainRequested;
+
+    public ICommand ScanAgainCommand { get; }
+
+    /// <summary>Verdict chips above the decision list; "All" is first and selected by default.</summary>
+    public IReadOnlyList<LootScanFilterViewModel> Filters { get; }
+
+    public LootScanVerdict? Filter => _filter;
+
+    public LootScanGridViewModel? LootGrid { get; }
+
+    public LootScanGridViewModel? CarriedGrid { get; }
+
+    public bool HasLootGrid => LootGrid is not null;
+
+    public bool HasNoLootGrid => LootGrid is null;
+
+    public bool HasCarriedGrid => CarriedGrid is not null;
+
+    public bool HasNoCarriedGrid => CarriedGrid is null;
+
+    public string LootItemsLabel => Format(
+        Decisions.Count == 1 ? _text.OneItemTemplate : _text.ItemsTemplate,
+        ("count", Decisions.Count.ToString(_culture)));
+
+    /// <summary>"Take 3 · Swap 1 · Leave 1", naming only the verdicts that occur.</summary>
+    public string DecisionSummary
+    {
+        get
+        {
+            var parts = new[]
+                {
+                    (_text.FilterTake, TakeCount),
+                    (_text.FilterSwap, SwapCount),
+                    (_text.FilterLeave, LeaveCount),
+                    (_text.FilterReview, ReviewCount),
+                }
+                .Where(part => part.Item2 > 0)
+                .Select(part => $"{part.Item1} {part.Item2.ToString(_culture)}");
+            var summary = string.Join(" · ", parts);
+            return summary.Length == 0 ? _text.NothingToDecide : summary;
+        }
+    }
+
+    public LootScanDecisionViewModel? SelectedDecision
+    {
+        get => _selected;
+        private set
+        {
+            if (SetProperty(ref _selected, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedDecision));
+            }
+        }
+    }
+
+    public bool HasSelectedDecision => SelectedDecision is not null;
+
+    public string TimingSummary => Format(_text.AnalysedInTemplate, ("duration", TimingLabel));
+
+    private IReadOnlyList<LootScanDecisionViewModel> FilteredDecisions => _filter is { } verdict
+        ? Decisions.Where(item => item.Verdict == verdict).ToArray()
+        : Decisions;
+
+    public void Select(LootScanDecisionViewModel? decision)
+    {
+        if (decision is not null && !Decisions.Contains(decision))
+        {
+            return;
+        }
+
+        foreach (var item in Decisions)
+        {
+            item.IsSelected = ReferenceEquals(item, decision);
+        }
+
+        foreach (var tile in (LootGrid?.Tiles ?? []).Concat(CarriedGrid?.Tiles ?? []))
+        {
+            tile.IsSelected = tile.Decision is not null && ReferenceEquals(tile.Decision, decision);
+        }
+
+        SelectedDecision = decision;
+    }
+
+    private void SetFilter(LootScanVerdict? verdict)
+    {
+        _filter = verdict;
+        foreach (var chip in Filters)
+        {
+            chip.IsSelected = chip.Verdict == verdict;
+        }
+
+        _pageIndex = 0;
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(VisibleDecisions));
+        OnPropertyChanged(nameof(PageCount));
+        OnPropertyChanged(nameof(HasMultiplePages));
+        OnPropertyChanged(nameof(HasPreviousPage));
+        OnPropertyChanged(nameof(HasNextPage));
+        OnPropertyChanged(nameof(PageSummary));
+    }
+
+    private LootScanGridViewModel? BuildLootGrid()
+    {
+        var byAnchor = Decisions.ToDictionary(item => item.SourceAnchor);
+        var tiles = new List<LootScanGridTileViewModel>();
+        var grid = Result.VisibleLootGrid;
+        if (grid is not null)
+        {
+            foreach (var cell in grid.Cells)
+            {
+                byAnchor.TryGetValue(cell.Anchor, out var decision);
+                tiles.Add(LootTile(cell.Anchor, cell.Item.Value, decision));
+            }
+        }
+        else
+        {
+            tiles.AddRange(Decisions.Select(decision => LootTile(decision.SourceAnchor, decision.Item, decision)));
+        }
+
+        return tiles.Count == 0 && grid is null
+            ? null
+            : new LootScanGridViewModel(grid?.Geometry.Rows.Value, grid?.Geometry.Columns.Value, tiles, occupied: null, _text, _culture);
+    }
+
+    private LootScanGridTileViewModel LootTile(GridCellAddress anchor, RecognizedItem? item, LootScanDecisionViewModel? decision) =>
+        new(anchor, item?.WidthCells.Value ?? 1, item?.HeightCells.Value ?? 1,
+            decision?.Name ?? item?.DisplayName.Value ?? _text.UnknownItem,
+            decision?.ShortValuePerSquareLabel ?? string.Empty,
+            LootScanTileKind.Loot, decision);
+
+    private LootScanGridViewModel? BuildCarriedGrid()
+    {
+        var grid = Result.CarriedGrid;
+        var dropOwners = new Dictionary<GridCellAddress, LootScanDecisionViewModel>();
+        foreach (var decision in Decisions)
+        {
+            foreach (var drop in decision.Drops)
+            {
+                dropOwners.TryAdd(drop.Anchor, decision);
+            }
+        }
+
+        var tiles = new List<LootScanGridTileViewModel>();
+        var occupied = 0;
+        if (grid is not null)
+        {
+            foreach (var cell in grid.Cells)
+            {
+                var item = cell.Item.Value;
+                var width = item?.WidthCells.Value ?? 1;
+                var height = item?.HeightCells.Value ?? 1;
+                occupied += width * height;
+                var isDrop = dropOwners.TryGetValue(cell.Anchor, out var owner);
+                tiles.Add(new(cell.Anchor, width, height,
+                    item?.DisplayName.Value ?? _text.UnknownItem,
+                    item?.Quantity.Value is > 1 and var quantity ? quantity.ToString(_culture) : string.Empty,
+                    isDrop ? LootScanTileKind.Drop : LootScanTileKind.Carried,
+                    owner));
+            }
+        }
+        else
+        {
+            foreach (var decision in Decisions)
+            {
+                foreach (var drop in decision.Drops)
+                {
+                    tiles.Add(new(drop.Anchor, drop.Item.Value?.WidthCells.Value ?? 1, drop.Item.Value?.HeightCells.Value ?? 1,
+                        drop.Item.Value?.DisplayName.Value ?? _text.UnknownItem, string.Empty, LootScanTileKind.Drop, decision));
+                }
+            }
+        }
+
+        // Where each take or swap would land, drawn over what it lands on.
+        foreach (var decision in Decisions.Where(item => item.Placement is not null && (item.IsTake || item.IsSwap)))
+        {
+            var placement = decision.Placement!;
+            tiles.Add(new(placement.Anchor, placement.WidthCells, placement.HeightCells,
+                decision.Name, string.Empty, LootScanTileKind.Incoming, decision));
+        }
+
+        return tiles.Count == 0 && grid is null
+            ? null
+            : new LootScanGridViewModel(grid?.Geometry.Rows.Value, grid?.Geometry.Columns.Value, tiles,
+                grid is null ? null : occupied, _text, _culture);
+    }
 
     private void PreviousPage()
     {
@@ -211,7 +420,7 @@ public sealed class LootScanViewModel : BindableViewModel
             values.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
 }
 
-public sealed class LootScanDecisionViewModel
+public sealed class LootScanDecisionViewModel : BindableViewModel
 {
     private readonly LootScanDecision _decision;
     private readonly CultureInfo _culture;
@@ -230,7 +439,82 @@ public sealed class LootScanDecisionViewModel
         EvaluatedUtc = evaluatedUtc;
         OpenEvidenceCommand = new DelegateCommand(() => openEvidence?.Invoke(_decision));
         CanOpenEvidence = openEvidence is not null;
+        SelectCommand = new DelegateCommand(() => SelectAction?.Invoke(this));
     }
+
+    /// <summary>Set by the owning result so a row or grid tile can make this the selected decision.</summary>
+    internal Action<LootScanDecisionViewModel>? SelectAction { get; init; }
+
+    public ICommand SelectCommand { get; }
+
+    private bool _isSelected;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+
+    public LootScanVerdict Verdict => _decision.Verdict;
+
+    public GridCellAddress SourceAnchor => _decision.SourceAnchor;
+
+    public RecognizedItem? Item => _decision.Item.Value;
+
+    public LootScanPlacement? Placement => _decision.Placement;
+
+    public IReadOnlyList<LootScanDropItem> Drops => _decision.Drops;
+
+    /// <summary>
+    /// One plain line under the item name: the strongest profile reason ("Current quest",
+    /// "Hideout") when the recommendation names one, otherwise the planner's own first reason.
+    /// </summary>
+    public string HeadlineReason
+    {
+        get
+        {
+            var category = _decision.Recommendation?.Decision.Value?.Reasons
+                .OrderBy(reason => reason.Priority)
+                .Select(reason => (RecommendationReasonCategory?)reason.Category)
+                .FirstOrDefault(value => value is not (RecommendationReasonCategory.Economics or RecommendationReasonCategory.EvidenceQuality));
+            return category switch
+            {
+                RecommendationReasonCategory.ExplicitOverride => _text.ReasonExplicit,
+                RecommendationReasonCategory.Safety => _text.ReasonProtected,
+                RecommendationReasonCategory.CurrentFoundInRaidQuest => _text.ReasonCurrentQuestFir,
+                RecommendationReasonCategory.CurrentQuest => _text.ReasonCurrentQuest,
+                RecommendationReasonCategory.FutureQuest => _text.ReasonFutureQuest,
+                RecommendationReasonCategory.Hideout => _text.ReasonHideout,
+                RecommendationReasonCategory.CraftOrBarter => _text.ReasonCraft,
+                RecommendationReasonCategory.SpecialistUtility => _text.ReasonUtility,
+                RecommendationReasonCategory.PinOrWishlist => _text.ReasonPinned,
+                RecommendationReasonCategory.ScarcityOrObtainability => _text.ReasonScarce,
+                _ => _decision.Reasons.FirstOrDefault()?.Explanation ?? string.Empty,
+            };
+        }
+    }
+
+    /// <summary>"₽68k / sq", or empty when the value per square is unknown.</summary>
+    public string ShortValuePerSquareLabel => _decision.Economics?.ValuePerSquareRoubles is { } value
+        ? Message(_text.ShortPerSquareTemplate, ("value", CompactRoubles(value, _culture)))
+        : string.Empty;
+
+    public bool HasShortValuePerSquare => ShortValuePerSquareLabel.Length > 0;
+
+    /// <summary>What the selected swap gives up, as one line per carried item.</summary>
+    public string DropSummary => string.Join(", ", _decision.Drops.Select(drop => ItemName(drop.Item, drop.Anchor)));
+
+    public string ReplacementCostLabel => _decision.ReplacementCostRoubles is { } cost
+        ? Message(_text.GivesUpTemplate, ("value", CompactRoubles(cost, _culture)))
+        : string.Empty;
+
+    internal static string CompactRoubles(long value, CultureInfo culture) => Math.Abs(value) switch
+    {
+        >= 1_000_000 => "₽" + (value / 1_000_000d).ToString("0.#", culture) + "M",
+        >= 10_000 => "₽" + (value / 1_000d).ToString("0", culture) + "k",
+        >= 1_000 => "₽" + (value / 1_000d).ToString("0.#", culture) + "k",
+        _ => "₽" + value.ToString(culture),
+    };
 
     public DateTimeOffset EvaluatedUtc { get; }
 
@@ -629,6 +913,217 @@ public sealed record LootScanPresentationText
     public string HoursOldTemplate { get; init; } = "{value} h old";
     public string DaysOldTemplate { get; init; } = "{value} d old";
     public string ItemAtTemplate { get; init; } = "item at row {row}, column {column}";
+    public string FilterAll { get; init; } = "All";
+    public string FilterTake { get; init; } = "Take";
+    public string FilterSwap { get; init; } = "Swap";
+    public string FilterLeave { get; init; } = "Leave";
+    public string FilterReview { get; init; } = "Review";
+    public string NothingToDecide { get; init; } = "Nothing to decide";
+    public string OneItemTemplate { get; init; } = "{count} item";
+    public string ItemsTemplate { get; init; } = "{count} items";
+    public string AnalysedInTemplate { get; init; } = "Analysed in {duration}";
+    public string ShortPerSquareTemplate { get; init; } = "{value} / sq";
+    public string GivesUpTemplate { get; init; } = "gives up {value}";
+    public string GridSizeTemplate { get; init; } = "{columns} × {rows} squares";
+    public string FreeSquaresTemplate { get; init; } = "{count} free squares";
+    public string OneFreeSquare { get; init; } = "1 free square";
+    public string UnknownItem { get; init; } = "Unknown item";
+    public string ReasonExplicit { get; init; } = "Your own rule";
+    public string ReasonProtected { get; init; } = "Protected item";
+    public string ReasonCurrentQuestFir { get; init; } = "Current quest · found in raid";
+    public string ReasonCurrentQuest { get; init; } = "Current quest";
+    public string ReasonFutureQuest { get; init; } = "Future quest";
+    public string ReasonHideout { get; init; } = "Hideout";
+    public string ReasonCraft { get; init; } = "Craft or barter";
+    public string ReasonUtility { get; init; } = "Useful gear";
+    public string ReasonPinned { get; init; } = "Pinned";
+    public string ReasonScarce { get; init; } = "Hard to find";
 
     public static LootScanPresentationText Default { get; } = new();
+}
+
+/// <summary>A verdict chip over the decision list.</summary>
+public sealed class LootScanFilterViewModel : BindableViewModel
+{
+    private bool _isSelected;
+
+    public LootScanFilterViewModel(LootScanVerdict? verdict, string label, int count, Action<LootScanVerdict?> select)
+    {
+        Verdict = verdict;
+        Label = label;
+        Count = count;
+        SelectCommand = new DelegateCommand(() => select(verdict));
+    }
+
+    public LootScanVerdict? Verdict { get; }
+
+    public string Label { get; }
+
+    public int Count { get; }
+
+    public string CountLabel => Count.ToString(CultureInfo.CurrentCulture);
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
+public enum LootScanTileKind
+{
+    /// <summary>An item in the container, coloured by its verdict.</summary>
+    Loot = 1,
+
+    /// <summary>Something already carried that no decision touches.</summary>
+    Carried,
+
+    /// <summary>A carried item a swap would drop.</summary>
+    Drop,
+
+    /// <summary>Where a take or swap would put the new item.</summary>
+    Incoming,
+}
+
+/// <summary>
+/// One reviewed grid (the container, or the carried backpack) laid out on a fixed square size.
+/// The view scales the whole grid down to fit; positions stay in grid units times
+/// <see cref="CellSize"/> so tiles and the cell pattern line up at any scale.
+/// </summary>
+public sealed class LootScanGridViewModel
+{
+    public const double CellSize = 64;
+
+    public LootScanGridViewModel(
+        int? rows,
+        int? columns,
+        IReadOnlyList<LootScanGridTileViewModel> tiles,
+        int? occupied,
+        LootScanPresentationText text,
+        CultureInfo culture)
+    {
+        Tiles = tiles;
+        var extentRows = tiles.Select(tile => tile.Row + tile.HeightCells).DefaultIfEmpty(1).Max();
+        var extentColumns = tiles.Select(tile => tile.Column + tile.WidthCells).DefaultIfEmpty(1).Max();
+        Rows = Math.Max(rows ?? extentRows, extentRows);
+        Columns = Math.Max(columns ?? extentColumns, extentColumns);
+        SizeKnown = rows is not null && columns is not null;
+        SizeLabel = SizeKnown
+            ? V2PresentationFormatting.Message(text.GridSizeTemplate, new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["columns"] = Columns.ToString(culture),
+                ["rows"] = Rows.ToString(culture),
+            })
+            : string.Empty;
+        if (SizeKnown && occupied is { } used)
+        {
+            FreeSquares = Math.Max(0, (Rows * Columns) - used);
+            FreeSquaresLabel = FreeSquares == 1
+                ? text.OneFreeSquare
+                : V2PresentationFormatting.Message(text.FreeSquaresTemplate, new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["count"] = FreeSquares.Value.ToString(culture),
+                });
+        }
+    }
+
+    public int Rows { get; }
+
+    public int Columns { get; }
+
+    public bool SizeKnown { get; }
+
+    public string SizeLabel { get; }
+
+    public int? FreeSquares { get; }
+
+    public string FreeSquaresLabel { get; } = string.Empty;
+
+    public bool HasFreeSquares => FreeSquaresLabel.Length > 0;
+
+    public double PixelWidth => Columns * CellSize;
+
+    public double PixelHeight => Rows * CellSize;
+
+    public IReadOnlyList<LootScanGridTileViewModel> Tiles { get; }
+}
+
+public sealed class LootScanGridTileViewModel : BindableViewModel
+{
+    private const double Gap = 2;
+    private bool _isSelected;
+
+    public LootScanGridTileViewModel(
+        GridCellAddress anchor,
+        int widthCells,
+        int heightCells,
+        string name,
+        string detail,
+        LootScanTileKind kind,
+        LootScanDecisionViewModel? decision)
+    {
+        Row = anchor.Row;
+        Column = anchor.Column;
+        WidthCells = Math.Max(1, widthCells);
+        HeightCells = Math.Max(1, heightCells);
+        Name = name;
+        Detail = detail;
+        Kind = kind;
+        Decision = decision;
+        SelectCommand = new DelegateCommand(() => decision?.SelectCommand.Execute(null));
+    }
+
+    public int Row { get; }
+
+    public int Column { get; }
+
+    public int WidthCells { get; }
+
+    public int HeightCells { get; }
+
+    public double Left => (Column * LootScanGridViewModel.CellSize) + Gap;
+
+    public double Top => (Row * LootScanGridViewModel.CellSize) + Gap;
+
+    public double Width => (WidthCells * LootScanGridViewModel.CellSize) - (2 * Gap);
+
+    public double Height => (HeightCells * LootScanGridViewModel.CellSize) - (2 * Gap);
+
+    public string Name { get; }
+
+    public string Detail { get; }
+
+    public bool HasDetail => Detail.Length > 0;
+
+    public LootScanTileKind Kind { get; }
+
+    public LootScanDecisionViewModel? Decision { get; }
+
+    public bool CanSelect => Decision is not null;
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsTake => Kind == LootScanTileKind.Loot && Decision?.IsTake == true;
+
+    public bool IsSwap => Kind == LootScanTileKind.Loot && Decision?.IsSwap == true;
+
+    public bool IsLeave => Kind == LootScanTileKind.Loot && Decision?.IsLeave == true;
+
+    public bool IsReview => Kind == LootScanTileKind.Loot && (Decision is null || Decision.IsReview);
+
+    public bool IsCarried => Kind == LootScanTileKind.Carried;
+
+    public bool IsDrop => Kind == LootScanTileKind.Drop;
+
+    public bool IsIncoming => Kind == LootScanTileKind.Incoming;
+
+    public string AutomationName => HasDetail ? $"{Name}, {Detail}" : Name;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
 }

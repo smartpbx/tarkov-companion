@@ -337,4 +337,88 @@
   <Style Selector="Expander.v2-why">
     <Setter Property="HorizontalAlignment" Value="Stretch" />
   </Style>
+  <!-- V2 rough package 17 (scan): workspace building blocks shared by the Loot decision and
+       Stash scan workspaces and the shell's own empty states, matching what Raid and Team draw
+       locally: a flat primary pane, the right context panel, a section card inside it, one
+       filled primary action, cyan-outline secondary actions, plain text actions, and chips. -->
+  <Style Selector="Border.v2-pane">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    <Setter Property="Padding" Value="18,14" />
+  </Style>
+  <Style Selector="Border.v2-context-panel">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderThickness" Value="1,0,0,0" />
+  </Style>
+  <Style Selector="Border.v2-section">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    <Setter Property="Padding" Value="16,12" />
+  </Style>
+  <Style Selector="Border.v2-section.v2-section-accent">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="BorderThickness" Value="3,1,1,1" />
+  </Style>
+  <Style Selector="Button.v2-primary">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+    <Setter Property="Padding" Value="22,8" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.v2-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   Button.v2-primary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+  </Style>
+  <Style Selector="Button.v2-outline">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="16,6" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.v2-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+  <Style Selector="Button.v2-plain">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.v2-chip">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="14,6" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.v2-chip.v2-selected">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+  <Style Selector="Button.v2-chip.v2-selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
 </Styles>
