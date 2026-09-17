@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Devices;
@@ -17,7 +18,10 @@ namespace TarkovCompanion.App.ViewModels.V2.Tablet;
 /// DPAPI-protected) and a group relay with an HTTPS DNS origin is configured, because that origin
 /// is what the production <c>IDeviceKeyProofVerifier</c> pins a device-key proof to.
 /// </remarks>
-public sealed record CompanionPairingAvailability(DesktopPairingCoordinator? Coordinator, Uri? RelayOrigin)
+public sealed record CompanionPairingAvailability(
+    DesktopPairingCoordinator? Coordinator,
+    Uri? RelayOrigin,
+    IDesktopIdentitySigner? IdentitySigner = null)
 {
     public static CompanionPairingAvailability Unavailable { get; } = new(null, null);
 }
@@ -67,16 +71,31 @@ public enum CompanionPairingStage
 /// <see cref="DesktopPairingCoordinator"/>'s, unchanged from its own tests. This view model adds
 /// nothing to that trust boundary; it only calls it and shows the result.
 /// </remarks>
+/// <summary>Whether this relay is claimed, and by whom, as last checked from this desktop.</summary>
+public enum RelayOwnerClaimState
+{
+    Unknown = 1,
+    NotClaimed,
+    ClaimedByThisDesktop,
+    ClaimedByAnotherDesktop,
+}
+
 public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 {
     private readonly DesktopCompanionAuthority _authority;
     private readonly DesktopPairingCoordinator? _coordinator;
+    private readonly IDesktopIdentitySigner? _identitySigner;
+    private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
     private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _ceremony;
     private PairingAttemptId _attemptId;
     private DesktopPairingApproval? _approval;
+    private PairingOffer? _offer;
+    private PairingRequest? _request;
+    private HandshakeChallenge? _challenge;
+    private PairingDeviceGrant? _grant;
 
     private CompanionPairingStage _stage = CompanionPairingStage.Idle;
     private string? _qrPayload;
@@ -85,26 +104,35 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private string? _verificationCode;
     private string? _statusMessage;
     private bool _isBusy;
+    private string _adminKeyInput = string.Empty;
+    private RelayOwnerClaimState _relayClaimState = RelayOwnerClaimState.Unknown;
+    private string? _relayClaimMessage;
+    private bool _isClaimingRelay;
 
     public CompanionPairingViewModel(
         DesktopCompanionAuthority authority,
         CompanionPairingAvailability availability,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        RelayMarksBridge? relayMarksBridge = null)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(availability);
         _authority = authority;
         _coordinator = availability.Coordinator;
+        _identitySigner = availability.IdentitySigner;
+        _relayMarksBridge = relayMarksBridge;
         _timeProvider = timeProvider ?? TimeProvider.System;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
             _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
+            _relayMarksBridge?.Configure(origin);
         }
 
         RefreshDevices();
         StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
         DenyCommand = new AsyncDelegateCommand(DenyAsync);
+        ClaimRelayCommand = new AsyncDelegateCommand(ClaimRelayAsync);
     }
 
     public bool CanPair => _coordinator is not null && _relay is not null;
@@ -187,6 +215,160 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public ICommand DenyCommand { get; }
 
+    public ICommand ClaimRelayCommand { get; }
+
+    public bool CanClaimRelay => _identitySigner is not null && _relay is not null;
+
+    /// <summary>Typed once to claim the relay; never persisted, and cleared as soon as the attempt finishes.</summary>
+    public string AdminKeyInput
+    {
+        get => _adminKeyInput;
+        set => SetProperty(ref _adminKeyInput, value);
+    }
+
+    public RelayOwnerClaimState RelayClaimState
+    {
+        get => _relayClaimState;
+        private set
+        {
+            if (SetProperty(ref _relayClaimState, value))
+            {
+                OnPropertyChanged(nameof(IsClaimedByThisDesktop));
+            }
+        }
+    }
+
+    public bool IsClaimedByThisDesktop => RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
+
+    public string? RelayClaimMessage
+    {
+        get => _relayClaimMessage;
+        private set
+        {
+            if (SetProperty(ref _relayClaimMessage, value))
+            {
+                OnPropertyChanged(nameof(HasRelayClaimMessage));
+            }
+        }
+    }
+
+    public bool HasRelayClaimMessage => !string.IsNullOrEmpty(RelayClaimMessage);
+
+    public bool IsClaimingRelay
+    {
+        get => _isClaimingRelay;
+        private set => SetProperty(ref _isClaimingRelay, value);
+    }
+
+    /// <summary>
+    /// Claims this relay's owner with the admin key typed into <see cref="AdminKeyInput"/> (v2r-relay-owner,
+    /// #278). Checks <c>/admin/relay/owner</c> first so a relay already claimed by another desktop is
+    /// reported without spending this desktop's own claim-route rate-limit budget on an attempt that
+    /// can only fail.
+    /// </summary>
+    private async Task ClaimRelayAsync()
+    {
+        if (_relay is null || _identitySigner is null)
+        {
+            return;
+        }
+
+        var adminKey = AdminKeyInput;
+        AdminKeyInput = string.Empty;
+        if (string.IsNullOrWhiteSpace(adminKey))
+        {
+            RelayClaimMessage = "Enter the relay's admin key first.";
+            return;
+        }
+
+        IsClaimingRelay = true;
+        try
+        {
+            var material = DesktopRelayOwnerClaim.Build(
+                _identitySigner,
+                _authority.Snapshot.CanonicalState.DesktopDeviceId,
+                Now());
+
+            var status = await GetRelayOwnerStatusAsync(adminKey, _lifetime.Token).ConfigureAwait(true);
+            if (status is { Claimed: true })
+            {
+                RelayClaimState = string.Equals(status.OwnerDeviceId, OwnDeviceIdHex(material), StringComparison.Ordinal)
+                    ? RelayOwnerClaimState.ClaimedByThisDesktop
+                    : RelayOwnerClaimState.ClaimedByAnotherDesktop;
+                RelayClaimMessage = RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop
+                    ? "This relay is already claimed by this desktop."
+                    : "This relay is already claimed by another desktop.";
+                return;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "admin/relay/claim")
+            {
+                Content = new ByteArrayContent(material.ToJsonBody()),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            request.Headers.Add("X-Admin-Key", adminKey);
+            using var response = await _relay.SendAsync(request, _lifetime.Token).ConfigureAwait(true);
+            if (response.IsSuccessStatusCode)
+            {
+                RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
+                RelayClaimMessage = "Claimed. This desktop is now the relay's owner.";
+                var claimedJson = await response.Content.ReadAsStringAsync(_lifetime.Token).ConfigureAwait(true);
+                var credential = JsonSerializer.Deserialize<RelaySessionCredentialResponse>(claimedJson, JsonOptions);
+                if (credential is not null)
+                {
+                    _relayMarksBridge?.SetOwnerCredential(credential.SessionId, credential.Credential, credential.ExpiresUtc);
+                }
+            }
+            else if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                RelayClaimMessage = "That admin key was not accepted.";
+            }
+            else if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                RelayClaimMessage = "Too many claim attempts. Try again in a minute.";
+            }
+            else
+            {
+                RelayClaimMessage = "The relay refused the claim.";
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            RelayClaimMessage = "Could not reach the group relay.";
+        }
+        finally
+        {
+            IsClaimingRelay = false;
+        }
+    }
+
+    private async Task<RelayOwnerStatusResponse?> GetRelayOwnerStatusAsync(string adminKey, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "admin/relay/owner");
+        request.Headers.Add("X-Admin-Key", adminKey);
+        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+        return JsonSerializer.Deserialize<RelayOwnerStatusResponse>(json, JsonOptions);
+    }
+
+    // The relay names its owner only by CompanionDeviceId's "N" hex form (RelayCompanionRoutes),
+    // never its device key — comparing that against the id this claim would register is enough to
+    // tell "claimed by this desktop" from "claimed by another" without the relay handing back
+    // anything a passive listener could use.
+    private static string OwnDeviceIdHex(DesktopRelayOwnerClaimMaterial material) =>
+        material.Establishment.Assignment.DeviceId.Value.ToString("N");
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record RelayOwnerStatusResponse(bool Claimed, string? OwnerDeviceId);
+
+    private sealed record RelaySessionCredentialResponse(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
+
     public void Dispose()
     {
         _ceremony?.Cancel();
@@ -219,6 +401,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         {
             var invitation = await _coordinator.CreateInvitationAsync(Now()).ConfigureAwait(true);
             _attemptId = invitation.Offer.AttemptId;
+            _offer = invitation.Offer;
             var registered = await PostAsync(
                 "v2/companion/pairing/offers",
                 invitation.Offer,
@@ -283,6 +466,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             var approval = await _coordinator.BindRequestAsync(request, CompanionProtocolVersion.Current, Now())
                 .ConfigureAwait(true);
             _approval = approval;
+            _request = request;
             await PostAsync(
                 "v2/companion/pairing/reveals",
                 approval.NonceReveal,
@@ -327,11 +511,13 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 Now().AddDays(90),
                 CompanionTransportKind.EndToEndRelay,
                 CompanionSurfaceKind.TabletLandscape);
+            _grant = grant;
             var challenge = await _coordinator.ApproveAsync(
                 _attemptId,
                 userConfirmedMatchingVerificationCode: true,
                 grant,
                 Now()).ConfigureAwait(true);
+            _challenge = challenge;
             await PostAsync("v2/companion/pairing/challenges", challenge, _attemptId, _ceremony!.Token)
                 .ConfigureAwait(true);
             Stage = CompanionPairingStage.Completing;
@@ -385,6 +571,26 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 .ConfigureAwait(true);
             await PostAsync("v2/companion/pairing/established", session.Establishment, _attemptId, cancellationToken)
                 .ConfigureAwait(true);
+            if (_relayMarksBridge is not null && _offer is not null && _request is not null &&
+                _challenge is not null && _approval is not null && _grant is not null)
+            {
+                // Registers this same completed pairing on the relay (separately from the local
+                // DesktopCompanionAuthority record RegisterPairingAsync just made) so the hub can
+                // route the new tablet's opaque frames, and delivers its starting canonical
+                // snapshot. Best-effort: a relay that is unreachable or not yet claimed leaves the
+                // pairing itself intact — only live sync for this device is unavailable.
+                await _relayMarksBridge.RegisterPairedDeviceAsync(
+                    _offer,
+                    _approval.NonceReveal.DesktopNonceBase64Url,
+                    _offer.OfferedUtc,
+                    _request,
+                    _challenge,
+                    session,
+                    _grant.Role,
+                    _grant.Surface,
+                    cancellationToken).ConfigureAwait(true);
+            }
+
             StatusMessage = $"Paired \"{RequestedDisplayName}\".";
             RefreshDevices();
             ResetCeremony();
@@ -440,6 +646,10 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         _ceremony?.Dispose();
         _ceremony = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _approval = null;
+        _offer = null;
+        _request = null;
+        _challenge = null;
+        _grant = null;
         QrPayload = null;
         PairingCode = null;
         RequestedDisplayName = null;
@@ -447,7 +657,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         Stage = CompanionPairingStage.Idle;
     }
 
-    private DateTimeOffset Now() => _timeProvider.GetUtcNow();
+    // DesktopPairingCoordinator (and every protocol record it builds) requires exact
+    // millisecond-precision UTC and throws otherwise; TimeProvider.System.GetUtcNow() is
+    // sub-millisecond, so every real (non-test-clock) pairing ceremony call needs this truncated.
+    private DateTimeOffset Now()
+    {
+        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
+    }
 
     private async Task<bool> PostAsync<T>(
         string path,
