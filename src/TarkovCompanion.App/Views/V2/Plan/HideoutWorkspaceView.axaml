@@ -3,61 +3,137 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
-      <StackPanel Spacing="4">
-        <TextBlock Classes="v2-heading-1" Text="Hideout" AutomationProperties.HeadingLevel="1" />
-        <TextBlock Classes="v2-body" Text="{Binding Status}"
-                   AutomationProperties.AutomationId="v2-hideout-status"
-                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
-      </StackPanel>
+  <UserControl.Styles>
+    <!-- Same visual language as the Plan tab's bundle cards and requirement list. -->
+    <Style Selector="Button.v2-hideout-station">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="3,0,0,0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="13,10,16,10" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.v2-hideout-station.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Border.v2-hideout-chip">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,1" />
+    </Style>
+    <Style Selector="Border.v2-hideout-chip.v2-hideout-ready">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-hideout-chip.v2-hideout-ready TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-hideout-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    </Style>
+    <Style Selector="Border.v2-hideout-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="3,1,1,1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="16,12" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-hideout-done">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="StrokeThickness" Value="2.4" />
+    </Style>
+  </UserControl.Styles>
 
-      <WrapPanel ItemSpacing="8" LineSpacing="8">
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-hideout-refresh"
-                Content="Refresh" Command="{Binding RefreshCommand}" />
-      </WrapPanel>
-
-      <Border Classes="v2-card" IsVisible="{Binding HasStations}">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Stations" AutomationProperties.HeadingLevel="2" />
-          <ItemsControl ItemsSource="{Binding Stations}">
+  <!-- V2 rough package 17: the Plan route's Hideout tab in the Plan workspace's visual language
+       (docs/design/v2/v2-plan-workspace-concept.png has no separate hideout render): a station
+       list on the left, the selected station's next-level requirements as the primary content. -->
+  <Grid ColumnDefinitions="400,*">
+    <Border Grid.Column="0" Classes="v2-hideout-card" Margin="16,8,0,16">
+      <Grid RowDefinitions="Auto,*">
+        <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="v2-heading-1" Text="Hideout" AutomationProperties.HeadingLevel="1"
+                       VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
+                    VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="v2-hideout-refresh" AutomationProperties.Name="Refresh"
+                    ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
+            </Button>
+          </Grid>
+          <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-hideout-status"
+                     AutomationProperties.LiveSetting="Polite" />
+        </StackPanel>
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasStations}">
+          <ItemsControl ItemsSource="{Binding Stations}" Margin="0,4,0,8">
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:HideoutStationRowViewModel">
-                <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                        Command="{Binding SelectCommand}">
-                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                    <StackPanel Grid.Column="0" Spacing="2">
-                      <TextBlock Classes="v2-body" Text="{Binding Name}" />
+                <Button Classes="v2-target v2-hideout-station" Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}"
+                        AutomationProperties.Name="{Binding Name}"
+                        AutomationProperties.ItemStatus="{Binding NextLevelSummary}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Classes="v2-label" Text="{Binding CurrentLevelLabel}" />
                     </StackPanel>
-                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding NextLevelSummary}" />
-                    <TextBlock Grid.Column="2" Classes="v2-label" Text="Ready" IsVisible="{Binding CanBuildNow}" />
+                    <Border Grid.Column="1" Classes="v2-hideout-chip" Classes.v2-hideout-ready="{Binding IsReady}"
+                            VerticalAlignment="Center">
+                      <TextBlock Classes="v2-label" Text="{Binding StateLabel}" />
+                    </Border>
                   </Grid>
                 </Button>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-        </StackPanel>
-      </Border>
+        </ScrollViewer>
+      </Grid>
+    </Border>
 
-      <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
-          <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap" />
-          <ItemsControl ItemsSource="{Binding Items}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:HideoutRequirementRowViewModel">
-                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12" Margin="0,0,0,4">
-                  <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding ItemName}" />
-                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Owned}" />
-                  <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Required}" />
-                  <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Remaining}" />
-                </Grid>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-      </Border>
-    </StackPanel>
-  </ScrollViewer>
+    <Border Grid.Column="1" Classes="v2-hideout-card" Margin="16,8,16,16">
+      <Panel>
+        <TextBlock Classes="v2-body" IsVisible="{Binding !HasSelection}" Opacity="0.8"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                   TextWrapping="Wrap" MaxWidth="420"
+                   Text="Hideout stations appear here once game data has loaded." />
+        <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasSelection}" Margin="20,16,20,16">
+          <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,12">
+            <TextBlock Classes="v2-heading-2" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-label" Text="{Binding SelectedLevelLabel}" />
+          </StackPanel>
+          <Border Grid.Row="1" Classes="v2-hideout-section" VerticalAlignment="Top" MaxWidth="760"
+                  HorizontalAlignment="Left" MinWidth="480">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="v2-heading-3" Text="Requirements" />
+              <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                         Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+              <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HideoutRequirementRowViewModel">
+                    <Grid ColumnDefinitions="*,Auto,28" ColumnSpacing="16">
+                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis"
+                                 VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
+                      <Viewbox Grid.Column="2" Width="20" Height="20" IsVisible="{Binding IsSatisfied}">
+                        <Path Classes="v2-icon v2-hideout-done" Data="{DynamicResource V2.Icon.Tick}" />
+                      </Viewbox>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </Grid>
+      </Panel>
+    </Border>
+  </Grid>
 </UserControl>

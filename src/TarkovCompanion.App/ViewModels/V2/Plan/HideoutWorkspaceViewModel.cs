@@ -9,6 +9,8 @@ namespace TarkovCompanion.App.ViewModels.V2.Plan;
 /// <summary>One station, at whatever level the profile says it is built to.</summary>
 public sealed class HideoutStationRowViewModel : BindableViewModel
 {
+    private bool _isSelected;
+
     internal HideoutStationRowViewModel(
         string stationId,
         string name,
@@ -49,6 +51,21 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
             ? $"Level {NextLevel} · you have everything"
             : $"Level {NextLevel} · missing {MissingItemCount} item(s)";
 
+    /// <summary>The short state chip on the station card: ready, how much is missing, or maxed.</summary>
+    public string StateLabel => !HasNextLevel
+        ? "Max level"
+        : CanBuildNow
+            ? "Ready"
+            : $"{MissingItemCount} missing";
+
+    public bool IsReady => HasNextLevel && CanBuildNow;
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set => SetProperty(ref _isSelected, value);
+    }
+
     public ICommand SelectCommand { get; }
 }
 
@@ -58,7 +75,11 @@ public sealed record HideoutRequirementRowViewModel(
     string Required,
     string Owned,
     string Remaining,
-    bool IsSatisfied);
+    bool IsSatisfied)
+{
+    /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure.</summary>
+    public string ProgressLabel => $"{Owned} / {Required}";
+}
 
 /// <summary>
 /// V2 Hideout section for the Plan route's Hideout child: current level, what the next level
@@ -94,7 +115,14 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     public IReadOnlyList<HideoutStationRowViewModel> Stations
     {
         get => _stations;
-        private set => SetProperty(ref _stations, value);
+        private set
+        {
+            if (SetProperty(ref _stations, value))
+            {
+                OnPropertyChanged(nameof(HasStations));
+                OnPropertyChanged(nameof(StationCountLabel));
+            }
+        }
     }
 
     public bool HasStations => Stations.Count > 0;
@@ -102,12 +130,26 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     public IReadOnlyList<HideoutRequirementRowViewModel> Items
     {
         get => _items;
-        private set => SetProperty(ref _items, value);
+        private set
+        {
+            if (SetProperty(ref _items, value))
+            {
+                OnPropertyChanged(nameof(HasItems));
+            }
+        }
     }
 
     public bool HasSelection => _selected is not null;
 
     public string SelectedStationName => _selected?.Name ?? string.Empty;
+
+    /// <summary>"Level 1 of 3", under the selected station's name.</summary>
+    public string SelectedLevelLabel => _selected?.CurrentLevelLabel ?? string.Empty;
+
+    public bool HasItems => Items.Count > 0;
+
+    /// <summary>"26 stations", the station list's heading figure.</summary>
+    public string StationCountLabel => Stations.Count == 1 ? "1 station" : $"{Stations.Count:N0} stations";
 
     public string Status
     {
@@ -134,6 +176,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             {
                 Stations = [];
                 Items = [];
+                _selected = null;
+                OnPropertyChanged(nameof(HasSelection));
                 Status = "No hideout data cached yet.";
                 return;
             }
@@ -153,38 +197,40 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
-            Status = $"{Stations.Count} station(s) · {buildable} ready to build now";
+            Status = $"{StationCountLabel} · {buildable} ready to build now";
 
-            var reselect = Stations.FirstOrDefault(station => station.StationId == selectedStationId);
-            if (reselect is not null)
-            {
-                await SelectAsync(reselect, cancellationToken).ConfigureAwait(true);
-            }
-            else
-            {
-                _selected = null;
-                Items = [];
-                OnPropertyChanged(nameof(HasSelection));
-                OnPropertyChanged(nameof(SelectedStationName));
-            }
+            // The detail pane is the page's primary content, so something is always selected
+            // once stations exist: the previous choice if it survived, else the first station.
+            var reselect = Stations.FirstOrDefault(station => station.StationId == selectedStationId)
+                ?? Stations[0];
+            await SelectAsync(reselect, cancellationToken).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Raw exception text is diagnostics, not page copy; see PlanWorkspaceViewModel.
             Stations = [];
             Items = [];
-            Status = $"Unavailable · {exception.Message}";
+            Status = "Hideout data isn't available yet.";
+            System.Diagnostics.Trace.TraceWarning($"Hideout workspace refresh failed: {exception}");
         }
     }
 
     internal async Task SelectAsync(HideoutStationRowViewModel station, CancellationToken cancellationToken)
     {
+        if (_selected is not null)
+        {
+            _selected.IsSelected = false;
+        }
+
         _selected = station;
+        station.IsSelected = true;
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(SelectedStationName));
+        OnPropertyChanged(nameof(SelectedLevelLabel));
         if (!station.HasNextLevel)
         {
             Items = [];
-            Detail = $"{station.Name} · already at its highest level";
+            Detail = "Already at its highest level.";
             return;
         }
 
@@ -215,15 +261,16 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .ToArray();
             var outstanding = Items.Count(row => !row.IsSatisfied);
             Detail = Items.Count == 0
-                ? $"{station.Name} level {station.NextLevel} · no items needed"
+                ? $"Level {station.NextLevel} needs no items."
                 : outstanding == 0
-                    ? $"{station.Name} level {station.NextLevel} · you have everything"
-                    : $"{station.Name} level {station.NextLevel} · {outstanding} of {Items.Count} still needed";
+                    ? $"Level {station.NextLevel} · you have everything"
+                    : $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Items = [];
-            Detail = $"Unreadable · {exception.Message}";
+            Detail = "Requirements aren't available yet.";
+            System.Diagnostics.Trace.TraceWarning($"Hideout requirements failed: {exception}");
         }
     }
 

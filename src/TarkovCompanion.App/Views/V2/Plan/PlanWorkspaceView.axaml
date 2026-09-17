@@ -2,71 +2,305 @@
              x:DataType="vm:PlanWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
-      <StackPanel Spacing="4">
-        <TextBlock Classes="v2-heading-1" Text="Plan" AutomationProperties.HeadingLevel="1" />
-        <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
-        <TextBlock Classes="v2-body" Text="{Binding Status}"
-                   AutomationProperties.AutomationId="v2-plan-status"
-                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
-      </StackPanel>
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+  <UserControl.Styles>
+    <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
+    <Style Selector="Button.v2-plan-bundle">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="10" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.v2-plan-bundle.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Padding" Value="9" />
+    </Style>
+    <Style Selector="Border.v2-plan-tile">
+      <Setter Property="Width" Value="48" />
+      <Setter Property="Height" Value="48" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <!-- Flat text actions on an objective row; the row, not a wall of boxes, is the unit. -->
+    <Style Selector="Button.v2-plan-link">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="8,4" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-plan-link.v2-plan-link-action">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- The map card, like the Raid workspace's: canvas behind the artwork, clipped corners. -->
+    <Style Selector="Border.v2-plan-mapcard">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="Border.v2-plan-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="3,1,1,1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="16,12" />
+    </Style>
+    <Style Selector="Border.v2-plan-section.v2-plan-accent">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Border.v2-plan-panel">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <Style Selector="Border.v2-plan-step-row">
+      <Setter Property="Padding" Value="12,10" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.v2-plan-step-row:pointerover">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-plan-chip">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,1" />
+    </Style>
+    <!-- The primary action, the one filled cyan control on the page, like the concept's "Open in Raid". -->
+    <Style Selector="Button.v2-plan-primary">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Height" Value="52" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.v2-plan-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Focus}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Button.v2-plan-primary Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="ToggleSwitch.v2-plan-switch">
+      <Setter Property="MinWidth" Value="0" />
+    </Style>
+  </UserControl.Styles>
 
-      <WrapPanel ItemSpacing="8" LineSpacing="8">
-        <ToggleButton Classes="v2-target" AutomationProperties.AutomationId="v2-plan-show-all"
-                      Content="Show everything" IsChecked="{Binding ShowAll}" />
-        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-plan-refresh"
-                Content="Refresh" Command="{Binding RefreshCommand}" />
-      </WrapPanel>
+  <!-- V2 rough package 17: laid out like docs/design/v2/v2-plan-workspace-concept.png. Left, the
+       "next raid" column of map bundles (one per map with active objectives) plus the Hideout card;
+       centre, that map drawn by the V2 renderer with only its active objectives, numbered; right,
+       the numbered objectives list and the one primary action, Open in Raid. The concept's traffic,
+       route, requirements, loadout readiness and route estimate have no data source yet, so they
+       are not drawn. -->
+  <Grid ColumnDefinitions="340,*,Auto">
+    <!-- Left column -->
+    <Border Grid.Column="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="12" Margin="16,8,16,16">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="v2-heading-1" Text="Next raid" AutomationProperties.HeadingLevel="1"
+                         VerticalAlignment="Center" />
+              <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
+                      AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="Refresh"
+                      ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+                <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
+              </Button>
+            </Grid>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="v2-body" Text="{Binding Status}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-plan-status"
+                         AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+            </StackPanel>
 
-      <TextBlock Classes="v2-body" Text="Nothing to show. Toggle Show everything to see locked, completed, or failed quests."
-                 IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" />
+            <Rectangle Height="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" Margin="0,4" />
+            <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"
+                       IsVisible="{Binding HasGroups}" />
+            <ItemsControl ItemsSource="{Binding Groups}" IsVisible="{Binding HasGroups}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanMapGroupViewModel">
+                  <Button Classes="v2-target v2-plan-bundle" Classes.selected="{Binding IsSelected}"
+                          Command="{Binding SelectCommand}"
+                          AutomationProperties.Name="{Binding MapLabel}"
+                          AutomationProperties.ItemStatus="{Binding Summary}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                      <Border Classes="v2-plan-tile">
+                        <Path Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
+                              Data="{DynamicResource V2.Icon.Map}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      </Border>
+                      <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MapLabel}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+                      </StackPanel>
+                      <Path Grid.Column="2" Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
+                            Data="{DynamicResource V2.Icon.ChevronRight}" VerticalAlignment="Center" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
-      <ItemsControl ItemsSource="{Binding Groups}" IsVisible="{Binding HasGroups}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:PlanMapGroupViewModel">
-            <Border Classes="v2-card" Margin="0,0,0,12">
-              <StackPanel Spacing="8">
-                <TextBlock Classes="v2-heading-3" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2" />
-                <ItemsControl ItemsSource="{Binding Objectives}">
+            <Button Classes="v2-target v2-plan-bundle" Command="{Binding OpenHideoutCommand}"
+                    AutomationProperties.AutomationId="v2-plan-open-hideout"
+                    AutomationProperties.Name="Hideout">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                <Border Classes="v2-plan-tile">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.House}"
+                        HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="Hideout" />
+                  <TextBlock Classes="v2-label" Text="Stations and upgrade items" />
+                </StackPanel>
+                <Path Grid.Column="2" Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.ChevronRight}"
+                      VerticalAlignment="Center" />
+              </Grid>
+            </Button>
+          </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="1" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0"
+                Padding="16,8">
+          <ToggleSwitch Classes="v2-plan-switch" AutomationProperties.AutomationId="v2-plan-show-all"
+                        AutomationProperties.Name="Show everything"
+                        OnContent="Show everything" OffContent="Show everything"
+                        IsChecked="{Binding ShowAll}" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- Centre: the selected map with its active objectives, numbered like the list. -->
+    <Border Grid.Column="1" Classes="v2-plan-mapcard" Margin="16,8,16,16">
+      <Grid>
+        <TextBlock Classes="v2-body" IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" TextAlignment="Center"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Opacity="0.8"
+                   Text="Nothing planned yet. Active quest objectives appear here, grouped by map." />
+        <TextBlock Classes="v2-body" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.8"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420"
+                   IsVisible="{Binding MapNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Text="{Binding MapNote}" />
+        <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself, whose own
+             DataContext is overridden to MapPreview (same as the Raid workspace). -->
+        <ContentControl IsVisible="{Binding HasMapPreview}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        AutomationProperties.AutomationId="v2-plan-map">
+          <map:MapSceneRendererView DataContext="{Binding MapPreview}" />
+        </ContentControl>
+      </Grid>
+    </Border>
+
+    <!-- Right: the selected map's context panel, its objectives list, and Open in Raid. -->
+    <Border Grid.Column="2" Width="440" Classes="v2-plan-panel">
+      <Panel>
+        <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasSelectedGroup}" TextWrapping="Wrap"
+                   Text="Pick a map to see its objectives." />
+        <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
+             would resolve IsVisible against SelectedGroup. -->
+        <Panel IsVisible="{Binding HasSelectedGroup}">
+        <Grid RowDefinitions="Auto,*,Auto" DataContext="{Binding SelectedGroup}">
+          <StackPanel Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
+            <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
+                       TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+          </StackPanel>
+          <Border Grid.Row="1" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section v2-plan-accent"
+                  Margin="16,0,16,12" Padding="12,12,8,8">
+            <Grid RowDefinitions="Auto,*">
+              <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
+              <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Objectives}" Margin="0,0,8,0">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:PlanObjectiveRowViewModel">
-                      <Border BorderBrush="{DynamicResource V2.Brush.Border}" BorderThickness="0,0,0,1"
-                              Padding="0,0,0,8" Margin="0,0,0,8">
-                        <StackPanel Spacing="4">
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel Grid.Column="0" Spacing="2">
-                              <TextBlock Classes="v2-body" Text="{Binding TaskName}" FontWeight="SemiBold" />
-                              <TextBlock Classes="v2-label" Text="{Binding TraderLabel}" />
-                              <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
-                              <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" IsVisible="{Binding HasHandlingLabel}" />
-                              <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" />
-                              <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}" />
-                            </StackPanel>
-                          </Grid>
-                          <WrapPanel ItemSpacing="8" LineSpacing="4">
-                            <Button Classes="v2-target" Content="Wiki"
-                                    IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
-                            <Button Classes="v2-target" Content="Show on map"
-                                    IsVisible="{Binding CanShowOnMap}" Command="{Binding ShowOnMapCommand}" />
-                            <Button Classes="v2-target" Content="Mark objective done"
-                                    Command="{Binding MarkObjectiveDoneCommand}" />
-                            <Button Classes="v2-target" Content="Mark quest done"
-                                    Command="{Binding MarkQuestDoneCommand}" />
-                          </WrapPanel>
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <!-- The step rail: a numbered ring, joined to the next by a line. -->
+                        <Grid Grid.Column="0" RowDefinitions="Auto,*" Width="34">
+                          <Panel Grid.Row="0" Width="28" Height="28" Margin="0,6,0,0">
+                            <Ellipse Stroke="{DynamicResource V2.Brush.Action}" StrokeThickness="2" />
+                            <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding Number}"
+                                       Foreground="{DynamicResource V2.Brush.TextPrimary}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          </Panel>
+                          <Rectangle Grid.Row="1" Width="2" Fill="{DynamicResource V2.Brush.Action}" Opacity="0.45"
+                                     HorizontalAlignment="Center" Margin="0,2,0,-2" IsVisible="{Binding HasNext}" />
+                        </Grid>
+                        <Border Grid.Column="1" Classes="v2-plan-step-row" Padding="8,6" Margin="0,0,0,6">
+                          <StackPanel Spacing="3">
+                            <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" TextWrapping="Wrap">
+                              <Run Text="{Binding TaskName}" />
+                              <Run Text=" · " />
+                              <Run Text="{Binding TraderLabel}" />
+                            </TextBlock>
+                            <WrapPanel ItemSpacing="8" LineSpacing="4">
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
+                                <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                              </Border>
+                              <TextBlock Classes="v2-label" Text="{Binding RemainingLabel}" VerticalAlignment="Center"
+                                         IsVisible="{Binding HasRemainingLabel}" />
+                              <TextBlock Classes="v2-label" Text="No map position" VerticalAlignment="Center" Opacity="0.8"
+                                         IsVisible="{Binding ShowsNoMapPosition}" />
+                              <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}"
+                                         VerticalAlignment="Center" />
+                            </WrapPanel>
+                          </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2,0,0">
+                          <Button Classes="v2-target v2-icon-btn v2-plan-link" Command="{Binding MarkObjectiveDoneCommand}"
+                                  AutomationProperties.Name="Mark objective done" ToolTip.Tip="Mark objective done">
+                            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tick}" />
+                          </Button>
+                          <Button Classes="v2-target v2-icon-btn v2-plan-link" AutomationProperties.Name="More actions"
+                                  ToolTip.Tip="More actions">
+                            <Path Classes="v2-icon v2-icon-muted" StrokeThickness="3" Data="{DynamicResource V2.Icon.More}" />
+                            <Button.Flyout>
+                              <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                <MenuItem Header="Mark quest done" Command="{Binding MarkQuestDoneCommand}" />
+                                <MenuItem Header="Show on map" Command="{Binding ShowOnMapCommand}"
+                                          IsVisible="{Binding CanShowOnMap}" />
+                                <MenuItem Header="Open wiki" Command="{Binding OpenWikiCommand}"
+                                          IsVisible="{Binding HasWikiLink}" />
+                              </MenuFlyout>
+                            </Button.Flyout>
+                          </Button>
                         </StackPanel>
-                      </Border>
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+          <StackPanel Grid.Row="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
+            <Button Classes="v2-target v2-plan-primary" Command="{Binding OpenInRaidCommand}"
+                    IsVisible="{Binding CanOpenInRaid}"
+                    AutomationProperties.AutomationId="v2-plan-open-in-raid"
+                    AutomationProperties.Name="Open in Raid">
+              <StackPanel Orientation="Horizontal" Spacing="12">
+                <Viewbox Width="20" Height="20">
+                  <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Play}" />
+                </Viewbox>
+                <TextBlock Text="Open in Raid" VerticalAlignment="Center" />
               </StackPanel>
-            </Border>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </StackPanel>
-  </ScrollViewer>
+            </Button>
+          </StackPanel>
+        </Grid>
+        </Panel>
+      </Panel>
+    </Border>
+  </Grid>
 </UserControl>

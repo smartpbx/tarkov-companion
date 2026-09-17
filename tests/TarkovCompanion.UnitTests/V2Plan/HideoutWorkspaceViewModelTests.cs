@@ -85,6 +85,29 @@ public sealed class HideoutWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Refresh_selects_the_first_station_so_the_detail_pane_is_never_blank()
+    {
+        var requirements = new FakeRequirementCatalog();
+        requirements.Stations = [new("lavatory", "Lavatory", [1, 2, 3])];
+        requirements.Requirements = [new("lavatory", 1, "item-bolts", 5)];
+        var profile = TestProfile(
+            hideoutLevels: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+            owned: new Dictionary<string, int>(StringComparer.Ordinal) { ["item-bolts"] = 2 });
+        var itemRepository = new FakeItemRepository();
+        itemRepository.Names["item-bolts"] = "Bolts";
+        var viewModel = new HideoutWorkspaceViewModel(requirements, new FakePlayerProfileService(profile), itemRepository);
+
+        await viewModel.RefreshAsync();
+
+        var station = Assert.Single(viewModel.Stations);
+        Assert.True(viewModel.HasSelection);
+        Assert.True(station.IsSelected);
+        Assert.Equal("1 missing", station.StateLabel);
+        Assert.Equal("2 / 5", Assert.Single(viewModel.Items).ProgressLabel);
+        Assert.Equal("1 station · 0 ready to build now", viewModel.Status);
+    }
+
+    [Fact]
     public async Task A_station_already_at_its_highest_level_has_no_outstanding_items()
     {
         var requirements = new FakeRequirementCatalog();

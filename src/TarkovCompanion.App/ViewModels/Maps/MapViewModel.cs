@@ -1580,6 +1580,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// V2 rough package 17: the loaded map catalog's provenance, which the V2 Plan workspace
+    /// needs to project its own objective markers. Null until the catalog has loaded.
+    /// </summary>
+    public MapCatalogProvenance? CatalogProvenance => _mapCatalogProvenance;
+
     public IReadOnlyList<QuestMapPointViewModel> QuestPoints
     {
         get => _questPoints;
