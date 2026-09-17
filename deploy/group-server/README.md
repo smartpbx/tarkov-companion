@@ -135,6 +135,8 @@ set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
 
 - `marks.json`: waypoints, including who placed and who reached each one
 - `rooms.json`: registered room hashes and their labels
+- `relay-devices.json`: the paired-device registry (owner and paired devices' key thumbprints,
+  sessions, audit trail); no private keys and no plaintext bearer credential
 - `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them
 - `UPDATE_NOW`, the panel's request for an update; the updater's stamps are not here but in its
   own directories, [above](#where-the-updater-keeps-what-it-decides-from)

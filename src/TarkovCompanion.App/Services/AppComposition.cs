@@ -720,7 +720,8 @@ public static class AppComposition
             provider.GetRequiredService<IDeviceKeyProofVerifier>()));
         services.AddSingleton(provider => new CompanionPairingAvailability(
             provider.GetRequiredService<DesktopPairingCoordinator>(),
-            origin));
+            origin,
+            provider.GetRequiredService<IDesktopIdentitySigner>()));
     }
 
     /// <summary>

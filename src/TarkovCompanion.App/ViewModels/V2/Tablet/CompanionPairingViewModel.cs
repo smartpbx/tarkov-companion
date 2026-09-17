@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Devices;
@@ -17,7 +18,10 @@ namespace TarkovCompanion.App.ViewModels.V2.Tablet;
 /// DPAPI-protected) and a group relay with an HTTPS DNS origin is configured, because that origin
 /// is what the production <c>IDeviceKeyProofVerifier</c> pins a device-key proof to.
 /// </remarks>
-public sealed record CompanionPairingAvailability(DesktopPairingCoordinator? Coordinator, Uri? RelayOrigin)
+public sealed record CompanionPairingAvailability(
+    DesktopPairingCoordinator? Coordinator,
+    Uri? RelayOrigin,
+    IDesktopIdentitySigner? IdentitySigner = null)
 {
     public static CompanionPairingAvailability Unavailable { get; } = new(null, null);
 }
@@ -67,10 +71,20 @@ public enum CompanionPairingStage
 /// <see cref="DesktopPairingCoordinator"/>'s, unchanged from its own tests. This view model adds
 /// nothing to that trust boundary; it only calls it and shows the result.
 /// </remarks>
+/// <summary>Whether this relay is claimed, and by whom, as last checked from this desktop.</summary>
+public enum RelayOwnerClaimState
+{
+    Unknown = 1,
+    NotClaimed,
+    ClaimedByThisDesktop,
+    ClaimedByAnotherDesktop,
+}
+
 public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 {
     private readonly DesktopCompanionAuthority _authority;
     private readonly DesktopPairingCoordinator? _coordinator;
+    private readonly IDesktopIdentitySigner? _identitySigner;
     private readonly HttpClient? _relay;
     private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _lifetime = new();
@@ -85,6 +99,10 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private string? _verificationCode;
     private string? _statusMessage;
     private bool _isBusy;
+    private string _adminKeyInput = string.Empty;
+    private RelayOwnerClaimState _relayClaimState = RelayOwnerClaimState.Unknown;
+    private string? _relayClaimMessage;
+    private bool _isClaimingRelay;
 
     public CompanionPairingViewModel(
         DesktopCompanionAuthority authority,
@@ -95,6 +113,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         ArgumentNullException.ThrowIfNull(availability);
         _authority = authority;
         _coordinator = availability.Coordinator;
+        _identitySigner = availability.IdentitySigner;
         _timeProvider = timeProvider ?? TimeProvider.System;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
@@ -105,6 +124,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
         DenyCommand = new AsyncDelegateCommand(DenyAsync);
+        ClaimRelayCommand = new AsyncDelegateCommand(ClaimRelayAsync);
     }
 
     public bool CanPair => _coordinator is not null && _relay is not null;
@@ -186,6 +206,152 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     public ICommand ApproveCommand { get; }
 
     public ICommand DenyCommand { get; }
+
+    public ICommand ClaimRelayCommand { get; }
+
+    public bool CanClaimRelay => _identitySigner is not null && _relay is not null;
+
+    /// <summary>Typed once to claim the relay; never persisted, and cleared as soon as the attempt finishes.</summary>
+    public string AdminKeyInput
+    {
+        get => _adminKeyInput;
+        set => SetProperty(ref _adminKeyInput, value);
+    }
+
+    public RelayOwnerClaimState RelayClaimState
+    {
+        get => _relayClaimState;
+        private set
+        {
+            if (SetProperty(ref _relayClaimState, value))
+            {
+                OnPropertyChanged(nameof(IsClaimedByThisDesktop));
+            }
+        }
+    }
+
+    public bool IsClaimedByThisDesktop => RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
+
+    public string? RelayClaimMessage
+    {
+        get => _relayClaimMessage;
+        private set
+        {
+            if (SetProperty(ref _relayClaimMessage, value))
+            {
+                OnPropertyChanged(nameof(HasRelayClaimMessage));
+            }
+        }
+    }
+
+    public bool HasRelayClaimMessage => !string.IsNullOrEmpty(RelayClaimMessage);
+
+    public bool IsClaimingRelay
+    {
+        get => _isClaimingRelay;
+        private set => SetProperty(ref _isClaimingRelay, value);
+    }
+
+    /// <summary>
+    /// Claims this relay's owner with the admin key typed into <see cref="AdminKeyInput"/> (v2r-relay-owner,
+    /// #278). Checks <c>/admin/relay/owner</c> first so a relay already claimed by another desktop is
+    /// reported without spending this desktop's own claim-route rate-limit budget on an attempt that
+    /// can only fail.
+    /// </summary>
+    private async Task ClaimRelayAsync()
+    {
+        if (_relay is null || _identitySigner is null)
+        {
+            return;
+        }
+
+        var adminKey = AdminKeyInput;
+        AdminKeyInput = string.Empty;
+        if (string.IsNullOrWhiteSpace(adminKey))
+        {
+            RelayClaimMessage = "Enter the relay's admin key first.";
+            return;
+        }
+
+        IsClaimingRelay = true;
+        try
+        {
+            var material = DesktopRelayOwnerClaim.Build(
+                _identitySigner,
+                _authority.Snapshot.CanonicalState.DesktopDeviceId,
+                Now());
+
+            var status = await GetRelayOwnerStatusAsync(adminKey, _lifetime.Token).ConfigureAwait(true);
+            if (status is { Claimed: true })
+            {
+                RelayClaimState = string.Equals(status.OwnerDeviceId, OwnDeviceIdHex(material), StringComparison.Ordinal)
+                    ? RelayOwnerClaimState.ClaimedByThisDesktop
+                    : RelayOwnerClaimState.ClaimedByAnotherDesktop;
+                RelayClaimMessage = RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop
+                    ? "This relay is already claimed by this desktop."
+                    : "This relay is already claimed by another desktop.";
+                return;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "admin/relay/claim")
+            {
+                Content = new ByteArrayContent(material.ToJsonBody()),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            request.Headers.Add("X-Admin-Key", adminKey);
+            using var response = await _relay.SendAsync(request, _lifetime.Token).ConfigureAwait(true);
+            if (response.IsSuccessStatusCode)
+            {
+                RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
+                RelayClaimMessage = "Claimed. This desktop is now the relay's owner.";
+            }
+            else if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                RelayClaimMessage = "That admin key was not accepted.";
+            }
+            else if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                RelayClaimMessage = "Too many claim attempts. Try again in a minute.";
+            }
+            else
+            {
+                RelayClaimMessage = "The relay refused the claim.";
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            RelayClaimMessage = "Could not reach the group relay.";
+        }
+        finally
+        {
+            IsClaimingRelay = false;
+        }
+    }
+
+    private async Task<RelayOwnerStatusResponse?> GetRelayOwnerStatusAsync(string adminKey, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "admin/relay/owner");
+        request.Headers.Add("X-Admin-Key", adminKey);
+        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+        return JsonSerializer.Deserialize<RelayOwnerStatusResponse>(json, JsonOptions);
+    }
+
+    // The relay names its owner only by CompanionDeviceId's "N" hex form (RelayCompanionRoutes),
+    // never its device key — comparing that against the id this claim would register is enough to
+    // tell "claimed by this desktop" from "claimed by another" without the relay handing back
+    // anything a passive listener could use.
+    private static string OwnDeviceIdHex(DesktopRelayOwnerClaimMaterial material) =>
+        material.Establishment.Assignment.DeviceId.Value.ToString("N");
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record RelayOwnerStatusResponse(bool Claimed, string? OwnerDeviceId);
 
     public void Dispose()
     {

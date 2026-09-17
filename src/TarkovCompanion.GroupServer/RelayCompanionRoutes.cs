@@ -37,7 +37,7 @@ public sealed record RelayDeviceClaim(
         Establishment.EstablishedUtc);
 }
 
-public sealed record RelayOwnerStatus(bool Claimed, string? OwnerDeviceKeyIdThumbprint);
+public sealed record RelayOwnerStatus(bool Claimed, string? OwnerDeviceId);
 
 public sealed record RelaySessionCredentialResponse(
     Guid SessionId,
