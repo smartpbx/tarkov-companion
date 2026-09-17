@@ -149,6 +149,29 @@ try {
 }
 check("opening a sealed credential against the wrong attempt id throws (AAD binds it)", wrongAttemptThrew);
 
+check("sealPairingCredential's nonce is 12 bytes", crypto.base64UrlDecode(sealedCredential.nonceBase64Url).length === 12);
+
+// Two seals of different secrets under the same traffic key must never share a nonce — a fixed
+// nonce reused across calls would be AES-GCM nonce reuse (leaks plaintext XOR and the GHASH key).
+const secondSealedCredential = await crypto.sealPairingCredential({
+  trafficKey: credentialTrafficKey,
+  attemptId: credentialAttemptId,
+  credential: "a-different-tablet-bearer-secret",
+  expiresUtc: credentialExpiresUtc,
+});
+check(
+  "two seals under the same key produce unrelated (non-identical) random nonces",
+  sealedCredential.nonceBase64Url !== secondSealedCredential.nonceBase64Url,
+);
+check(
+  "the second seal opens back to its own distinct secret",
+  (await crypto.openPairingCredential({
+    trafficKey: credentialTrafficKey,
+    attemptId: credentialAttemptId,
+    sealedCredential: secondSealedCredential,
+  })) === "a-different-tablet-bearer-secret",
+);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

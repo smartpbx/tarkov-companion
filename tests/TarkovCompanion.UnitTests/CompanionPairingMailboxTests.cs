@@ -186,7 +186,7 @@ public sealed class CompanionPairingMailboxTests
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
         Assert.True(mailbox.RegisterOffer(offer, "TESTCODE66", "192.0.2.61").Succeeded);
-        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+        var sealedCredential = new SealedRelayCredential("nonce", "ciphertext", "tag", Now.AddMinutes(5));
 
         Assert.Null(mailbox.ReadRelaySession(offer.AttemptId));
 
@@ -205,7 +205,7 @@ public sealed class CompanionPairingMailboxTests
     {
         var clock = new FixedTimeProvider(Now);
         var mailbox = new CompanionPairingMailbox(clock);
-        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+        var sealedCredential = new SealedRelayCredential("nonce", "ciphertext", "tag", Now.AddMinutes(5));
 
         var submitted = mailbox.SubmitRelaySession(new PairingAttemptId(Guid.NewGuid()), sealedCredential);
 
@@ -213,21 +213,45 @@ public sealed class CompanionPairingMailboxTests
         Assert.Equal("pairing-rejected", submitted.Code);
     }
 
+    /// <summary>
+    /// First write wins, full stop — even resubmitting the identical value is rejected.
+    /// <see cref="RelayCredentialCryptography.Seal"/> reseals with a fresh random nonce every call,
+    /// so a retried registration never produces byte-identical ciphertext for the same secret; this
+    /// mailbox never decrypts anything, so it has no way to recognize "the same secret, resealed"
+    /// as anything other than a second, different submission.
+    /// </summary>
     [Fact]
-    public void ResubmittingTheSameRelaySessionCredentialIsIdempotentButADifferentOneIsRejected()
+    public void ASecondRelaySessionCredentialSubmissionIsAlwaysRejectedEvenAnIdenticalOne()
     {
         var clock = new FixedTimeProvider(Now);
         var mailbox = new CompanionPairingMailbox(clock);
         var offer = MakeOffer(Now);
         Assert.True(mailbox.RegisterOffer(offer, "TESTCODE77", "192.0.2.71").Succeeded);
-        var sealedCredential = new SealedRelayCredential("ciphertext", "tag", Now.AddMinutes(5));
+        var sealedCredential = new SealedRelayCredential("nonce", "ciphertext", "tag", Now.AddMinutes(5));
         Assert.True(mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential).Succeeded);
 
         var sameAgain = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential);
         var different = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential with { CiphertextBase64Url = "different" });
 
-        Assert.True(sameAgain.Succeeded);
+        Assert.False(sameAgain.Succeeded);
         Assert.False(different.Succeeded);
+    }
+
+    /// <summary>First write wins even after the first submission has already been read once.</summary>
+    [Fact]
+    public void ASecondRelaySessionCredentialSubmissionIsRejectedEvenAfterTheFirstWasAlreadyConsumed()
+    {
+        var clock = new FixedTimeProvider(Now);
+        var mailbox = new CompanionPairingMailbox(clock);
+        var offer = MakeOffer(Now);
+        Assert.True(mailbox.RegisterOffer(offer, "TESTCODE88", "192.0.2.81").Succeeded);
+        var sealedCredential = new SealedRelayCredential("nonce", "ciphertext", "tag", Now.AddMinutes(5));
+        Assert.True(mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential).Succeeded);
+        Assert.NotNull(mailbox.ReadRelaySession(offer.AttemptId));
+
+        var resubmitted = mailbox.SubmitRelaySession(offer.AttemptId, sealedCredential);
+
+        Assert.False(resubmitted.Succeeded);
     }
 
     private static PairingOffer MakeOffer(DateTimeOffset now)

@@ -114,4 +114,21 @@ public sealed class RelayCryptoInteropTests
         Assert.NotNull(sealedCredential.CiphertextBase64Url);
         Assert.NotNull(sealedCredential.AuthenticationTagBase64Url);
     }
+
+    [Fact]
+    public void TwoSealsUnderTheSameKeyNeverShareANonce()
+    {
+        // A fixed nonce reused across two seals under the same traffic key (e.g. a retried
+        // registration sealing a second, different secret) would be AES-GCM nonce reuse: it leaks
+        // the two plaintexts' XOR and the authenticator's GHASH key, enabling forgeries.
+        var attemptId = Guid.NewGuid();
+        var expiresUtc = DateTimeOffset.UtcNow.AddMinutes(2);
+
+        var first = RelayCredentialCryptography.Seal(TrafficKey, attemptId, "first-secret", expiresUtc);
+        var second = RelayCredentialCryptography.Seal(TrafficKey, attemptId, "second-secret", expiresUtc);
+
+        Assert.NotEqual(first.NonceBase64Url, second.NonceBase64Url);
+        Assert.Equal("first-secret", RelayCredentialCryptography.Open(TrafficKey, attemptId, first));
+        Assert.Equal("second-secret", RelayCredentialCryptography.Open(TrafficKey, attemptId, second));
+    }
 }

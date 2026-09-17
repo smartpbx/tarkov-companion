@@ -191,10 +191,14 @@ public sealed class CompanionPairingMailbox
     /// device on the relay (v2r-relay-owner's <c>POST /v2/companion/relay/devices</c>).
     /// <paramref name="relaySession"/> is <see cref="RelayCredentialCryptography.Seal"/>'s output
     /// (sealed with the pairing's own desktop-to-tablet traffic key, ABUSE-PAIRED-LIVE-BEARER-THEFT)
-    /// — this mailbox never sees, stores, or forwards the plaintext bearer secret. Single-use the
-    /// same way every other slot here is: a resubmission with the same value succeeds idempotently,
-    /// a different one is rejected. <see cref="ReadRelaySession"/> additionally consumes it on its
-    /// first successful read, bounded the same way every other slot expires with the offer.
+    /// — this mailbox never sees, stores, or forwards the plaintext bearer secret. First write wins
+    /// — every other slot here allows an idempotent resubmission of the identical value, but
+    /// <see cref="RelayCredentialCryptography.Seal"/> reseals with a fresh random nonce every call,
+    /// so a retried registration never produces byte-identical ciphertext even for the same secret;
+    /// accepting "the same value" here would have to mean "decrypts to the same plaintext", and
+    /// this mailbox deliberately never decrypts anything. <see cref="ReadRelaySession"/> additionally
+    /// consumes it on its first successful read, bounded the same way every other slot expires with
+    /// the offer.
     /// </summary>
     public MailboxResult<bool> SubmitRelaySession(PairingAttemptId attemptId, SealedRelayCredential relaySession)
     {
@@ -208,12 +212,12 @@ public sealed class CompanionPairingMailbox
                 return MailboxResult<bool>.Reject("pairing-rejected");
             }
 
-            if (entry.RelaySession is { } existing)
+            if (entry.RelaySessionSubmitted)
             {
-                return existing == relaySession ? MailboxResult<bool>.Success(true) : MailboxResult<bool>.Reject("pairing-rejected");
+                return MailboxResult<bool>.Reject("pairing-rejected");
             }
 
-            _entries[attemptId] = entry with { RelaySession = relaySession };
+            _entries[attemptId] = entry with { RelaySession = relaySession, RelaySessionSubmitted = true };
             return MailboxResult<bool>.Success(true);
         }
     }
@@ -339,5 +343,6 @@ public sealed class CompanionPairingMailbox
         DeviceKeyProof? Proof = null,
         SessionEstablished? Established = null,
         SealedRelayCredential? RelaySession = null,
+        bool RelaySessionSubmitted = false,
         bool Denied = false);
 }

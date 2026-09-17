@@ -6,7 +6,11 @@ namespace TarkovCompanion.CompanionProtocol;
 /// <summary>
 /// The tablet's own relay bearer secret, sealed for its one-time trip through the pairing mailbox.
 /// </summary>
-public sealed record SealedRelayCredential(string CiphertextBase64Url, string AuthenticationTagBase64Url, DateTimeOffset ExpiresUtc);
+public sealed record SealedRelayCredential(
+    string NonceBase64Url,
+    string CiphertextBase64Url,
+    string AuthenticationTagBase64Url,
+    DateTimeOffset ExpiresUtc);
 
 /// <summary>
 /// Seals the tablet's relay bearer secret for its trip through <c>CompanionPairingMailbox</c>
@@ -20,22 +24,24 @@ public sealed record SealedRelayCredential(string CiphertextBase64Url, string Au
 /// Not part of the documented PAIRED_DEVICE_PROTOCOL.md relay-frame contract: it reuses
 /// <see cref="PairingCryptography"/>'s AES-256-GCM primitive and one of its already-established
 /// direction-specific traffic keys (desktop → tablet, since only the desktop ever seals this), but
-/// with its own domain-separated additional authenticated data and a nonce
-/// (<c>keyEpoch = 0, senderSequence = 0</c>) <see cref="ProtocolGuard.KeyEpoch"/> and
-/// <see cref="PairingCryptography.EncodeRelayNonce"/>'s own sender-sequence requirement both forbid
-/// for an actual frame — so a captured ciphertext can never be replayed into
-/// <c>POST /v2/companion/relay/frames</c> and opened as one. The AAD binds the ciphertext to the
-/// exact pairing attempt and expiry it was sealed for, so it cannot be replayed against a different
+/// with its own domain-separated additional authenticated data. The nonce is fresh and random per
+/// call rather than fixed: <see cref="CompanionPairingMailbox.SubmitRelaySession"/> is first-write-wins,
+/// but this method has no way to know that — a caller that retried registration (a network retry,
+/// a re-registration after revoke/replace) would otherwise seal a second, different secret under
+/// the same key and a fixed nonce, which is AES-GCM nonce reuse: it leaks the two plaintexts' XOR
+/// and the authenticator's GHASH key, enabling forgeries. A captured ciphertext can still never be
+/// replayed into <c>POST /v2/companion/relay/frames</c> and opened as an <c>OpaqueRelayFrame</c>
+/// there — the JSON shape has no channel/session/keyEpoch/senderSequence at all, and even format-
+/// coerced into one, this AAD's domain differs from <see cref="PairingCryptography"/>'s relay-frame
+/// AAD, so authentication would fail regardless. The AAD also binds the ciphertext to the exact
+/// pairing attempt and expiry it was sealed for, so it cannot be replayed against a different
 /// attempt or have its expiry silently extended.
 /// </remarks>
 public static class RelayCredentialCryptography
 {
     public const string CredentialAadDomain = "TarkovCompanion.PairedDevice/v2/relay-credential";
     private const int TagBytes = 16;
-
-    // keyEpoch=0, senderSequence=0 encoded the same way EncodeRelayNonce would — reserved because
-    // neither value is ever valid for a real OpaqueRelayFrame under this same key.
-    private static readonly byte[] ReservedNonce = new byte[12];
+    private const int NonceBytes = 12;
 
     public static SealedRelayCredential Seal(
         ReadOnlySpan<byte> trafficKey,
@@ -45,16 +51,21 @@ public static class RelayCredentialCryptography
     {
         RequireTrafficKey(trafficKey);
         ArgumentException.ThrowIfNullOrEmpty(credential);
+        var nonce = RandomNumberGenerator.GetBytes(NonceBytes);
         var plaintext = Encoding.UTF8.GetBytes(credential);
         var aad = EncodeAdditionalAuthenticatedData(attemptId, expiresUtc);
         var ciphertext = new byte[plaintext.Length];
         var tag = new byte[TagBytes];
         using (var aes = new AesGcm(trafficKey, TagBytes))
         {
-            aes.Encrypt(ReservedNonce, plaintext, ciphertext, tag, aad);
+            aes.Encrypt(nonce, plaintext, ciphertext, tag, aad);
         }
 
-        return new SealedRelayCredential(ProtocolGuard.EncodeBase64Url(ciphertext), ProtocolGuard.EncodeBase64Url(tag), expiresUtc);
+        return new SealedRelayCredential(
+            ProtocolGuard.EncodeBase64Url(nonce),
+            ProtocolGuard.EncodeBase64Url(ciphertext),
+            ProtocolGuard.EncodeBase64Url(tag),
+            expiresUtc);
     }
 
     /// <summary>Opens a sealed credential; any authentication failure throws <see cref="CryptographicException"/>.</summary>
@@ -62,6 +73,10 @@ public static class RelayCredentialCryptography
     {
         RequireTrafficKey(trafficKey);
         ArgumentNullException.ThrowIfNull(sealedCredential);
+        var nonce = ProtocolGuard.DecodeBase64Url(
+            sealedCredential.NonceBase64Url,
+            nameof(sealedCredential.NonceBase64Url),
+            exactDecodedBytes: NonceBytes);
         var ciphertext = ProtocolGuard.DecodeBase64Url(
             sealedCredential.CiphertextBase64Url,
             nameof(sealedCredential.CiphertextBase64Url));
@@ -73,7 +88,7 @@ public static class RelayCredentialCryptography
         var plaintext = new byte[ciphertext.Length];
         using (var aes = new AesGcm(trafficKey, TagBytes))
         {
-            aes.Decrypt(ReservedNonce, ciphertext, tag, plaintext, aad);
+            aes.Decrypt(nonce, ciphertext, tag, plaintext, aad);
         }
 
         return Encoding.UTF8.GetString(plaintext);
