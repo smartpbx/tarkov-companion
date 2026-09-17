@@ -328,6 +328,8 @@ public sealed class TarkovDevTask
 
     public string? RequiredPrestige { get; init; }
 
+    public string? WikiLink { get; init; }
+
     public int? AvailableDelaySecondsMin { get; init; }
 
     public int? AvailableDelaySecondsMax { get; init; }

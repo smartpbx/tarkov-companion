@@ -16,6 +16,7 @@ using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Devices;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
@@ -30,9 +31,13 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
+using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
@@ -41,8 +46,10 @@ using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Stash;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
+using TarkovCompanion.Infrastructure.Persistence.Stash;
 using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
@@ -53,6 +60,7 @@ using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
+using TarkovCompanion.Infrastructure.Wiki;
 using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
@@ -354,6 +362,11 @@ public static class AppComposition
         services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
         services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
+        // Package 5 (Intel workspace + wiki deep links): the fact catalog and quest progress
+        // service already exist; this is the first caller to read them together for a single
+        // item id instead of a whole legacy page.
+        services.AddSingleton<IItemIntelService, ItemIntelService>();
+        services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
         services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
@@ -516,6 +529,18 @@ public static class AppComposition
                     ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
+        // V2 rough — package 3 (stash scan workspace + debrief). Refs #283 #291 #377.
+        services.AddSingleton<SqliteV2DataStore>();
+        services.AddSingleton<StashScanAssembler>();
+        services.AddSingleton<StashSnapshotComparer>();
+        services.AddSingleton<SqliteStashSnapshotStore>();
+        services.AddSingleton<IStashSnapshotStore>(provider => provider.GetRequiredService<SqliteStashSnapshotStore>());
+        services.AddSingleton<InMemoryStashReviewCommandSink>();
+        services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<InMemoryStashReviewCommandSink>());
+        services.AddSingleton<StashScanWorkflow>();
+        services.AddSingleton<StashScanWorkspaceViewModel>();
+        services.AddSingleton<DebriefWorkspaceViewModel>();
+
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its
         // store are always available (list/revoke keeps working even when pairing cannot). The

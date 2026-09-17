@@ -57,7 +57,10 @@ public sealed class TarkovDevQuestCatalogNormalizer
                 requirements,
                 objectives,
                 failures,
-                rawTask.Json));
+                rawTask.Json)
+            {
+                WikiUri = task.WikiLink,
+            });
         }
 
         var provenance = new QuestCatalogProvenance(

@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
@@ -159,6 +160,38 @@ public sealed class StashSnapshotPersistenceTests
         Assert.True(deleted.Deleted);
         Assert.Equal(prior.SnapshotId, deleted.PromotedSnapshotId);
         Assert.Equal(prior.SnapshotId, (await store.ReadCurrentAsync(scope, TestContext.Current.CancellationToken))!.SnapshotId);
+    }
+
+    [Fact]
+    public async Task OversizedPersistedPayloadIsRejectedInsteadOfBeingFullyMaterialised()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteStashSnapshotStore(database.Factory, new SqliteV2DataStore(database.Factory));
+        var scope = new InventoryProfileScope(
+            Guid.Parse("84000000-0000-0000-0000-000000000003"),
+            "wipe-2026-09",
+            "Pvp");
+        var record = Record(scope, Now, true, "oversized");
+        await store.SaveAsync(record, TestContext.Current.CancellationToken);
+
+        // A tampered or corrupted row can carry an arbitrarily large payload; the store's own
+        // writer never produces one past SqliteV2DataStore.MaximumContractJsonBytes. Overwrite the
+        // row directly with valid JSON past that bound and prove reading it fails fast (#377)
+        // instead of the reader materialising the oversized string first.
+        var oversized = "{\"padding\":\"" + new string('a', SqliteV2DataStore.MaximumContractJsonBytes + 16) + "\"}";
+        await using (var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
+        {
+            await using var update = connection.CreateCommand();
+            update.CommandText = "UPDATE observed_inventory_snapshots SET payload_json = $payload WHERE snapshot_id = $snapshot;";
+            update.Parameters.AddWithValue("$payload", oversized);
+            update.Parameters.AddWithValue("$snapshot", record.SnapshotId.ToString("D"));
+            Assert.Equal(1, await update.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+        }
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadAsync(
+            scope,
+            record.SnapshotId,
+            TestContext.Current.CancellationToken));
     }
 
     private static StashSnapshotRecord Record(

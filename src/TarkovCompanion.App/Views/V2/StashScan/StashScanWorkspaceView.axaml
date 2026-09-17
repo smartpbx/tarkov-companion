@@ -1,0 +1,167 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.StashScan.StashScanWorkspaceView"
+             x:DataType="vm:StashScanWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.StashScan">
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="Stash" AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-body" Text="{Binding Status}"
+                   AutomationProperties.AutomationId="v2-stash-status"
+                   AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <WrapPanel ItemSpacing="8" LineSpacing="8">
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-start-full"
+                Content="Start full stash scan" Command="{Binding StartFullScanCommand}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-start-ammo"
+                Content="Start ammo scan" Command="{Binding StartAmmoScanCommand}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-start-keys"
+                Content="Start keys scan" Command="{Binding StartKeysScanCommand}" />
+        <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-refresh"
+                Content="Refresh" Command="{Binding RefreshCommand}" />
+      </WrapPanel>
+
+      <Border Classes="v2-card" AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-stash-snapshots">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-heading-3" Text="Snapshots" AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-body" IsVisible="{Binding HasNoSnapshots}" Text="No stash snapshots yet." />
+          <ItemsControl ItemsSource="{Binding Snapshots}" IsVisible="{Binding HasSnapshots}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:StashSnapshotRowViewModel">
+                <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Command="{Binding SelectCommand}">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding RecordedLabel}" />
+                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding StatusLabel}" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" Text="current" IsVisible="{Binding IsCurrent}" />
+                  </Grid>
+                </Button>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <StackPanel Spacing="16" IsVisible="{Binding HasSelection}">
+        <Border Classes="v2-card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Totals and coverage" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-body" Text="{Binding TotalsLabel}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-body" Text="{Binding CoverageLabel}" TextWrapping="Wrap" />
+            <WrapPanel ItemSpacing="8" LineSpacing="8">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-compare"
+                      Content="Compare to previous" Command="{Binding CompareToPreviousCommand}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-delete"
+                      Content="Delete this snapshot" Command="{Binding DeleteSelectedCommand}" />
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Ammo" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-label" Text="No ammo recognized in this snapshot." IsVisible="{Binding HasNoAmmoSummary}" />
+            <ItemsControl ItemsSource="{Binding AmmoSummary}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:StashAmmoSummaryRowViewModel">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Caliber}" />
+                    <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding RoundsLabel}" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding StacksLabel}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Keys" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-label" Text="No keys recognized in this snapshot." IsVisible="{Binding HasNoKeySummary}" />
+            <ItemsControl ItemsSource="{Binding KeySummary}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:StashKeySummaryRowViewModel">
+                  <StackPanel Spacing="2" Margin="0,0,0,8">
+                    <TextBlock Classes="v2-body" Text="{Binding DisplayName}" />
+                    <TextBlock Classes="v2-label" Text="{Binding DuplicatesLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding MapLabel}" />
+                    <TextBlock Classes="v2-label" Text="{Binding QuestUseLabel}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Keep / Sell / Use soon / Review" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-label" Text="{Binding RecommendationNotice}" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Items}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:StashItemRowViewModel">
+                  <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          Command="{Binding SelectCommand}">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                      <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding GroupLabel}" />
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Classes="v2-body" Text="{Binding DisplayName}" TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label" Text="{Binding ContainerPath}" />
+                        <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding QuantityLabel}" />
+                      <Button Grid.Column="3" Classes="v2-target" Content="Wiki"
+                              IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card" IsVisible="{Binding HasSelectedItem}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Correct the selected item" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-body" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding CorrectionsNotice}" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Classes="v2-field-input" Width="220" PlaceholderText="Corrected item id"
+                       Text="{Binding IdentityCorrection}"
+                       AutomationProperties.AutomationId="v2-stash-correct-identity-input" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-correct-identity"
+                      Content="Correct identity" Command="{Binding CorrectIdentityCommand}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBox Classes="v2-field-input" Width="120" PlaceholderText="Corrected count"
+                       Text="{Binding QuantityCorrection}"
+                       AutomationProperties.AutomationId="v2-stash-correct-quantity-input" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-stash-correct-quantity"
+                      Content="Correct count" Command="{Binding CorrectQuantityCommand}" />
+            </StackPanel>
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-stash-mark-unknown"
+                    Content="Mark unknown" Command="{Binding MarkSelectedUnknownCommand}" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card" IsVisible="{Binding HasPendingCorrections}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="v2-heading-3" Text="Pending corrections" AutomationProperties.HeadingLevel="2" />
+            <ItemsControl ItemsSource="{Binding PendingCorrections}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:StashReviewCommandRowViewModel">
+                  <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding Summary}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
