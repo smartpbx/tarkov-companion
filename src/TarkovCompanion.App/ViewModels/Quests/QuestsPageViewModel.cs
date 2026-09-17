@@ -4,6 +4,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
 
@@ -226,9 +227,15 @@ public sealed class QuestTaskViewModel
         SetCompletedCommand = new AsyncDelegateCommand(() => _owner.SetTaskAsync(this, RecordedTaskState.Completed));
         SetFailedCommand = new AsyncDelegateCommand(() => _owner.SetTaskAsync(this, RecordedTaskState.Failed));
         TogglePinCommand = new AsyncDelegateCommand(() => _owner.ToggleTaskPinAsync(this));
+        OpenWikiCommand = new DelegateCommand(() => _owner.TryOpenWiki(Model.WikiUri));
     }
 
     public QuestSummaryReadModel Model { get; }
+
+    /// <summary>Whether the catalog gave this task an allowed wiki link to open.</summary>
+    public bool HasWikiLink => WikiLinkPolicy.IsAllowed(Model.WikiUri);
+
+    public ICommand OpenWikiCommand { get; }
 
     public string TaskId => Model.TaskId;
 
@@ -397,6 +404,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     private readonly IItemRepository? _itemRepository;
     private readonly IQuestProgressImportHistory? _importHistory;
     private readonly ITraderCatalog? _traderCatalog;
+    private readonly IWikiLinkOpener? _wikiLinkOpener;
     private IReadOnlyList<TraderLoyaltyViewModel> _traderLoyalty = [];
     private IReadOnlyList<QuestImportHistoryRowViewModel> _importHistoryRows = [];
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
@@ -418,7 +426,10 @@ public sealed class QuestsPageViewModel : PageViewModel
         IQuestProgressImportHistory? importHistory = null,
         // Optional again. Without it there is nothing to name the traders, so the loyalty rows
         // are not offered at all rather than offered as hexadecimal ids.
-        ITraderCatalog? traderCatalog = null)
+        ITraderCatalog? traderCatalog = null,
+        // Optional for the same reason as the others: without it, a task with a wiki link has
+        // nothing that can open one, so the Wiki action stays hidden instead of failing.
+        IWikiLinkOpener? wikiLinkOpener = null)
         : base(
             "Quests",
             "What you are working on, and what each one needs",
@@ -435,6 +446,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         _itemRepository = itemRepository;
         _importHistory = importHistory;
         _traderCatalog = traderCatalog;
+        _wikiLinkOpener = wikiLinkOpener;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
@@ -448,6 +460,8 @@ public sealed class QuestsPageViewModel : PageViewModel
         ClearSearchCommand = new DelegateCommand(() => SearchQuery = string.Empty);
         ShowAllQuestsCommand = new DelegateCommand(() => SelectedFilter = Filters[1]);
     }
+
+    internal bool TryOpenWiki(string? wikiUri) => _wikiLinkOpener?.TryOpen(wikiUri) ?? false;
 
     /// <summary>
     /// The imports already applied, and what each one refused.

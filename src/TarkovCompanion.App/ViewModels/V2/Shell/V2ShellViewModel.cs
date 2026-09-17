@@ -11,12 +11,15 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.App.Views.V2.Tablet;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
@@ -30,6 +33,9 @@ public enum V2ShellDialogKind
     Commands,
     Health,
 }
+
+/// <summary>One labelled fact on the Intel result card.</summary>
+public sealed record V2ShellIntelFactViewModel(string Label, string Value);
 
 public sealed record V2NavigationContinuity(
     string? PlanId,
@@ -50,6 +56,8 @@ public sealed record V2NavigationContinuity(
 public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 {
     private readonly IRuntimeStateStore _runtime;
+    private readonly IItemIntelService _intel;
+    private readonly IWikiLinkOpener _wikiOpener;
     private readonly StashScanWorkspaceViewModel? _stashScan;
     private readonly DebriefWorkspaceViewModel? _debrief;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
@@ -92,6 +100,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private V2ShellSuggestionKind _suggestionFilter = V2ShellSuggestionKind.All;
     private IReadOnlyList<V2PlannedItemSuggestion> _plannedSuggestions = [];
     private ITimer? _headerTimer;
+    private string? _loadedIntelItemId;
+    private V2ItemIntelResult? _intelResult;
+    private bool _intelLoading;
+    private CancellationTokenSource? _intelLoadCts;
     // v2r-pairing-tablet: null under the internal test constructor, which builds a V2 graph
     // without the desktop's paired-device authority. The one caller of it, "manage-pairing",
     // no-ops when it is null.
@@ -102,6 +114,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         AppDataPaths paths,
         IRuntimeStateStore runtime,
         MainWindowViewModel legacy,
+        IItemIntelService intel,
+        IWikiLinkOpener wikiOpener,
         CompanionPairingViewModel companionPairing,
         StashScanWorkspaceViewModel? stashScan = null,
         DebriefWorkspaceViewModel? debrief = null,
@@ -124,6 +138,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             clock,
             save: null,
             reset: null,
+            intel,
+            wikiOpener,
             stashScan,
             debrief,
             team)
@@ -139,6 +155,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         TimeProvider? clock = null,
         Func<V2ShellPreviewState, CancellationToken, Task>? save = null,
         Func<CancellationToken, Task>? reset = null,
+        IItemIntelService? intel = null,
+        IWikiLinkOpener? wikiOpener = null,
         StashScanWorkspaceViewModel? stashScan = null,
         DebriefWorkspaceViewModel? debrief = null,
         TeamWorkspaceViewModel? team = null)
@@ -152,6 +170,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             clock,
             save,
             reset,
+            intel,
+            wikiOpener,
             stashScan,
             debrief,
             team)
@@ -168,6 +188,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         TimeProvider? clock,
         Func<V2ShellPreviewState, CancellationToken, Task>? save,
         Func<CancellationToken, Task>? reset,
+        IItemIntelService? intel = null,
+        IWikiLinkOpener? wikiOpener = null,
         StashScanWorkspaceViewModel? stashScan = null,
         DebriefWorkspaceViewModel? debrief = null,
         TeamWorkspaceViewModel? team = null)
@@ -178,6 +200,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _debrief = debrief;
         _team = team;
         _clock = clock ?? TimeProvider.System;
+        _intel = intel ?? NullItemIntelService.Instance;
+        _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
         Legacy = legacy;
         RaidCockpit = raidCockpit;
         Registry = V2RouteRegistry.Default;
@@ -193,6 +217,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         SetupDestination = new(
             Variant.Setup,
             route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        // #292: built once, from the same view models V1's Settings page binds. Null only in the
+        // handful of tests above that build a shell without a legacy graph to adapt.
+        SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -211,6 +238,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         AddressCommand = new DelegateCommand(OpenAddress);
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         PinCommand = new DelegateCommand(TogglePin);
+        OpenIntelWikiCommand = new DelegateCommand(() => _wikiOpener.TryOpen(_intelResult?.WikiUri));
         CopyAddressCommand = new AsyncDelegateCommand(CopyAddressAsync);
         CloseTransientCommand = new DelegateCommand(CloseTransient);
         ResetPreviewCommand = new AsyncDelegateCommand(ResetPreviewAsync);
@@ -291,6 +319,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public V2ShellRouter Router { get; }
     public ObservableCollection<V2ShellDestinationViewModel> PrimaryDestinations { get; }
     public V2ShellDestinationViewModel SetupDestination { get; }
+    public V2SetupWorkspaceViewModel? SetupWorkspace { get; }
     public IReadOnlyList<V2ShellSectionViewModel> SectionItems { get; private set; } = [];
     public IReadOnlyList<V2ShellCommand> Commands { get; }
     public ObservableCollection<V2ShellCommandViewModel> CommandItems { get; }
@@ -428,7 +457,25 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public string BrowseHeading => V2ShellText.Get("V2.Shell.Suggestions.Browse");
     public string SuggestionsEmpty => V2ShellText.Get("V2.Shell.Suggestions.Empty");
     public string IntelHeading => V2ShellText.Get("V2.Shell.Intel.Heading");
-    public string IntelDescription => V2ShellText.Format("V2.Shell.Intel.Item", CultureInfo.CurrentCulture, IntelItem);
+    public string IntelDescription => _intelResult is { Kind: not V2IntelKind.Unknown } result
+        ? result.Name
+        : V2ShellText.Format("V2.Shell.Intel.Item", CultureInfo.CurrentCulture, IntelItem);
+    public bool IntelIsLoading => _intelLoading;
+    public bool IntelIsNotFound => !_intelLoading && _intelResult is { Kind: V2IntelKind.Unknown };
+    public string IntelStatusLabel => IntelIsLoading
+        ? V2ShellText.Get("V2.Shell.Intel.Loading")
+        : IntelIsNotFound ? V2ShellText.Get("V2.Shell.Intel.NotFound") : string.Empty;
+    public string IntelKindLabel => _intelResult?.Kind switch
+    {
+        V2IntelKind.Key => V2ShellText.Get("V2.Shell.Intel.KindKey"),
+        V2IntelKind.Ammo => V2ShellText.Get("V2.Shell.Intel.KindAmmo"),
+        V2IntelKind.Item => V2ShellText.Get("V2.Shell.Intel.KindItem"),
+        _ => string.Empty,
+    };
+    public IReadOnlyList<V2ShellIntelFactViewModel> IntelFacts => BuildIntelFacts();
+    public string IntelWikiLabel => V2ShellText.Get("V2.Shell.Intel.Wiki");
+    public bool IntelHasWikiLink => WikiLinkPolicy.IsAllowed(_intelResult?.WikiUri);
+    public ICommand OpenIntelWikiCommand { get; }
     public string ReadinessSummary => V2ShellText.Format(
         "V2.Shell.Readiness.Summary",
         CultureInfo.CurrentCulture,
@@ -619,7 +666,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool ShowsLootScan => Registry[Router.Current.Location.Route].Content == V2RouteContent.LootScan;
     public bool ShowsLootScanEmpty => ShowsLootScan && LootScanResult is null;
     public string LootScanEmptyLabel => V2ShellText.Get("V2.Shell.LootScan.Empty");
-    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan ? 1 : 2;
+    public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
+    public int ShellBodyRowSpan =>
+        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -1421,6 +1470,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             section.IsCurrent = Router.Current.Location.Route == section.Route;
         }
 
+        RefreshIntelIfNeeded();
         RaisePresentationChanged();
         if (announceBackgroundChange && (readinessChanged || recoveryChanged) &&
             Router.Current.FocusTarget is { } focusedTarget && HasRenderedFocusTarget(focusedTarget))
@@ -1430,6 +1480,149 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             FocusRequested?.Invoke(this, new(focusedTarget, V2FocusReason.Restored));
         }
     }
+
+    /// <summary>
+    /// Resolves the Intel workspace's result card off the router's current item, once per
+    /// distinct item id. <see cref="Refresh"/> runs on every navigation and every background
+    /// runtime tick, so this must be a no-op whenever the address has not actually changed.
+    /// </summary>
+    private void RefreshIntelIfNeeded()
+    {
+        var itemId = IntelItem;
+        if (string.IsNullOrEmpty(itemId))
+        {
+            _intelLoadCts?.Cancel();
+            _loadedIntelItemId = null;
+            _intelResult = null;
+            _intelLoading = false;
+            return;
+        }
+
+        if (string.Equals(_loadedIntelItemId, itemId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _intelLoadCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _intelLoadCts = cts;
+        _loadedIntelItemId = itemId;
+        _intelResult = null;
+        _intelLoading = true;
+        _ = LoadIntelAsync(itemId, cts.Token);
+    }
+
+    private async Task LoadIntelAsync(string itemId, CancellationToken cancellationToken)
+    {
+        V2ItemIntelResult result;
+        try
+        {
+            result = await _intel.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            result = V2ItemIntelResult.NotFound(itemId);
+        }
+
+        if (cancellationToken.IsCancellationRequested || _disposed ||
+            !string.Equals(_loadedIntelItemId, itemId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _intelResult = result;
+        _intelLoading = false;
+        RaiseIntelChanged();
+    }
+
+    private void RaiseIntelChanged()
+    {
+        foreach (var property in new[]
+        {
+            nameof(IntelDescription), nameof(IntelIsLoading), nameof(IntelIsNotFound), nameof(IntelStatusLabel),
+            nameof(IntelKindLabel), nameof(IntelFacts), nameof(IntelHasWikiLink),
+        })
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private IReadOnlyList<V2ShellIntelFactViewModel> BuildIntelFacts()
+    {
+        if (_intelResult is not { Kind: not V2IntelKind.Unknown } result)
+        {
+            return [];
+        }
+
+        var facts = new List<V2ShellIntelFactViewModel>
+        {
+            new(V2ShellText.Get("V2.Shell.Intel.ShortName"), result.ShortName),
+            new(V2ShellText.Get("V2.Shell.Intel.Category"), result.Category.ToString()),
+            new(
+                V2ShellText.Get("V2.Shell.Intel.Size"),
+                V2ShellText.Format(
+                    "V2.Shell.Intel.SizeValue",
+                    CultureInfo.CurrentCulture,
+                    result.Width,
+                    result.Height,
+                    result.Width * result.Height)),
+            new(V2ShellText.Get("V2.Shell.Intel.Price"), PriceValueLabel(result.Value)),
+            new(
+                V2ShellText.Get("V2.Shell.Intel.Flea"),
+                V2ShellText.Get(result.FleaEligible ? "V2.Shell.Intel.FleaAllowed" : "V2.Shell.Intel.FleaNotAllowed")),
+            new(V2ShellText.Get("V2.Shell.Intel.Need"), NeedValueLabel(result.Value)),
+        };
+
+        if (result.Kind == V2IntelKind.Key)
+        {
+            facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Opens"), OpensValueLabel(result.Key)));
+        }
+
+        if (result.Kind == V2IntelKind.Ammo)
+        {
+            if (result.Ammo is { } ammo)
+            {
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Damage"), ammo.Damage.ToString(CultureInfo.CurrentCulture)));
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Penetration"), ammo.Penetration.ToString(CultureInfo.CurrentCulture)));
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Tier"), ammo.Tier));
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Advice"), ammo.PracticalAdvice));
+            }
+            else
+            {
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Damage"), V2ShellText.Get("V2.Shell.Intel.AmmoUnknown")));
+            }
+        }
+
+        return facts;
+    }
+
+    private static string PriceValueLabel(V2IntelValueFacts? value) =>
+        value is { ValueRoubles: { } roubles, SaleChannelLabel: { } channel }
+            ? V2ShellText.Format("V2.Shell.Intel.PriceValue", CultureInfo.CurrentCulture, roubles, channel)
+            : V2ShellText.Get("V2.Shell.Intel.PriceUnknown");
+
+    private static string NeedValueLabel(V2IntelValueFacts? value) =>
+        value is null || (value.TrackedQuestsNeedingIt == 0 && value.QuestsNeedingIt == 0 && value.HideoutCount == 0)
+            ? V2ShellText.Get("V2.Shell.Intel.NeedNone")
+            : V2ShellText.Format(
+                "V2.Shell.Intel.NeedValue",
+                CultureInfo.CurrentCulture,
+                value.TrackedQuestsNeedingIt,
+                Math.Max(0, value.QuestsNeedingIt - value.TrackedQuestsNeedingIt),
+                value.HideoutCount);
+
+    private static string OpensValueLabel(V2IntelKeyFacts? key) => key switch
+    {
+        { MapId: { } map, Locks.Count: > 0 } withLocks =>
+            V2ShellText.Format("V2.Shell.Intel.OpensMapAndLocks", CultureInfo.CurrentCulture, map, string.Join(", ", withLocks.Locks)),
+        { MapId: { } map } => map,
+        { Locks.Count: > 0 } locksOnly => string.Join(", ", locksOnly.Locks),
+        _ => V2ShellText.Get("V2.Shell.Intel.OpensUnknown"),
+    };
 
     private bool HasRenderedFocusTarget(string automationId) =>
         ReadinessItems.Any(item =>
@@ -1518,6 +1711,13 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             Act(result);
             return;
+        }
+
+        // #292: several readiness rows share Setup; open the section that actually fixes each one
+        // instead of leaving the workspace wherever it last was.
+        if (check.ActionRoute == V2Routes.Setup && V2SetupWorkspaceViewModel.TryMapReadinessCheck(check.Id, out var section))
+        {
+            SetupWorkspace?.Select(section);
         }
 
         // A readiness row names a specific thing to inspect. Several rows share Setup, and a
@@ -1931,7 +2131,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
             nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
             nameof(ShowsRaidCockpit),
-            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty), nameof(ShellBodyRowSpan),
+            nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
+            nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),
@@ -2494,4 +2695,21 @@ public sealed class V2RecoveryActionViewModel(V2RecoveryAction action, Action in
     public string Label => V2ShellText.Get(action.LabelKey);
     public string AutomationId => $"v2-shell-recovery-{action.Id}";
     public ICommand InvokeCommand { get; } = new DelegateCommand(invoke);
+}
+
+/// <summary>The fallback used in tests that build the shell without composing the intel service.</summary>
+internal sealed class NullItemIntelService : IItemIntelService
+{
+    public static readonly NullItemIntelService Instance = new();
+
+    public Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken) =>
+        Task.FromResult(V2ItemIntelResult.NotFound(itemId));
+}
+
+/// <summary>The fallback used in tests that build the shell without composing the wiki opener.</summary>
+internal sealed class NullWikiLinkOpener : IWikiLinkOpener
+{
+    public static readonly NullWikiLinkOpener Instance = new();
+
+    public bool TryOpen(string? wikiUrl) => false;
 }

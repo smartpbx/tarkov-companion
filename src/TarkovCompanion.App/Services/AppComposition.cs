@@ -16,6 +16,7 @@ using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Devices;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
@@ -37,6 +38,7 @@ using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
@@ -59,6 +61,7 @@ using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
+using TarkovCompanion.Infrastructure.Wiki;
 using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
@@ -360,6 +363,11 @@ public static class AppComposition
         services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
         services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
+        // Package 5 (Intel workspace + wiki deep links): the fact catalog and quest progress
+        // service already exist; this is the first caller to read them together for a single
+        // item id instead of a whole legacy page.
+        services.AddSingleton<IItemIntelService, ItemIntelService>();
+        services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
         services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));

@@ -423,6 +423,9 @@
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
           <TextBlock Grid.Row="1" Classes="v2-body" IsVisible="{Binding ShowsLootScanEmpty}" Text="{Binding LootScanEmptyLabel}" />
+          <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsSetupWorkspace}" HorizontalScrollBarVisibility="Disabled">
+            <ContentControl Content="{Binding SetupWorkspace}" />
+          </ScrollViewer>
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
@@ -435,6 +438,25 @@
                            AutomationProperties.AutomationId="v2-shell-intel-heading"
                            AutomationProperties.HeadingLevel="1" Text="{Binding IntelHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding IntelDescription}" />
+                <TextBlock Classes="v2-label" IsVisible="{Binding IntelStatusLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           Text="{Binding IntelStatusLabel}" />
+                <TextBlock Classes="v2-label" IsVisible="{Binding IntelKindLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           Text="{Binding IntelKindLabel}" />
+                <ItemsControl ItemsSource="{Binding IntelFacts}"
+                              AutomationProperties.AutomationId="v2-shell-intel-facts">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2ShellIntelFactViewModel">
+                      <Grid ColumnDefinitions="Auto,*">
+                        <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Label}" Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Value}" TextWrapping="Wrap" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="v2-target" HorizontalAlignment="Left"
+                        IsVisible="{Binding IntelHasWikiLink}"
+                        AutomationProperties.AutomationId="v2-shell-intel-wiki"
+                        Content="{Binding IntelWikiLabel}" Command="{Binding OpenIntelWikiCommand}" />
                 <Button Classes="v2-target" HorizontalAlignment="Left"
                         AutomationProperties.AutomationId="v2-shell-intel-close"
                         Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />

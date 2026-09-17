@@ -106,7 +106,7 @@
                 <DataTemplate x:DataType="vm:StashItemRowViewModel">
                   <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                           Command="{Binding SelectCommand}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                       <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding GroupLabel}" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding DisplayName}" TextWrapping="Wrap" />
@@ -114,6 +114,8 @@
                         <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" />
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding QuantityLabel}" />
+                      <Button Grid.Column="3" Classes="v2-target" Content="Wiki"
+                              IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
                     </Grid>
                   </Button>
                 </DataTemplate>
