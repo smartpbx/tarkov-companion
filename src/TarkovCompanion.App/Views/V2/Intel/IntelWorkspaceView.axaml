@@ -299,7 +299,6 @@
                   </ItemsControl>
                 </StackPanel>
               </StackPanel>
-              </Grid>
             </ScrollViewer>
           </Grid>
         </Border>
