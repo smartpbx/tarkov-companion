@@ -47,6 +47,42 @@ preventing work on the development host.
 20. Do not run destructive commands outside this repository or an assigned worktree.
 21. Read this file before editing.
 
+## Cost discipline (every agent: Codex, Claude, workers)
+
+Measured, not guessed. Between 2026-09-14 and 2026-09-16 one Codex coordinator session used up
+Clayton's weekly ChatGPT limit. Its own session log shows 42 hours, about 8,300 model calls and
+about **1 billion input tokens against 2.6 million output tokens**, with reasoning effort at the
+maximum ("ultra") on every call. Where those tokens went: 63% reading git/GitHub state, 18%
+polling CI and sub-agents (1,374 status checks), 10% coordinating agents, 8% editing code. In the
+same period about 500 CI runs finished with 129 failures and 75 cancellations; at least 18 commits
+only fixed compile or nullability errors, each one a 13-minute Windows CI round trip. 28 of 85
+worktrees were audit, re-audit or "final audit" passes, while many merged foundations were never
+called by the running app and the V2 interface was never given a visual design pass.
+
+The bill is dominated by re-reading context, not by writing code. So:
+
+1. **Keep contexts small.** Start a fresh session per package instead of resuming one that has
+   grown past ~100K tokens. Hand bulky reads (logs, diffs, issue sweeps) to a worker and keep only
+   its conclusion.
+2. **Reasoning effort is a budget.** Default to medium/high. Use the maximum only for a named hard
+   problem (a cryptographic protocol, a security review), never as the session default.
+3. **Never poll.** No sleep loops, no repeated `gh pr checks` / `gh run view` / terminal reads to
+   see whether something finished. Start one blocking wait in the background that wakes you once,
+   or end the turn. Waiting must cost nothing.
+4. **Fail locally, not in CI.** Before any push run the gate on `dev` under the shared lock:
+   `flock -o /tmp/tarkov-build.lock bash -c 'scripts/build.sh && scripts/test.sh'`. A compile error
+   found by CI costs a 13-minute round trip plus every context re-read while waiting.
+5. **Batch CI.** `main` requires a branch to be up to date before merging, so landing N related PRs
+   one by one costs N extra full CI runs. Merge green branches into one integration PR and run CI
+   once.
+6. **Working product before hardening.** A feature is done when it is reachable in the running app,
+   works end to end on real data, and looks like `docs/design/v2`. Do not loop
+   audit → repair → re-audit on code nothing calls. One review per PR; fix its findings in that PR.
+7. **Check the budget before a wave.** Look at usage before starting multiple agents; stop around
+   80% of the weekly limit and tell Clayton.
+8. **Clean up as you go.** Exit finished agent sessions and delete `bin`/`obj` in merged worktrees.
+   On 2026-09-16 the `dev` disk filled, Orca crashed, and every running agent died with it.
+
 ## Build and code conventions
 
 - Target .NET 10 and C# 14 with nullable reference types enabled.
