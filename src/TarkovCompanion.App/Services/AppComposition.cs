@@ -5,16 +5,19 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Devices;
+using TarkovCompanion.Infrastructure.Diagnostics;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intel;
@@ -480,6 +483,10 @@ public static class AppComposition
             services.AddSingleton<IEftPathLocator>(provider => new WindowsEftPathLocator(
                 null,
                 provider.GetRequiredService<IEftPathOverrideStore>()));
+            // [V2 rough package 41] The same locator, offered as the discovery source Setup's
+            // self-test re-probes for the folders it reports and why each was chosen.
+            services.AddSingleton<IEftInstallDiscoverySource>(provider =>
+                (IEftInstallDiscoverySource)provider.GetRequiredService<IEftPathLocator>());
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
             // v2r-fast-positions (package 31): the pacer lets the watcher look four times a
             // second while a raid is running and the group is sharing, and once a second
@@ -663,6 +670,37 @@ public static class AppComposition
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<RelayMarksBridge>(),
             timeProvider));
+        // [V2 rough package 41] Setup's self-test. Refs #292, #281. Every reading is read-only:
+        // discovery re-probes folders, the log and screenshot readers open files for reading,
+        // game data and the database are SELECTs, and the relay is asked only for its health.
+        services.AddSingleton<SqliteSelfTestReader>();
+        services.AddSingleton<SelfTestJournal>();
+        services.AddSingleton<SelfTestFolderReader>();
+        services.AddSingleton(provider => new SelfTestLogReader(provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SelfTestScreenshotWatch(
+            provider.GetRequiredService<IScreenshotFilenameParser>(),
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<ISelfTestReadings>(provider => new AppSelfTestReadings(
+            provider.GetRequiredService<SqliteSelfTestReader>(),
+            provider.GetRequiredService<IGroupSettingsStore>(),
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<HttpClient>(),
+            provider.GetRequiredService<SelfTestFolderReader>(),
+            provider.GetRequiredService<SelfTestLogReader>(),
+            provider.GetRequiredService<SelfTestScreenshotWatch>(),
+            TarkovDevDataRefreshOperation.ModeSlug(runtimeOptions.GameMode),
+            runtimeOptions.Language.ToLowerInvariant(),
+            provider.GetService<IEftInstallDiscoverySource>(),
+            provider.GetService<IEftPathOverrideStore>(),
+            provider.GetService<DesktopCompanionAuthority>(),
+            provider.GetService<TabletMapSurfacePublisher>(),
+            provider.GetRequiredService<CompanionPairingAvailability>().RelayOrigin ?? companionOrigin,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SetupSelfTestViewModel(
+            provider.GetRequiredService<ISelfTestReadings>,
+            provider.GetRequiredService<SelfTestJournal>(),
+            provider.GetRequiredService<TimeProvider>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions

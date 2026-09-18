@@ -114,6 +114,12 @@ public static class V2ShellText
         ["V2.Setup.Appearance.LargerLabel"] = "Larger",
         ["V2.Setup.Appearance.ResetLabel"] = "Reset",
         ["V2.Setup.Displays.Info"] = "Window position and size are remembered, and return to a visible monitor if a display goes.",
+        // V2 rough package 41 (#292, #281): the self-test, in Diagnostics.
+        ["V2.Setup.Diagnostics.SelfTestHeading"] = "Self-test",
+        ["V2.Setup.Diagnostics.SelfTestIntro"] = "Tests every part against your installation. Safe to press mid-raid.",
+        ["V2.Setup.Diagnostics.SelfTestRun"] = "Run self-test",
+        ["V2.Setup.Diagnostics.SelfTestStop"] = "Stop",
+        ["V2.Setup.Diagnostics.SelfTestCopy"] = "Copy result",
         ["V2.Setup.Diagnostics.CopyLabel"] = "Copy diagnostics",
         ["V2.Setup.Diagnostics.ReportLabel"] = "Report a problem",
         // V2 rough package 17 (home): the Setup overview, after docs/design/v2/v2-home-setup-concept.png.
