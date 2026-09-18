@@ -90,6 +90,33 @@ The reply is everyone else in the group:
 You are never in your own `members` list. `room` is the hash, returned so a client can notice it
 has been talking to a different group than it thought.
 
+## Being told sooner: holding the exchange open
+
+Calling every few seconds means a squadmate's position waits most of a tick to be published and
+most of another to be collected. So the exchange may be held:
+
+    POST /state?wait=5&since=41
+
+- `wait` — seconds you are willing to wait for the room to change. The relay caps it at 20.
+- `since` — the `revision` your previous reply carried.
+
+Send both and the relay publishes you as usual, then keeps the reply back until the room changes
+or your wait runs out, whichever is first. Send neither, or either alone, and you get the
+immediate reply you always got. Nothing else about the request or the reply changed.
+
+The reply carries `revision`, which counts changes made by everybody but you — your own publish
+cannot be what ends your own hold, or every wait would finish on the request that started it.
+Send the last one you saw back as `since`. A reply with no `revision` is a relay that does not
+hold; keep to your own tick against it.
+
+What it costs the relay: one socket and one continuation per held request, at most 256 held at
+once (past that you are answered immediately), and the hold ends as soon as you disconnect. When
+it answers it writes one room, which is 4.4 KB for a five-member squad.
+
+Our client asks for a five-second hold rather than the full twenty, because the tick is also what
+keeps presence, position ages and staleness current — and it ends its own hold early whenever the
+player's position changes, so a new screenshot goes up at once instead of at the end of the wait.
+
 ## Marks
 
 A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and

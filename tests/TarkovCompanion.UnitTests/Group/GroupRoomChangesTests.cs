@@ -1,11 +1,13 @@
+using System.Text.Json;
 using TarkovCompanion.GroupServer;
+using Xunit.Abstractions;
 
 namespace TarkovCompanion.UnitTests.Group;
 
 /// <summary>
 /// The relay's hold: what ends it, what does not, and what it costs.
 /// </summary>
-public sealed class GroupRoomChangesTests
+public sealed class GroupRoomChangesTests(ITestOutputHelper output)
 {
     private const string Room = "0123456789abcdef0123456789abcdef";
 
@@ -131,6 +133,90 @@ public sealed class GroupRoomChangesTests
         Assert.Equal(changes.RevisionFor(Room, "Bravo"), revision);
         Assert.Equal(0, changes.WaitingCount);
     }
+
+    /// <summary>
+    /// What one held exchange costs the relay when it finally answers.
+    /// </summary>
+    /// <remarks>
+    /// A hold keeps a socket and a continuation, and ends by writing one room. The room is the
+    /// part worth a number, because the whole argument for pushing rather than ticking is that
+    /// the payload is tiny — so it is measured against the largest room this relay will hold
+    /// rather than against a typical one.
+    /// </remarks>
+    [Theory]
+    [InlineData(5, false, 8, 24 * 1024)]
+    [InlineData(GroupRooms.MaximumMembersPerRoom, true, 60, 128 * 1024)]
+    public void AHeldExchangeEndsBySendingOneSmallPage(int members, bool atEveryCeiling, int marked, int ceiling)
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+        for (var member = 0; member < members; member++)
+        {
+            rooms.Publish(
+                Room,
+                $"Member-{member:D2}",
+                atEveryCeiling ? Crowded($"Member-{member:D2}") : Ordinary($"Member-{member:D2}"));
+        }
+
+        var marks = new GroupMarks(TimeProvider.System);
+        for (var mark = 0; mark < marked; mark++)
+        {
+            marks.AddWaypoint(Room, "Member-00", "streets-of-tarkov", mark, 0, mark, $"Mark {mark}");
+        }
+
+        var (waypoints, pings) = marks.Read(Room);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(
+            rooms.Read(Room, "Member-00") with { Waypoints = waypoints, Pings = pings, Revision = 42 },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)).Length;
+
+        // What a hold costs when it finally answers, which is the question an operator asks
+        // about holding anything at all. Recorded as a bound rather than an exact size so a new
+        // optional field does not fail it, and so the order of magnitude is written down.
+        output.WriteLine($"{members} members{(atEveryCeiling ? " at every ceiling" : "")}: {bytes} bytes.");
+        Assert.InRange(bytes, 1, ceiling);
+    }
+
+    /// <summary>A squad as one actually publishes: a position, a trail, an exit list.</summary>
+    private static GroupMemberState Ordinary(string name) => new(
+        name,
+        "streets-of-tarkov",
+        "InRaid",
+        "pmc",
+        123.4,
+        567.8,
+        90.1,
+        2.5,
+        [],
+        ["Debut", "Checking", "Shootout Picnic"])
+    {
+        Y = 12.3,
+        QuestIds = ["5936d90786f7742b1420ba5b", "5936d90786f7742b1420ba5c"],
+        Trail = [.. Enumerable.Range(0, 10).Select(step => new GroupTrailPoint(step, step, step) { Y = step })],
+        Extracts = ["Dorms V-Ex", "ZB-1011", "Old Gas"],
+        RaidClockSeconds = 1234,
+        RaidClockAgeSeconds = 12,
+    };
+
+    /// <summary>One member publishing as much as the relay will accept from them.</summary>
+    private static GroupMemberState Crowded(string name) => new(
+        name,
+        "streets-of-tarkov",
+        "InRaid",
+        "pmc",
+        123.4,
+        567.8,
+        90.1,
+        2.5,
+        [.. Enumerable.Range(0, 24).Select(item => $"An item with quite a long name {item}")],
+        [.. Enumerable.Range(0, 24).Select(quest => $"A quest with quite a long name {quest}")])
+    {
+        Y = 12.3,
+        QuestIds = [.. Enumerable.Range(0, 40).Select(quest => $"5936d90786f7742b1420ba{quest:D2}")],
+        Trail = [.. Enumerable.Range(0, 12).Select(step => new GroupTrailPoint(step, step, step) { Y = step })],
+        Extracts = [.. Enumerable.Range(0, 16).Select(exit => $"An extract with a long name {exit}")],
+        Transits = [.. Enumerable.Range(0, 16).Select(transit => $"A transit with a long name {transit}")],
+        RaidClockSeconds = 1234,
+        RaidClockAgeSeconds = 12,
+    };
 
     /// <summary>
     /// A key guesser cannot leave a counter behind for every key they try.
