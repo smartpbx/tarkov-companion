@@ -2045,7 +2045,19 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public string AutomationId => $"v2-map-object-{MapRendererToken.From(Key)}";
     public ICommand SelectCommand { get; }
 
-    public void SetSelected(bool selected) => SetProperty(ref _isSelected, selected, nameof(IsSelected));
+    public void SetSelected(bool selected)
+    {
+        if (SetProperty(ref _isSelected, selected, nameof(IsSelected)))
+        {
+            OnPropertyChanged(nameof(ZOrder));
+        }
+    }
+
+    /// <summary>
+    /// Where the marker sits in the stack of markers: the selected one on top, so two objectives
+    /// standing on the same helicopter do not leave the one that was picked underneath the other.
+    /// </summary>
+    public int ZOrder => _isSelected ? 10 : 0;
 
     public void UpdateCamera(MapSceneCamera camera)
     {

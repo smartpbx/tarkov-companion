@@ -1,0 +1,2096 @@
+{
+ "provenance": {
+  "mapCatalog": {
+   "source": "https://raw.githubusercontent.com/the-hideout/tarkov-dev/main/src/data/maps.json",
+   "retrievedUtc": "2026-09-18",
+   "kept": "the interactive variant of Customs, Lighthouse and Interchange with bounds, transform, coordinateRotation, tile and svg references and floor layers (extents only)"
+  },
+  "quests": {
+   "source": "https://json.tarkov.dev/regular/tasks",
+   "retrievedUtc": "2026-09-17",
+   "kept": "the objectives listed with their zones (world position, outline, size, elevations), item targets and wiki link"
+  }
+ },
+ "maps": [
+  {
+   "normalizedName": "customs",
+   "primaryPath": "/map/customs",
+   "gameMapId": "56f40101d2720b2a4d8b45d6",
+   "maps": [
+    {
+     "key": "customs",
+     "projection": "interactive",
+     "tileSize": 256,
+     "minZoom": 2,
+     "maxZoom": 6,
+     "transform": [
+      0.239,
+      168.65,
+      0.239,
+      136.35
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       698,
+       -307
+      ],
+      [
+       -372,
+       237
+      ]
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "svgLayer": "Ground_Level",
+     "heightRange": [
+      -1000,
+      1000
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Customs.svg",
+     "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/main/{z}/{x}/{y}.png",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          2.7,
+          6.5
+         ],
+         "bounds": [
+          [
+           [
+            243,
+            190
+           ],
+           [
+            165,
+            125
+           ],
+           "dorms"
+          ],
+          [
+           [
+            116,
+            -83
+           ],
+           [
+            72,
+            -170
+           ],
+           "mechanic"
+          ],
+          [
+           [
+            356,
+            -30
+           ],
+           [
+            341,
+            -84
+           ],
+           "switch 2nd"
+          ],
+          [
+           [
+            334,
+            -52
+           ],
+           [
+            321,
+            -59
+           ],
+           "switch 2nd"
+          ],
+          [
+           [
+            589,
+            10
+           ],
+           [
+            577,
+            -1
+           ],
+           "scav checkpoint"
+          ],
+          [
+           [
+            580,
+            -104
+           ],
+           [
+            532,
+            -134
+           ],
+           "dead scav warehouse"
+          ],
+          [
+           [
+            625,
+            -120
+           ],
+           [
+            599,
+            -139
+           ],
+           "pump 2nd"
+          ]
+         ]
+        },
+        {
+         "height": [
+          5.7,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            580,
+            -104
+           ],
+           [
+            532,
+            -134
+           ],
+           "dead scav warehouse"
+          ],
+          [
+           [
+            -199,
+            -90
+           ],
+           [
+            -223,
+            -131
+           ],
+           "big red 2nd"
+          ],
+          [
+           [
+            239,
+            3
+           ],
+           [
+            169,
+            -160
+           ],
+           "skeleton"
+          ],
+          [
+           [
+            336,
+            -56
+           ],
+           [
+            316,
+            -95
+           ],
+           "switch snipe"
+          ],
+          [
+           [
+            584,
+            -46
+           ],
+           [
+            556,
+            -92
+           ],
+           "USEC 2nd"
+          ],
+          [
+           [
+            93,
+            0
+           ],
+           [
+            65,
+            -22
+           ],
+           "construction 2nd"
+          ]
+         ]
+        },
+        {
+         "height": [
+          14,
+          15
+         ],
+         "bounds": [
+          [
+           [
+            497,
+            -44
+           ],
+           [
+            450,
+            -90
+           ],
+           "chemical warehouse sniper scav"
+          ]
+         ]
+        },
+        {
+         "height": [
+          3.9,
+          7.6
+         ],
+         "bounds": [
+          [
+           [
+            73,
+            57
+           ],
+           [
+            22,
+            -38
+           ],
+           "warehouse 17"
+          ]
+         ]
+        },
+        {
+         "height": [
+          4.4,
+          6.5
+         ],
+         "bounds": [
+          [
+           [
+            119,
+            -57
+           ],
+           [
+            100,
+            -42
+           ],
+           "boiler"
+          ]
+         ]
+        },
+        {
+         "height": [
+          4.6,
+          7.9
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          5.7,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            243,
+            190
+           ],
+           [
+            165,
+            125
+           ],
+           "dorms"
+          ]
+         ]
+        },
+        {
+         "height": [
+          7.7,
+          11.3
+         ],
+         "bounds": [
+          [
+           [
+            73,
+            -73
+           ],
+           [
+            22,
+            -38
+           ],
+           "warehouse 17"
+          ]
+         ]
+        },
+        {
+         "height": [
+          6.7,
+          11.6
+         ],
+         "bounds": [
+          [
+           [
+            126,
+            -64
+           ],
+           [
+            88,
+            -35
+           ],
+           "boiler"
+          ]
+         ]
+        },
+        {
+         "height": [
+          8.0,
+          11.1
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "4th Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          11.2,
+          54.7
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Underground",
+       "svgLayer": "Underground_Level",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -1000,
+          0.5
+         ],
+         "bounds": [
+          [
+           [
+            635,
+            -137
+           ],
+           [
+            620,
+            -125
+           ],
+           "zb-1011"
+          ],
+          [
+           [
+            473,
+            -122
+           ],
+           [
+            458,
+            -110
+           ],
+           "zb-1012"
+          ],
+          [
+           [
+            314,
+            -173
+           ],
+           [
+            308,
+            -184
+           ],
+           "old gas"
+          ],
+          [
+           [
+            349,
+            -88
+           ],
+           [
+            323,
+            -32
+           ],
+           "switch basement"
+          ],
+          [
+           [
+            219,
+            -158
+           ],
+           [
+            193,
+            -137
+           ],
+           "zb-013"
+          ],
+          [
+           [
+            122,
+            -61
+           ],
+           [
+            88,
+            -40
+           ],
+           "boiler room"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "interchange",
+   "primaryPath": "/map/interchange-2d",
+   "gameMapId": "5714dbc024597771384a510d",
+   "maps": [
+    {
+     "key": "interchange",
+     "projection": "interactive",
+     "tileSize": 256,
+     "minZoom": 1,
+     "maxZoom": 6,
+     "transform": [
+      0.265,
+      150.6,
+      0.265,
+      134.6
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       598,
+       -442
+      ],
+      [
+       -433,
+       426
+      ]
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "svgLayer": "Ground_Level",
+     "_heightRange": [
+      -1000,
+      25
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Interchange.svg",
+     "tilePath": "https://assets.tarkov.dev/maps/interchange/main/{z}/{x}/{y}.png",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "First_Floor",
+       "show": true,
+       "extents": [
+        {
+         "height": [
+          25,
+          34
+         ],
+         "bounds": [
+          [
+           [
+            120,
+            218
+           ],
+           [
+            -222,
+            -327
+           ],
+           "mall"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Second_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          34,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            120,
+            218
+           ],
+           [
+            -222,
+            -327
+           ],
+           "mall"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "lighthouse",
+   "primaryPath": "/map/lighthouse-2d-landscape",
+   "gameMapId": "5704e4dad2720bb55b8b4567",
+   "maps": [
+    {
+     "key": "lighthouse",
+     "projection": "interactive",
+     "minZoom": 1,
+     "maxZoom": 6,
+     "transform": [
+      0.2,
+      0,
+      0.2,
+      0
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       515,
+       -998
+      ],
+      [
+       -545,
+       725
+      ]
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "svgLayer": "Ground_Level",
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Lighthouse.svg",
+     "layers": []
+    }
+   ]
+  }
+ ],
+ "objectives": [
+  {
+   "map": "customs",
+   "taskId": "5967725e86f774601a446662",
+   "taskName": "Shaking Up the Teller",
+   "traderId": "54cb50c76803fa8b248b4571",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "5a3fc03286f77414d64f9941",
+   "ordinal": 1,
+   "kind": "Visit",
+   "description": "Gain access to dorm room 214 on Customs",
+   "targetCount": null,
+   "optional": true,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5780cf942459777df90dcb72",
+     "field": "requiredKeys",
+     "group": 0,
+     "ordinal": 0,
+     "count": null,
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "room214",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 176.42,
+      "y": 3.33,
+      "z": 184.25
+     },
+     "outline": [
+      {
+       "x": 175.44,
+       "y": 2.86,
+       "z": 185.02
+      },
+      {
+       "x": 177.56,
+       "y": 2.86,
+       "z": 184.75
+      },
+      {
+       "x": 177.4,
+       "y": 2.86,
+       "z": 183.48
+      },
+      {
+       "x": 175.28,
+       "y": 2.86,
+       "z": 183.74
+      }
+     ],
+     "bottom": 2.86,
+     "top": 3.8,
+     "terrain": null,
+     "size": null,
+     "name": null
+    },
+    {
+     "ordinal": 1,
+     "zoneId": "room214",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 176.42,
+      "y": 3.33,
+      "z": 184.25
+     },
+     "outline": [
+      {
+       "x": 175.44,
+       "y": 2.86,
+       "z": 185.02
+      },
+      {
+       "x": 177.56,
+       "y": 2.86,
+       "z": 184.75
+      },
+      {
+       "x": 177.4,
+       "y": 2.86,
+       "z": 183.48
+      },
+      {
+       "x": 175.28,
+       "y": 2.86,
+       "z": 183.74
+      }
+     ],
+     "bottom": 2.86,
+     "top": 3.8,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "customs",
+   "taskId": "5969f9e986f7741dde183a50",
+   "taskName": "Pharmacist",
+   "traderId": "54cb57776803fa99248b456e",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "5a3fb92286f77422b46cdb18",
+   "ordinal": 2,
+   "kind": "Visit",
+   "description": "Find a way inside the two-story dorm room 114 on Customs",
+   "targetCount": null,
+   "optional": true,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "room114",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 235.48,
+      "y": 0.43,
+      "z": 160.07
+     },
+     "outline": [
+      {
+       "x": 234.5,
+       "y": -0.04,
+       "z": 160.85
+      },
+      {
+       "x": 236.62,
+       "y": -0.04,
+       "z": 160.58
+      },
+      {
+       "x": 236.46,
+       "y": -0.04,
+       "z": 159.3
+      },
+      {
+       "x": 234.34,
+       "y": -0.04,
+       "z": 159.57
+      }
+     ],
+     "bottom": -0.04,
+     "top": 0.9,
+     "terrain": null,
+     "size": null,
+     "name": null
+    },
+    {
+     "ordinal": 1,
+     "zoneId": "room114",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 235.48,
+      "y": 0.43,
+      "z": 160.07
+     },
+     "outline": [
+      {
+       "x": 234.5,
+       "y": -0.04,
+       "z": 160.85
+      },
+      {
+       "x": 236.62,
+       "y": -0.04,
+       "z": 160.58
+      },
+      {
+       "x": 236.46,
+       "y": -0.04,
+       "z": 159.3
+      },
+      {
+       "x": 234.34,
+       "y": -0.04,
+       "z": 159.57
+      }
+     ],
+     "bottom": -0.04,
+     "top": 0.9,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "customs",
+   "taskId": "5969f9e986f7741dde183a50",
+   "taskName": "Pharmacist",
+   "traderId": "54cb57776803fa99248b456e",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "5a3fb8f686f7742384533f10",
+   "ordinal": 1,
+   "kind": "Visit",
+   "description": "Locate the paramedic’s car on Customs",
+   "targetCount": null,
+   "optional": true,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "vaz_feld",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 579.37,
+      "y": 0.13,
+      "z": -1.82
+     },
+     "outline": [
+      {
+       "x": 577.33,
+       "y": -0.55,
+       "z": -2.76
+      },
+      {
+       "x": 579.42,
+       "y": -0.55,
+       "z": 0.42
+      },
+      {
+       "x": 581.41,
+       "y": -0.55,
+       "z": -0.88
+      },
+      {
+       "x": 579.31,
+       "y": -0.55,
+       "z": -4.06
+      }
+     ],
+     "bottom": -0.55,
+     "top": 0.81,
+     "terrain": null,
+     "size": null,
+     "name": null
+    },
+    {
+     "ordinal": 1,
+     "zoneId": "vaz_feld",
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 579.37,
+      "y": 0.13,
+      "z": -1.82
+     },
+     "outline": [
+      {
+       "x": 577.33,
+       "y": -0.55,
+       "z": -2.76
+      },
+      {
+       "x": 579.42,
+       "y": -0.55,
+       "z": 0.42
+      },
+      {
+       "x": 581.41,
+       "y": -0.55,
+       "z": -0.88
+      },
+      {
+       "x": 579.31,
+       "y": -0.55,
+       "z": -4.06
+      }
+     ],
+     "bottom": -0.55,
+     "top": 0.81,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "customs",
+   "taskId": "66aa74571e5e199ecd094f18",
+   "taskName": "Secrets of Polikhim",
+   "traderId": "5a7c2eca46aef81a7ca2145d",
+   "primaryMapId": null,
+   "wikiUri": null,
+   "objectiveId": "66ab97a5c74ce045d6c32578",
+   "ordinal": 1,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the precision tools package in the med lab on Customs",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "66b22630a6b4e5ec7c02cdb7",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 92.35701,
+      "y": 4.666,
+      "z": -161.4822
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 1,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 76.28398,
+      "y": 4.637,
+      "z": -151.6633
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 2,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 88.46846,
+      "y": 4.668,
+      "z": -142.76546
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 3,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 87.87459,
+      "y": 4.687,
+      "z": -162.60088
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 4,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 81.09361,
+      "y": 4.701,
+      "z": -152.63136
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 5,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 88.0565,
+      "y": 5.207,
+      "z": -146.9258
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "customs",
+   "taskId": "6745cbee909d2013670a4a55",
+   "taskName": "The Price of Independence",
+   "traderId": "656f0f98d80a697f855d34b1",
+   "primaryMapId": null,
+   "wikiUri": null,
+   "objectiveId": "6745cbee909d2013670a4a60",
+   "ordinal": 0,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the incriminating letter on Customs",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "67499d0eeca8acb2d2061639",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 269.86456,
+      "y": 13.439083,
+      "z": -77.52385
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 1,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 271.05127,
+      "y": 12.777287,
+      "z": -72.37828
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 2,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 264.34637,
+      "y": 13.310482,
+      "z": -75.3349
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 3,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 268.5923,
+      "y": 12.743282,
+      "z": -73.78987
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 4,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 263.97394,
+      "y": 14.140682,
+      "z": -76.90471
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "customs",
+   "taskId": "5968eb3186f7741dde183a4d",
+   "taskName": "Blood in the Water",
+   "traderId": "54cb57776803fa99248b456e",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "5968eb9b86f7741ddb481543",
+   "ordinal": 0,
+   "kind": "Shoot",
+   "description": "Eliminate Scavs on Customs",
+   "targetCount": "15",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": []
+  },
+  {
+   "map": "customs",
+   "taskId": "59689fbd86f7740d137ebfc4",
+   "taskName": "Operation Aquarius",
+   "traderId": "54cb57776803fa99248b456e",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "6a541b897b253a0f64adfafc",
+   "ordinal": 1,
+   "kind": "GiveItem",
+   "description": "Hand over any found in raid drinking water items",
+   "targetCount": "3",
+   "optional": false,
+   "foundInRaid": true,
+   "items": [
+    {
+     "itemId": "5448fee04bdc2dbc018b4567",
+     "field": "items",
+     "group": 0,
+     "ordinal": 0,
+     "count": "3",
+     "foundInRaid": true
+    },
+    {
+     "itemId": "5d1b33a686f7742523398398",
+     "field": "items",
+     "group": 0,
+     "ordinal": 1,
+     "count": "3",
+     "foundInRaid": true
+    },
+    {
+     "itemId": "5c0fa877d174af02a012e1cf",
+     "field": "items",
+     "group": 0,
+     "ordinal": 2,
+     "count": "3",
+     "foundInRaid": true
+    },
+    {
+     "itemId": "6a3557f841667bc4bb00fea4",
+     "field": "items",
+     "group": 0,
+     "ordinal": 3,
+     "count": "3",
+     "foundInRaid": true
+    },
+    {
+     "itemId": "60098b1705871270cd5352a1",
+     "field": "items",
+     "group": 0,
+     "ordinal": 4,
+     "count": "3",
+     "foundInRaid": true
+    }
+   ],
+   "zones": []
+  },
+  {
+   "map": "customs",
+   "taskId": "5936da9e86f7742d65037edf",
+   "taskName": "Background Check",
+   "traderId": "54cb50c76803fa8b248b4571",
+   "primaryMapId": "56f40101d2720b2a4d8b45d6",
+   "wikiUri": null,
+   "objectiveId": "5968ec9986f7741ddd6c1012",
+   "ordinal": 0,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the bronze pocket watch on Customs",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5937fd0086f7742bf33fc198",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    },
+    {
+     "itemId": "5937ee6486f77408994ba448",
+     "field": "requiredKeys",
+     "group": 0,
+     "ordinal": 0,
+     "count": null,
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "56f40101d2720b2a4d8b45d6",
+     "position": {
+      "x": 102.2964,
+      "y": 2.9634,
+      "z": -5.9064
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179b3a12153c15e937d52bc",
+   "taskName": "Energy Crisis",
+   "traderId": "5a7c2eca46aef81a7ca2145d",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "617bf5860cf4a041de5b396b",
+   "ordinal": 0,
+   "kind": "Mark",
+   "description": "Find and mark the group of fuel tanks with an MS2000 Marker on Lighthouse",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5991b51486f77447b112d44f",
+     "field": "markerItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "qlight_fuel_blood",
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": -116.6,
+      "y": 11.46,
+      "z": -921.85
+     },
+     "outline": [
+      {
+       "x": -131.44,
+       "y": 8.96,
+       "z": -928.86
+      },
+      {
+       "x": -131.55,
+       "y": 8.96,
+       "z": -915.06
+      },
+      {
+       "x": -101.75,
+       "y": 8.96,
+       "z": -914.84
+      },
+      {
+       "x": -101.65,
+       "y": 8.96,
+       "z": -928.64
+      }
+     ],
+     "bottom": 8.96,
+     "top": 13.96,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179b4d1bca27a099552e04e",
+   "taskName": "Revision - Lighthouse",
+   "traderId": "5935c25fb3acc3127c3d8cd9",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "61952325aa0f643f9a0ae212",
+   "ordinal": 2,
+   "kind": "Mark",
+   "description": "Locate and mark the first Stryker with an MS2000 Marker on Lighthouse",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5991b51486f77447b112d44f",
+     "field": "markerItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "qlight_mark_vech3",
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": 66.05,
+      "y": 2.76,
+      "z": 516.78
+     },
+     "outline": [
+      {
+       "x": 68.75,
+       "y": 1.26,
+       "z": 513.78
+      },
+      {
+       "x": 62.1,
+       "y": 1.26,
+       "z": 515.98
+      },
+      {
+       "x": 63.36,
+       "y": 1.26,
+       "z": 519.78
+      },
+      {
+       "x": 70,
+       "y": 1.26,
+       "z": 517.58
+      }
+     ],
+     "bottom": 1.26,
+     "top": 4.26,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179ac7511973d018217d0b9",
+   "taskName": "Easy Job",
+   "traderId": "54cb50c76803fa8b248b4571",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "63ac1e0a87413d64ae0ac233",
+   "ordinal": 0,
+   "kind": "Visit",
+   "description": "Locate the helicopter at the water treatment plant on Lighthouse",
+   "targetCount": null,
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "qlight_pr1_heli1_find",
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": -95.95,
+      "y": 2.4,
+      "z": -553.35
+     },
+     "outline": [
+      {
+       "x": -112.94,
+       "y": -0.6,
+       "z": -572.6
+      },
+      {
+       "x": -113.05,
+       "y": -0.6,
+       "z": -534.2
+      },
+      {
+       "x": -78.95,
+       "y": -0.6,
+       "z": -534.1
+      },
+      {
+       "x": -78.84,
+       "y": -0.6,
+       "z": -572.5
+      }
+     ],
+     "bottom": -0.6,
+     "top": 5.4,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179aff8f57fb279792c60a1",
+   "taskName": "Overpopulation",
+   "traderId": "5935c25fb3acc3127c3d8cd9",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "617bf4e152e86c73d372a95d",
+   "ordinal": 0,
+   "kind": "Shoot",
+   "description": "Eliminate any target around the chalets on Lighthouse",
+   "targetCount": "10",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "qlight_pc1_ucot_kill",
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": -123.77,
+      "y": 39.24,
+      "z": 9.39
+     },
+     "outline": [
+      {
+       "x": -194.57,
+       "y": 7.86,
+       "z": -166.28
+      },
+      {
+       "x": -197.85,
+       "y": 7.86,
+       "z": 183.7
+      },
+      {
+       "x": -52.97,
+       "y": 7.86,
+       "z": 185.06
+      },
+      {
+       "x": -49.69,
+       "y": 7.86,
+       "z": -164.92
+      }
+     ],
+     "bottom": 7.86,
+     "top": 70.63,
+     "terrain": null,
+     "size": null,
+     "name": "Chalets"
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179ad56c760af5ad2053587",
+   "taskName": "Seaside Vacation",
+   "traderId": "54cb57776803fa99248b456e",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "617bf2a6f8e6c97ec70878b7",
+   "ordinal": 0,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the informant's briefcase on Lighthouse",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "619252352be33f26043400a7",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": 139.195068,
+      "y": 3.26197624,
+      "z": -129.871185
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "lighthouse",
+   "taskId": "6179b3bdc7560e13d23eeb8d",
+   "taskName": "Corporate Secrets",
+   "traderId": "5a7c2eca46aef81a7ca2145d",
+   "primaryMapId": "5704e4dad2720bb55b8b4567",
+   "wikiUri": null,
+   "objectiveId": "617bf6c70cf4a041de5b3972",
+   "ordinal": 0,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the data on the water pump operation on Lighthouse",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "619268de2be33f2604340159",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "5704e4dad2720bb55b8b4567",
+     "position": {
+      "x": -111.0176,
+      "y": 9.24679,
+      "z": -750.147034
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "5ae448e586f7744dcf0c2a67",
+   "taskName": "Big Sale",
+   "traderId": "5ac3b934156ae10c4430e83c",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "5ae4511d86f7740ffc31ccb5",
+   "ordinal": 4,
+   "kind": "Visit",
+   "description": "Locate the TOP BRAND store on Interchange",
+   "targetCount": null,
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "place_SALE_03_TOPBRAND",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 94.2,
+      "y": 28.2,
+      "z": 10.22
+     },
+     "outline": [
+      {
+       "x": 98.18,
+       "y": 27.2,
+       "z": -7.28
+      },
+      {
+       "x": 90.18,
+       "y": 27.2,
+       "z": -7.28
+      },
+      {
+       "x": 90.22,
+       "y": 27.2,
+       "z": 27.72
+      },
+      {
+       "x": 98.22,
+       "y": 27.2,
+       "z": 27.72
+      }
+     ],
+     "bottom": 27.2,
+     "top": 29.2,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "5ae448e586f7744dcf0c2a67",
+   "taskName": "Big Sale",
+   "traderId": "5ac3b934156ae10c4430e83c",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "5ae450db86f7741250488359",
+   "ordinal": 1,
+   "kind": "Visit",
+   "description": "Locate the KOSTIN store on Interchange",
+   "targetCount": null,
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "place_SALE_03_KOSTIN",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": -24.67,
+      "y": 28.62,
+      "z": -103.52
+     },
+     "outline": [
+      {
+       "x": -38.17,
+       "y": 27.12,
+       "z": -108.02
+      },
+      {
+       "x": -38.17,
+       "y": 27.12,
+       "z": -99.02
+      },
+      {
+       "x": -11.17,
+       "y": 27.12,
+       "z": -99.02
+      },
+      {
+       "x": -11.17,
+       "y": 27.12,
+       "z": -108.02
+      }
+     ],
+     "bottom": 27.12,
+     "top": 30.12,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "5ae448f286f77448d73c0131",
+   "taskName": "Fuel Crisis",
+   "traderId": "5ac3b934156ae10c4430e83c",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "5ae452de86f77450595c4333",
+   "ordinal": 1,
+   "kind": "Mark",
+   "description": "Locate and mark any fuel tank in the northern territory with an MS2000 Marker on Interchange",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5991b51486f77447b112d44f",
+     "field": "markerItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "place_WARBLOOD_04_2",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 429.07,
+      "y": 28.67,
+      "z": 125.04
+     },
+     "outline": [
+      {
+       "x": 432.73,
+       "y": 27.17,
+       "z": 119.88
+      },
+      {
+       "x": 428.9,
+       "y": 27.17,
+       "z": 118.72
+      },
+      {
+       "x": 425.41,
+       "y": 27.17,
+       "z": 130.2
+      },
+      {
+       "x": 429.24,
+       "y": 27.17,
+       "z": 131.36
+      }
+     ],
+     "bottom": 27.17,
+     "top": 30.17,
+     "terrain": null,
+     "size": null,
+     "name": null
+    },
+    {
+     "ordinal": 1,
+     "zoneId": "place_WARBLOOD_04_4",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 40.74,
+      "y": 23.23,
+      "z": 308.33
+     },
+     "outline": [
+      {
+       "x": 36.64,
+       "y": 21.73,
+       "z": 303.51
+      },
+      {
+       "x": 34.57,
+       "y": 21.73,
+       "z": 306.93
+      },
+      {
+       "x": 44.84,
+       "y": 21.73,
+       "z": 313.15
+      },
+      {
+       "x": 46.91,
+       "y": 21.73,
+       "z": 309.72
+      }
+     ],
+     "bottom": 21.73,
+     "top": 24.73,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "5b478d0f86f7744d190d91b5",
+   "taskName": "Minibus",
+   "traderId": "5ac3b934156ae10c4430e83c",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "5b478daf86f7744d1c35339b",
+   "ordinal": 1,
+   "kind": "Mark",
+   "description": "Locate and mark the second yellow minibus with an MS2000 Marker on Interchange",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "5991b51486f77447b112d44f",
+     "field": "markerItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "place_merch_21_2",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 17.56,
+      "y": 22.83,
+      "z": -25.5
+     },
+     "outline": [
+      {
+       "x": 14.4,
+       "y": 21.33,
+       "z": -24.49
+      },
+      {
+       "x": 16.24,
+       "y": 21.33,
+       "z": -22.46
+      },
+      {
+       "x": 20.71,
+       "y": 21.33,
+       "z": -26.51
+      },
+      {
+       "x": 18.87,
+       "y": 21.33,
+       "z": -28.54
+      }
+     ],
+     "bottom": 21.33,
+     "top": 24.33,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "666314bc1d3ec95634095e77",
+   "taskName": "Minute of Fame",
+   "traderId": "58330581ace78e27b8b10cee",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "667a958eb30fe2e2938a6387",
+   "ordinal": 0,
+   "kind": "FindQuestItem",
+   "description": "Locate and obtain the special edition of the gaming magazine on Interchange",
+   "targetCount": "1",
+   "optional": false,
+   "foundInRaid": null,
+   "items": [
+    {
+     "itemId": "667a8ef464eea5fdef0db135",
+     "field": "questItem",
+     "group": 0,
+     "ordinal": 0,
+     "count": "1",
+     "foundInRaid": null
+    }
+   ],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 18.86084,
+      "y": 37.444,
+      "z": -5.540009
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 1,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 18.42624,
+      "y": 36.605,
+      "z": -3.7190084
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 2,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 8.725121,
+      "y": 37.335,
+      "z": -18.523008
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 3,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 14.628261,
+      "y": 38.453,
+      "z": -4.792009
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 4,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 26.164429,
+      "y": 37.216,
+      "z": 0.66467285
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 5,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 16.287987,
+      "y": 36.938198,
+      "z": -12.538616
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 6,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 19.517511,
+      "y": 36.581486,
+      "z": -12.575807
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 7,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 30.47102,
+      "y": 37.457,
+      "z": -19.500854
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    },
+    {
+     "ordinal": 8,
+     "zoneId": null,
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": 14.321921,
+      "y": 37.783,
+      "z": -2.4580088
+     },
+     "outline": [],
+     "bottom": null,
+     "top": null,
+     "terrain": null,
+     "size": null,
+     "name": "Possible location"
+    }
+   ]
+  },
+  {
+   "map": "interchange",
+   "taskId": "5ae449c386f7744bde357697",
+   "taskName": "Pathfinder",
+   "traderId": "5ac3b934156ae10c4430e83c",
+   "primaryMapId": "5714dbc024597771384a510d",
+   "wikiUri": null,
+   "objectiveId": "6a60968c58aab7961885e537",
+   "ordinal": 1,
+   "kind": "Visit",
+   "description": "Visit the Emercom Checkpoint exit on Interchange",
+   "targetCount": null,
+   "optional": false,
+   "foundInRaid": null,
+   "items": [],
+   "zones": [
+    {
+     "ordinal": 0,
+     "zoneId": "shorl_exit_se",
+     "mapId": "5714dbc024597771384a510d",
+     "position": {
+      "x": -311.5,
+      "y": 21.33,
+      "z": 260.36
+     },
+     "outline": [
+      {
+       "x": -327.39,
+       "y": 6.33,
+       "z": 225.35
+      },
+      {
+       "x": -343.64,
+       "y": 6.33,
+       "z": 281.47
+      },
+      {
+       "x": -295.61,
+       "y": 6.33,
+       "z": 295.37
+      },
+      {
+       "x": -279.37,
+       "y": 6.33,
+       "z": 239.25
+      }
+     ],
+     "bottom": 6.33,
+     "top": 36.33,
+     "terrain": null,
+     "size": null,
+     "name": null
+    }
+   ]
+  }
+ ],
+ "itemNames": {
+  "5780cf942459777df90dcb72": "Dorm room 214 key",
+  "6a3557f841667bc4bb00fea4": "Bottle of YMXC water",
+  "5937ee6486f77408994ba448": "Machinery key",
+  "5d1b33a686f7742523398398": "Canister with purified water",
+  "60098b1705871270cd5352a1": "Emergency Water Ration",
+  "5448fee04bdc2dbc018b4567": "Bottle of water (0.6L)",
+  "5c0fa877d174af02a012e1cf": "Aquamari water bottle with filter",
+  "5991b51486f77447b112d44f": "MS2000 Marker"
+ }
+}

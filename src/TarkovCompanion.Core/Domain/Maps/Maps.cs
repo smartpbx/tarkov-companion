@@ -78,4 +78,11 @@ public sealed record MapDefinition(
     IReadOnlyList<MapFloorLayer> Floors,
     IReadOnlyList<MapExtract> Extracts,
     MapTransformConfig? Transform,
-    DataProvenance Provenance);
+    DataProvenance Provenance)
+{
+    /// <summary>
+    /// The game's own id for the map, which is what quests, keys and items name it by. The map
+    /// catalog's locations carry only the slug, so this is the bridge between the two.
+    /// </summary>
+    public string? GameId { get; init; }
+}
