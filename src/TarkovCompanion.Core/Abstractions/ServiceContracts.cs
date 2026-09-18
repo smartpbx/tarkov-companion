@@ -500,9 +500,55 @@ public interface IEftLogWatcher
     IAsyncEnumerable<RaidEvidence> WatchAsync(string logRoot, CancellationToken cancellationToken);
 }
 
+/// <summary>How much of a screenshot the watcher can vouch for yet.</summary>
+/// <remarks>
+/// The game writes the player's coordinates into the filename, so the position is complete the
+/// moment the directory entry appears. The picture is not: it is still being written, and the
+/// watcher has to see it stop changing before anything may decode it. Reporting both facts on
+/// one signal meant the position waited on the picture — two stable probes a second apart, for
+/// a number that was already on disk.
+/// </remarks>
+public enum ScreenshotSightingKind
+{
+    /// <summary>The entry exists and its name can be read. The pixels may still be arriving.</summary>
+    NameSeen,
+
+    /// <summary>The file has stopped changing and opens cleanly, so it may be decoded.</summary>
+    Settled,
+}
+
+/// <summary>One thing the watcher saw in the screenshot folder.</summary>
+public readonly record struct ScreenshotSighting(string Path, ScreenshotSightingKind Kind)
+{
+    public bool IsSettled => Kind == ScreenshotSightingKind.Settled;
+}
+
 public interface IScreenshotWatcher
 {
-    IAsyncEnumerable<string> WatchAsync(string screenshotRoot, CancellationToken cancellationToken);
+    /// <summary>
+    /// Reports every screenshot twice: once on sight, and again once it is safe to read.
+    /// </summary>
+    IAsyncEnumerable<ScreenshotSighting> WatchAsync(string screenshotRoot, CancellationToken cancellationToken);
+}
+
+/// <summary>Reading only the sightings a caller cares about.</summary>
+public static class ScreenshotWatcherExtensions
+{
+    /// <summary>The settled files, for callers that read pixels rather than names.</summary>
+    public static async IAsyncEnumerable<string> WatchSettledAsync(
+        this IScreenshotWatcher watcher,
+        string screenshotRoot,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(watcher);
+        await foreach (var sighting in watcher.WatchAsync(screenshotRoot, cancellationToken).ConfigureAwait(false))
+        {
+            if (sighting.IsSettled)
+            {
+                yield return sighting.Path;
+            }
+        }
+    }
 }
 
 public interface IScreenshotFilenameParser

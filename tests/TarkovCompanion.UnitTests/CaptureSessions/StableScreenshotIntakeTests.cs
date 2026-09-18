@@ -1,4 +1,5 @@
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
@@ -22,7 +23,7 @@ public sealed class StableScreenshotIntakeTests
             await using var enumerator = new WindowsScreenshotWatcher(
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     requiredStableProbes: 2)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
             var next = enumerator.MoveNextAsync().AsTask();
             var path = Path.Combine(root, "chunked.png");
@@ -57,7 +58,7 @@ public sealed class StableScreenshotIntakeTests
             await using var enumerator = new WindowsScreenshotWatcher(
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     requiredStableProbes: 2)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
 
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
@@ -95,7 +96,7 @@ public sealed class StableScreenshotIntakeTests
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     requiredStableProbes: 2,
                     maximumTrackedFiles: 16)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
             var delivered = new List<string>();
             for (var index = 0; index < 16; index++)
@@ -128,7 +129,7 @@ public sealed class StableScreenshotIntakeTests
             await using var enumerator = new WindowsScreenshotWatcher(
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     requiredStableProbes: 2)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
 
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
@@ -159,7 +160,7 @@ public sealed class StableScreenshotIntakeTests
             File.SetLastWriteTimeUtc(oldPath, DateTime.UtcNow.AddSeconds(-10));
             var oldWrittenUtc = File.GetLastWriteTimeUtc(oldPath);
             var watcher = new WindowsScreenshotWatcher(pollInterval: TimeSpan.FromMilliseconds(10));
-            await using var enumerator = watcher.WatchAsync(root, stopping.Token).GetAsyncEnumerator(stopping.Token);
+            await using var enumerator = watcher.WatchSettledAsync(root, stopping.Token).GetAsyncEnumerator(stopping.Token);
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
 
             Directory.Delete(root, recursive: true);
@@ -175,7 +176,7 @@ public sealed class StableScreenshotIntakeTests
             await File.WriteAllBytesAsync(newPath, Png, stopping.Token);
             File.SetLastWriteTimeUtc(newPath, DateTime.UtcNow.AddSeconds(1));
 
-            await using var recovered = watcher.WatchAsync(root, stopping.Token).GetAsyncEnumerator(stopping.Token);
+            await using var recovered = watcher.WatchSettledAsync(root, stopping.Token).GetAsyncEnumerator(stopping.Token);
             Assert.True(await recovered.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
             Assert.Equal(newPath, recovered.Current);
         }
@@ -198,7 +199,7 @@ public sealed class StableScreenshotIntakeTests
             var path = Path.Combine(root, "attributes.png");
             await File.WriteAllBytesAsync(path, Png, stopping.Token);
             await using var enumerator = new WindowsScreenshotWatcher(pollInterval: TimeSpan.FromMilliseconds(10))
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
 
@@ -227,7 +228,7 @@ public sealed class StableScreenshotIntakeTests
             await using var enumerator = new WindowsScreenshotWatcher(
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     requiredStableProbes: 2)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
 
             Assert.True(await enumerator.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
@@ -293,7 +294,7 @@ public sealed class StableScreenshotIntakeTests
             await using var enumerator = new WindowsScreenshotWatcher(
                     pollInterval: TimeSpan.FromMilliseconds(10),
                     maximumEncodedBytes: 32)
-                .WatchAsync(root, stopping.Token)
+                .WatchSettledAsync(root, stopping.Token)
                 .GetAsyncEnumerator(stopping.Token);
             var next = enumerator.MoveNextAsync().AsTask();
 

@@ -354,6 +354,16 @@ public sealed record GroupSnapshot(
     /// </remarks>
     public DateTimeOffset? StaleSince { get; init; }
 
+    /// <summary>
+    /// How long squadmate positions have actually been taking to arrive.
+    /// </summary>
+    /// <remarks>
+    /// Measured, not asserted. The whole point of publishing on change rather than on a tick is
+    /// a number, and a number nobody can read is a claim. It is empty until a squadmate takes a
+    /// screenshot while this companion is watching.
+    /// </remarks>
+    public GroupPositionLatencySnapshot PositionLatency { get; init; } = GroupPositionLatencySnapshot.None;
+
     public static GroupSnapshot Off { get; } = new(
         false,
         [],

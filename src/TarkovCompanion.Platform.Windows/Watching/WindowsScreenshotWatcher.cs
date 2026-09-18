@@ -13,6 +13,13 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 /// a real installation, exactly as they never arrived for the game's logs. Polling costs one
 /// directory listing a second and cannot miss a file, so the same approach is used here.
 ///
+/// Every file is reported twice. The first report is its name, on the poll that first sees the
+/// entry, because the player's coordinates are in the name and are complete the moment it
+/// exists. The second is the file itself, once its size has stopped changing and it opens with
+/// a whole image envelope, which is what anything decoding pixels has to wait for. One signal
+/// for both made the position wait on the picture: two probes a second apart before a marker
+/// could move, for a number already on disk.
+///
 /// Screenshots already on disk when watching starts are not replayed, with one exception: a
 /// file written in the couple of minutes before startup is still worth reporting, because the
 /// alternative is losing the shot the player took while the companion was restarting. Anything
@@ -53,7 +60,7 @@ public sealed class WindowsScreenshotWatcher(
     private readonly object _watchStateGate = new();
     private WatchState? _watchState;
 
-    public async IAsyncEnumerable<string> WatchAsync(
+    public async IAsyncEnumerable<ScreenshotSighting> WatchAsync(
         string screenshotRoot,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -110,13 +117,34 @@ public sealed class WindowsScreenshotWatcher(
                     continue;
                 }
 
-                if (!settling.TryGetValue(candidate.Path, out var state) || state.Fingerprint != candidate.Fingerprint)
+                var tracked = settling.TryGetValue(candidate.Path, out var state);
+                var announced = tracked && state!.NameAnnounced;
+                if (!tracked || state!.Fingerprint != candidate.Fingerprint)
                 {
-                    settling[candidate.Path] = new(candidate.Fingerprint, 1);
+                    // A file still growing changes fingerprint between probes and starts the
+                    // stability count again. Whether its name has been reported does not start
+                    // again with it: the coordinates were complete the first time.
+                    state = new(candidate.Fingerprint, 1) { NameAnnounced = announced };
+                    settling[candidate.Path] = state;
+                    if (!announced)
+                    {
+                        settling[candidate.Path] = state with { NameAnnounced = true };
+                        yield return new(candidate.Path, ScreenshotSightingKind.NameSeen);
+                    }
+
                     continue;
                 }
 
-                state = state with
+                if (!announced)
+                {
+                    // Reachable only where a probe was skipped, but said in one place rather
+                    // than assumed: nothing settles before its name has been reported.
+                    settling[candidate.Path] = state! with { NameAnnounced = true };
+                    yield return new(candidate.Path, ScreenshotSightingKind.NameSeen);
+                    state = settling[candidate.Path];
+                }
+
+                state = state! with
                 {
                     StableProbes = Math.Min(_requiredStableProbes, state.StableProbes + 1),
                 };
@@ -135,7 +163,7 @@ public sealed class WindowsScreenshotWatcher(
                     watchState.DeliveryWatermark = order;
                 }
 
-                yield return candidate.Path;
+                yield return new(candidate.Path, ScreenshotSightingKind.Settled);
             }
 
             PruneTracking(seen, settling, present);
@@ -378,7 +406,11 @@ public sealed class WindowsScreenshotWatcher(
         FileFingerprint Fingerprint,
         FileAttributes Attributes);
 
-    private sealed record SettlingCandidate(FileFingerprint Fingerprint, int StableProbes);
+    private sealed record SettlingCandidate(FileFingerprint Fingerprint, int StableProbes)
+    {
+        /// <summary>Whether this path's name has already been reported on sight.</summary>
+        public bool NameAnnounced { get; init; }
+    }
 
     private sealed record SeenFile(FileFingerprint Fingerprint, DateTimeOffset LastObservedUtc);
 

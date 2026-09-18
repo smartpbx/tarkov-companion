@@ -55,6 +55,31 @@ public static class GroupKey
     /// everybody else, which is precisely the kind of invisible mistake this change exists to
     /// remove.
     /// </remarks>
+    /// <summary>The key one request carries, or nothing usable.</summary>
+    /// <remarks>
+    /// Here rather than beside one handler because every route on this relay asks the same
+    /// question of the same header, and a second copy of the rule would be a second thing to
+    /// keep in step with <see cref="IsAcceptable"/>.
+    /// </remarks>
+    public static bool TryRead(HttpRequest request, out string key)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        key = string.Empty;
+        if (!request.Headers.TryGetValue("X-Group-Key", out var provided) || provided.Count != 1)
+        {
+            return false;
+        }
+
+        var candidate = provided[0];
+        if (!IsAcceptable(candidate))
+        {
+            return false;
+        }
+
+        key = candidate!;
+        return true;
+    }
+
     public static string RoomFor(string key)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
