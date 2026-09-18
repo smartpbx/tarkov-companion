@@ -87,6 +87,7 @@ public static class V2Routes
     public static readonly V2RouteId Stash = new("stash");
     public static readonly V2RouteId Plan = new("plan");
     public static readonly V2RouteId Hideout = new("plan.hideout");
+    public static readonly V2RouteId Keep = new("plan.keep");
     public static readonly V2RouteId Loadout = new("plan.loadout");
     public static readonly V2RouteId Events = new("plan.events");
     public static readonly V2RouteId Team = new("team");

@@ -130,6 +130,11 @@ public sealed partial class WindowsEftLogWatcher(
                     {
                         observer.Observe(quest);
                     }
+
+                    if (LoadTimeParser.ParseLine(line, observedUtc) is { } loadTime)
+                    {
+                        observer.Observe(loadTime);
+                    }
                 }
             }
 

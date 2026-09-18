@@ -1,8 +1,11 @@
+using System.Text.Json;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.UnitTests.Debrief;
@@ -39,6 +42,84 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal("customs", viewModel.SelectedMapLabel);
         Assert.Equal("24m 00s", viewModel.SelectedDurationLabel);
         Assert.Equal("2 screenshots recorded.", viewModel.SelectedPathLabel);
+    }
+
+    /// <summary>
+    /// Two offers for the same item read as one row: "2 sold", not two rows nobody asked to
+    /// tell apart.
+    /// </summary>
+    [Fact]
+    public async Task SelectingARaidCountsFleaSalesPerItem()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(RaidId, "sale", JsonSerializer.Serialize(new FleaSaleObservation(
+            "OFFER_1", "ITEM_1", 1, Started.AddMinutes(2))));
+        service.SeedEvent(RaidId, "sale", JsonSerializer.Serialize(new FleaSaleObservation(
+            "OFFER_2", "ITEM_1", 2, Started.AddMinutes(4))));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.HasSelectedSales);
+        var row = Assert.Single(viewModel.SelectedSales);
+        Assert.Equal("ITEM_1", row.ItemLabel);
+        Assert.Equal("3 sold", row.CountLabel);
+    }
+
+    /// <summary>The game's own words about a quest, kept apart from what the player typed by hand.</summary>
+    [Fact]
+    public async Task SelectingARaidListsTheQuestEventsTheGameAnnounced()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(RaidId, "quest", JsonSerializer.Serialize(new QuestStatusObservation(
+            "EVENT_1", "TASK_1", RecordedTaskState.Completed, Started.AddMinutes(3))));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.HasSelectedQuestEvents);
+        var row = Assert.Single(viewModel.SelectedQuestEvents);
+        Assert.Equal("TASK_1", row.QuestLabel);
+        Assert.Equal("Handed in", row.StateLabel);
+    }
+
+    /// <summary>docs/research/EFT_LOG_FACTS.md names the `real` figure as present and unused.</summary>
+    [Fact]
+    public async Task SelectingARaidShowsTheQueueLoadTimeWhenOneWasSeen()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(RaidId, "state", """{"Summary":"in a raid","LoadSeconds":25.02}""");
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("25.0s queue/load", viewModel.SelectedLoadTimeLabel);
+    }
+
+    /// <summary>
+    /// Raids and durations, grouped by map. No survival column: the game records no outcome, so
+    /// this must not compute one from a field the player fills in by hand.
+    /// </summary>
+    [Fact]
+    public async Task LoadingBuildsPerMapStatsFromRaidHistory()
+    {
+        var service = new FakeRaidHistoryService();
+        var secondRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(secondRaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(RaidId, "state", """{"LoadSeconds":20.0}""");
+        service.SeedEvent(secondRaidId, "state", """{"LoadSeconds":30.0}""");
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var stat = Assert.Single(viewModel.MapStats);
+        Assert.Equal("customs", stat.MapLabel);
+        Assert.Equal("2 raids", stat.RaidsLabel);
+        Assert.Equal("avg 25.0s (2 raids measured)", stat.LoadLabel);
     }
 
     [Fact]
@@ -190,12 +271,25 @@ public sealed class DebriefWorkspaceViewModelTests
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
         private readonly Dictionary<Guid, IReadOnlyList<ScreenshotPosition>> _positions = [];
+        private readonly Dictionary<(Guid RaidId, string Type), List<string>> _events = [];
 
         public (string? Outcome, string? Notes)? LastCorrection { get; private set; }
 
         public void Seed(RaidHistoryEntry raid) => _raids[raid.Id] = raid;
 
         public void SeedPositions(Guid raidId, IReadOnlyList<ScreenshotPosition> positions) => _positions[raidId] = positions;
+
+        public void SeedEvent(Guid raidId, string type, string payloadJson)
+        {
+            var key = (raidId, type);
+            if (!_events.TryGetValue(key, out var payloads))
+            {
+                payloads = [];
+                _events[key] = payloads;
+            }
+
+            payloads.Add(payloadJson);
+        }
 
         public Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken)
         {
@@ -227,7 +321,8 @@ public sealed class DebriefWorkspaceViewModelTests
             Task.FromResult(_positions.GetValueOrDefault(raidId, []));
 
         public Task<IReadOnlyList<string>> ListEventPayloadsAsync(Guid raidId, string type, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<string>>([]);
+            Task.FromResult<IReadOnlyList<string>>(
+                _events.TryGetValue((raidId, type), out var payloads) ? payloads : []);
 
         public Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(string mapId, int limit, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidTrail>>([]);
