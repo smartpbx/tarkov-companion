@@ -17,6 +17,12 @@ public static class WikiLinkPolicy
         "escapefromtarkov.fandom.com",
     ];
 
+    /// <summary>
+    /// Who the page belongs to and what pressing the link does, for the small line beside it. The
+    /// app links out and nothing else: it does not fetch, embed or copy anything from the page.
+    /// </summary>
+    public const string Attribution = "Escape from Tarkov Wiki · opens in your browser";
+
     /// <summary>True only for an absolute https URL on one of the allowed wiki hosts.</summary>
     public static bool IsAllowed(string? url) =>
         !string.IsNullOrWhiteSpace(url) &&

@@ -80,7 +80,18 @@ public sealed record QuestObjectiveZone(
     double? TerrainElevation,
     QuestZoneSize? Size,
     string? Name,
-    string RawSourceJson);
+    string RawSourceJson)
+{
+    /// <summary>The name the catalog gives a candidate spot that json.tarkov.dev lists under possibleLocations.</summary>
+    public const string PossibleLocationName = "Possible location";
+
+    /// <summary>
+    /// Whether this is one of several places the objective could be, rather than a place the
+    /// source authored for it: json.tarkov.dev's possibleLocations carry positions and no id, size
+    /// or outline, and the normalizer files each under this name.
+    /// </summary>
+    public bool IsPossibleLocation => SourceZoneId is null && string.Equals(Name, PossibleLocationName, StringComparison.Ordinal);
+}
 
 public sealed record QuestObjectiveDefinition(
     string Id,

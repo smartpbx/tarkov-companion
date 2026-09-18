@@ -127,6 +127,14 @@ internal static class Program
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
             }
 
+            // Package 35: name the quests to mark active, by task id, where the first few available
+            // quests are not the ones a render is about (a map's objectives with zones, say).
+            if (StringOption(args, "--seed-quest-tasks") is { } taskIds)
+            {
+                DrainUntilComplete(SeedTasksAsync(services, taskIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
+                DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+            }
+
             // Package 28: put the Plan workspace on a filter, a search and a level before the frame.
             var planFilter = StringOption(args, "--plan-filter");
             var planSearch = StringOption(args, "--plan-search");
@@ -285,6 +293,54 @@ internal static class Program
                 // asks for one that is not in this install's catalog says so instead of quietly
                 // rendering whichever map came first.
                 Console.WriteLine("Maps: " + string.Join(", ", raid.MapPicker.Select(item => item.MapId)));
+
+                // Package 35: a floor by name, then an objective by its number, the way the floor
+                // chooser and the objective list are used.
+                if (StringOption(args, "--floor") is { } floorName)
+                {
+                    var floor = raid.Renderer?.Floors.FirstOrDefault(item => string.Equals(item.Name, floorName, StringComparison.OrdinalIgnoreCase));
+                    if (floor is null)
+                    {
+                        Console.Error.WriteLine($"No floor named '{floorName}'; the map has: {string.Join(", ", raid.Renderer?.Floors.Select(item => item.Name) ?? [])}.");
+                    }
+                    else
+                    {
+                        floor.SelectCommand.Execute(null);
+                        // A floor is its own artwork, fetched and drawn asynchronously: wait until the
+                        // plan is showing it rather than photographing the map mid-swap.
+                        for (var i = 0; i < 400; i++)
+                        {
+                            Dispatcher.UIThread.RunJobs();
+                            if (raid.HasRenderer &&
+                                string.Equals(raid.Renderer!.Scene.View.SelectedFloorId, floor.Id, StringComparison.OrdinalIgnoreCase) &&
+                                i > 20)
+                            {
+                                break;
+                            }
+
+                            Thread.Sleep(25);
+                        }
+
+                        Pump(80);
+                    }
+                }
+
+                Console.WriteLine("Quest layer: " + viewModel.Map.QuestLayerStatus);
+                Console.WriteLine("Objectives: " + string.Join(" | ", raid.QuestObjectives.Select(row => $"{(row.HasNumber ? row.Number : "-")} {row.Where}")));
+                if (StringOption(args, "--select-objective") is { } objectiveNumber)
+                {
+                    var row = raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
+                    if (row is null)
+                    {
+                        Console.Error.WriteLine($"No objective is numbered '{objectiveNumber}'.");
+                    }
+                    else
+                    {
+                        row.SelectCommand.Execute(null);
+                        Pump(40);
+                        Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
+                    }
+                }
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and
@@ -409,6 +465,19 @@ internal static class Program
                 Environment.Exit(0);
             }
         }
+    }
+
+    private static async Task SeedTasksAsync(IServiceProvider services, IReadOnlyList<string> taskIds)
+    {
+        var profile = await services.GetRequiredService<IPlayerProfileService>().GetActiveAsync(CancellationToken.None);
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var commands = services.GetRequiredService<IQuestProgressCommandService>();
+        foreach (var taskId in taskIds)
+        {
+            await commands.SetTaskStateAsync(scope, taskId, RecordedTaskState.Active, CancellationToken.None);
+        }
+
+        Console.WriteLine($"Marked {taskIds.Count} named quest(s) active.");
     }
 
     /// <summary>Three raids through the real history store; the newest of them is the one with a trail, and its id is returned.</summary>

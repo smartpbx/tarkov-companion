@@ -188,22 +188,39 @@ public sealed class MapSceneAssembler
 
     private static IReadOnlyList<string> FloorsFor(
         MapOverlayElement element,
+        IReadOnlyList<MapFloorDefinition> floors) =>
+        FloorsForHeights(element.MinimumHeight, element.MaximumHeight, floors);
+
+    /// <summary>
+    /// The floors a thing that spans these heights is on. A single height is a point and must sit
+    /// inside a floor's range; a span is on every floor it overlaps. No heights at all means it
+    /// is on every floor, which is the empty answer.
+    /// </summary>
+    /// <remarks>
+    /// Public so that every adapter that puts something with a height on the plan decides floors the
+    /// same way the catalog's own elements do: a quest objective in Interchange's mall belongs on
+    /// the floor its elevation says, and not on whichever the renderer happens to show.
+    /// </remarks>
+    public static IReadOnlyList<string> FloorsForHeights(
+        double? minimumHeight,
+        double? maximumHeight,
         IReadOnlyList<MapFloorDefinition> floors)
     {
-        if (element.MinimumHeight is null && element.MaximumHeight is null)
+        ArgumentNullException.ThrowIfNull(floors);
+        if (minimumHeight is null && maximumHeight is null)
         {
             return [];
         }
 
-        var pointHeight = element.MinimumHeight is { } minimum && element.MaximumHeight == minimum
+        var pointHeight = minimumHeight is { } minimum && maximumHeight == minimum
             ? minimum
             : (double?)null;
         return floors
             .Where(floor => floor.Extents.Count == 0 || floor.Extents.Any(extent => pointHeight is { } height
                 ? (extent.MinimumHeight is null || height >= extent.MinimumHeight) &&
                   (extent.MaximumHeight is null || height < extent.MaximumHeight)
-                : (extent.MinimumHeight is null || element.MaximumHeight is null || element.MaximumHeight > extent.MinimumHeight) &&
-                  (extent.MaximumHeight is null || element.MinimumHeight is null || element.MinimumHeight < extent.MaximumHeight)))
+                : (extent.MinimumHeight is null || maximumHeight is null || maximumHeight > extent.MinimumHeight) &&
+                  (extent.MaximumHeight is null || minimumHeight is null || minimumHeight < extent.MaximumHeight)))
             .Select(floor => floor.Id)
             .ToArray();
     }
