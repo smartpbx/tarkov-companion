@@ -102,7 +102,7 @@ public sealed class V2SetupWorkspaceViewModelTests
         var labels = new[]
         {
             workspace.FolderPlaceholder, workspace.ScanHint, workspace.OfflineNote, workspace.RetentionValueLabel,
-            workspace.RecycleNote, workspace.ScaleHint, workspace.ScaleScope, workspace.LogLabel,
+            workspace.RecycleNote, workspace.ScaleHint, workspace.ScaleScope, workspace.LogLabel, workspace.RelayNote,
             workspace.ExchangeTitle, workspace.ExchangeNote, workspace.ExchangePathPlaceholder, workspace.ExportLabel,
             workspace.PreviewImportLabel, workspace.KeepLocalLabel, workspace.UseIncomingLabel, workspace.ApplyImportLabel,
             workspace.UndoImportLabel, workspace.ImportHistoryTitle, workspace.TrackerTitle, workspace.TrackerNote,

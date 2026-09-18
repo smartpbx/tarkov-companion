@@ -91,6 +91,7 @@ public static class V2ShellText
         ["V2.Setup.Appearance.ScaleHint"] = "Ctrl and + or − does the same, and Ctrl+0 puts it back.",
         ["V2.Setup.Appearance.ScaleScope"] = "Dropdown lists and tooltips stay at their normal size.",
         ["V2.Setup.Diagnostics.LogLabel"] = "This application's log",
+        ["V2.Setup.Diagnostics.RelayNote"] = "Sent to your group's relay, which may keep it. Copy diagnostics shows the exact text first.",
         ["V2.Setup.Progress.ExchangeTitle"] = "Import and export progress as JSON",
         ["V2.Setup.Progress.ExchangeNote"] = "Local file only, previewed before it is applied.",
         ["V2.Setup.Progress.ExchangePath"] = "Quest progress JSON file path",

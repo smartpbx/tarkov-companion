@@ -154,6 +154,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string ScaleHint => V2ShellText.Get("V2.Setup.Appearance.ScaleHint");
     public string ScaleScope => V2ShellText.Get("V2.Setup.Appearance.ScaleScope");
     public string LogLabel => V2ShellText.Get("V2.Setup.Diagnostics.LogLabel");
+    public string RelayNote => V2ShellText.Get("V2.Setup.Diagnostics.RelayNote");
     public string ExchangeTitle => V2ShellText.Get("V2.Setup.Progress.ExchangeTitle");
     public string ExchangeNote => V2ShellText.Get("V2.Setup.Progress.ExchangeNote");
     public string ExchangePathPlaceholder => V2ShellText.Get("V2.Setup.Progress.ExchangePath");
