@@ -325,8 +325,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>What the stack did, in one line: how many plates of how many floors.</summary>
     public string StackStatus { get; private set; } = string.Empty;
     public bool HasStackStatus => StackStatus.Length > 0;
-    public bool HasFloorFilters => Floors.Count > 0;
-    public bool HasFloors => HasFloorFilters;
+    // [V2 rough package 39] More than one: a ladder with a single rung on a map drawn as one
+    // storey is a control that asks a question with one answer.
+    public bool HasFloorFilters => Floors.Count > 1;
+    public bool HasFloors => Floors.Count > 0;
     /// <summary>Which floor of how many, for the ladder's own readout ("Floor 2 of 4").</summary>
     public string FloorPositionLabel => Floors.Count == 0 || SelectedFloor is null
         ? string.Empty

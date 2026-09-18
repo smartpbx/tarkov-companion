@@ -39,34 +39,39 @@ public sealed class RaidMapPickerItemViewModel(string mapId, string name, Func<s
 /// One piece of artwork this location publishes, for the chooser over the map.
 /// </summary>
 /// <remarks>
-/// [V2 rough package 39] Several maps publish more than the drawn/photographic pair the "Drawing"
-/// toggle covered: an aerial photograph, a drawing, a 3D rendering, sometimes two orientations of
-/// one of them. Which reads better depends on the map and on what you are doing, so every
-/// reviewed variant is offered and the answer is remembered per map by V1's own selection
-/// service. Only variants with a runtime asset appear, so nothing here is offered that cannot
-/// draw.
+/// [V2 rough package 39] A row is one piece of artwork, not one catalog variant: a map that
+/// publishes both a tile photograph and a drawing offers both as separate rows of the same
+/// variant, because that is the choice a player actually has. Only artwork that can draw is
+/// offered — upstream lists 2D and 3D variants for most maps with no asset path at all, and a
+/// row that cannot draw is a row that leads to a blank plan. Both kinds of choice are remembered
+/// per map by V1's own selection service.
 /// </remarks>
 public sealed class RaidArtworkVariantViewModel(
     string key,
+    bool prefersDrawing,
     string name,
     string detail,
     bool isSelected,
-    Func<string, Task> select)
+    Func<string, bool, Task> select)
 {
     public string Key { get; } = key;
 
+    /// <summary>Whether this row is the variant's drawing rather than its photograph.</summary>
+    public bool PrefersDrawing { get; } = prefersDrawing;
+
     public string Name { get; } = name;
 
-    /// <summary>What kind of picture it is, in a word or two: "Photo", "Drawing · 4 floors".</summary>
+    /// <summary>What it is, in a word or two: "Interactive", "Drawing · 4 floors".</summary>
     public string Detail { get; } = detail;
 
     public bool HasDetail => Detail.Length > 0;
 
     public bool IsSelected { get; } = isSelected;
 
-    public string AutomationId => $"v2-raid-artwork-{MapRendererToken.From(Key)}";
+    public string AutomationId =>
+        $"v2-raid-artwork-{MapRendererToken.From(Key)}-{(PrefersDrawing ? "drawing" : "photo")}";
 
-    public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(key));
+    public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(key, prefersDrawing));
 }
 
 /// <summary>One local mark, for the marks list beside the map.</summary>
@@ -964,7 +969,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             OnPropertyChanged(nameof(SelectedMap));
             _ = RebuildAsync();
         }
-        else if (e.PropertyName is nameof(MapViewModel.Variants) or nameof(MapViewModel.SelectedVariant))
+        else if (e.PropertyName is nameof(MapViewModel.Variants)
+            or nameof(MapViewModel.SelectedVariant)
+            or nameof(MapViewModel.PrefersDrawing))
         {
             RebuildArtworkVariants();
         }
@@ -1054,7 +1061,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </remarks>
     private void RebuildArtworkVariants()
     {
-        ArtworkVariants = BuildArtworkVariants(_map.Variants, _map.SelectedVariant?.Key, SelectArtworkAsync);
+        ArtworkVariants = BuildArtworkVariants(
+            _map.Variants,
+            _map.SelectedVariant?.Key,
+            _map.PrefersDrawing,
+            SelectArtworkAsync);
         OnPropertyChanged(nameof(ArtworkVariants));
         OnPropertyChanged(nameof(HasArtworkVariants));
         OnPropertyChanged(nameof(ArtworkAttribution));
@@ -1065,7 +1076,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     internal static IReadOnlyList<RaidArtworkVariantViewModel> BuildArtworkVariants(
         IReadOnlyList<MapVariant> variants,
         string? selectedKey,
-        Func<string, Task> select) =>
+        bool prefersDrawing,
+        Func<string, bool, Task> select) =>
         [.. variants
             // A variant that cannot draw is never offered. MapViewModel.Variants already filters
             // to those with a runtime asset; this repeats the rule so the chooser is correct on
@@ -1075,18 +1087,52 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             // is the one that can put you and your squad on the picture.
             .OrderByDescending(variant => variant.IsInteractive)
             .ThenBy(variant => variant.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .Select(variant => new RaidArtworkVariantViewModel(
+            .SelectMany(variant => ArtworkRows(variant, selectedKey, prefersDrawing, select))];
+
+    /// <summary>The rows one variant contributes: two when it publishes both kinds of picture.</summary>
+    private static IEnumerable<RaidArtworkVariantViewModel> ArtworkRows(
+        MapVariant variant,
+        string? selectedKey,
+        bool prefersDrawing,
+        Func<string, bool, Task> select)
+    {
+        var isSelectedVariant = string.Equals(variant.Key, selectedKey, StringComparison.OrdinalIgnoreCase);
+        if (variant.SvgPath is not null && variant.TilePath is not null)
+        {
+            // Both, so the choice is which picture rather than which variant — and it is the one
+            // choice nearly every map actually offers, because upstream publishes an asset path
+            // for the interactive variant alone.
+            yield return new(
                 variant.Key,
-                variant.DisplayName,
+                true,
+                "Drawing",
                 DescribeVariant(variant),
-                string.Equals(variant.Key, selectedKey, StringComparison.OrdinalIgnoreCase),
-                select))];
+                isSelectedVariant && prefersDrawing,
+                select);
+            yield return new(
+                variant.Key,
+                false,
+                "Photo",
+                DescribeVariant(variant),
+                isSelectedVariant && !prefersDrawing,
+                select);
+            yield break;
+        }
+
+        yield return new(
+            variant.Key,
+            variant.SvgPath is not null,
+            variant.DisplayName,
+            DescribeVariant(variant),
+            isSelectedVariant,
+            select);
+    }
 
     /// <summary>What sort of picture a variant is, in the fewest words that tell them apart.</summary>
     private static string DescribeVariant(MapVariant variant)
     {
         var kind = variant.SvgPath is not null && variant.TilePath is not null
-            ? "Drawing + photo"
+            ? variant.DisplayName
             : variant.SvgPath is not null
                 ? "Drawing"
                 : "Photo";
@@ -1095,15 +1141,25 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             : kind;
     }
 
-    private async Task SelectArtworkAsync(string variantKey)
+    private async Task SelectArtworkAsync(string variantKey, bool prefersDrawing)
     {
         if (_map.Variants.FirstOrDefault(variant =>
-                string.Equals(variant.Key, variantKey, StringComparison.OrdinalIgnoreCase)) is { } chosen &&
-            !string.Equals(_map.SelectedVariant?.Key, variantKey, StringComparison.OrdinalIgnoreCase))
+                string.Equals(variant.Key, variantKey, StringComparison.OrdinalIgnoreCase)) is not { } chosen)
+        {
+            return;
+        }
+
+        if (!string.Equals(_map.SelectedVariant?.Key, variantKey, StringComparison.OrdinalIgnoreCase))
         {
             // V1's own selection, so the answer is persisted per map exactly as the V1 page
             // persists it and both shells reopen on the artwork you last chose.
             await _map.SelectVariantAsync(chosen).ConfigureAwait(true);
+        }
+
+        // Then the picture, for a variant that publishes both. Also V1's, and also remembered.
+        if (_map.HasArtworkChoice && _map.PrefersDrawing != prefersDrawing)
+        {
+            await _map.ToggleArtworkAsync().ConfigureAwait(true);
         }
     }
 

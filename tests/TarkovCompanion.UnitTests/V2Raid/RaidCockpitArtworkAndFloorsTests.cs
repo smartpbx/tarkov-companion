@@ -12,14 +12,34 @@ namespace TarkovCompanion.UnitTests.V2Raid;
 public sealed class RaidCockpitArtworkAndFloorsTests
 {
     [Fact]
+    public void A_variant_that_publishes_both_pictures_offers_both_as_rows()
+    {
+        // The choice nearly every map actually has: upstream gives an asset path for the
+        // interactive variant alone, and that variant is the one that carries both a drawing and
+        // a tile photograph.
+        var rows = RaidCockpitViewModel.BuildArtworkVariants(
+            [Variant("customs", MapProjectionKind.Interactive, "Interactive", svg: true, tiles: true, floors: 4)],
+            selectedKey: "customs",
+            prefersDrawing: false,
+            select: (_, _) => Task.CompletedTask);
+
+        Assert.Equal(["Drawing", "Photo"], rows.Select(row => row.Name));
+        Assert.False(rows[0].IsSelected);
+        Assert.True(rows[1].IsSelected);
+        Assert.Equal("Interactive · 4 floors", rows[0].Detail);
+        Assert.NotEqual(rows[0].AutomationId, rows[1].AutomationId);
+    }
+
+    [Fact]
     public void Every_reviewed_variant_is_offered_with_the_interactive_one_first()
     {
         var rows = RaidCockpitViewModel.BuildArtworkVariants(
             [Variant("lighthouse-2d", MapProjectionKind.TwoDimensional, "2D", svg: true),
-             Variant("lighthouse-interactive", MapProjectionKind.Interactive, "Interactive", svg: true, tiles: true),
+             Variant("lighthouse-interactive", MapProjectionKind.Interactive, "Interactive", svg: true),
              Variant("lighthouse-3d", MapProjectionKind.ThreeDimensional, "3D", tiles: true)],
             selectedKey: "lighthouse-interactive",
-            select: _ => Task.CompletedTask);
+            prefersDrawing: true,
+            select: (_, _) => Task.CompletedTask);
 
         Assert.Equal(
             ["lighthouse-interactive", "lighthouse-2d", "lighthouse-3d"],
@@ -38,9 +58,11 @@ public sealed class RaidCockpitArtworkAndFloorsTests
             [Variant("photo", MapProjectionKind.TwoDimensional, "2D", tiles: true),
              Variant("nothing", MapProjectionKind.TwoDimensional, "2D · empty")],
             selectedKey: null,
-            select: _ => Task.CompletedTask);
+            prefersDrawing: false,
+            select: (_, _) => Task.CompletedTask);
 
         Assert.Equal(["photo"], rows.Select(row => row.Key));
+        Assert.False(rows[0].PrefersDrawing);
     }
 
     [Fact]
@@ -50,29 +72,32 @@ public sealed class RaidCockpitArtworkAndFloorsTests
             [Variant("photo", MapProjectionKind.TwoDimensional, "2D", tiles: true),
              Variant("drawing", MapProjectionKind.Interactive, "Interactive", svg: true, floors: 4)],
             selectedKey: null,
-            select: _ => Task.CompletedTask);
+            prefersDrawing: false,
+            select: (_, _) => Task.CompletedTask);
 
         Assert.Equal("Drawing · 4 floors", rows.Single(row => row.Key == "drawing").Detail);
         Assert.Equal("Photo", rows.Single(row => row.Key == "photo").Detail);
     }
 
     [Fact]
-    public void Choosing_a_row_asks_for_that_variant_by_key()
+    public void Choosing_a_row_asks_for_that_variant_and_that_picture()
     {
-        var chosen = new List<string>();
+        var chosen = new List<(string Key, bool Drawing)>();
         var rows = RaidCockpitViewModel.BuildArtworkVariants(
-            [Variant("a", MapProjectionKind.TwoDimensional, "2D", svg: true),
+            [Variant("a", MapProjectionKind.Interactive, "Interactive", svg: true, tiles: true),
              Variant("b", MapProjectionKind.TwoDimensional, "2D · night", svg: true)],
             selectedKey: "a",
-            select: key =>
+            prefersDrawing: true,
+            select: (key, drawing) =>
             {
-                chosen.Add(key);
+                chosen.Add((key, drawing));
                 return Task.CompletedTask;
             });
 
+        rows.Single(row => row.Key == "a" && !row.PrefersDrawing).SelectCommand.Execute(null);
         rows.Single(row => row.Key == "b").SelectCommand.Execute(null);
 
-        Assert.Equal(["b"], chosen);
+        Assert.Equal([("a", false), ("b", true)], chosen);
     }
 
     [Fact]

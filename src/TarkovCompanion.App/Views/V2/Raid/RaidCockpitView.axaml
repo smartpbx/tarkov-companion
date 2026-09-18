@@ -225,11 +225,13 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
-                  <TextBlock Classes="v2-label" Opacity="0.85" TextWrapping="Wrap" MaxWidth="480"
-                             AutomationProperties.AutomationId="v2-raid-artwork-attribution"
-                             IsVisible="{Binding HasArtworkAttribution}"
-                             Text="{Binding ArtworkAttribution}" />
                 </StackPanel>
+                <!-- ADR 0015: whoever made the artwork on screen is credited beside it, whether
+                     or not this map offers a choice of artwork. -->
+                <TextBlock Classes="v2-label" Opacity="0.85" TextWrapping="Wrap" MaxWidth="480"
+                           AutomationProperties.AutomationId="v2-raid-artwork-attribution"
+                           IsVisible="{Binding HasArtworkAttribution}"
+                           Text="{Binding ArtworkAttribution}" />
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-raid-stack-status"
                            IsVisible="{Binding HasStackStatus}" />

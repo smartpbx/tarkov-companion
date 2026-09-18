@@ -257,6 +257,11 @@ internal static class Program
                 // asks for one that is not in this install's catalog says so instead of quietly
                 // rendering whichever map came first.
                 Console.WriteLine("Maps: " + string.Join(", ", raid.MapPicker.Select(item => item.MapId)));
+                // [V2 rough package 39] Which artwork this map actually publishes, so a render
+                // that shows no chooser says whether that is a bug or a one-variant map.
+                Console.WriteLine("Artwork: " + string.Join(
+                    ", ",
+                    raid.ArtworkVariants.Select(item => item.Key + (item.IsSelected ? "*" : string.Empty))));
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and
