@@ -29,11 +29,32 @@ public sealed record ContainerSegment(
 
 public sealed class ContainerGridDetector
 {
+    /// <summary>How much brighter or darker than both of its sides a grid line has to be.</summary>
+    /// <remarks>
+    /// json.tarkov.dev draws a cell border at luminance 79 over item backgrounds between 15 and
+    /// 51, so the weakest real border stands 28 above its surroundings. The old one-sided test
+    /// asked for 45 and lost every border next to a light item.
+    /// </remarks>
+    internal const int RidgeContrast = 18;
+
+    /// <summary>Pixels of a line that may be hidden, by art or a badge, without ending its run.</summary>
+    private const int GapTolerancePixels = 4;
+
     /// <summary>Finds a regular grid, checking cancellation in bounded chunks of work.</summary>
     /// <remarks>
+    /// <para>
     /// The algorithm is #273's. The token is #299's: this walks every column and every row of the
     /// frame and then searches every pair of line positions, and it used to run before any OCR
     /// deadline existed and without a way to stop it.
+    /// </para>
+    /// <para>
+    /// Package 37 changed what counts as a line. It used to be a column whose pixels contrasted
+    /// with a neighbour over 18% of the whole frame, which a ten-wide stash satisfies and a loot
+    /// container cannot: four cells at 1080p are 13% of the frame's width, so no jacket, toolbox
+    /// or safe was ever found. A line is now a thin ridge that runs unbroken for about a cell,
+    /// wherever in the frame it is, and the rows are looked for only between the columns found,
+    /// so a second panel drawn at the same pitch does not lend this one its lines.
+    /// </para>
     /// </remarks>
     public ContainerGridSpec? Detect(CapturedImage image, CancellationToken cancellationToken = default)
     {
@@ -42,13 +63,62 @@ public sealed class ContainerGridDetector
         CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
         cancellationToken.ThrowIfCancellationRequested();
         var check = new PixelCancellationCheck(cancellationToken);
-        var vertical = SelectRegularRun(FindLinePositions(image, vertical: true, ref check), cancellationToken);
-        var horizontal = SelectRegularRun(FindLinePositions(image, vertical: false, ref check), cancellationToken);
-        if (vertical.Count < 3 || horizontal.Count < 3)
+        var luminance = ReadLuminance(image, ref check);
+
+        // No screen draws a cell this small: 1280x720 draws them 42 pixels across.
+        var minimumPitch = Math.Max(12, Math.Min(image.Width, image.Height) / 40);
+        var columns = SelectRegularRun(
+            FindLinePositions(luminance, image.Width, image.Height, vertical: true, 0, image.Height, ref check),
+            minimumPitch,
+            cancellationToken);
+        if (columns.Lines.Count < 3)
         {
             return null;
         }
 
+        var rows = FindRows(luminance, image, columns, minimumPitch, null, ref check, cancellationToken);
+        if (rows.Lines.Count < 3)
+        {
+            return null;
+        }
+
+        var refined = SelectRegularRun(
+            FindLinePositions(luminance, image.Width, image.Height, vertical: true, rows.Lines[0], rows.Lines[^1] + 1, ref check),
+            minimumPitch,
+            cancellationToken);
+        if (refined.Lines.Count >= 3 && (refined.Lines[0] != columns.Lines[0] || refined.Lines[^1] != columns.Lines[^1]))
+        {
+            columns = refined;
+            var again = FindRows(luminance, image, columns, minimumPitch, null, ref check, cancellationToken);
+            if (again.Lines.Count >= 3)
+            {
+                rows = again;
+            }
+        }
+
+        // Cells are square. When the two axes disagree, one of them had a line hidden often
+        // enough to be read at a multiple of the pitch; the axis with more found lines is
+        // believed and the other is read again at its pitch.
+        if (Math.Abs(columns.Pitch - rows.Pitch) > Math.Max(2, Math.Min(columns.Pitch, rows.Pitch) * 0.08))
+        {
+            if (columns.Seen >= rows.Seen)
+            {
+                var squared = FindRows(luminance, image, columns, minimumPitch, columns.Pitch, ref check, cancellationToken);
+                rows = squared.Lines.Count >= 3 ? squared : rows;
+            }
+            else
+            {
+                var squared = SelectRegularRun(
+                    FindLinePositions(luminance, image.Width, image.Height, vertical: true, rows.Lines[0], rows.Lines[^1] + 1, ref check),
+                    minimumPitch,
+                    cancellationToken,
+                    rows.Pitch);
+                columns = squared.Lines.Count >= 3 ? squared : columns;
+            }
+        }
+
+        var vertical = columns.Lines;
+        var horizontal = rows.Lines;
         return new(
             new PixelRect(
                 vertical[0],
@@ -59,98 +129,257 @@ public sealed class ContainerGridDetector
             horizontal.Count - 1);
     }
 
-    private static IReadOnlyList<int> FindLinePositions(
+    private static RegularRun FindRows(
+        byte[] luminance,
         CapturedImage image,
-        bool vertical,
-        ref PixelCancellationCheck check)
+        RegularRun columns,
+        int minimumPitch,
+        double? requiredPitch,
+        ref PixelCancellationCheck check,
+        CancellationToken cancellationToken) => SelectRegularRun(
+            FindLinePositions(luminance, image.Width, image.Height, vertical: false, columns.Lines[0], columns.Lines[^1] + 1, ref check),
+            minimumPitch,
+            cancellationToken,
+            requiredPitch);
+
+    private static byte[] ReadLuminance(CapturedImage image, ref PixelCancellationCheck check)
     {
-        var axisLength = vertical ? image.Width : image.Height;
-        var crossLength = vertical ? image.Height : image.Width;
-        var step = Math.Max(1, crossLength / 360);
-        var coverage = new double[axisLength];
-        for (var axis = 0; axis < axisLength; axis++)
+        var luminance = new byte[checked(image.Width * image.Height)];
+        for (var y = 0; y < image.Height; y++)
         {
-            var contrasting = 0;
-            var count = 0;
-            for (var cross = 0; cross < crossLength; cross += step)
+            var offset = y * image.Width;
+            for (var x = 0; x < image.Width; x++)
             {
-                check.Read(2);
-                var x = vertical ? axis : cross;
-                var y = vertical ? cross : axis;
-                var neighborAxis = Math.Clamp(
-                    axis + (axis < axisLength - 2 ? 2 : -2),
-                    0,
-                    axisLength - 1);
-                var neighborX = vertical ? neighborAxis : cross;
-                var neighborY = vertical ? cross : neighborAxis;
-                var value = CapturedImagePixels.GetLuminance(image, x, y);
-                var neighbor = CapturedImagePixels.GetLuminance(image, neighborX, neighborY);
-                if (Math.Abs(value - neighbor) >= 45)
-                {
-                    contrasting++;
-                }
-
-                count++;
+                // Counted a pixel at a time: the cancellation contract is "within one check
+                // interval of reads", and a row at a time overshoots it by a row.
+                check.Read();
+                luminance[offset + x] = CapturedImagePixels.GetLuminance(image, x, y);
             }
-
-            coverage[axis] = contrasting / (double)Math.Max(1, count);
         }
 
-        var raw = Enumerable.Range(0, axisLength)
-            .Where(axis => coverage[axis] > 0.18)
-            .ToArray();
-        var positions = new List<int>();
-        for (var index = 0; index < raw.Length;)
+        return luminance;
+    }
+
+    /// <summary>
+    /// Positions along one axis where a thin line runs unbroken for about a cell, looking only
+    /// at the stretch of the other axis between <paramref name="crossFrom"/> and
+    /// <paramref name="crossTo"/>.
+    /// </summary>
+    /// <summary>A found line and how many pixels of it were seen.</summary>
+    private readonly record struct GridLine(int Position, int Strength);
+
+    private static IReadOnlyList<GridLine> FindLinePositions(
+        byte[] luminance,
+        int width,
+        int height,
+        bool vertical,
+        int crossFrom,
+        int crossTo,
+        ref PixelCancellationCheck check)
+    {
+        var axisLength = vertical ? width : height;
+        var crossLength = vertical ? height : width;
+        crossFrom = Math.Clamp(crossFrom, 0, crossLength);
+        crossTo = Math.Clamp(crossTo, crossFrom, crossLength);
+        var minimumRun = Math.Max(24, Math.Min(width, height) / 20);
+        var strength = new int[axisLength];
+        for (var axis = 2; axis < axisLength - 2; axis++)
         {
-            var start = raw[index];
-            var end = start;
-            while (index + 1 < raw.Length && raw[index + 1] <= end + 2)
+            check.Read(crossTo - crossFrom);
+            var runStart = -1;
+            var lastRidge = -1;
+            var total = 0;
+            for (var cross = crossFrom; cross < crossTo; cross++)
             {
-                index++;
-                end = raw[index];
+                int value;
+                int before;
+                int after;
+                if (vertical)
+                {
+                    var row = cross * width;
+                    value = luminance[row + axis];
+                    before = luminance[row + axis - 2];
+                    after = luminance[row + axis + 2];
+                }
+                else
+                {
+                    value = luminance[(axis * width) + cross];
+                    before = luminance[((axis - 2) * width) + cross];
+                    after = luminance[((axis + 2) * width) + cross];
+                }
+
+                var fromBefore = value - before;
+                var fromAfter = value - after;
+                var isRidge = (fromBefore >= RidgeContrast && fromAfter >= RidgeContrast) ||
+                              (fromBefore <= -RidgeContrast && fromAfter <= -RidgeContrast);
+                if (!isRidge)
+                {
+                    continue;
+                }
+
+                if (runStart < 0 || cross - lastRidge > GapTolerancePixels + 1)
+                {
+                    if (runStart >= 0 && lastRidge - runStart + 1 >= minimumRun)
+                    {
+                        total += lastRidge - runStart + 1;
+                    }
+
+                    runStart = cross;
+                }
+
+                lastRidge = cross;
             }
 
-            positions.Add((start + end) / 2);
-            index++;
+            if (runStart >= 0 && lastRidge - runStart + 1 >= minimumRun)
+            {
+                total += lastRidge - runStart + 1;
+            }
+
+            strength[axis] = total;
+        }
+
+        // A two-pixel line qualifies twice. Keep whichever of a touching group ran furthest,
+        // not their midpoint: the midpoint of "the line and the pixel beside it" put every
+        // lattice one pixel off, which is all it takes to change an icon's fingerprint.
+        var positions = new List<GridLine>();
+        for (var axis = 0; axis < axisLength;)
+        {
+            if (strength[axis] == 0)
+            {
+                axis++;
+                continue;
+            }
+
+            var best = axis;
+            var end = axis;
+            while (end + 1 < axisLength && (strength[end + 1] > 0 || (end + 2 < axisLength && strength[end + 2] > 0)))
+            {
+                end++;
+                if (strength[end] > strength[best])
+                {
+                    best = end;
+                }
+            }
+
+            positions.Add(new(best, strength[best]));
+            axis = end + 1;
         }
 
         return positions;
     }
 
-    private static IReadOnlyList<int> SelectRegularRun(
-        IReadOnlyList<int> positions,
-        CancellationToken cancellationToken)
+    /// <summary>Lines in a row that may be missing before a run is taken to have ended.</summary>
+    /// <remarks>
+    /// A line between two columns is drawn only where some row has a border there. Pack a
+    /// container with items two and three cells wide and a whole interior line can be covered
+    /// from top to bottom; the first composed 4x5 container this was rendered from did exactly
+    /// that, and the run "every line" lost to "every second line" and halved the grid.
+    /// </remarks>
+    private const int MaximumMissingLines = 2;
+
+    private sealed record RegularRun(IReadOnlyList<int> Lines, int Matched, long Seen)
     {
-        IReadOnlyList<int> best = [];
-        for (var first = 0; first < positions.Count; first++)
+        public static RegularRun None { get; } = new([], 0, 0);
+
+        public double Pitch => Lines.Count < 2 ? 0 : (Lines[^1] - Lines[0]) / (double)(Lines.Count - 1);
+    }
+
+    /// <summary>
+    /// The evenly spaced run that accounts for the most line seen, with the lines it had to
+    /// assume filled in where they belong.
+    /// </summary>
+    /// <remarks>
+    /// Scored by pixels of long line rather than by how many lines, and never at a pitch no
+    /// screen draws a cell at. Counting lines let the ribs of a handguard's rail, a dozen short
+    /// ridges twelve pixels apart, outvote the five real rows they sat inside.
+    /// </remarks>
+    private static RegularRun SelectRegularRun(
+        IReadOnlyList<GridLine> lines,
+        int minimumPitch,
+        CancellationToken cancellationToken,
+        double? requiredPitch = null)
+    {
+        var positions = lines.Select(line => line.Position).ToArray();
+        var best = RegularRun.None;
+        var bestSpacing = 0;
+        for (var first = 0; first < positions.Length; first++)
         {
-            for (var second = first + 1; second < positions.Count; second++)
+            for (var second = first + 1; second < positions.Length; second++)
             {
                 // No pixels here, but a noisy frame yields hundreds of positions and every pair
                 // extends a run by scanning all of them again.
                 cancellationToken.ThrowIfCancellationRequested();
                 var spacing = positions[second] - positions[first];
-                if (spacing < 12)
+                if (spacing < minimumPitch)
                 {
                     continue;
                 }
 
                 var tolerance = Math.Max(2, (int)Math.Round(spacing * 0.08));
-                var run = new List<int> { positions[first] };
-                var expected = positions[first] + spacing;
-                while (TryFindClosest(positions, run[^1], expected, tolerance, out var match))
+                if (requiredPitch is { } pitch && Math.Abs(spacing - pitch) > Math.Max(2, pitch * 0.08))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    run.Add(match);
-                    expected += spacing;
+                    continue;
                 }
 
-                if (run.Count > best.Count ||
-                    (run.Count == best.Count &&
-                     run.Count > 0 &&
-                     run[^1] - run[0] > best[^1] - best[0]))
+                var run = new List<int> { positions[first] };
+                var assumed = new List<int>();
+                var matched = 1;
+                var strengths = new List<int> { lines[first].Strength };
+                var expected = positions[first] + spacing;
+                while (assumed.Count <= MaximumMissingLines && expected <= positions[^1] + tolerance)
                 {
-                    best = run;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (TryFindClosest(positions, expected - tolerance - 1, expected, tolerance, out var match))
+                    {
+                        run.AddRange(assumed);
+                        assumed.Clear();
+                        run.Add(positions[match]);
+                        matched++;
+                        strengths.Add(lines[match].Strength);
+                        expected = positions[match] + spacing;
+                    }
+                    else
+                    {
+                        assumed.Add(expected);
+                        expected += spacing;
+                    }
+                }
+
+                // And backwards from the first line, under the same allowance. A run only ever
+                // grew forwards, so when the second line of a grid was the hidden one, no pair
+                // began at the outer border and the grid lost its first columns.
+                assumed.Clear();
+                expected = positions[first] - spacing;
+                while (assumed.Count <= MaximumMissingLines && expected >= positions[0] - tolerance)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (TryFindClosest(positions, expected - tolerance - 1, expected, tolerance, out var match))
+                    {
+                        run.InsertRange(0, assumed);
+                        assumed.Clear();
+                        run.Insert(0, positions[match]);
+                        matched++;
+                        strengths.Add(lines[match].Strength);
+                        expected = positions[match] - spacing;
+                    }
+                    else
+                    {
+                        assumed.Insert(0, expected);
+                        expected -= spacing;
+                    }
+                }
+
+                // Only lines at least half as long as the run's longest count towards it. A grid
+                // line runs the length of its panel; the edge of a barrel that happens to sit
+                // mid-cell runs the length of a barrel, and counting it let half the true pitch
+                // outscore the true one. Between runs that then explain the same lines, the
+                // wider spacing assumes the fewest it did not see.
+                var longest = strengths.Max();
+                var seen = strengths.Where(strength => strength * 2 >= longest).Sum(strength => (long)strength);
+                if (matched >= 3 && (seen > best.Seen || (seen == best.Seen && spacing > bestSpacing)))
+                {
+                    best = new(run, matched, seen);
+                    bestSpacing = spacing;
                 }
             }
         }
@@ -165,19 +394,19 @@ public sealed class ContainerGridDetector
         int tolerance,
         out int match)
     {
-        var candidate = positions
-            .Where(position => position > after)
-            .Select(position => (Position: position, Distance: Math.Abs(position - expected)))
-            .OrderBy(value => value.Distance)
-            .FirstOrDefault();
-        if (candidate.Position > after && candidate.Distance <= tolerance)
+        match = -1;
+        var bestDistance = int.MaxValue;
+        for (var index = 0; index < positions.Count; index++)
         {
-            match = candidate.Position;
-            return true;
+            var distance = Math.Abs(positions[index] - expected);
+            if (positions[index] > after && distance <= tolerance && distance < bestDistance)
+            {
+                match = index;
+                bestDistance = distance;
+            }
         }
 
-        match = 0;
-        return false;
+        return match >= 0;
     }
 }
 
