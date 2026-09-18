@@ -655,6 +655,8 @@ public static class AppComposition
             provider.GetRequiredService<RelayMarksBridge>(),
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<RelayMarksBridge>(),
+            provider.GetRequiredService<IItemSearchService>(),
+            provider.GetRequiredService<IItemRepository>(),
             timeProvider));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
