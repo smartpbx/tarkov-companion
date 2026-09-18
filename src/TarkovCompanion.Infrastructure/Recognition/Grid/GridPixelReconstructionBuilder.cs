@@ -71,6 +71,9 @@ public sealed class GridPixelReconstructionBuilder(
     private readonly ContainerGridDetector _gridDetector = gridDetector ?? new();
     private readonly ContainerGridSegmenter _segmenter = segmenter ?? new();
 
+    // [V2 rough package 40] The stash is the one surface whose lattice shape is known in advance.
+    private readonly StashPanelLatticeDetector _stashLattice = new();
+
     public async Task<GridReconstructionRequest> BuildAsync(
         CapturedImage image,
         InventoryGridSurface surface,
@@ -87,7 +90,9 @@ public sealed class GridPixelReconstructionBuilder(
             return new(surface, null, []);
         }
 
-        var spec = _gridDetector.Detect(image, cancellationToken) ?? DetectInCenteredSafeArea(image, cancellationToken);
+        var spec = (surface == InventoryGridSurface.Stash ? _stashLattice.Detect(image, cancellationToken) : null)
+            ?? _gridDetector.Detect(image, cancellationToken)
+            ?? DetectInCenteredSafeArea(image, cancellationToken);
         if (spec is null || BuildLattice(spec, observedUtc) is not { } lattice)
         {
             return new(surface, null, []);
