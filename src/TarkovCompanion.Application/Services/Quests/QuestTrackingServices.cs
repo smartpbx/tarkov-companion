@@ -702,6 +702,9 @@ public sealed class QuestReadService(
                     objective.ItemTargets)
                 {
                     TraderName = NameOfTrader(task.TraderId, context),
+                    TargetCount = objective.TargetCount,
+                    RecordedCount = objectiveProgress?.Count,
+                    WikiUri = task.WikiUri,
                 });
             }
         }
