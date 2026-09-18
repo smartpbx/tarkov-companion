@@ -61,7 +61,7 @@ squadmate's dogtags, which describe players the squadmate killed and the player 
 | --- | --- | --- |
 | Map for the current raid | `application` | On the `TRACE-NetworkGameCreate profileStatus` line |
 | Raid lifecycle | `application` | `LocationLoaded`, then `profileStatus` with `Status: Busy`, then `GameStarted` |
-| Queue time | `application` | `MatchingCompleted:18.36 real:25.02 diff:6.66` — use `real` |
+| Queue time | `application` | `MatchingCompleted:18.36 real:25.02 diff:6.66` — use `real`. Read by `LoadTimeParser` and shown per raid on Debrief (package 26); it arrives before the raid it timed has an id, so the coordinator holds it until that raid starts. |
 | Still in a raid | `output` | HTTP keepalive about every 60s, network stats about every 30s |
 | Active profile | `application` | `CompleteSelectedProfile ProfileId:… AccountId:…` |
 | Game version | everywhere | Pipe field 2, the folder name, the filename, and `Init: pstrGameVersion:` |
@@ -82,15 +82,28 @@ proves the client holds both and simply never records them. `Killed` appears onl
 looted dogtag's JSON and describes some other player's death. Raid history therefore stores no
 outcome, and that is correct rather than a gap. Duration is still derivable from timestamps.
 
-**Quest progress.** No completion or status events exist. Every `conditionCounter` hit is a
-stack frame, and the only literal quest strings are two UI settings echoes. Quest tracking
-stays local-first and manual, as ADR 0004 already specifies.
+**Quest progress is present, and this section was stale.** It previously said no completion or
+status events exist, on the strength of a search for `conditionCounter` (every hit of which
+really is a stack frame) and two literal quest strings that turned out to be UI settings
+echoes. That search never looked at the notification the game actually sends: each quest
+starting, failing or being handed in arrives as a `ChatMessageReceived` notification — the same
+kind the flea sales below arrive as — with the message's `type` field at 10, 11 or 12 and a
+`templateId` whose first word is the quest's own (24-character) id. Measured against a live
+install: 380 of these lines across eight log folders, every one carrying a `new_message`
+payload. `QuestNotificationParser` reads them and `QuestLogProgressService` applies them to
+recorded progress, deduplicated on the message's own `_id` so a redelivered notification is not
+acted on twice and a quest never moves backwards out of Completed or Failed. The objectives
+inside a quest are not covered by this: only the quest's own state moves. Quest tracking is no
+longer manual-only, though a JSON import and a TarkovTracker token remain as ways to seed
+progress the game has not yet announced (ADR 0004).
 
 **Flea sales are present, and an earlier entry here was wrong.** This note previously said
 only `ragfair` HTTP traffic existed and no sale outcome. That came from searching for the
 phrase "offer sold", which never appears; the notification type is one word. There are 52
 `RagfairOfferSold` notifications, carrying `offerId`, `handbookId` and `count`. So which item
 sold and how many is recoverable. No price or currency field is present, so revenue is not.
+`FleaSaleParser` reads these, deduplicated on `offerId`; they are shown for the running session
+on the V1 Flea page and, per raid, on Debrief (package 26).
 
 **The player's own inventory.** Measured across 1390 notification lines in the six newest log
 folders. 182 carry a top-level lowercase `profileid`, which is the marker that a notification
@@ -177,6 +190,23 @@ feature appeared dead while working correctly.
 **The folder is not fixed either.** An install leaves more than one plausible screenshots
 folder on disk and writes to one of them, so the one holding the newest image is the one to
 watch. As with the logs, change notifications cannot be relied on; the folder is polled.
+
+## Re-measuring this note
+
+Everything above was measured against build 1.1.5.0.47242. DB4Tarkov's LOGS tool (the reason
+these claims were revisited for issue #403) also targets 1.1.5.0, so the outcome and scav-cooldown
+findings below do not need a newer build to be re-checked — only a fresh, larger sample.
+
+`dotnet run --project tools/LogFactsAudit -- <folder>` reads a copy of the game's `Logs`
+directory (or any folder holding `log_<stamp>_<version>` session folders) through the same
+parsers the companion runs in production, and reports counts for each fact this note discusses:
+raids started/ended, run-through endings, `ExitStatus` and `SavageLockTime` line counts (with
+the same stack-frame and own-profile heuristics this note used by hand), quest events by state,
+flea sales, and queue/load times. It reads local files only, never touches the game process, and
+exits cleanly with no argument or a folder that does not exist — it is a developer aid, not part
+of `scripts/build.sh` or `scripts/test.sh`, the same way `tools/V2RenderPreview` is not. Update
+the counts and conclusions above from its output rather than from a fresh manual `grep`, so the
+same double-counting and case-sensitivity mistakes this note already paid for cannot recur.
 
 ## Still unknown
 

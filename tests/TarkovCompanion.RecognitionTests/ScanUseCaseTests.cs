@@ -439,5 +439,13 @@ public sealed class ScanUseCaseTests
             QuestsRecorded++;
             return Task.CompletedTask;
         }
+
+        public int LoadTimesRecorded { get; private set; }
+
+        public Task RecordLoadTimeAsync(LoadTimeObservation loadTime, CancellationToken cancellationToken)
+        {
+            LoadTimesRecorded++;
+            return Task.CompletedTask;
+        }
     }
 }
