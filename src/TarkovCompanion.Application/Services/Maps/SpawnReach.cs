@@ -39,8 +39,10 @@ public static class SpawnReach
     /// <remarks>
     /// Deliberately coarse and deliberately uneven: the difference between fifteen seconds and
     /// thirty changes what you do, and the difference between four minutes and five does not.
+    /// Fine at the near end for the same reason — rounding a twenty-seven second sprint down to
+    /// the next rung must not turn it into a claim that somebody could cover it in ten.
     /// </remarks>
-    private static readonly int[] Ladder = [15, 30, 45, 60, 120, 180, 240, 300, 480, 600];
+    private static readonly int[] Ladder = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
 
     /// <summary>
     /// How long until somebody from a spawn area that far away could be standing here.
@@ -90,15 +92,18 @@ public static class SpawnReach
         return Ladder[^1];
     }
 
-    /// <summary>"30–45 s", "1–2 min", "45 s – 2 min": the unit is written once where it can be.</summary>
+    /// <summary>Where seconds stop reading better than minutes.</summary>
+    private const int MinutesFrom = 120;
+
+    /// <summary>"20–90 s", "1–3 min", "45 s – 3 min": the unit is written once where it can be.</summary>
     private static string Range(int fromSeconds, int toSeconds) =>
-        fromSeconds < 60 && toSeconds < 60
+        fromSeconds < MinutesFrom && toSeconds < MinutesFrom
             ? string.Create(CultureInfo.CurrentCulture, $"{fromSeconds}–{toSeconds} s")
-            : fromSeconds >= 60 && toSeconds >= 60
+            : fromSeconds >= MinutesFrom && toSeconds >= MinutesFrom
                 ? string.Create(CultureInfo.CurrentCulture, $"{fromSeconds / 60}–{toSeconds / 60} min")
                 : string.Create(CultureInfo.CurrentCulture, $"{Label(fromSeconds)} – {Label(toSeconds)}");
 
-    private static string Label(int seconds) => seconds < 60
+    private static string Label(int seconds) => seconds < MinutesFrom
         ? string.Create(CultureInfo.CurrentCulture, $"{seconds} s")
         : string.Create(CultureInfo.CurrentCulture, $"{seconds / 60} min");
 }

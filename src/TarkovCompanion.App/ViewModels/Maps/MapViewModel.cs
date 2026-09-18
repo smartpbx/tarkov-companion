@@ -5035,15 +5035,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         if (!AutoSelectsFloor || SelectedVariant is not { } variant || variant.Floors.Count <= 1)
         {
-            // Nothing to say: a map with one floor has no choice to make, and a player who has
-            // turned following off is looking straight at the toggle that says so.
-            FloorSource = string.Empty;
+            FloorSource = DescribeFloorSource(following: false, hasPosition: position is not null, matched: null);
             return;
         }
 
         if (position is null)
         {
-            FloorSource = "No screenshot yet — pick the floor yourself";
+            FloorSource = DescribeFloorSource(following: true, hasPosition: false, matched: null);
             return;
         }
 
@@ -5055,17 +5053,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _flooredPositionFilename = position.Filename;
         var target = _presentationService.SelectFloor(variant, position.Position);
-        if (target is null)
-        {
-            // The height in the screenshot is on no floor's band — outside the building, or a
-            // floor upstream published no extents for. Saying so is the honest answer and beats
-            // dragging somebody to a default floor they are not on.
-            FloorSource = "Your height matches no floor here — pick the floor yourself";
-            return;
-        }
-
-        FloorSource = $"Floor from your screenshot · {target.Name}";
-        if (SelectedFloor is null ||
+        FloorSource = DescribeFloorSource(following: true, hasPosition: true, matched: target);
+        if (target is null || SelectedFloor is null ||
             string.Equals(target.Id, SelectedFloor.Id, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -5073,6 +5062,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _ = SelectFloorAsync(target, automatic: true);
     }
+
+    /// <summary>
+    /// What automatic floor selection has to say, as a rule on its own so it can be checked
+    /// without standing up a map.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Three states and nothing else: following is off or the map has one
+    /// floor, in which case the toggle beside this is already the whole answer and this says
+    /// nothing; following is on with nothing to go on; and following is on with a height that
+    /// either matched a floor or did not. The last of those used to be silent, which made a map
+    /// stuck on the wrong floor look exactly like a map whose following was broken.
+    /// </remarks>
+    public static string DescribeFloorSource(bool following, bool hasPosition, MapFloorDefinition? matched) =>
+        !following
+            ? string.Empty
+            : !hasPosition
+                ? "No screenshot yet — pick the floor yourself"
+                : matched is { } floor
+                    ? $"Floor from your screenshot · {floor.Name}"
+                    // Outside the building, or a floor upstream published no extents for. Saying
+                    // so beats dragging somebody to a default floor they are not standing on.
+                    : "Your height matches no floor here — pick the floor yourself";
 
     /// <summary>Names the building the player is in, or says nothing.</summary>
     private void UpdateArea()

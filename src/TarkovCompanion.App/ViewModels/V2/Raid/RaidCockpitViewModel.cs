@@ -1040,8 +1040,25 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </remarks>
     private void RebuildArtworkVariants()
     {
-        var selectedKey = _map.SelectedVariant?.Key;
-        ArtworkVariants = [.. _map.Variants
+        ArtworkVariants = BuildArtworkVariants(_map.Variants, _map.SelectedVariant?.Key, SelectArtworkAsync);
+        OnPropertyChanged(nameof(ArtworkVariants));
+        OnPropertyChanged(nameof(HasArtworkVariants));
+        OnPropertyChanged(nameof(ArtworkAttribution));
+        OnPropertyChanged(nameof(HasArtworkAttribution));
+    }
+
+    /// <summary>Internal for direct coverage: the chooser's rows, without standing up a map.</summary>
+    internal static IReadOnlyList<RaidArtworkVariantViewModel> BuildArtworkVariants(
+        IReadOnlyList<MapVariant> variants,
+        string? selectedKey,
+        Func<string, Task> select) =>
+        [.. variants
+            // A variant that cannot draw is never offered. MapViewModel.Variants already filters
+            // to those with a runtime asset; this repeats the rule so the chooser is correct on
+            // its own terms rather than by someone else's filtering.
+            .Where(variant => variant.HasRuntimeAsset)
+            // The interactive one first: it is the variant that also carries a transform, so it
+            // is the one that can put you and your squad on the picture.
             .OrderByDescending(variant => variant.IsInteractive)
             .ThenBy(variant => variant.DisplayName, StringComparer.CurrentCultureIgnoreCase)
             .Select(variant => new RaidArtworkVariantViewModel(
@@ -1049,12 +1066,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 variant.DisplayName,
                 DescribeVariant(variant),
                 string.Equals(variant.Key, selectedKey, StringComparison.OrdinalIgnoreCase),
-                SelectArtworkAsync))];
-        OnPropertyChanged(nameof(ArtworkVariants));
-        OnPropertyChanged(nameof(HasArtworkVariants));
-        OnPropertyChanged(nameof(ArtworkAttribution));
-        OnPropertyChanged(nameof(HasArtworkAttribution));
-    }
+                select))];
 
     /// <summary>What sort of picture a variant is, in the fewest words that tell them apart.</summary>
     private static string DescribeVariant(MapVariant variant)
