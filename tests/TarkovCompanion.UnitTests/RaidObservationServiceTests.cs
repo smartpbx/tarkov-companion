@@ -497,13 +497,16 @@ public sealed class RaidObservationServiceTests
 
     private sealed class StubScreenshotWatcher(Harness harness) : IScreenshotWatcher
     {
-        public async IAsyncEnumerable<string> WatchAsync(
+        public async IAsyncEnumerable<ScreenshotSighting> WatchAsync(
             string screenshotRoot,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            // Both signals, in the order a real watcher produces them: the name first, which is
+            // what the position is read from, and the settled file after it.
             foreach (var path in harness.ScreenshotPaths)
             {
-                yield return path;
+                yield return new(path, ScreenshotSightingKind.NameSeen);
+                yield return new(path, ScreenshotSightingKind.Settled);
             }
 
             if (harness.ScreenshotFailure is { } failure)
