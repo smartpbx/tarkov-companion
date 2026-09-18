@@ -848,6 +848,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         ? $"{Math.Max(0, (int)elapsed.TotalSeconds)}s"
         : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
 
+    /// <summary>How large a report body the relay will accept.</summary>
+    /// <remarks>
+    /// Must match ProblemReports.MaximumBytes on the relay. Kestrel's own limit there is
+    /// smaller still, at 32 KiB, and the relay has to raise it per-endpoint to actually accept
+    /// this much; sending past this figure only ever asks for a 413 the endpoint never sees.
+    /// </remarks>
+    private const int MaximumReportBytes = 64 * 1024;
+
     /// <summary>
     /// Sends a diagnostic report to the relay, which files it where the work happens.
     /// </summary>
@@ -866,14 +874,6 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// person with the problem can get the report out — and a relay they cannot reach is one
     /// of the problems they might be reporting.
     /// </remarks>
-    /// <summary>How large a report body the relay will accept.</summary>
-    /// <remarks>
-    /// Must match ProblemReports.MaximumBytes on the relay. Kestrel's own limit there is
-    /// smaller still, at 32 KiB, and the relay has to raise it per-endpoint to actually accept
-    /// this much; sending past this figure only ever asks for a 413 the endpoint never sees.
-    /// </remarks>
-    private const int MaximumReportBytes = 64 * 1024;
-
     public async Task<string> ReportProblemAsync(string report, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(report);
