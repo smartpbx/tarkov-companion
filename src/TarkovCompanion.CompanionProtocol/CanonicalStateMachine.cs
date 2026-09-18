@@ -96,6 +96,39 @@ public sealed record AuthenticatedCommandContext
             receivedUtc,
             isDesktop: false);
     }
+
+    /// <summary>
+    /// The desktop acting on its own canonical state: its local navigation, and the control
+    /// decisions only it may take.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24] The reducer has always had a desktop side —
+    /// <c>UpdateDesktopWorkspaceCommand</c>, <c>ResolveControlCommand</c> and
+    /// <c>PreemptControlCommand</c> are all rejected unless <see cref="IsDesktop"/> — and nothing
+    /// could build a context that satisfied it, so none of those paths was reachable from the
+    /// running application. A tablet could therefore never follow the desktop's map, and a desktop
+    /// could never approve or take back control.
+    ///
+    /// This is not an authentication decision: the caller is the desktop process that owns the
+    /// authority, on the near side of every transport. The identity supplied here is the canonical
+    /// desktop's own, and the reducer still checks it against <c>state.DesktopDeviceId</c>.
+    /// </remarks>
+    public static AuthenticatedCommandContext ForDesktop(
+        CompanionDeviceId desktopDeviceId,
+        DeviceSessionId sessionId,
+        DeviceKeyId deviceKeyId,
+        string instanceId,
+        DateTimeOffset receivedUtc) =>
+        new(
+            desktopDeviceId,
+            sessionId,
+            deviceKeyId,
+            instanceId,
+            CompanionProtocolVersion.Current,
+            CompanionSurfaceKind.Desktop,
+            [],
+            receivedUtc,
+            isDesktop: true);
 }
 
 public sealed record CommandReduction(
