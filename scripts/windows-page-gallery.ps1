@@ -1176,6 +1176,8 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan-hideout"; address = "#/plan/hideout"; heading = "Hideout"
         expected = @("v2-shell-navigation-rail", "v2-hideout-status") },
+    [pscustomobject]@{ key = "plan-keep"; address = "#/plan/keep"; heading = "Keep list"
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan-loadout"; address = "#/plan/loadout"; heading = "Loadout"
         expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Empty the kit") },
     [pscustomobject]@{ key = "plan-events"; address = "#/plan/events"; heading = "Events"

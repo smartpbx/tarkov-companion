@@ -88,6 +88,33 @@ public sealed class V2IntelWorkspaceSelectionTests
         Assert.Equal(chosen, shell.IntelItem);
     }
 
+    /// <summary>
+    /// V2 rough package 30 (acceptance sweep): the sweep photographs every Variant A address, and
+    /// keeps doing so when a package adds one.
+    /// </summary>
+    /// <remarks>
+    /// Written the day after the sweep landed, because merging main brought `plan/keep` with it
+    /// and the PowerShell route table did not know. A sweep that claims "every route" and quietly
+    /// covers all but the newest one is worse than one that says it covers fifteen.
+    /// </remarks>
+    [Fact]
+    public void The_Windows_route_sweep_photographs_every_Variant_A_address()
+    {
+        var gallery = File.ReadAllText(V2ShellTestData.RepositoryPath("scripts", "windows-page-gallery.ps1"));
+
+        foreach (var address in V2ShellVariants.A.Addresses)
+        {
+            // The item route is addressed with an item; the sweep names a real one of its own.
+            var expected = address.Key == V2Routes.Item
+                ? "#/intel/item/"
+                : $"address = \"#/{address.Value}\"";
+            Assert.True(
+                gallery.Contains(expected, StringComparison.Ordinal),
+                $"scripts/windows-page-gallery.ps1 does not photograph '{address.Value}'. " +
+                "Add it to $V2AcceptanceRoutes, with a bound only if the number means something.");
+        }
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(5);
