@@ -127,6 +127,31 @@ internal static class Program
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
             }
 
+            // Package 28: put the Plan workspace on a filter, a search and a level before the frame.
+            var planFilter = StringOption(args, "--plan-filter");
+            var planSearch = StringOption(args, "--plan-search");
+            var planLevel = IntOption(args, "--plan-level", 0);
+            if (planFilter is not null || planSearch is not null || planLevel > 0)
+            {
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                if (planLevel > 0)
+                {
+                    DrainUntilComplete(plan.SetPlayerLevelAsync(planLevel));
+                }
+
+                if (planFilter is not null)
+                {
+                    plan.Filter = Enum.Parse<PlanQuestFilter>(planFilter, ignoreCase: true);
+                }
+
+                if (planSearch is not null)
+                {
+                    plan.SearchText = planSearch;
+                }
+
+                Pump(40);
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);
@@ -149,6 +174,44 @@ internal static class Program
 
                 setup.Select(section);
                 Pump(20);
+            }
+
+            // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
+            // event holding a few items, through the pages' own commands.
+            if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
+            {
+                var loadout = viewModel.Loadout;
+                loadout.SearchQuery = loadoutQuery;
+                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                if (loadout.Results.Count > 0)
+                {
+                    loadout.Results[0].AssignCommand.Execute(null);
+                    Pump(60);
+                }
+
+                DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
+                Pump(20);
+            }
+
+            if (args.Contains("--events-demo"))
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Halloween 2026";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = "bandage";
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                foreach (var match in events.Matches.Take(3).ToArray())
+                {
+                    match.AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    events.Items[0].MarkSafeCommand.Execute(null);
+                    Pump(60);
+                }
             }
 
             if (fleaQuery is not null)

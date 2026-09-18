@@ -1,0 +1,174 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.LoadoutWorkspaceView"
+             x:DataType="pages:LoadoutPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- V1's Loadout page in the workspace layout: pick a slot and search across the top, results
+       under it, and the kit with its evaluation in the context panel, like the concept's
+       "Loadout readiness" card. The evaluation is the V1 page's own: nothing is recomputed here. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Border Grid.Row="0" Classes="v2-intel-search">
+        <Grid ColumnDefinitions="210,*,Auto" ColumnSpacing="10">
+          <ComboBox VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                    ItemsSource="{Binding Slots}" SelectedItem="{Binding SelectedSlot, Mode=TwoWay}"
+                    AutomationProperties.AutomationId="v2-loadout-slot"
+                    AutomationProperties.Name="Slot">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="pages:LoadoutSlotOption">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+          <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
+                   PlaceholderText="Search by item name or short name"
+                   AutomationProperties.AutomationId="v2-loadout-search"
+                   AutomationProperties.Name="Search items for this slot">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-loadout-search-go"
+                  AutomationProperties.Name="Search" ToolTip.Tip="Search"
+                  Command="{Binding SearchCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="v2-intel-pane" Padding="14"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-loadout-results">
+        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+          <StackPanel Grid.Row="0" Spacing="2" Margin="2,0">
+            <TextBlock Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Classes="v2-label" Text="{Binding SelectedSlot.Hint}" TextWrapping="Wrap" />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Results}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="pages:LoadoutSearchResultViewModel">
+                  <Border Classes="v2-intel-fact" Padding="10,10">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                      <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Classes="v2-body" FontWeight="SemiBold" TextTrimming="CharacterEllipsis">
+                          <Run Text="{Binding Name}" /><Run Text="  " /><Run Text="{Binding ShortName}" Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                        </TextBlock>
+                        <TextBlock Classes="v2-label" Text="{Binding Category}" />
+                        <TextBlock Classes="v2-label" TextTrimming="CharacterEllipsis">
+                          <Run Text="{Binding Cost}" /><Run Text=" · " /><Run Text="{Binding Weight}" /><Run Text=" · " /><Run Text="{Binding Caliber}" />
+                        </TextBlock>
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Assign" Command="{Binding AssignCommand}"
+                              VerticalAlignment="Center" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Context panel: the kit, and what evaluating it says. -->
+    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.LandmarkType="Complementary"
+            AutomationProperties.AutomationId="v2-loadout-context">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <Border Classes="v2-intel-accent">
+            <Border Classes="v2-intel-section">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Classes="v2-heading-2" Text="The kit" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                  <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Empty the kit" Command="{Binding ClearCommand}"
+                          AutomationProperties.AutomationId="v2-loadout-clear" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding AssignmentStatus}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding Assignments}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="pages:LoadoutAssignmentViewModel">
+                      <Border Classes="v2-intel-fact">
+                        <Grid ColumnDefinitions="100,*,Auto" ColumnSpacing="10">
+                          <TextBlock Classes="v2-label" Text="{Binding SlotName}" VerticalAlignment="Center" />
+                          <StackPanel Grid.Column="1" Spacing="1">
+                            <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
+                            <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                          </StackPanel>
+                          <Button Grid.Column="2" Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}"
+                                  VerticalAlignment="Center" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </Border>
+
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="10">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="v2-heading-3" Text="Evaluation" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-primary" Content="Evaluate" Command="{Binding EvaluateCommand}"
+                        AutomationProperties.AutomationId="v2-loadout-evaluate" />
+              </Grid>
+              <TextBlock Classes="v2-label" Text="{Binding EvaluationStatus}" TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Polite" />
+              <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="v2-label" Text="Approximate cost" />
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding CostSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="2">
+                  <TextBlock Classes="v2-label" Text="Total weight" />
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding WeightSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="2">
+                  <TextBlock Classes="v2-label" Text="Ammo tier" />
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding AmmoTierSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </StackPanel>
+          </Border>
+
+          <!-- Issues and warnings stay apart: one is a contradiction in the data, the other a judgement call. -->
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-heading-3" Text="Compatibility issues" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding IssuesStatus}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Issues}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
+                    <TextBlock Classes="v2-body v2-intel-poor" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-heading-3" Text="Warnings" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding WarningsStatus}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Warnings}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
+                    <TextBlock Classes="v2-body v2-intel-fair" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

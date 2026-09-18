@@ -103,12 +103,34 @@
                    TextWrapping="Wrap" MaxWidth="420"
                    Text="Hideout stations appear here once game data has loaded." />
         <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasSelection}" Margin="20,16,20,16">
-          <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,12">
-            <TextBlock Classes="v2-heading-2" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
-            <TextBlock Classes="v2-label" Text="{Binding SelectedLevelLabel}" />
-          </StackPanel>
-          <Border Grid.Row="1" Classes="v2-hideout-section" VerticalAlignment="Top" MaxWidth="760"
-                  HorizontalAlignment="Left" MinWidth="480">
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="v2-heading-2" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding SelectedLevelLabel}" />
+            </StackPanel>
+            <!-- What the profile says is built. The game never writes it down, so it is set here;
+                 the requirements below are always for the level after this one. -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Classes="v2-label" Text="Built level" VerticalAlignment="Center" />
+              <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanLowerLevel}"
+                      Command="{Binding LowerLevelCommand}"
+                      AutomationProperties.AutomationId="v2-hideout-level-down"
+                      AutomationProperties.Name="Lower the built level" ToolTip.Tip="Lower the built level">
+                <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
+              </Button>
+              <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanRaiseLevel}"
+                      Command="{Binding RaiseLevelCommand}"
+                      AutomationProperties.AutomationId="v2-hideout-level-up"
+                      AutomationProperties.Name="Raise the built level" ToolTip.Tip="Raise the built level">
+                <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Plus}" />
+              </Button>
+            </StackPanel>
+          </Grid>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+          <!-- The next level's needs beside what is short across every station, so a wide window is
+               two readable columns rather than one narrow one with the rest empty. -->
+          <WrapPanel ItemSpacing="16" LineSpacing="16" HorizontalAlignment="Left">
+          <Border Classes="v2-hideout-section" VerticalAlignment="Top" Width="600">
             <StackPanel Spacing="10">
               <TextBlock Classes="v2-heading-3" Text="Requirements" />
               <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
@@ -120,8 +142,13 @@
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:HideoutRequirementRowViewModel">
                     <Grid ColumnDefinitions="*,Auto,28" ColumnSpacing="16">
-                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis"
-                                 VerticalAlignment="Center" />
+                      <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis" />
+                        <!-- Only where a barter beats buying it and the player's loyalty allows it. -->
+                        <TextBlock Classes="v2-label" Text="{Binding CheapestRoute}" TextWrapping="Wrap"
+                                   IsVisible="{Binding HasCheapestRoute}"
+                                   Foreground="{DynamicResource V2.Brush.Success}" />
+                      </StackPanel>
                       <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
                       <Viewbox Grid.Column="2" Width="20" Height="20" IsVisible="{Binding IsSatisfied}">
                         <Path Classes="v2-icon v2-hideout-done" Data="{DynamicResource V2.Icon.Tick}" />
@@ -132,6 +159,27 @@
               </ItemsControl>
             </StackPanel>
           </Border>
+
+          <!-- Across every station: what is short for each one's next level, each item counted once. -->
+          <Border Classes="v2-hideout-card" Padding="16,12" VerticalAlignment="Top" Width="600" IsVisible="{Binding HasRollup}"
+                  AutomationProperties.AutomationId="v2-hideout-rollup">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Still needed across stations" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding RollupHeading}" />
+              <ItemsControl ItemsSource="{Binding Rollup}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HideoutRollupRowViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Margin="0,3">
+                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+          </WrapPanel>
+          </ScrollViewer>
         </Grid>
       </Panel>
     </Border>

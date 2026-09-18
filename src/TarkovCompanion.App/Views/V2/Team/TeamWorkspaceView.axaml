@@ -410,6 +410,31 @@
                 <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
 
+                <!-- V2 rough package 24 (#407): a paired device asking to drive this desktop, and
+                     the one action that takes control back once one is. -->
+                <Border Classes="v2-team-row" IsVisible="{Binding HasControlRequest}">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Text="{Binding ControlRequestMessage}" />
+                    <Button Grid.Column="1" Classes="v2-team-primary" Content="Allow"
+                            AutomationProperties.AutomationId="v2-team-allow-control"
+                            Command="{Binding AllowControlCommand}" />
+                    <Button Grid.Column="2" Classes="v2-team-plain" Content="Deny"
+                            AutomationProperties.AutomationId="v2-team-deny-control"
+                            Command="{Binding DenyControlCommand}" />
+                  </Grid>
+                </Border>
+
+                <Border Classes="v2-team-row" IsVisible="{Binding HasControlHolder}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBlock Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Text="{Binding ControlHolderMessage}" />
+                    <Button Grid.Column="1" Classes="v2-team-primary" Content="Take back control"
+                            AutomationProperties.AutomationId="v2-team-take-back-control"
+                            Command="{Binding TakeBackControlCommand}" />
+                  </Grid>
+                </Border>
+
                 <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>

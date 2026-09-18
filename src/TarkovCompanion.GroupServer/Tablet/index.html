@@ -17,9 +17,8 @@
     --sage: #77b895;
     --alarm: #c77b6b;
     /* The paired-companion design (docs/design/v2/v2-team-tablet-concept.png,
-       v2-tablet-desktop-control-concept.png): cyan against the same dark graphite ground,
-       scoped to the "Companion (paired with your desktop)" section only — the rest of this
-       page is the pre-existing group-key surface and keeps its ochre accent. */
+       v2-tablet-desktop-control-concept.png): cyan against the same dark graphite ground. The
+       whole page is that surface now — there is no second, group-key one beside it. */
     --cyan: #22d3ee;
     --cyan-ink: #062226;
   }
@@ -43,85 +42,63 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
   }
   input { min-width: 0; }
-  button { cursor: pointer; }
-  button.primary { background: var(--ochre); color: #1b1710; border-color: var(--ochre); font-weight: 600; }
+  button { cursor: pointer; min-height: 40px; }
+  button.primary { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
   button:active { transform: translateY(1px); }
+  button[disabled] { opacity: .45; cursor: default; }
   main { padding: 16px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; }
-  @media (min-width: 860px) { main { grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); } }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
   h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--quiet); margin: 0 0 10px; font-weight: 600; }
-  #plot { width: 100%; aspect-ratio: 1 / 1; max-height: 62vh; display: block; touch-action: manipulation; border-radius: 8px; background: var(--inset); }
   .row { border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; }
   .row:last-child { margin-bottom: 0; }
   .name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-  .dot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid #0b1016; flex: none; }
   .meta { color: var(--quiet); font-size: 13px; }
-  .stale { opacity: .55; }
   .note { color: var(--quiet); font-size: 13px; margin: 10px 0 0; }
   .bad { color: var(--alarm); }
   .good { color: var(--sage); }
   .grow { flex: 1 1 140px; min-width: 0; }
   .form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
   .form input { flex: 1 1 160px; min-width: 0; }
-  .price { color: var(--ochre); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .modes { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .modes button[aria-pressed="true"] { background: var(--ochre); color: #1b1710; border-color: var(--ochre); }
+  .modes button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
   .empty { color: var(--quiet); font-size: 13px; }
-  /* A mark's row has to hold a button now. Forty-four pixels because this is read on a tablet
-     with a thumb, and a Remove that needs aiming is a Remove that removes the wrong one. */
   .markRow { display: flex; align-items: center; gap: 10px; }
   .markRow > div:first-child { flex: 1; min-width: 0; }
   .markRow button { flex: none; min-height: 44px; }
-  .clears { display: flex; gap: 8px; margin-top: 10px; }
-  .clears button { flex: 1; min-height: 44px; }
-  button[disabled] { opacity: .45; cursor: default; }
-  form { display: contents; }
-
-  /* Paired companion (v2r-tablet-marks-sync): cyan, matching docs/design/v2's tablet concepts. */
-  #pairing.live { border-color: rgba(34, 211, 238, .35); }
-  .cyan { color: var(--cyan); }
+  .markList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   .live-dot {
     width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
     background: var(--quiet);
   }
   .live-dot.on { background: var(--cyan); box-shadow: 0 0 0 3px rgba(34, 211, 238, .18); }
-  .modes.cyan-modes button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
-  #teamMarks { display: grid; gap: 12px; margin-top: 12px; }
-  @media (min-width: 640px) { #teamMarks { grid-template-columns: minmax(0, 1fr) minmax(220px, 260px); } }
-  .tapPad {
-    position: relative; aspect-ratio: 1 / 1; border-radius: 10px; touch-action: manipulation;
-    background:
-      linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 25% 25%,
-      linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 25% 25%,
-      var(--inset);
-    border: 1px solid var(--line); overflow: hidden;
+
+  /* The map is the surface (#407). It fills the tablet: everything else is a strip around it. */
+  #mapWrap { position: relative; border-radius: 10px; overflow: hidden; background: var(--inset); border: 1px solid var(--line); }
+  #map { display: block; width: 100%; height: 62vh; touch-action: none; }
+  #mapMessage {
+    position: absolute; inset: auto 12px 12px 12px; background: rgba(11, 16, 22, .86);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; color: var(--quiet); font-size: 13px;
   }
-  .tapPad .hint {
-    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: var(--quiet); font-size: 13px; text-align: center; padding: 20px; pointer-events: none;
-  }
-  .tapPad .pin {
-    position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
-    background: var(--cyan); border: 2px solid var(--cyan-ink); box-shadow: 0 0 0 3px rgba(34, 211, 238, .25);
-  }
-  .tapPad .pin.ping { background: var(--ochre); box-shadow: 0 0 0 3px rgba(199, 166, 107, .25); }
-  .markList { display: flex; flex-direction: column; gap: 8px; }
+  #mapTools { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; }
+  #mapTools button { width: 44px; height: 44px; padding: 0; background: rgba(11, 16, 22, .82); }
+  .attribution { color: var(--quiet); font-size: 12px; margin: 8px 0 0; word-break: break-word; }
+  .driving { border-color: rgba(34, 211, 238, .45); }
+  .floors { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+  .floors button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
 </style>
 </head>
 <body>
 <header>
   <h1>Tarkov Companion</h1>
-  <span class="quiet" id="status">not connected</span>
-  <form id="join" style="display:flex;gap:8px;flex:1;min-width:220px;justify-content:flex-end;flex-wrap:wrap">
-    <input id="name" placeholder="Your name" autocomplete="off" size="10">
-    <input id="key" type="password" placeholder="Group key" autocomplete="off" size="12">
-    <button class="primary" type="submit">Connect</button>
-  </form>
+  <span class="quiet"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
 </header>
 
 <main>
-  <section id="pairing" style="grid-column:1 / -1">
-    <h2>Companion (paired with your desktop)</h2>
+  <!-- Pairing is the only way in (#407). There is no group key and no standalone mode: the
+       desktop has to be running to read the game's logs and screenshots anyway, and it is the
+       only thing that has the map. -->
+  <section id="pairing">
+    <h2>Pair with your desktop</h2>
     <div id="pairingIdle">
       <p class="quiet">Enter the pairing code shown on the desktop app's pairing panel.</p>
       <div class="form">
@@ -139,672 +116,48 @@
     </div>
     <div id="pairingDone" style="display:none">
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
-      <div class="modes cyan-modes" id="pairingModes">
-        <button type="button" aria-pressed="true">Follow desktop</button>
-        <button type="button" aria-pressed="false">Control desktop</button>
-        <button type="button" aria-pressed="false">Independent</button>
-      </div>
-      <p class="note">Desktop navigation is not implemented in this rough pass — these change the label
-        only.</p>
-
-      <h2 style="margin-top:16px">Team marks</h2>
-      <p class="quiet" style="margin:0 0 10px"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Connecting to the desktop…</span></p>
-      <div id="teamMarks">
-        <div class="tapPad" id="tapPad">
-          <div class="hint" id="tapPadHint">Tap to drop a mark here</div>
-        </div>
-        <div>
-          <div class="modes cyan-modes" id="markKind">
-            <button type="button" data-kind="Ping" aria-pressed="true">Ping</button>
-            <button type="button" data-kind="Waypoint" aria-pressed="false">Waypoint</button>
-          </div>
-          <div class="form">
-            <input id="markMap" placeholder="Map" autocomplete="off" value="customs" size="10">
-            <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
-          </div>
-          <div class="markList" id="teamMarkList"><p class="empty">Nothing marked yet.</p></div>
-        </div>
-      </div>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
 
-  <section>
-    <h2>Where everybody is</h2>
-    <div class="modes" id="maps"></div>
-    <div class="modes">
-      <button type="button" id="modeWaypoint" aria-pressed="true">Tap to place a waypoint</button>
-      <button type="button" id="modePing" aria-pressed="false">Tap to ping</button>
+  <section id="surface" style="display:none">
+    <div class="modes" id="deviceModes">
+      <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
+      <button type="button" data-mode="Control" aria-pressed="false">Control</button>
+      <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
     </div>
-    <canvas id="plot" width="900" height="900"></canvas>
-    <p class="note" id="plotNote">A schematic, not the map. Positions are world coordinates from
-      everybody's own screenshots, drawn relative to each other.</p>
-  </section>
+    <p class="quiet" id="modeNote">Following the desktop's map.</p>
+    <div class="floors" id="floors"></div>
+    <div id="mapWrap">
+      <canvas id="map"></canvas>
+      <div id="mapTools">
+        <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+        <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+        <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+      </div>
+      <div id="mapMessage">Waiting for the desktop's map…</div>
+    </div>
+    <p class="attribution" id="attribution"></p>
 
-  <section>
-    <h2>Worth</h2>
+    <h2 style="margin-top:16px">Marks</h2>
+    <div class="modes" id="markKind">
+      <button type="button" data-kind="Ping" aria-pressed="true">Ping</button>
+      <button type="button" data-kind="Waypoint" aria-pressed="false">Waypoint</button>
+      <button type="button" id="markArm" aria-pressed="false">Tap the map to mark</button>
+    </div>
+    <div class="form">
+      <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
+    </div>
+    <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+
+    <h2 style="margin-top:16px">Look something up</h2>
+    <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
     <div class="form">
       <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
-      <button type="button" id="findGo">Search</button>
-    </div>
-    <div id="found"><p class="empty">Type a name. No alt-tab.</p></div>
-
-    <h2 style="margin-top:16px">Group</h2>
-    <div id="members"><p class="empty">Nobody is sharing yet.</p></div>
-    <h2 style="margin-top:16px">Marks</h2>
-    <div id="marks"><p class="empty">Nothing marked.</p></div>
-    <!-- Two, because they are different questions. Clearing the reached ones is tidying after
-         a run; clearing all of them is starting again. Both belong to the group, which is why
-         either can be pressed by anybody holding the key. -->
-    <div class="clears">
-      <button type="button" id="clearReached" disabled>Clear reached</button>
-      <button type="button" id="clearAll" disabled>Clear all</button>
+      <button type="button" id="findGo">Search on desktop</button>
     </div>
   </section>
 </main>
-
-<script>
-(() => {
-  "use strict";
-  const $ = (id) => document.getElementById(id);
-  const store = {
-    get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } },
-  };
-
-  let key = store.get("key", "");
-  let name = store.get("name", "");
-  let mode = "waypoint";
-  let room = null;
-  // Which map this screen is about.
-  //
-  // Everything used to be drawn on one grid regardless of map, so two friends in different
-  // raids were plotted against each other at coordinates that have nothing in common, and the
-  // auto-framing then zoomed out to contain both. A tap then marked whichever map the first
-  // member in the list happened to be on, which is not an order that means anything to the
-  // person tapping.
-  //
-  // Null means "follow the group", which re-picks whenever the room changes. Choosing one
-  // pins it, so a map does not move out from under somebody about to tap it.
-  let chosenMap = null;
-  // Every map's landmarks, keyed by map. Fetched once: it is 4.6 KB gzipped for all of them,
-  // against 780 KB for the map catalog it is derived from, which is the difference between a
-  // page a phone opens on a sofa and one it does not.
-  let landmarks = {};
-  let timer = null;
-
-  $("key").value = key;
-  $("name").value = name;
-
-  // The colours the desktop map uses for group members, so a name on a tablet and a dot on a
-  // monitor are the same person without anybody having to work it out.
-  const COLOURS = ["#77B895", "#C7A66B", "#7FA9C7", "#C78FB4", "#B4C77F", "#C79A7F", "#9B8FC7", "#7FC7C0"];
-  const colourFor = (who) => {
-    let hash = 0;
-    for (const ch of who) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
-    return COLOURS[Math.abs(hash) % COLOURS.length];
-  };
-
-  const setStatus = (text, cls) => {
-    const el = $("status");
-    el.textContent = text;
-    el.className = "quiet " + (cls || "");
-  };
-
-  async function call(path, options) {
-    const response = await fetch(path, {
-      ...options,
-      headers: { "X-Group-Key": key, "Content-Type": "application/json", ...(options?.headers || {}) },
-    });
-    if (response.status === 401) throw new Error("That key was refused");
-    if (!response.ok) throw new Error("The server answered " + response.status);
-    // Not every answer has a body. Removing a mark is answered 200 with nothing in it, and
-    // response.json() on an empty body throws, which would report a removal that worked as a
-    // failure and leave the button disabled over it.
-    const body = await response.text();
-    return body ? JSON.parse(body) : null;
-  }
-
-  // No key needed, and fetched at startup so it is already here when the first position
-  // arrives. Which map to draw is not knowable until somebody is on one, so this does not put
-  // anything on screen by itself -- it means the map appears complete the first time it appears
-  // at all, rather than filling in a second later.
-  //
-  // A failure here costs the landmarks and nothing else. The plot drew none of this until now
-  // and is no worse without them; a page that would not load because this fetch failed would be.
-  async function loadLandmarks() {
-    try {
-      const response = await fetch("/landmarks");
-      if (response.ok) {
-        landmarks = await response.json();
-        draw();
-      }
-    } catch {
-      // Left empty, and the plot carries on.
-    }
-  }
-
-  async function refresh() {
-    if (!key) return;
-    try {
-      room = await call("/state");
-      setStatus(describe(room), "good");
-      render();
-    } catch (error) {
-      setStatus(error.message, "bad");
-    }
-  }
-
-  const describe = (state) => {
-    const n = state.members.length;
-    return n === 0 ? "connected · nobody is sharing" : n === 1 ? "connected · 1 member" : `connected · ${n} members`;
-  };
-
-  const age = (seconds) => {
-    if (seconds == null) return "at an unknown time";
-    if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s ago`;
-    return `${Math.round(seconds / 60)}m ago`;
-  };
-
-  /// Which maps the room is spread across, most-populated first.
-  function mapsInUse() {
-    const counts = new Map();
-    for (const member of room?.members ?? []) {
-      if (member.mapId) {
-        counts.set(member.mapId, (counts.get(member.mapId) ?? 0) + 1);
-      }
-    }
-
-    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  }
-
-  // The map being shown: the chosen one while it still has somebody on it, otherwise wherever
-  // most of the group is.
-  //
-  // The chosen one is dropped when its last member leaves rather than kept, because a map
-  // nobody is on has nothing to draw and no sensible place to mark.
-  function activeMap() {
-    const inUse = mapsInUse();
-    if (chosenMap && inUse.some(([id]) => id === chosenMap)) {
-      return chosenMap;
-    }
-
-    chosenMap = null;
-    return inUse.length > 0 ? inUse[0][0] : null;
-  }
-
-  // One button per map, and none at all when there is only one — a chooser with a single
-  // option is a control that asks a question with one answer.
-  function renderMaps() {
-    const holder = $("maps");
-    holder.replaceChildren();
-    const inUse = mapsInUse();
-    if (inUse.length < 2) {
-      return;
-    }
-
-    const active = activeMap();
-    for (const [mapId, count] of inUse) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = count === 1 ? `${mapId} · 1` : `${mapId} · ${count}`;
-      button.setAttribute("aria-pressed", mapId === active ? "true" : "false");
-      button.addEventListener("click", () => {
-        chosenMap = mapId;
-        render();
-      });
-      holder.appendChild(button);
-    }
-  }
-
-  // How far a name may reach, in metres.
-  //
-  // The same forty as WaypointNaming.WithinMetres on the desktop, deliberately: a mark made on
-  // the sofa should read the same as one made at the desk, and two different radii would mean
-  // the same spot got two different names depending on which screen dropped it. Forty metres is
-  // a building; further starts naming a mark after the thing across the road from it.
-  const NAME_WITHIN = 40;
-
-  // What to call a mark here, or null when nothing named is near enough.
-  //
-  // Nearest named landmark wins, which is the desktop's rule. Locks carry no name and are
-  // skipped by that alone. A mark called after something eighty metres away is worse than one
-  // called "3", because "3" is not a claim.
-  function nameFor(mapId, x, z) {
-    let best = null;
-    let nearest = NAME_WITHIN;
-    for (const mark of landmarks[mapId] ?? []) {
-      if (!mark.n) continue;
-      const distance = Math.hypot(mark.x - x, mark.z - z);
-      if (distance <= nearest) {
-        nearest = distance;
-        best = mark.n;
-      }
-    }
-
-    return best;
-  }
-
-  // The height to mark at, taken from whoever on this map is nearest the tap.
-  //
-  // Zero is a claim, not an absence: GroupWaypointReach measures in three dimensions with a
-  // 50 m radius, so on a map whose ground is not at zero every mark spent part of that radius
-  // on a height error before the horizontal distance was counted, and waypoints ticked
-  // themselves off late or never.
-  function heightNear(mapId, x, z) {
-    let best = null;
-    let nearest = Infinity;
-    for (const member of room?.members ?? []) {
-      if (member.mapId !== mapId || member.x == null || member.z == null || member.y == null) {
-        continue;
-      }
-
-      const distance = Math.hypot(member.x - x, member.z - z);
-      if (distance < nearest) {
-        nearest = distance;
-        best = member.y;
-      }
-    }
-
-    return best;
-  }
-
-  function render() {
-    const members = room?.members ?? [];
-    const holder = $("members");
-    holder.innerHTML = "";
-    if (members.length === 0) {
-      holder.innerHTML = '<p class="empty">Nobody is sharing yet.</p>';
-    }
-    const onScreen = activeMap();
-    for (const member of members) {
-      const row = document.createElement("div");
-      // Somebody on another map is dimmed the same way somebody stale is, because in both
-      // cases their marker is not on the plot and the row is the only place that says so.
-      const elsewhere = onScreen !== null && member.mapId !== onScreen;
-      row.className = "row" + ((member.positionAge ?? 0) > 300 || elsewhere ? " stale" : "");
-      const where = member.mapId
-        ? `${member.mapId} · ${member.raidState}${member.side ? " · " + member.side : ""}`
-        : member.raidState;
-      const at = member.x == null || member.z == null
-        ? "No screenshot position shared."
-        : `${Math.round(member.x)}, ${Math.round(member.z)} · from a screenshot ${age(member.positionAge)}`;
-      const extra = [...(member.loadout ?? []), ...(member.quests ?? [])].join(" · ");
-      row.innerHTML =
-        `<div class="name"><span class="dot" style="background:${colourFor(member.name)}"></span>` +
-        `<span></span></div><div class="meta"></div><div class="meta"></div>` +
-        (extra ? '<div class="meta"></div>' : "");
-      const cells = row.querySelectorAll("span:last-child, .meta");
-      cells[0].textContent = member.name;
-      cells[1].textContent = where;
-      cells[2].textContent = at;
-      if (extra) cells[3].textContent = extra;
-      holder.appendChild(row);
-    }
-
-    // The map on screen, like everything else here. Listing every map's marks under buttons
-    // that clear one map's would be a list that disagrees with the buttons beneath it.
-    const shown = activeMap();
-    const marks = [
-      ...(room?.waypoints ?? []).map((w) => ({ ...w, kind: "Waypoint" })),
-      ...(room?.pings ?? []).map((p) => ({ ...p, kind: "Ping" })),
-    ].filter((mark) => mark.mapId === shown);
-    const markHolder = $("marks");
-    markHolder.innerHTML = "";
-    if (marks.length === 0) {
-      markHolder.innerHTML = shown
-        ? '<p class="empty">Nothing marked on this map.</p>'
-        : '<p class="empty">Nothing marked.</p>';
-    }
-    for (const mark of marks) {
-      const row = document.createElement("div");
-      row.className = "row markRow";
-      row.innerHTML = '<div><div class="name"><span></span></div><div class="meta"></div></div>';
-      const [title, meta] = [row.querySelector(".name span"), row.querySelector(".meta")];
-      title.textContent = `${mark.kind}${mark.label ? " · " + mark.label : ""}`;
-      meta.textContent = `by ${mark.by} · ${Math.round(mark.x)}, ${Math.round(mark.z)}` +
-        (mark.completedBy ? ` · reached by ${mark.completedBy}` : "");
-      // Waypoints only. A ping is gone in forty-five seconds whatever anybody does, so the
-      // server has no endpoint for removing one and a button here would be a button that lies.
-      if (mark.kind === "Waypoint") {
-        const remove = document.createElement("button");
-        remove.type = "button";
-        remove.textContent = "Remove";
-        remove.addEventListener("click", () => removeMark(mark.id, remove));
-        row.appendChild(remove);
-      }
-      markHolder.appendChild(row);
-    }
-
-    renderMaps();
-
-    // Scoped to the map on screen, so the buttons describe what pressing them would do.
-    const mapId = activeMap();
-    const waypoints = (room?.waypoints ?? []).filter((w) => w.mapId === mapId);
-    $("clearAll").disabled = waypoints.length === 0;
-    $("clearReached").disabled = !waypoints.some((w) => w.completedBy);
-
-    draw();
-  }
-
-  // Removing a mark, which the server has served since the marks were written and no client
-  // has ever asked for. Nothing is taken off this screen directly: the refresh below brings
-  // back a room without it, which is the same single path that drew it, so a tablet never
-  // shows a plan the group does not have.
-  //
-  // The button is disabled while the request is in flight rather than after it, because a
-  // second tap on a tablet is easy and the second one would be a 404 on an id that is gone.
-  async function removeMark(id, button) {
-    if (!key || !id) return;
-    button.disabled = true;
-    try {
-      await call(`/waypoints/${id}`, { method: "DELETE" });
-      await refresh();
-    } catch (error) {
-      button.disabled = false;
-      setStatus(error.message, "bad");
-    }
-  }
-
-  // Scoped to the map the group is actually on, so tidying after a Customs raid does not take
-  // the plan somebody made for Lighthouse with it. With nobody on a map there is no scope to
-  // apply and the buttons stay out of it rather than clearing everything everywhere.
-  async function clearMarks(reachedOnly) {
-    const mapId = activeMap();
-    if (!key) return;
-    if (!mapId) {
-      setStatus("Nobody is on a map yet, so there is nothing to clear", "bad");
-      return;
-    }
-
-    const query = new URLSearchParams({ mapId });
-    if (reachedOnly) query.set("reachedOnly", "true");
-    try {
-      const cleared = await call(`/waypoints?${query}`, { method: "DELETE" });
-      // After the refresh, not before: refreshing writes the room's own description into the
-      // status line and would wipe this out on its way past.
-      await refresh();
-      setStatus(cleared === 1 ? "Cleared 1 mark" : `Cleared ${cleared ?? 0} marks`, "good");
-    } catch (error) {
-      setStatus(error.message, "bad");
-    }
-  }
-
-  // What an item is worth, asked of the relay rather than answered by downloading the catalog.
-  //
-  // The items file is 16,713,367 bytes, 1,887,826 gzipped, for 5,320 items. A tablet on a sofa
-  // is not fetching that to answer one question, so the question travels instead and comes back
-  // a few hundred bytes later.
-  //
-  // No group key: this is public game data, and it means the answer works before anybody joins.
-  const roubles = (value) => value == null ? null : value.toLocaleString() + " ₽";
-
-  /// A div with text in it, set as text rather than markup because an item name is upstream's.
-  function text(value, className) {
-    const element = document.createElement("div");
-    if (className) element.className = className;
-    element.textContent = value;
-    return element;
-  }
-
-  async function findItems() {
-    const query = $("find").value.trim();
-    const holder = $("found");
-    holder.replaceChildren();
-    if (query.length < 2) {
-      holder.appendChild(text("Type a name. No alt-tab.", "empty"));
-      return;
-    }
-
-    let results;
-    try {
-      const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
-      if (!response.ok) throw new Error(`The relay answered ${response.status}.`);
-      results = await response.json();
-    } catch (error) {
-      holder.appendChild(text(error.message, "bad"));
-      return;
-    }
-
-    if (results.length === 0) {
-      holder.appendChild(text(`Nothing matching "${query}".`, "empty"));
-      return;
-    }
-
-    for (const item of results) {
-      const row = document.createElement("div");
-      row.className = "row";
-      row.style.display = "flex";
-      row.style.gap = "10px";
-      row.style.alignItems = "center";
-      const left = document.createElement("div");
-      left.className = "grow";
-      left.appendChild(text(item.name, "name"));
-      // Said as what it is. A flea price is what somebody pays; a base price is the game's own
-      // number and is not what anything sells for, so it is never printed as though it were.
-      left.appendChild(text(
-        item.flea != null ? "24h flea average" : item.base != null ? "no flea price · base value" : "not priced",
-        "meta"));
-      row.appendChild(left);
-      row.appendChild(text(roubles(item.flea ?? item.base) ?? "—", "price"));
-      holder.appendChild(row);
-    }
-  }
-
-  $("findGo").addEventListener("click", findItems);
-  $("find").addEventListener("keydown", (event) => { if (event.key === "Enter") findItems(); });
-
-  $("clearReached").addEventListener("click", () => clearMarks(true));
-  $("clearAll").addEventListener("click", () => clearMarks(false));
-
-  // The plot. Deliberately not the map: this has no artwork and no projection, so it cannot
-  // pretend to be one. What it does have is everybody's world coordinates, which is enough to
-  // see who is where relative to everybody else and enough to point at a spot and say "there".
-  const canvas = $("plot");
-  const context = canvas.getContext("2d");
-  let frame = null;
-
-  // Only what is on the map being shown.
-  //
-  // This took everything with an x and a z regardless of map, so the schematic was two raids
-  // drawn on top of each other and the framing had to zoom out far enough to hold both.
-  // The landmarks of the map on screen, drawn quiet and behind the people.
-  //
-  // A lock has no name worth writing -- the catalog calls all thirty-six of Customs' "door" --
-  // so it is a dot and nothing else. Only extracts carry a name the group would recognise, and
-  // a transit is named for where it goes, which is the one thing the catalog does say about it.
-  function landmarkPoints(mapId) {
-    return (landmarks[mapId] ?? []).map((mark) => ({
-      x: mark.x,
-      z: mark.z,
-      colour: mark.k === "l" ? "#3c4c5a" : "#55707f",
-      label: mark.n ?? "",
-      // A place is a name for an area rather than a thing standing somewhere, so it is drawn
-      // as the name alone. A dot would claim the middle of Dorms is a spot you can go to.
-      r: mark.k === "p" ? 0 : mark.k === "l" ? 2 : 3,
-      quiet: true,
-    }));
-  }
-
-  function points() {
-    const mapId = activeMap();
-    if (!mapId) {
-      return [];
-    }
-
-    const found = landmarkPoints(mapId);
-    for (const member of room?.members ?? []) {
-      if (member.mapId === mapId && member.x != null && member.z != null) {
-        found.push({ x: member.x, z: member.z, colour: colourFor(member.name), label: member.name, r: 7 });
-      }
-    }
-    for (const w of room?.waypoints ?? []) {
-      if (w.mapId === mapId) {
-        found.push({ x: w.x, z: w.z, colour: w.completedBy ? "#4d5f55" : "#c7a66b", label: w.label || "waypoint", r: 5 });
-      }
-    }
-    for (const p of room?.pings ?? []) {
-      if (p.mapId === mapId) {
-        found.push({ x: p.x, z: p.z, colour: "#c77b6b", label: p.label || "ping", r: 5 });
-      }
-    }
-    return found;
-  }
-
-  function draw() {
-    const size = canvas.width;
-    context.clearRect(0, 0, size, size);
-    const all = points();
-    if (all.length === 0) {
-      frame = null;
-      context.fillStyle = "#8f9ba6";
-      context.font = "16px system-ui, sans-serif";
-      context.textAlign = "center";
-      context.fillText("No positions shared yet.", size / 2, size / 2);
-      return;
-    }
-
-    // Framed over everything, landmarks included, which is what steadies it.
-    //
-    // Fitting to the people alone made this restless: the frame moved every time anybody took
-    // a screenshot, so the whole schematic slid under a finger about to tap it. Landmarks do
-    // not move and they span the map, so they dominate the extent and it holds still while
-    // people move across it -- the way round a map is supposed to work. Including the people
-    // in the same union is what keeps somebody outside the landmarks from being framed off the
-    // edge, which is the failure the previous behaviour could never have.
-    const xs = all.map((p) => p.x);
-    const zs = all.map((p) => p.z);
-    const span = Math.max(120, Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) * 1.25;
-    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
-    const cz = (Math.max(...zs) + Math.min(...zs)) / 2;
-    frame = { cx, cz, span, size };
-
-    context.strokeStyle = "#1b2732";
-    context.lineWidth = 1;
-    for (let i = 1; i < 6; i++) {
-      const at = (size / 6) * i;
-      context.beginPath(); context.moveTo(at, 0); context.lineTo(at, size); context.stroke();
-      context.beginPath(); context.moveTo(0, at); context.lineTo(size, at); context.stroke();
-    }
-
-    // North is negative Z, the same convention the desktop map and its bearings use.
-    context.fillStyle = "#8f9ba6";
-    context.font = "13px system-ui, sans-serif";
-    context.textAlign = "center";
-    context.fillText("N", size / 2, 18);
-
-    // Landmarks first so people are drawn on top of them, and quieter in every way that is
-    // available: smaller, dimmer, no outline, smaller type. A landmark that competes with a
-    // squadmate for attention has made the screen worse, not better.
-    for (const point of [...all].sort((a, b) => (a.quiet ? 0 : 1) - (b.quiet ? 0 : 1))) {
-      const [px, py] = project(point.x, point.z);
-      context.beginPath();
-      context.arc(px, py, point.r, 0, Math.PI * 2);
-      context.fillStyle = point.colour;
-      context.fill();
-      if (!point.quiet) {
-        context.lineWidth = 2;
-        context.strokeStyle = "#0b1016";
-        context.stroke();
-      }
-
-      if (!point.label) {
-        continue;
-      }
-
-      context.fillStyle = point.quiet ? "#6d7e8b" : "#dce5ee";
-      context.font = point.quiet ? "11px system-ui, sans-serif" : "13px system-ui, sans-serif";
-      context.textAlign = "left";
-      context.fillText(point.label, px + point.r + 5, py + 4);
-    }
-  }
-
-  const project = (x, z) => [
-    ((x - frame.cx) / frame.span + 0.5) * frame.size,
-    ((z - frame.cz) / frame.span + 0.5) * frame.size,
-  ];
-
-  const unproject = (px, py) => [
-    (px / frame.size - 0.5) * frame.span + frame.cx,
-    (py / frame.size - 0.5) * frame.span + frame.cz,
-  ];
-
-  canvas.addEventListener("click", async (event) => {
-    if (!frame || !key) return;
-    // The map this screen is showing, which is the one the tap was aimed at.
-    const mapId = activeMap();
-    if (!mapId) {
-      setStatus("Nobody is on a map yet, so there is nowhere to mark", "bad");
-      return;
-    }
-
-    const box = canvas.getBoundingClientRect();
-    const px = ((event.clientX - box.left) / box.width) * canvas.width;
-    const py = ((event.clientY - box.top) / box.height) * canvas.height;
-    const [x, z] = unproject(px, py);
-    try {
-      await call(mode === "ping" ? "/pings" : "/waypoints", {
-        method: "POST",
-        body: JSON.stringify({
-          by: name || "tablet",
-          mapId,
-          x,
-          // Whoever is nearest, or zero when nobody on this map has published a height —
-          // which is what an older client does, and is the same answer as before for them.
-          y: heightNear(mapId, x, z) ?? 0,
-          z,
-          // The place it was put on, worked out rather than asked for. Typing a name means a
-          // keyboard, and this screen exists so that nobody has to reach for one.
-          label: nameFor(mapId, x, z),
-        }),
-      });
-      await refresh();
-    } catch (error) {
-      setStatus(error.message, "bad");
-    }
-  });
-
-  const setMode = (next) => {
-    mode = next;
-    $("modeWaypoint").setAttribute("aria-pressed", String(next === "waypoint"));
-    $("modePing").setAttribute("aria-pressed", String(next === "ping"));
-  };
-  $("modeWaypoint").addEventListener("click", () => setMode("waypoint"));
-  $("modePing").addEventListener("click", () => setMode("ping"));
-
-  $("join").addEventListener("submit", (event) => {
-    event.preventDefault();
-    key = $("key").value.trim();
-    name = $("name").value.trim();
-    store.set("key", key);
-    store.set("name", name);
-    if (key.length < 8) {
-      setStatus("A group key is at least eight characters", "bad");
-      return;
-    }
-
-    start();
-  });
-
-  function start() {
-    loadLandmarks();
-    if (timer) clearInterval(timer);
-    refresh();
-    // Five seconds, the same rate the desktop client exchanges at. Faster would tell a tablet
-    // nothing the desktop does not already know and would run a battery down for it.
-    timer = setInterval(refresh, 5000);
-  }
-
-  // A screen left on the side of a desk stops being told anything while it is asleep; asking
-  // once on waking is the difference between a current picture and a five-minute-old one.
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") refresh();
-  });
-
-  if (key.length >= 8) start();
-  else setStatus("enter the group key", "");
-})();
-</script>
 <script src="/tablet/relay-crypto.js"></script>
 <script>
 // v2r-pairing-tablet: paired-companion pairing (docs/PAIRED_DEVICE_PROTOCOL.md "Pairing").
@@ -1260,66 +613,266 @@
   }
 
   // ---------------------------------------------------------------------------------------
-  // v2r-tablet-marks-sync: the established session's own traffic. Everything after pairing
-  // travels as an OpaqueRelayFrame sealed/opened by relay-crypto.js — never a plaintext command,
-  // acknowledgement, update, or reconnect path (docs/PAIRED_DEVICE_PROTOCOL.md, "Transport
-  // binding"). Marks are the first payload wired end to end; see the package PR for what a mark
-  // command actually does on the desktop (DesktopCompanionAuthority.ApplyCommandAsync,
-  // RelayMarksBridge) and for what is still deferred (desktop-authored marks reaching the tablet).
+  // The paired session's own traffic. Everything after pairing travels as an OpaqueRelayFrame
+  // sealed/opened by relay-crypto.js — never a plaintext command, acknowledgement, update or
+  // reconnect path (docs/PAIRED_DEVICE_PROTOCOL.md, "Transport binding"). The map itself is the
+  // one thing that cannot: a relay payload root is bounded at 64 KiB and a rasterized plan is
+  // megabytes, so the artwork and the scene drawn on it are read from the relay over this
+  // session's own credential instead (#407).
   // ---------------------------------------------------------------------------------------
   let live = null;
   let markKind = "Ping";
+  let markArmed = false;
+  let mode = "Follow";
   const FRAME_LIFETIME_MS = 60_000;
+  const CONTROL_LEASE = "00:02:00";
+  // The desktop republishes its map about once a second while a raid is running. Twice that,
+  // and a tablet says the desktop is gone rather than showing a map that stopped being true.
+  const SURFACE_STALE_MS = 20_000;
 
   function renderLiveStatus() {
-    $("liveDot").classList.toggle("on", !!live?.connected);
+    $("liveDot").classList.toggle("on", !!(live?.connected && live?.surface));
     $("liveStatus").textContent = !live
-      ? "Not connected."
+      ? "Not paired."
       : !live.credential
         ? "Waiting for the desktop to finish registering this tablet…"
-        : live.lastSyncedUtc
-          ? `Live · synced ${Math.max(0, Math.round((Date.now() - live.lastSyncedUtc) / 1000))}s ago`
-          : "Live · waiting for the first sync…";
+        : !live.connected
+          ? "The desktop is offline."
+          : !live.surface
+            ? "Paired. Waiting for the desktop's map…"
+            : `Live · ${live.surface.mapName}`;
   }
 
-  function renderTeamMarks() {
-    const pad = $("tapPad");
-    pad.querySelectorAll(".pin").forEach((el) => el.remove());
-    const marks = live?.marks ?? [];
-    $("tapPadHint").style.display = marks.length ? "none" : "";
-    for (const mark of marks) {
-      const pin = document.createElement("div");
-      pin.className = "pin" + (mark.kind === "Ping" ? " ping" : "");
-      pin.style.left = `${mark.state.x * 100}%`;
-      pin.style.top = `${mark.state.y * 100}%`;
-      pin.title = mark.state.label || mark.kind;
-      pad.appendChild(pin);
+  // ---------------------------------------------------------------------------------------
+  // The map. One rectangle in map units (the desktop's MapPlanProjection) carries both the
+  // artwork and every object on it, so a mark is in the same place on both screens: there is
+  // no second projection here to disagree with the desktop's.
+  // ---------------------------------------------------------------------------------------
+  const canvas = $("map");
+  const context = canvas.getContext("2d");
+  let artwork = null;
+  let artworkSha = null;
+  let camera = null;
+
+  const COLOURS = {
+    Extract: "#77b895",
+    Transit: "#77b895",
+    QuestObjective: "#c7a66b",
+    Ping: "#c7a66b",
+    Waypoint: "#22d3ee",
+    SpawnArea: "#9b8fc7",
+    Lock: "#c77b6b",
+    Hazard: "#c77b6b",
+    LastKnownPosition: "#22d3ee",
+    TeammateLastKnown: "#7fa9c7",
+    Label: "#8f9ba6",
+  };
+
+  const plan = () => live?.surface?.plan ?? null;
+
+  function viewCamera() {
+    if (mode === "Follow" && live?.surface) {
+      const view = live.surface.view;
+      return { x: view.centerX, y: view.centerY, zoom: view.zoom };
     }
 
-    const list = $("teamMarkList");
-    list.replaceChildren();
-    if (marks.length === 0) {
-      list.innerHTML = '<p class="empty">Nothing marked yet.</p>';
+    return camera ?? fitCamera();
+  }
+
+  function fitCamera() {
+    const rect = plan();
+    return rect
+      ? { x: (rect.minimumX + rect.maximumX) / 2, y: (rect.minimumY + rect.maximumY) / 2, zoom: 1 }
+      : { x: 0, y: 0, zoom: 1 };
+  }
+
+  // Fit-to-contain, then the camera's own zoom, which is what "zoom 1 shows the whole plan"
+  // means on the desktop too (MapSceneRendererViewModel). Same rule, so the same number means
+  // the same picture on both screens.
+  function projection() {
+    const rect = plan();
+    if (!rect) return null;
+    const width = canvas.width;
+    const height = canvas.height;
+    const view = viewCamera();
+    const fit = Math.min(width / (rect.maximumX - rect.minimumX), height / (rect.maximumY - rect.minimumY));
+    const scale = fit * view.zoom;
+    return {
+      scale,
+      toScreen: (x, y) => [(x - view.x) * scale + width / 2, (y - view.y) * scale + height / 2],
+      toPlan: (px, py) => [(px - width / 2) / scale + view.x, (py - height / 2) / scale + view.y],
+    };
+  }
+
+  function resizeCanvas() {
+    const box = canvas.getBoundingClientRect();
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round(box.width * ratio));
+    const height = Math.max(1, Math.round(box.height * ratio));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+  }
+
+  function drawMap() {
+    resizeCanvas();
+    const width = canvas.width;
+    const height = canvas.height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = "#0e151d";
+    context.fillRect(0, 0, width, height);
+    const rect = plan();
+    const project = projection();
+    if (!rect || !project) return;
+
+    if (artwork) {
+      const [left, top] = project.toScreen(rect.minimumX, rect.minimumY);
+      const [right, bottom] = project.toScreen(rect.maximumX, rect.maximumY);
+      context.imageSmoothingQuality = "high";
+      context.drawImage(artwork, left, top, right - left, bottom - top);
+    }
+
+    const surface = live.surface;
+    const hidden = new Set(surface.layers.filter((layer) => !layer.isVisible).map((layer) => layer.id));
+    const floor = surface.view.floorId;
+    const scale = Math.max(1, Math.min(2, project.scale * 40));
+    for (const item of surface.objects) {
+      if (hidden.has(item.layerId)) continue;
+      // A multi-floor map's objects name the floors they belong to; one that names none is on
+      // every floor. This is the desktop's own rule, not a second one.
+      if (floor && item.floorIds.length > 0 && !item.floorIds.includes(floor)) continue;
+      const colour = COLOURS[item.kind] ?? "#8f9ba6";
+      const points = item.points;
+      if (points.length > 2) {
+        context.beginPath();
+        for (let index = 0; index < points.length; index += 2) {
+          const [px, py] = project.toScreen(points[index], points[index + 1]);
+          if (index === 0) context.moveTo(px, py); else context.lineTo(px, py);
+        }
+        context.strokeStyle = colour;
+        context.globalAlpha = item.isEstimate ? 0.45 : 0.8;
+        context.lineWidth = 1.5 * scale;
+        context.stroke();
+        context.globalAlpha = 1;
+        continue;
+      }
+
+      const [px, py] = project.toScreen(points[0], points[1]);
+      if (px < -40 || py < -40 || px > width + 40 || py > height + 40) continue;
+      context.globalAlpha = item.isEstimate ? 0.5 : 1;
+      context.beginPath();
+      context.arc(px, py, 5 * scale, 0, Math.PI * 2);
+      context.fillStyle = colour;
+      context.fill();
+      context.strokeStyle = "#0b1016";
+      context.lineWidth = 1.5 * scale;
+      context.stroke();
+      context.globalAlpha = 1;
+      if (item.label && project.scale * 40 > 0.7) {
+        context.fillStyle = "#dce5ee";
+        context.font = `${11 * scale}px ui-sans-serif, system-ui, sans-serif`;
+        context.fillText(item.label, px + 8 * scale, py - 7 * scale);
+      }
+    }
+  }
+
+  function renderSurface() {
+    const surface = live?.surface;
+    $("surface").style.display = live ? "" : "none";
+    const message = $("mapMessage");
+    if (!surface) {
+      message.style.display = "";
+      message.textContent = live?.connected === false
+        ? "The desktop is offline. This tablet only ever shows your own desktop's map."
+        : "Waiting for the desktop's map…";
+      $("attribution").textContent = "";
+      drawMap();
       return;
     }
 
-    for (const mark of marks) {
-      const row = document.createElement("div");
-      row.className = "row markRow";
-      const info = document.createElement("div");
-      const name = document.createElement("div");
-      name.className = "name";
-      name.textContent = mark.state.label || mark.kind;
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      meta.textContent = `${mark.kind} · ${mark.state.mapId} · ${Math.round(mark.state.x * 100)}, ${Math.round(mark.state.y * 100)}`;
-      info.append(name, meta);
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.textContent = "Remove";
-      remove.addEventListener("click", () => removeTeamMark(mark));
-      row.append(info, remove);
-      list.appendChild(row);
+    if (!surface.artwork) {
+      // Never bare coordinates on an empty canvas: a map with no reviewed plan says so.
+      message.style.display = "";
+      message.textContent = surface.message || "This map has no reviewed 2D plan yet.";
+    } else if (surface.message) {
+      message.style.display = "";
+      message.textContent = surface.message;
+    } else {
+      message.style.display = "none";
+    }
+
+    // ADR 0015: the reviewed asset's source, licence and content hash travel with it and are
+    // visible where it is drawn, not only on the desktop that fetched it.
+    $("attribution").textContent = surface.attribution
+      .map((item) => `${item.text} · ${item.sourceUri} · ${item.licenseUri} · sha256 ${item.contentSha256.slice(0, 12)}…`)
+      .join("  |  ");
+    renderFloors(surface);
+    drawMap();
+  }
+
+  function renderFloors(surface) {
+    const holder = $("floors");
+    holder.replaceChildren();
+    if (surface.floorIds.length < 2) return;
+    for (const floorId of surface.floorIds) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = floorId;
+      button.setAttribute("aria-pressed", String(floorId === surface.view.floorId));
+      button.addEventListener("click", () => sendNavigate({ floorId }));
+      holder.appendChild(button);
+    }
+  }
+
+  async function refreshSurface() {
+    if (!live?.credential) return;
+    try {
+      const response = await relayCall("/v2/companion/relay/map");
+      if (response.status === 404) {
+        live.surface = null;
+        live.connected = false;
+        renderLiveStatus();
+        renderSurface();
+        return;
+      }
+
+      if (!response.ok) return;
+      const surface = await response.json();
+      const age = Date.now() - Date.parse(surface.publishedUtc);
+      live.connected = age < SURFACE_STALE_MS;
+      live.surface = surface;
+      if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
+        await loadArtwork(surface.artwork.contentSha256);
+      } else if (!surface.artwork) {
+        artwork = null;
+        artworkSha = null;
+      }
+
+      renderLiveStatus();
+      renderSurface();
+    } catch {
+      live.connected = false;
+      renderLiveStatus();
+    }
+  }
+
+  async function loadArtwork(sha) {
+    try {
+      const response = await relayCall("/v2/companion/relay/map/artwork");
+      if (!response.ok) return;
+      const blob = await response.blob();
+      const image = new Image();
+      const url = URL.createObjectURL(blob);
+      await new Promise((resolve, reject) => {
+        image.onload = resolve;
+        image.onerror = reject;
+        image.src = url;
+      });
+      artwork = image;
+      artworkSha = sha;
+    } catch {
+      // The next poll tries again; the map keeps drawing whatever it already had.
     }
   }
 
@@ -1338,6 +891,7 @@
     const assignment = established.assignment;
     live = {
       sessionId: assignment.sessionId.value,
+      deviceId: assignment.deviceId.value,
       channelId: assignment.relayChannelId.value,
       keyEpoch: assignment.keyEpoch,
       protocolVersion: assignment.protocolVersion,
@@ -1345,15 +899,18 @@
       desktopToTabletKey,
       authorityEpoch: null,
       marksRevision: 0,
+      workspaceRevision: 0,
+      modesRevision: 0,
+      workspace: null,
       credential: null,
       senderSequence: 0,
       afterDeliveryId: 0,
       marks: [],
-      lastSyncedUtc: null,
+      surface: null,
       connected: false,
     };
     renderLiveStatus();
-    renderTeamMarks();
+    renderMarks();
 
     // The desktop registers this tablet on the relay right after establishing the session and
     // hands its bearer secret through the same bounded mailbox `established` just came through —
@@ -1378,12 +935,21 @@
     }
 
     if (!live.credential) {
-      $("liveStatus").textContent = "The desktop has not claimed a relay yet, so live sync is unavailable.";
+      $("liveStatus").textContent = "The desktop has not claimed a relay yet, so this tablet has nothing to show.";
       return;
     }
 
+    $("surface").style.display = "";
     renderLiveStatus();
     pollLiveFrames();
+    pollSurface();
+  }
+
+  async function pollSurface() {
+    while (live && live.credential) {
+      await refreshSurface();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
   }
 
   async function pollLiveFrames() {
@@ -1392,7 +958,6 @@
         const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}`);
         if (response.ok) {
           const batch = await response.json();
-          live.connected = true;
           for (const envelope of batch.frames) {
             await handleInboundFrame(envelope.frame);
             live.afterDeliveryId = Math.max(live.afterDeliveryId, envelope.deliveryId);
@@ -1401,17 +966,13 @@
           if (batch.frames.length > 0) {
             await relayCall(`/v2/companion/relay/frames/${live.afterDeliveryId}/ack`, { method: "POST" });
           }
-
-          live.lastSyncedUtc = Date.now();
-        } else {
-          live.connected = false;
         }
       } catch {
-        live.connected = false;
+        // The surface poll is what decides whether the desktop is reachable; a dropped frame
+        // read is just a missed update.
       }
 
-      renderLiveStatus();
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 
@@ -1431,22 +992,107 @@
   }
 
   function applyServerMessage(message) {
-    // MarksCanonicalUpdate.State is the marks aggregate's full current list, the same shape a
-    // snapshot carries — so both cases here are "replace what we show", never an incremental fold.
+    // Both cases are "replace what we show": a canonical update carries its aggregate's whole
+    // current state, the same shape a snapshot carries, never an incremental fold.
     if (message?.type === "canonicalSnapshot") {
-      live.authorityEpoch = message.state.authorityEpoch.value;
-      live.marksRevision = message.state.marks.cursor.revision.value;
-      live.marks = message.state.marks.marks;
-      renderTeamMarks();
-    } else if (message?.type === "canonicalUpdate" && message.update?.type === "marks") {
-      live.authorityEpoch = message.update.authorityEpoch.value;
-      live.marksRevision = message.update.state.cursor.revision.value;
-      live.marks = message.update.state.marks;
-      renderTeamMarks();
+      const state = message.state;
+      live.authorityEpoch = state.authorityEpoch.value;
+      live.marksRevision = state.marks.cursor.revision.value;
+      live.marks = state.marks.marks;
+      live.workspaceRevision = state.workspace.cursor.revision.value;
+      live.workspace = state.workspace.projection;
+      live.modesRevision = state.deviceModes.cursor.revision.value;
+      applyDeviceModes(state.deviceModes);
+      renderMarks();
+      return;
+    }
+
+    if (message?.type !== "canonicalUpdate") return;
+    const update = message.update;
+    live.authorityEpoch = update.authorityEpoch.value;
+    if (update.type === "marks") {
+      live.marksRevision = update.state.cursor.revision.value;
+      live.marks = update.state.marks;
+      renderMarks();
+    } else if (update.type === "workspace") {
+      live.workspaceRevision = update.state.cursor.revision.value;
+      // Echo suppression: a workspace change this tablet itself caused comes straight back as
+      // an ordinary broadcast update, and applying it would fight the pan the person is still
+      // making. Its origin device is this one, so it is dropped rather than followed.
+      if (update.origin?.deviceId?.value === live.deviceId) return;
+      live.workspace = update.state.projection;
+      renderSurface();
+    } else if (update.type === "deviceMode") {
+      live.modesRevision = update.state.cursor.revision.value;
+      applyDeviceModes(update.state);
     }
   }
 
-  async function sendMarkCommand(command) {
+  function applyDeviceModes(modes) {
+    const entry = modes.devices.find((item) => item.deviceId.value === live.deviceId);
+    const next = entry?.mode ?? "Follow";
+    if (next !== mode) {
+      mode = next;
+      if (mode !== "Follow" && !camera) camera = fitCamera();
+    }
+
+    renderMode();
+    renderSurface();
+  }
+
+  function renderMode() {
+    for (const button of document.querySelectorAll("#deviceModes button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.mode === mode ||
+        (button.dataset.mode === "Control" && mode === "ControlPending")));
+    }
+
+    $("modeNote").textContent = mode === "Follow"
+      ? "Following the desktop's map."
+      : mode === "ControlPending"
+        ? "Waiting for the desktop to allow this tablet to drive."
+        : mode === "Control"
+          ? "You are driving the desktop. It can take control back at any time."
+          : "Moving this tablet's own view. The desktop is not following.";
+    $("surface").classList.toggle("driving", mode === "Control");
+    $("searchNote").textContent = mode === "Control"
+      ? "Searching runs on the desktop, where the catalogue and your quests are."
+      : "Take control of the desktop to search on it.";
+    $("findGo").disabled = mode !== "Control";
+  }
+
+  function renderMarks() {
+    const list = $("markList");
+    list.replaceChildren();
+    const marks = live?.marks ?? [];
+    if (marks.length === 0) {
+      list.innerHTML = '<p class="empty">Nothing marked yet.</p>';
+      drawMap();
+      return;
+    }
+
+    for (const mark of marks) {
+      const row = document.createElement("div");
+      row.className = "row markRow";
+      const info = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = mark.state.label || mark.kind;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = `${mark.kind} · ${mark.state.mapId}`;
+      info.append(name, meta);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => removeMark(mark));
+      row.append(info, remove);
+      list.appendChild(row);
+    }
+
+    drawMap();
+  }
+
+  async function sendCommand(command) {
     if (!live?.authorityEpoch) return;
     const envelope = {
       protocolVersion: live.protocolVersion,
@@ -1478,46 +1124,226 @@
     });
   }
 
-  function addTeamMark(x, y) {
-    if (!live?.authorityEpoch) return;
-    const label = $("markLabel").value.trim() || null;
-    const mapId = $("markMap").value.trim() || "customs";
+  const commandHeader = (revision) => {
     const now = new Date();
-    sendMarkCommand({
-      type: "upsertMark",
+    return {
       commandId: { value: crypto.randomUUID() },
-      requestedRevision: { value: live.marksRevision + 1 },
+      requestedRevision: { value: revision },
       issuedUtc: now.toISOString(),
       expiresUtc: new Date(now.getTime() + FRAME_LIFETIME_MS).toISOString(),
       offlineQueuePreview: null,
+    };
+  };
+
+  function addMark(x, y) {
+    if (!live?.authorityEpoch || !live.surface) return;
+    const label = $("markLabel").value.trim() || null;
+    sendCommand({
+      type: "upsertMark",
+      ...commandHeader(live.marksRevision + 1),
       markId: { value: crypto.randomUUID() },
       expectedMarkRevision: 0,
       mark: {
         kind: markKind,
         scope: "PairedDevice",
-        state: { mapId, floorId: null, x, y, label, expiresUtc: null },
-        coordinateSpace: "Normalized",
-        projectionVersion: "tablet-normalized-1",
+        state: {
+          mapId: live.surface.mapId,
+          floorId: live.surface.view.floorId,
+          x,
+          y,
+          label,
+          expiresUtc: null,
+        },
+        // Plan units, the desktop's own: the same rectangle its artwork covers and its own
+        // marks are stored in. The tap pad this replaced sent 0-1 of a blank square, which put
+        // every mark from a tablet in the corner of the real map.
+        coordinateSpace: "World",
+        projectionVersion: live.surface.transformVersion,
         height: null,
         color: markKind === "Ping" ? "#C7A66B" : "#22D3EE",
       },
     });
   }
 
-  function removeTeamMark(mark) {
+  function removeMark(mark) {
     if (!live?.authorityEpoch) return;
-    const now = new Date();
-    sendMarkCommand({
+    sendCommand({
       type: "deleteMark",
-      commandId: { value: crypto.randomUUID() },
-      requestedRevision: { value: live.marksRevision + 1 },
-      issuedUtc: now.toISOString(),
-      expiresUtc: new Date(now.getTime() + FRAME_LIFETIME_MS).toISOString(),
-      offlineQueuePreview: null,
+      ...commandHeader(live.marksRevision + 1),
       markId: mark.markId,
       expectedMarkRevision: mark.revision,
     });
   }
+
+  // ---------------------------------------------------------------------------------------
+  // Follow / Control / Independent (docs/design/v2/v2-tablet-desktop-control-concept.png).
+  // Control is not a second protocol: it is the same revisioned command over the same sealed
+  // frames, and the desktop's reducer refuses it unless this device holds a control lease.
+  // ---------------------------------------------------------------------------------------
+  function requestMode(next) {
+    if (!live?.authorityEpoch) return;
+    if (next === "Control") {
+      sendCommand({
+        type: "requestControl",
+        ...commandHeader(live.modesRevision + 1),
+        requestedLease: CONTROL_LEASE,
+      });
+      mode = "ControlPending";
+      renderMode();
+      return;
+    }
+
+    sendCommand({ type: "setInteractionMode", ...commandHeader(live.modesRevision + 1), mode: next });
+    mode = next;
+    if (mode === "Independent" && !camera) camera = fitCamera();
+    renderMode();
+    renderSurface();
+  }
+
+  function sendNavigate(change) {
+    if (!live?.surface) return;
+    const view = viewCamera();
+    const floorId = change?.floorId !== undefined ? change.floorId : live.surface.view.floorId;
+    if (mode !== "Control") {
+      // Independent: this tablet's own view moves and nothing is sent.
+      if (change?.floorId !== undefined && live.surface) live.surface.view.floorId = change.floorId;
+      renderSurface();
+      return;
+    }
+
+    sendCommand({
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: {
+        type: "navigate",
+        workspace: "Raid",
+        mapId: live.surface.mapId,
+        floorId,
+        viewport: {
+          center: {
+            mapId: live.surface.mapId,
+            floorId,
+            coordinateSpace: "World",
+            projectionVersion: live.surface.transformVersion,
+            x: view.x,
+            y: null,
+            z: view.y,
+          },
+          zoom: Math.min(100, Math.max(0.01, view.zoom)),
+        },
+      },
+    });
+    if (change?.floorId !== undefined) live.surface.view.floorId = change.floorId;
+    renderSurface();
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Touch. A drag pans, two fingers pinch, a tap marks or selects. In Follow the map is the
+  // desktop's, so moving it is a mode change rather than a silent divergence.
+  // ---------------------------------------------------------------------------------------
+  const pointers = new Map();
+  let gesture = null;
+  let moved = 0;
+
+  const localCamera = () => {
+    if (mode === "Follow") return null;
+    camera = camera ?? fitCamera();
+    return camera;
+  };
+
+  canvas.addEventListener("pointerdown", (event) => {
+    canvas.setPointerCapture(event.pointerId);
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    moved = 0;
+    gesture = pointers.size === 2 ? pinchState() : null;
+  });
+
+  function pinchState() {
+    const [first, second] = [...pointers.values()];
+    return { distance: Math.hypot(first.x - second.x, first.y - second.y), zoom: viewCamera().zoom };
+  }
+
+  canvas.addEventListener("pointermove", (event) => {
+    const previous = pointers.get(event.pointerId);
+    if (!previous) return;
+    const dx = event.clientX - previous.x;
+    const dy = event.clientY - previous.y;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    moved += Math.abs(dx) + Math.abs(dy);
+    const view = localCamera();
+    if (!view) return;
+    const project = projection();
+    if (!project) return;
+    if (pointers.size === 2 && gesture) {
+      const [first, second] = [...pointers.values()];
+      const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      view.zoom = Math.min(64, Math.max(0.2, gesture.zoom * (distance / Math.max(1, gesture.distance))));
+    } else {
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      view.x -= (dx * ratio) / project.scale;
+      view.y -= (dy * ratio) / project.scale;
+    }
+
+    drawMap();
+  });
+
+  function endPointer(event) {
+    pointers.delete(event.pointerId);
+    if (pointers.size < 2) gesture = null;
+    if (pointers.size > 0) return;
+    if (moved < 8) {
+      handleTap(event);
+    } else {
+      sendNavigate();
+    }
+  }
+
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+
+  function handleTap(event) {
+    const project = projection();
+    if (!project || !live?.surface) return;
+    const box = canvas.getBoundingClientRect();
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const [x, y] = project.toPlan((event.clientX - box.left) * ratio, (event.clientY - box.top) * ratio);
+    if (markArmed) {
+      addMark(x, y);
+      return;
+    }
+
+    if (mode === "Follow") {
+      $("modeNote").textContent = "This map is the desktop's. Switch to Control or Independent to move it.";
+    }
+  }
+
+  canvas.addEventListener("wheel", (event) => {
+    const view = localCamera();
+    if (!view) return;
+    event.preventDefault();
+    view.zoom = Math.min(64, Math.max(0.2, view.zoom * (event.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    drawMap();
+    sendNavigate();
+  }, { passive: false });
+
+  function zoomBy(factor) {
+    const view = localCamera();
+    if (!view) return;
+    view.zoom = Math.min(64, Math.max(0.2, view.zoom * factor));
+    drawMap();
+    sendNavigate();
+  }
+
+  $("zoomIn").addEventListener("click", () => zoomBy(1.3));
+  $("zoomOut").addEventListener("click", () => zoomBy(1 / 1.3));
+  $("fit").addEventListener("click", () => {
+    if (mode === "Follow") return;
+    camera = fitCamera();
+    drawMap();
+    sendNavigate();
+  });
+
+  window.addEventListener("resize", () => drawMap());
 
   // ---------------------------------------------------------------------------------------
   // UI wiring.
@@ -1536,17 +1362,13 @@
     }
   });
 
-  for (const button of document.querySelectorAll("#pairingModes button")) {
-    button.addEventListener("click", () => {
-      for (const other of document.querySelectorAll("#pairingModes button")) {
-        other.setAttribute("aria-pressed", String(other === button));
-      }
-    });
+  for (const button of document.querySelectorAll("#deviceModes button")) {
+    button.addEventListener("click", () => requestMode(button.dataset.mode));
   }
 
-  for (const button of document.querySelectorAll("#markKind button")) {
+  for (const button of document.querySelectorAll("#markKind button[data-kind]")) {
     button.addEventListener("click", () => {
-      for (const other of document.querySelectorAll("#markKind button")) {
+      for (const other of document.querySelectorAll("#markKind button[data-kind]")) {
         other.setAttribute("aria-pressed", String(other === button));
       }
 
@@ -1554,15 +1376,27 @@
     });
   }
 
-  $("tapPad").addEventListener("click", (event) => {
-    if (!live?.authorityEpoch) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    const y = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
-    addTeamMark(x, y);
+  $("markArm").addEventListener("click", () => {
+    markArmed = !markArmed;
+    $("markArm").setAttribute("aria-pressed", String(markArmed));
+    $("markArm").textContent = markArmed ? "Tap the map now" : "Tap the map to mark";
+  });
+
+  // The relay's own /search is gone: item lookups belong on the paired desktop, which has the
+  // catalogue and knows which quests and hideout modules are asking for the item (#407).
+  $("findGo").addEventListener("click", () => {
+    const query = $("find").value.trim();
+    if (!query || mode !== "Control") return;
+    sendCommand({
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: { type: "search", query },
+    });
+    $("searchNote").textContent = `Searching for "${query}" on the desktop.`;
   });
 
   setStage("pairingIdle");
+  renderMode();
 })();
 
 </script>
