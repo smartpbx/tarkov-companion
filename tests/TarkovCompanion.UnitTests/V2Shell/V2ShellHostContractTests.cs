@@ -1,3 +1,4 @@
+using System.Globalization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 
@@ -152,7 +153,8 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
         Assert.Contains("Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter", shell, StringComparison.Ordinal);
         Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
-        Assert.Contains("<ContentControl Grid.Row=\"1\" IsVisible=\"{Binding ShowsLegacyPage}\"", shell, StringComparison.Ordinal);
+        // V2 rough package 30 gave this host V1's own page inset; the binding is what matters here.
+        Assert.Contains("IsVisible=\"{Binding ShowsLegacyPage}\" Content=\"{Binding LegacyPage}\"", shell, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding SectionItems}\"", shell, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"v2-shell-sections\"", shell, StringComparison.Ordinal);
         // V2 rough package 21: the primary destinations row dropped DisplayLabel's "› " current
@@ -200,7 +202,13 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("<Button Grid.Column=\"2\"", readinessTemplate, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"{Binding AutomationId}\"", readinessTemplate, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"{Binding AutomationName}\"", readinessTemplate, StringComparison.Ordinal);
-        Assert.DoesNotContain("<Border Classes=\"v2-card\" Margin=\"0,0,0,8\"\n                              AutomationProperties", readinessTemplate, StringComparison.Ordinal);
+        // Normalised, because this file is checked out with CRLF on the Windows runner and a
+        // needle carrying a bare newline matches nothing there — which for a DoesNotContain means
+        // it passes without having looked.
+        Assert.DoesNotContain(
+            "<Border Classes=\"v2-card\" Margin=\"0,0,0,8\"\n                              AutomationProperties",
+            readinessTemplate.Replace("\r\n", "\n", StringComparison.Ordinal),
+            StringComparison.Ordinal);
         Assert.Contains("V2ShellFocusTargets.ReadinessTarget(check.Id)", model, StringComparison.Ordinal);
         Assert.Contains("Readiness.RequiredCount", model, StringComparison.Ordinal);
         Assert.DoesNotContain("Readiness.Checks.Count,", model, StringComparison.Ordinal);
@@ -260,4 +268,93 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("interactionSmoke", gallery, StringComparison.Ordinal);
         Assert.Contains("Save-ScreenImage", gallery, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// V2 rough package 30 (acceptance sweep): the layout repairs that a photograph found and no
+    /// other check could have, re-pointed after packages 28 and 25 moved what holds them.
+    /// </summary>
+    /// <remarks>
+    /// The sweep found five pages whose right-hand button was sliced off by the window frame,
+    /// because the V2 shell hosted the V1 page without the page inset V1's own window gives it.
+    /// Packages 28 and 25 then replaced all five with native V2 workspaces, so the inset moved
+    /// into those workspaces and the shell's hosted-page branch became unreachable. The fault is
+    /// the same one — a page drawn flush to the window edge — so this follows it rather than
+    /// asserting markup nothing renders any more.
+    ///
+    /// Written against properties, not numbers: a cap or an inset is free to change, and package
+    /// 32 and #421 both changed one. And with no embedded newlines, because these files are
+    /// checked out with CRLF on the Windows runner and a "\n" in the needle matches nothing there
+    /// — a guard that silently cannot fire is worse than no guard.
+    /// </remarks>
+    [Fact]
+    public void The_workspaces_that_replaced_the_hosted_V1_pages_keep_a_page_inset()
+    {
+        var registry = ReadRepositoryText("src", "TarkovCompanion.App", "Services", "V2", "Shell", "V2RouteRegistry.cs");
+
+        // The premise: nothing is a hosted V1 page any more, which is why the inset moved.
+        Assert.DoesNotContain("V2RouteContent.LegacyPage,", registry, StringComparison.Ordinal);
+
+        foreach (var view in new[]
+        {
+            ("Intel", "AmmoWorkspaceView"),
+            ("Intel", "KeysWorkspaceView"),
+            ("Intel", "FleaWorkspaceView"),
+            ("Plan", "LoadoutWorkspaceView"),
+            ("Plan", "EventsWorkspaceView"),
+        })
+        {
+            var markup = ReadRepositoryText("src", "TarkovCompanion.App", "Views", "V2", view.Item1, $"{view.Item2}.axaml");
+            var inset = System.Text.RegularExpressions.Regex.Match(markup, "Margin=\"(\\d+),(\\d+),(\\d+),(\\d+)\"");
+            Assert.True(inset.Success, $"{view.Item2} has no page inset at all; its content will touch the window frame.");
+
+            var left = int.Parse(inset.Groups[1].Value, CultureInfo.InvariantCulture);
+            var right = int.Parse(inset.Groups[3].Value, CultureInfo.InvariantCulture);
+            Assert.True(
+                left >= 12 && right >= 12,
+                $"{view.Item2}'s first inset is {left} left and {right} right. The sweep found every one of " +
+                "these pages with its right-hand button cut off by the window frame when there was none.");
+        }
+    }
+
+    /// <summary>
+    /// V2 rough package 30: the panels that were drawn far larger than what they hold.
+    /// </summary>
+    [Fact]
+    public void The_Intel_and_Plan_panels_are_the_size_of_what_they_hold()
+    {
+        var intel = ReadRepositoryText("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelWorkspaceView.axaml");
+        var intelStyles = ReadRepositoryText("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelStyles.axaml");
+        var hideout = ReadRepositoryText("src", "TarkovCompanion.App", "Views", "V2", "Plan", "HideoutWorkspaceView.axaml");
+        var raid = ReadRepositoryText("src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml");
+
+        // The context column only exists once there is something to put in it.
+        Assert.Contains("IsVisible=\"{Binding ShowsIntelContextPanel}\"", intel, StringComparison.Ordinal);
+
+        // The item footprint hugs its own cells. #419 moved these styles into a shared sheet, so
+        // the floor that made it a 1350x200 empty box is checked wherever the style now lives.
+        Assert.Contains("<Border Classes=\"v2-intel-stage\" HorizontalAlignment=\"Left\"", intel, StringComparison.Ordinal);
+        var stage = intelStyles.IndexOf("Border.v2-intel-stage", StringComparison.Ordinal);
+        Assert.True(stage >= 0, "the item footprint's style has moved again; find it before trusting this test.");
+        var stageStyle = intelStyles[stage..intelStyles.IndexOf("</Style>", stage, StringComparison.Ordinal)];
+        Assert.DoesNotContain("MinHeight", stageStyle, StringComparison.Ordinal);
+
+        // The Hideout detail card hugs, and its cap is wide enough for the two columns #421 put
+        // inside it — a cap that cannot fit what it holds is the same fault in the other direction.
+        Assert.Contains("HorizontalAlignment=\"Left\" VerticalAlignment=\"Top\" MaxWidth=", hideout, StringComparison.Ordinal);
+        var cap = System.Text.RegularExpressions.Regex.Match(
+            hideout, "VerticalAlignment=\"Top\" MaxWidth=\"(\\d+)\"");
+        Assert.True(cap.Success, "the Hideout detail card no longer declares a cap.");
+        var sections = System.Text.RegularExpressions.Regex.Matches(hideout, "Classes=\"v2-hideout-section\"[^>]*Width=\"(\\d+)\"");
+        var widest = sections.Count == 0 ? 0 : sections.Max(match => int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture));
+        Assert.True(
+            int.Parse(cap.Groups[1].Value, CultureInfo.InvariantCulture) >= (widest * 2),
+            $"the Hideout card caps at {cap.Groups[1].Value} around sections {widest} wide, so they cannot form two columns.");
+
+        // Thirty extracts no longer push the rest of the raid plan off the bottom of the window.
+        Assert.Contains("<ScrollViewer MaxHeight=", raid, StringComparison.Ordinal);
+    }
+
+    /// <summary>Repository text with line endings normalised, so a needle matches on any checkout.</summary>
+    private static string ReadRepositoryText(params string[] segments) =>
+        File.ReadAllText(V2ShellTestData.RepositoryPath(segments)).Replace("\r\n", "\n", StringComparison.Ordinal);
 }
