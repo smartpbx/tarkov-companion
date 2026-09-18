@@ -549,6 +549,16 @@ public static class AppComposition
         services.AddSingleton<InMemoryStashReviewCommandSink>();
         services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<InMemoryStashReviewCommandSink>());
         services.AddSingleton<StashScanWorkflow>();
+        // [V2 rough package 40] The guided full-stash scan: several screenshots, one stash, and
+        // the owned counts a finished scan feeds. Refs #283 #273.
+        services.AddSingleton<StashLayoutAligner>();
+        services.AddSingleton<StashReconstructionProjector>();
+        services.AddSingleton<StashOwnedCountsApplier>();
+        services.AddSingleton<IGuidedStashScanPendingStore>(provider => new JsonFileGuidedStashScanStore(
+            Path.Combine(paths.Config, "stash-scan-in-progress.json"),
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<JsonFileGuidedStashScanStore>>()));
+        services.AddSingleton<GuidedStashScanService>();
+        services.AddSingleton<GuidedStashScanArming>();
         services.AddSingleton<StashScanWorkspaceViewModel>();
         services.AddSingleton<DebriefWorkspaceViewModel>();
         // v2r-team (package 9, wave 2): the Team workspace, over the same GroupSessionService and

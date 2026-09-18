@@ -61,6 +61,78 @@ public sealed class StashScanWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task A_full_stash_scan_is_guided_shown_while_it_collects_and_saved_on_finish()
+    {
+        var store = new FakeSnapshotStore();
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var workflow = Workflow(store, reviewCommands);
+        var guided = new GuidedStashScanService(
+            new StashScanAssembler(),
+            new StashLayoutAligner(),
+            new StashReconstructionProjector(),
+            workflow,
+            new StashOwnedCountsApplier(new StubProfileService(RuntimeSnapshot().Profile!)),
+            new MemoryPendingStore());
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            workflow,
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()),
+            guidedScan: guided);
+        await viewModel.LoadAsync();
+        Assert.True(viewModel.IsScanIdle);
+        Assert.True(viewModel.ShowsNothingScanned);
+
+        await ((AsyncDelegateCommand)viewModel.StartSelectedScanCommand).ExecuteAsync();
+
+        Assert.True(viewModel.IsScanInProgress);
+        Assert.False(viewModel.CanFinishScan);
+        Assert.Contains("top of your stash", guided.Current.NextStep, StringComparison.Ordinal);
+
+        // One screen: a named item, and a rectangle nothing could name.
+        var image = StashScanFixtures.SyntheticStashPainter.RenderFrame(
+            StashScanFixtures.SyntheticStashLayout.Of(
+                14,
+                new StashScanFixtures.SyntheticStashPlacement(StashScanFixtures.SyntheticStashLayout.Catalog[10], 2, 3)),
+            firstRow: 0);
+        var request = await new TarkovCompanion.Infrastructure.Recognition.Grid.GridPixelReconstructionBuilder(
+                new StashScanMeasurement.FixedIconEvidenceCache([]),
+                new StashScanMeasurement.FixedItemRepository(new Dictionary<string, ItemDefinition>()),
+                new StashScanMeasurement.UnavailableOcrEngine())
+            .BuildAsync(image, TarkovCompanion.Core.Domain.Recognition.Grid.InventoryGridSurface.Stash, StashScanMeasurement.ObservedUtc, cancellationToken: CancellationToken.None);
+        var outcome = await guided.AddScreenshotAsync(
+            "artifact-vm",
+            TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New(),
+            new(null, null, null, null, null, null, "desktop"),
+            new string('b', 64),
+            StashScanMeasurement.ObservedUtc,
+            0,
+            new TarkovCompanion.Infrastructure.Recognition.Grid.InventoryGridReconstructor().Reconstruct(request, CancellationToken.None),
+            CancellationToken.None);
+        Assert.Equal(GuidedStashFrameOutcome.Added, outcome);
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.CanFinishScan);
+        Assert.False(viewModel.ShowsNothingScanned);
+        var tile = Assert.Single(Assert.Single(viewModel.Regions).Tiles);
+        Assert.True(tile.IsUnresolved);
+        Assert.Equal("?", tile.Name);
+        Assert.Equal("Unknown item", tile.AutomationName);
+        Assert.Equal((2, 3, 2, 2), (tile.Row, tile.Column, tile.WidthCells, tile.HeightCells));
+        Assert.StartsWith("Scanning", viewModel.ReconstructionLabel, StringComparison.Ordinal);
+        Assert.Contains("1 unknown", viewModel.ReconstructionLabel, StringComparison.Ordinal);
+
+        await ((AsyncDelegateCommand)viewModel.FinishScanCommand).ExecuteAsync();
+
+        Assert.True(viewModel.IsScanIdle);
+        Assert.True(viewModel.HasSnapshots);
+        Assert.True(viewModel.HasSelection);
+        Assert.StartsWith("Scan saved.", viewModel.Status, StringComparison.Ordinal);
+        Assert.True(Assert.Single(Assert.Single(viewModel.Regions).Tiles).IsUnresolved);
+    }
+
+    [Fact]
     public async Task Selecting_a_snapshot_splits_ammo_keys_and_general_items()
     {
         var store = new FakeSnapshotStore();
@@ -274,6 +346,25 @@ public sealed class StashScanWorkspaceViewModelTests
         V2ContractTestData.Complete<bool?>("item.rotated", false),
         V2ContractTestData.Complete<bool?>("item.foundInRaid", true),
         V2ContractTestData.Complete("item.condition", ItemConditionReading.NotApplicable));
+
+    private sealed class MemoryPendingStore : IGuidedStashScanPendingStore
+    {
+        private GuidedStashScanPending? _pending;
+
+        public Task<GuidedStashScanPending?> LoadAsync(CancellationToken cancellationToken) => Task.FromResult(_pending);
+
+        public Task SaveAsync(GuidedStashScanPending pending, CancellationToken cancellationToken)
+        {
+            _pending = pending;
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAsync(CancellationToken cancellationToken)
+        {
+            _pending = null;
+            return Task.CompletedTask;
+        }
+    }
 
     private sealed class FakeSnapshotStore : IStashSnapshotStore
     {
