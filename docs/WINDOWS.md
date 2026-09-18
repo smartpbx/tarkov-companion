@@ -56,8 +56,9 @@ installing renames the player's data aside.
 
 Two things are not true yet, and are recorded rather than implied:
 
-- **In-app updates are not composed yet.** The anonymous public `GithubSource` has been removed,
-  so an unconfigured gateway fails closed. The bounded authenticated transport, pinned Sigstore
+- **Signed in-app updates are not composed yet.** The anonymous public `GithubSource` has been
+  removed. An installed build follows the unsigned rough channel on the relay instead
+  (`RELEASES.md`, "The rough channel"). The bounded authenticated transport, pinned Sigstore
   verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
   has to compose them with Velopack and component activation, and #270 supplies persisted state.
 - **Delta packages are not produced.** Verification packs full packages only; the release chain

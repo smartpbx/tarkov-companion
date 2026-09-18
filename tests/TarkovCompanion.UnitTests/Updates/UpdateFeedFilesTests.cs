@@ -37,12 +37,13 @@ public sealed class UpdateFeedFilesTests
         Assert.Null(UpdateFeedFiles.Resolve(Root, channel, file));
     }
 
+    /// <summary>Only a file named after its version may be cached; the feed and the installer keep their names.</summary>
     [Fact]
-    public void TheFeedIsNeverCachedAndAPackageMayBe()
+    public void OnlyAVersionedPackageMayBeCached()
     {
-        Assert.True(UpdateFeedFiles.IsFeedDocument("releases.win.json"));
-        Assert.True(UpdateFeedFiles.IsFeedDocument("RELEASES"));
-        Assert.False(UpdateFeedFiles.IsFeedDocument("TarkovCompanionDesktop-1.0.1301-full.nupkg"));
+        Assert.True(UpdateFeedFiles.IsCacheable("TarkovCompanionDesktop-1.0.1301-full.nupkg"));
+        Assert.False(UpdateFeedFiles.IsCacheable("releases.win.json"));
+        Assert.False(UpdateFeedFiles.IsCacheable("TarkovCompanionDesktop-win-Setup.exe"));
         Assert.Equal("application/json", UpdateFeedFiles.ContentType("releases.win.json"));
         Assert.Equal("application/octet-stream", UpdateFeedFiles.ContentType("TarkovCompanionDesktop-win-Setup.exe"));
     }

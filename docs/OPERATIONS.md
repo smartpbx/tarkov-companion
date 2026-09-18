@@ -28,8 +28,11 @@ old screenshots to the recycle bin, and only when that is switched on.
 
 **How it updates.** The anonymous public-release updater has been removed. The signed private-feed
 consumer exists but is intentionally not composed until #294 supplies activation and #270 supplies
-durable consumer state, so the application currently reports that the private feed is not
-configured. Until then, signed desktop builds use the verified offline path in `RELEASES.md`.
+durable consumer state. Until then an installed build follows the unsigned rough channel the
+relay serves at `/updates/rough/` (what it proves and does not: `RELEASES.md`, "The rough
+channel"; how to publish to it: `deploy/group-server/README.md`), and signed desktop builds use
+the verified offline path in `RELEASES.md`. A build run from a portable zip does not update
+itself and keeps its data beside its executable.
 
 ## The group relay
 

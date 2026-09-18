@@ -59,16 +59,16 @@ public static partial class UpdateFeedFiles
     }
 
     /// <summary>
-    /// Whether a file is the feed itself rather than a package the feed names.
+    /// Whether a file may be cached by the proxy in front of this relay.
     /// </summary>
     /// <remarks>
-    /// The feed changes with every build and must never be served stale by the proxy in front
-    /// of this relay: a client holding yesterday's feed is a client that is quietly not updating.
-    /// A package is named after its version and is safe to cache.
+    /// Only a package, because only a package is named after its version and so never changes
+    /// under its name. The feed changes with every build, and a client holding yesterday's feed
+    /// is a client that is quietly not updating. The installer keeps one name across builds, and
+    /// the proxy caches that extension by default, so it is marked the same way.
     /// </remarks>
-    public static bool IsFeedDocument(string file) =>
-        file.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
-        || file.Equals("RELEASES", StringComparison.OrdinalIgnoreCase);
+    public static bool IsCacheable(string file) =>
+        file.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase);
 
     public static string ContentType(string file) =>
         file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? "application/json"
@@ -87,7 +87,7 @@ public static partial class UpdateFeedFiles
                 return Results.NotFound();
             }
 
-            context.Response.Headers.CacheControl = IsFeedDocument(file) ? "no-cache" : "public, max-age=3600";
+            context.Response.Headers.CacheControl = IsCacheable(file) ? "public, max-age=3600" : "no-cache";
             // Ranges, so a download that drops at 80 MB can resume instead of starting again.
             return Results.File(path, ContentType(file), enableRangeProcessing: true);
         });
