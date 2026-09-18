@@ -1,3 +1,5 @@
+using TarkovCompanion.Application.Services;
+
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
 /// <summary>One folder the companion chose, why it chose it, and when it last changed.</summary>
@@ -58,7 +60,32 @@ public sealed record SelfTestScreenshot(
     string Clock,
     TimeSpan Waited,
     TimeSpan? EndToEnd,
-    string? Problem = null);
+    string? Problem = null)
+{
+    /// <summary>
+    /// True when this screenshot was already on disk when the probe started.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] Reported by Clayton: the probe failed "only because i cant alt tab
+    /// back to the game and screenshot fast enough". A shot taken in the last few minutes is
+    /// evidence of exactly the same thing and one almost always exists, so the probe uses it —
+    /// and says which file, because "it worked" about an unnamed file is the kind of claim this
+    /// page exists to replace.
+    /// </remarks>
+    public bool WasAlreadyThere { get; init; }
+
+    /// <summary>
+    /// What kind of name the file carries, which decides whether not parsing is a fault.
+    /// </summary>
+    /// <remarks>
+    /// A screenshot taken in the menu or after a raid carries no position by design, so refusing
+    /// to read one is correct behaviour and must never be reported as broken.
+    /// </remarks>
+    public ScreenshotNameKind NameKind { get; init; } = ScreenshotNameKind.Unrecognized;
+
+    /// <summary>How old the file was when it was read, for one that was already there.</summary>
+    public TimeSpan? Age { get; init; }
+}
 
 /// <summary>One game-data endpoint as the local database last recorded it.</summary>
 public sealed record SelfTestEndpoint(
@@ -165,6 +192,15 @@ public interface ISelfTestReadings
 
     /// <summary>Waits for the player to take a screenshot, up to <paramref name="patience"/>.</summary>
     Task<SelfTestScreenshot> WatchScreenshotAsync(TimeSpan patience, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A screenshot already on disk from the last <paramref name="lookBack"/>, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] The probe's first question, and usually its last: a shot taken a
+    /// couple of minutes ago proves the same path as one taken now and costs nobody an alt-tab.
+    /// </remarks>
+    Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken);
 
     Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken);
 

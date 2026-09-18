@@ -36,6 +36,9 @@ public sealed class SelfTestRowViewModel : BindableViewModel
         SelfTestOutcome.Pass => "ready",
         SelfTestOutcome.Fail => "failed",
         SelfTestOutcome.Unknown => "unconfirmed",
+        // [V2 rough package 43a] Waiting is not a verdict, so it borrows the neutral style rather
+        // than any of the three that mean something was measured.
+        SelfTestOutcome.Waiting => "pending",
         _ => "pending",
     };
 
@@ -44,6 +47,9 @@ public sealed class SelfTestRowViewModel : BindableViewModel
     public bool IsFail => Outcome == SelfTestOutcome.Fail;
 
     public bool IsUnknown => Outcome == SelfTestOutcome.Unknown;
+
+    /// <summary>Open and waiting for the player — not a failure, and not finished.</summary>
+    public bool IsWaiting => Outcome == SelfTestOutcome.Waiting;
 
     public bool IsRunning => Outcome == SelfTestOutcome.Running;
 
@@ -74,6 +80,7 @@ public sealed class SelfTestRowViewModel : BindableViewModel
         OnPropertyChanged(nameof(IsPass));
         OnPropertyChanged(nameof(IsFail));
         OnPropertyChanged(nameof(IsUnknown));
+        OnPropertyChanged(nameof(IsWaiting));
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(Took));
     }
@@ -107,6 +114,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
     private readonly TimeProvider _clock;
     private readonly Action<Action> _toUiThread;
     private CancellationTokenSource? _running;
+    private Task? _settling;
     private SelfTestSummary _summary = SelfTestSummary.Empty;
     private string _status = "Press Run self-test to check every part of this installation.";
     private string _copyStatus = string.Empty;
@@ -180,11 +188,22 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
             if (SetProperty(ref _isRunning, value))
             {
                 OnPropertyChanged(nameof(CanCopy));
+                OnPropertyChanged(nameof(CanStop));
             }
         }
     }
 
     public bool CanCopy => !IsRunning && _summary.Capabilities.Count > 0;
+
+    /// <summary>
+    /// Whether there is anything to stop: the run, or the screenshot wait that outlives it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] The wait is harmless and gives up on its own after a few minutes,
+    /// but a control that is still open with no visible way to close it is its own small
+    /// annoyance.
+    /// </remarks>
+    public bool CanStop => IsRunning || AsksForScreenshot;
 
     /// <summary>
     /// The one thing the self-test asks the player to do.
@@ -194,12 +213,28 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
     /// the game's screenshot key, so the panel says so while it is waiting rather than reporting
     /// a failure the player could have prevented.
     /// </remarks>
-    public bool AsksForScreenshot => IsRunning &&
-        Rows.Any(row => row.Id == SelfTestProbes.ScreenshotsId && row.Outcome == SelfTestOutcome.Running);
+    /// <remarks>
+    /// [V2 rough package 43a] No longer tied to the run. The run finishes; this one capability goes
+    /// on waiting in the background for a few minutes and settles itself, so the prompt has to
+    /// outlive <see cref="IsRunning"/> or it would vanish exactly when it became true.
+    /// </remarks>
+    public bool AsksForScreenshot =>
+        Rows.Any(row => row.Id == SelfTestProbes.ScreenshotsId &&
+            row.Outcome is SelfTestOutcome.Running or SelfTestOutcome.Waiting);
 
-    public string ScreenshotPrompt => "Take a screenshot in the game now, so this can time one end to end.";
+    public string ScreenshotPrompt =>
+        "Take a screenshot in a raid any time in the next few minutes — this settles on its own. Nothing is wrong.";
 
     public SelfTestSummary Summary => _summary;
+
+    /// <summary>
+    /// The screenshot probe's background wait, while one is open.
+    /// </summary>
+    /// <remarks>
+    /// Internal so a test can await the settle rather than poll for it; nothing in the interface
+    /// needs it, because the panel learns the answer through the same rows the run updates.
+    /// </remarks>
+    internal Task? Settling => _settling;
 
     public async Task RunAsync()
     {
@@ -219,6 +254,7 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         }
 
         OnPropertyChanged(nameof(AsksForScreenshot));
+        OnPropertyChanged(nameof(CanStop));
         try
         {
             var session = new SelfTestSession(_readings(), _clock, CultureInfo.CurrentCulture);
@@ -226,6 +262,13 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
             _summary = summary;
             _journal.Record(summary);
             Status = summary.Headline(CultureInfo.CurrentCulture);
+            // The screenshot probe may still be open. It is not the run's business any more: the
+            // other six are settled and copyable, and this resolves itself when a screenshot shows
+            // up or quietly gives up saying nothing is wrong.
+            if (session.Settling is { } settling)
+            {
+                _settling = SettleAsync(settling, cancellation);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -234,11 +277,66 @@ public sealed class SetupSelfTestViewModel : BindableViewModel
         finally
         {
             IsRunning = false;
-            _running = null;
-            cancellation.Dispose();
+            if (_settling is null)
+            {
+                _running = null;
+                cancellation.Dispose();
+            }
+
+            // Otherwise the cancellation source stays alive and stays reachable from Stop, because
+            // the screenshot probe is still using it. SettleAsync owns it from here.
             OnPropertyChanged(nameof(AsksForScreenshot));
+            OnPropertyChanged(nameof(CanStop));
             OnPropertyChanged(nameof(CanCopy));
         }
+    }
+
+    /// <summary>
+    /// Folds the screenshot probe's late answer into the summary, once it settles.
+    /// </summary>
+    /// <remarks>
+    /// Re-records the journal because the run recorded a summary that said "waiting", and a report
+    /// somebody copies an hour later should carry what actually happened rather than the state it
+    /// was in when the button was pressed.
+    /// </remarks>
+    private async Task SettleAsync(Task<SelfTestCapability> settling, CancellationTokenSource owner)
+    {
+        SelfTestCapability capability;
+        try
+        {
+            capability = await settling.ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"The screenshot check failed: {exception.Message}";
+            return;
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        finally
+        {
+            // Held open past the run so Stop can still reach this wait; released once it is over.
+            _settling = null;
+            if (ReferenceEquals(_running, owner))
+            {
+                _running = null;
+            }
+
+            owner.Dispose();
+        }
+
+        _summary = _summary with
+        {
+            Capabilities = [.. _summary.Capabilities.Select(existing =>
+                existing.Id == SelfTestProbes.ScreenshotsId ? capability : existing)],
+        };
+        _journal.Record(_summary);
+        Status = _summary.Headline(CultureInfo.CurrentCulture);
+        OnPropertyChanged(nameof(AsksForScreenshot));
+        OnPropertyChanged(nameof(CanStop));
+        OnPropertyChanged(nameof(CanCopy));
     }
 
     public void Stop()

@@ -1,6 +1,8 @@
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.Shell;
 
+using TarkovCompanion.Application.Services;
+
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
 /// <summary>
@@ -209,6 +211,17 @@ public static class SelfTestProbes
                 took);
     }
 
+    /// <summary>
+    /// What one screenshot proved, or honestly could not.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] Two reports from Clayton shaped every branch below. The probe failed
+    /// "only because i cant alt tab back to the game and screenshot fast enough" — so a shot he had
+    /// already taken counts, and running out of patience is never a fault. And it called
+    /// <c>2026-09-18[19-03]_19.67 (1).png</c> broken, which is a post-raid screenshot the game
+    /// writes without a position on purpose — so "no position in the name" is only a fault when the
+    /// name says the shot was taken in a raid.
+    /// </remarks>
     public static SelfTestCapability Screenshots(
         SelfTestScreenshot reading,
         TimeSpan took,
@@ -223,22 +236,35 @@ public static class SelfTestProbes
 
         if (reading.FileName is null)
         {
+            // Never a failure. Nobody took a screenshot, which is a fact about the evening rather
+            // than about this installation, and the difference is what this page is for.
             return Unknown(
                 ScreenshotsId,
                 "Screenshots",
-                string.Create(culture, $"No screenshot arrived in {reading.Waited.TotalSeconds:0} s. Press the game's screenshot key while this is running."),
+                string.Create(culture, $"No screenshot was taken while this waited {reading.Waited.TotalMinutes:0.#} min. Nothing is wrong; take one in a raid and press Run again."),
                 [new(
-                    string.Create(culture, $"Watched {reading.Root} for {reading.Waited.TotalSeconds:0} s and nothing new appeared"),
+                    string.Create(culture, $"Watched {reading.Root} for {reading.Waited.TotalMinutes:0.#} min and nothing new appeared"),
                     "the screenshot folder, listed repeatedly")],
                 took);
         }
 
         var noticed = reading.NoticedUtc ?? default;
         var source = ReadAt(noticed, "the screenshot's own file", culture);
-        var facts = new List<SelfTestFact>(4)
+        var facts = new List<SelfTestFact>(5)
         {
-            new(string.Create(culture, $"{reading.FileName} appeared after {reading.Waited.TotalSeconds:0.0} s of watching"), source),
+            new(
+                reading.WasAlreadyThere
+                    ? string.Create(culture, $"Used {reading.FileName}, which was already in the folder")
+                    : string.Create(culture, $"{reading.FileName} appeared after {reading.Waited.TotalSeconds:0.0} s of watching"),
+                source),
         };
+        if (reading.WasAlreadyThere && reading.Age is { } age)
+        {
+            facts.Add(new(
+                string.Create(culture, $"It was taken {age.TotalMinutes:0.#} min before this ran"),
+                source));
+        }
+
         if (reading.WrittenUtc is { } written)
         {
             facts.Add(new(
@@ -249,18 +275,38 @@ public static class SelfTestProbes
         if (reading.EndToEnd is { } endToEnd)
         {
             facts.Add(new(
-                string.Create(culture, $"{endToEnd.TotalMilliseconds:N0} ms end to end, from the game writing the file to this position being parsed"),
+                reading.WasAlreadyThere
+                    ? string.Create(culture, $"{endToEnd.TotalMilliseconds:N0} ms from the game writing the file to this position being parsed, most of which is how long it sat there")
+                    : string.Create(culture, $"{endToEnd.TotalMilliseconds:N0} ms end to end, from the game writing the file to this position being parsed"),
                 source));
         }
 
         if (!reading.Parsed)
         {
-            facts.Add(new("No position came out of that name, so this screenshot would put nobody on the map", source));
+            // The game only writes the coordinate and rotation blocks for a shot taken in a raid.
+            // A menu, hideout or post-raid screenshot has nowhere for a position to be, so reading
+            // none out of it is the parser working, not failing.
+            if (reading.NameKind != ScreenshotNameKind.InRaid)
+            {
+                facts.Add(new(
+                    "The name carries no coordinates, which is what the game writes outside a raid",
+                    source));
+                return Unknown(
+                    ScreenshotsId,
+                    "Screenshots",
+                    "That screenshot was taken outside a raid, so it carries no position. Take one during a raid to test this end to end.",
+                    facts,
+                    took);
+            }
+
+            facts.Add(new(
+                "The name is shaped like an in-raid shot and still gave no position, so this screenshot would put nobody on the map",
+                source));
             return new(
                 ScreenshotsId,
                 "Screenshots",
                 SelfTestOutcome.Fail,
-                "A screenshot arrived and no position could be read from its name.",
+                "A screenshot taken in a raid arrived and no position could be read from its name.",
                 facts,
                 took);
         }
@@ -272,7 +318,9 @@ public static class SelfTestProbes
             ScreenshotsId,
             "Screenshots",
             SelfTestOutcome.Pass,
-            string.Create(culture, $"A screenshot arrived and gave a position in {reading.EndToEnd?.TotalMilliseconds ?? 0:N0} ms."),
+            reading.WasAlreadyThere
+                ? string.Create(culture, $"A screenshot you already had gave a position in {reading.EndToEnd?.TotalMilliseconds ?? 0:N0} ms.")
+                : string.Create(culture, $"A screenshot arrived and gave a position in {reading.EndToEnd?.TotalMilliseconds ?? 0:N0} ms."),
             facts,
             took);
     }
