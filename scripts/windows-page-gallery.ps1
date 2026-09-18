@@ -449,16 +449,50 @@ function Invoke-ShellInteraction {
             }
         }
         foreach ($BoundsAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedBounds" -Default @())) {
+            # V2 rough package 30 (acceptance sweep): named as well as identified. The V1 pages
+            # the V2 shell still hosts give their controls no automation id, and their controls
+            # are exactly the ones this measures.
+            $BoundsId = [string](Get-InteractionProperty -Object $BoundsAssertion -Name "automationId" -Default "")
+            $BoundsName = [string](Get-InteractionProperty -Object $BoundsAssertion -Name "name" -Default "")
+            $BoundsLabel = if ($BoundsId) { $BoundsId } else { $BoundsName }
             $BoundsElement = Wait-AutomationElement `
                 -WindowHandle $WindowHandle `
-                -AutomationId ([string]$BoundsAssertion.automationId)
+                -AutomationId $BoundsId `
+                -Name $BoundsName `
+                -ControlType (Get-AutomationControlType -Name ([string](Get-InteractionProperty -Object $BoundsAssertion -Name "controlType" -Default "")))
             if ($null -eq $BoundsElement) {
-                throw "'$Description' did not expose bounded element '$($BoundsAssertion.automationId)'."
+                throw "'$Description' did not expose bounded element '$BoundsLabel'."
             }
             $Bounds = $BoundsElement.Current.BoundingRectangle
-            if ($Bounds.Width -lt [double]$BoundsAssertion.minimumWidth -or
-                $Bounds.Height -lt [double]$BoundsAssertion.minimumHeight) {
-                throw "'$Description' measured '$($BoundsAssertion.automationId)' at $($Bounds.Width)x$($Bounds.Height), below $($BoundsAssertion.minimumWidth)x$($BoundsAssertion.minimumHeight)."
+            $MinimumWidth = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "minimumWidth" -Default 0)
+            $MinimumHeight = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "minimumHeight" -Default 0)
+            if ($Bounds.Width -lt $MinimumWidth -or $Bounds.Height -lt $MinimumHeight) {
+                throw "'$Description' measured '$BoundsLabel' at $($Bounds.Width)x$($Bounds.Height), below ${MinimumWidth}x${MinimumHeight}."
+            }
+
+            # V2 rough package 30 (acceptance sweep): a control the player is expected to press
+            # must actually be on the window. Every V1 page hosted inside the V2 shell drew
+            # without the page inset V1 gives it, so Ammo/Keys "Reload", Flea "Look up value",
+            # Loadout "Empty the kit" and Events "Create" were sliced by the window frame at
+            # 1920 and 3840 wide. UI Automation still found them, which is why the gallery
+            # passed; their bounding rectangles say what a photograph shows.
+            if ([bool](Get-InteractionProperty -Object $BoundsAssertion -Name "insideWindow" -Default $false)) {
+                Initialize-GalleryBounds
+                $WindowRect = New-Object TarkovCompanionGalleryBounds+RECT
+                if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $WindowRect)) {
+                    throw "'$Description' could not read the packaged window bounds."
+                }
+
+                # The frame's own border, not the page: a control inside it is still visible.
+                $Slack = 12
+                if ($Bounds.Left -lt ($WindowRect.Left - $Slack) -or
+                    $Bounds.Top -lt ($WindowRect.Top - $Slack) -or
+                    $Bounds.Right -gt ($WindowRect.Right + $Slack) -or
+                    $Bounds.Bottom -gt ($WindowRect.Bottom + $Slack)) {
+                    throw ("'$Description' left '$BoundsLabel' outside the window: " +
+                        "control [$($Bounds.Left),$($Bounds.Top),$($Bounds.Right),$($Bounds.Bottom)] " +
+                        "against window [$($WindowRect.Left),$($WindowRect.Top),$($WindowRect.Right),$($WindowRect.Bottom)].")
+                }
             }
         }
         foreach ($ExpectedName in @(Get-InteractionProperty -Object $Step -Name "expectedNames" -Default @())) {
@@ -524,19 +558,39 @@ function Invoke-ShellInteraction {
 
 # Matches the launch probe: the window asks for more room than a hosted runner's
 # default desktop has, and a cropped photograph of a layout is not evidence.
-if (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue) {
+<#
+    Asks the desktop for at least this much room and reports whether it got it.
+
+    V2 rough package 30 (acceptance sweep): the ultrawide captures need a desktop wider than the
+    1920x1080 this always asked for, and a hosted runner's virtual display may simply not offer
+    one. A photograph of a window cropped by a smaller desktop is not evidence of that window's
+    layout, so a shot that cannot be given its room is skipped with its reason recorded rather
+    than photographed and judged.
+#>
+function Request-DesktopSize {
+    param([int] $Width, [int] $Height)
+
+    $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    if ($Current.Width -ge $Width -and $Current.Height -ge $Height) { return $true }
+    if (-not (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue)) { return $false }
+
     try {
-        Set-DisplayResolution -Width 1920 -Height 1080 -Force
-        $Deadline = [DateTime]::UtcNow.AddSeconds(10)
-        do {
-            Start-Sleep -Milliseconds 250
-            $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
-        } while (($Current.Width -lt 1920 -or $Current.Height -lt 1080) -and [DateTime]::UtcNow -lt $Deadline)
+        Set-DisplayResolution -Width $Width -Height $Height -Force
     }
     catch {
-        Write-Host "Display resolution unchanged: $($_.Exception.Message)"
+        Write-Host "Display resolution unchanged at ${Width}x${Height}: $($_.Exception.Message)"
+        return $false
     }
+
+    $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+    do {
+        Start-Sleep -Milliseconds 250
+        $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    } while (($Current.Width -lt $Width -or $Current.Height -lt $Height) -and [DateTime]::UtcNow -lt $Deadline)
+    return ($Current.Width -ge $Width -and $Current.Height -ge $Height)
 }
+
+$null = Request-DesktopSize -Width 1920 -Height 1080
 
 <#
     Measures how much of the photograph actually has something on it.
@@ -583,6 +637,95 @@ function Measure-ImageContent {
         return [pscustomobject]@{
             distinctColors = $Counts.Count
             variedFraction = [Math]::Round(($Sampled - $Dominant) / $Sampled, 4)
+        }
+    }
+    finally {
+        $Bitmap.Dispose()
+    }
+}
+
+<#
+    V2 rough package 30 (acceptance sweep): measures dead area, which "visually varied" does not.
+
+    A page can be full of colour and still be mostly nothing: the Intel workspace kept a 460px
+    context panel drawn empty whenever no item was selected, a quarter of a 1920-wide window; on
+    a 3840x1080 ultrawide the map workspaces drew a plan across barely half their map card and
+    left the rest as slate. Both passed every existing check.
+
+    Two numbers, both taken from sampled rows down the body of the window and reported as medians
+    so one banner or one toolbar row cannot move them:
+
+      edgeDeadFraction  - how far a single flat colour runs inward from the right edge.
+      flatBandFraction  - the widest run of one flat colour anywhere in the row.
+
+    Neither is a judgement about design. They are bounds: a page that was fixed must not quietly
+    go back to leaving that much of the window empty.
+#>
+function Measure-DeadSpace {
+    param([string] $Path, [int] $LeftInset = 176)
+
+    $Bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+    try {
+        $Rect = New-Object System.Drawing.Rectangle 0, 0, $Bitmap.Width, $Bitmap.Height
+        $Data = $Bitmap.LockBits($Rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try {
+            $Stride = [Math]::Abs($Data.Stride)
+            $Bytes = New-Object byte[] ($Stride * $Bitmap.Height)
+            [System.Runtime.InteropServices.Marshal]::Copy($Data.Scan0, $Bytes, 0, $Bytes.Length)
+        }
+        finally {
+            $Bitmap.UnlockBits($Data)
+        }
+
+        # Past the navigation rail, and clear of the top bar and the bottom edge: those are
+        # chrome, and chrome is meant to be a flat colour.
+        $Left = [Math]::Min($LeftInset, [Math]::Max(0, $Bitmap.Width - 8))
+        $Top = [int]($Bitmap.Height * 0.2)
+        $Bottom = [int]($Bitmap.Height * 0.85)
+        $Step = 4
+        $Body = [Math]::Max(1, $Bitmap.Width - $Left)
+        $EdgeRuns = [System.Collections.Generic.List[double]]::new()
+        $BandRuns = [System.Collections.Generic.List[double]]::new()
+        for ($Y = $Top; $Y -lt $Bottom; $Y += 24) {
+            $Row = $Y * $Stride
+            $Key = {
+                param($X)
+                $Offset = $Row + ($X * 4)
+                return ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
+            }
+
+            $EdgeX = $Bitmap.Width - 1
+            $EdgeColour = & $Key $EdgeX
+            $EdgeRun = 0
+            for ($X = $EdgeX; $X -ge $Left; $X -= $Step) {
+                if ((& $Key $X) -ne $EdgeColour) { break }
+                $EdgeRun += $Step
+            }
+            $EdgeRuns.Add([Math]::Min($EdgeRun, $Body) / $Body)
+
+            $Widest = 0
+            $Run = 0
+            $Previous = $null
+            for ($X = $Left; $X -lt $Bitmap.Width; $X += $Step) {
+                $Colour = & $Key $X
+                if ($Colour -eq $Previous) { $Run += $Step } else { $Run = $Step; $Previous = $Colour }
+                if ($Run -gt $Widest) { $Widest = $Run }
+            }
+            $BandRuns.Add([Math]::Min($Widest, $Body) / $Body)
+        }
+
+        if ($EdgeRuns.Count -eq 0) {
+            return [pscustomobject]@{ edgeDeadFraction = 0.0; flatBandFraction = 0.0 }
+        }
+
+        $Median = {
+            param($Values)
+            $Sorted = @($Values | Sort-Object)
+            return [Math]::Round($Sorted[[int]($Sorted.Count / 2)], 4)
+        }
+        return [pscustomobject]@{
+            edgeDeadFraction = & $Median $EdgeRuns
+            flatBandFraction = & $Median $BandRuns
         }
     }
     finally {
@@ -682,6 +825,12 @@ function New-ShotResult {
         screenshot = $null
         distinctColors = 0
         variedFraction = 0.0
+        # V2 rough package 30 (acceptance sweep). -1 says "not measured for this shot".
+        edgeDeadFraction = -1.0
+        flatBandFraction = -1.0
+        deadSpaceWithinBounds = $true
+        deadSpaceDetail = "Not measured."
+        skipped = $false
         warningCaptureArmed = $false
         warningLineCount = 0
         interfaceFaultCount = 0
@@ -963,6 +1112,122 @@ $Shots.Add([pscustomobject]@{
         )
     }
 })
+
+# ---------------------------------------------------------------------------------------------
+# V2 rough package 30 — the acceptance sweep.
+#
+# Every address in V2RouteRegistry.Default for Variant A, photographed at the two widths Clayton
+# actually runs: an ordinary 1920x1080 window and his 3840x1080 ultrawide. The gallery already
+# proved these pages exist; this proves what they look like, and the photographs are published
+# as a CI artifact so a later run can be looked at without a Windows box.
+#
+# The launches reach each route through the persisted preview address rather than a flag, which
+# is the same path a deep link takes, and they run before the workflow seeds any game data — so
+# these are the data-empty captures. The data-present pair is rendered on Linux with
+# tools/V2RenderPreview, which cannot photograph the packaged shell but does have a database.
+#
+# Bounds, not opinions. Three of them, one per defect this package repaired:
+#   * insideWindow  - the V1 pages the shell still hosts drew without V1's own page inset, so
+#                     "Reload", "Look up value", "Empty the kit" and "Create" were cut off by
+#                     the window frame at both widths.
+#   * forbidden     - the Intel context panel was a fixed 460px column drawn empty until an item
+#                     was selected: a quarter of a 1920-wide window, every landing.
+#   * dead space    - a ceiling on how much of the body may be one flat colour, so neither of
+#                     those can quietly come back. The numbers are the measured ones plus
+#                     headroom, not aspirations; the map workspaces carry the loose ultrawide
+#                     bound they pass today (see the PR's route table) rather than none at all.
+$V2AcceptanceWidths = @(
+    [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080 },
+    [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 }
+)
+
+$LegacyPageBounds = {
+    param([string] $ButtonName)
+    return , [pscustomobject]@{ name = $ButtonName; controlType = "Button"; insideWindow = $true }
+}
+
+$V2AcceptanceRoutes = @(
+    [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
+        expected = @("v2-shell-navigation-rail", "v2-map-plan"); edge = 0.30; band = 0.70 },
+    [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.55 },
+    [pscustomobject]@{ key = "intel"; address = "#/intel"; heading = "Intel"
+        expected = @("v2-shell-navigation-rail", "v2-intel-results")
+        forbidden = @("v2-intel-context"); edge = 0.10; band = 0.60 },
+    [pscustomobject]@{ key = "intel-ammo"; address = "#/intel/ammo"; heading = "Ammo"
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload"); edge = 0.30 },
+    [pscustomobject]@{ key = "intel-keys"; address = "#/intel/keys"; heading = "Keys"
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload"); edge = 0.30 },
+    [pscustomobject]@{ key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Look up value"); edge = 0.40 },
+    # A real tarkov.dev item id (Graphics card). With no data synced yet this is the honest
+    # "nothing known about this item" state, which is exactly what a first run shows.
+    [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/57347ca924597744596b4e71"; heading = "Item"
+        expected = @("v2-shell-navigation-rail"); edge = 0.40 },
+    [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.60 },
+    [pscustomobject]@{ key = "plan"; address = "#/plan"; heading = "Plan"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.70 },
+    [pscustomobject]@{ key = "plan-hideout"; address = "#/plan/hideout"; heading = "Hideout"
+        expected = @("v2-shell-navigation-rail", "v2-hideout-status"); edge = 0.50 },
+    [pscustomobject]@{ key = "plan-loadout"; address = "#/plan/loadout"; heading = "Loadout"
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Empty the kit"); edge = 0.30 },
+    [pscustomobject]@{ key = "plan-events"; address = "#/plan/events"; heading = "Events"
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Create"); edge = 0.40 },
+    [pscustomobject]@{ key = "team"; address = "#/team"; heading = "Team"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.70 },
+    [pscustomobject]@{ key = "team-group"; address = "#/team/group"; heading = "Group"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+    [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+    [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
+        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+    [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
+        expected = @("v2-shell-navigation-rail"); edge = 0.20 }
+)
+
+foreach ($Route in $V2AcceptanceRoutes) {
+    foreach ($Size in $V2AcceptanceWidths) {
+        $Step = [ordered]@{
+            action = "assert"
+            description = "Variant A $($Route.address) at $($Size.width)x$($Size.height)"
+            expectedAutomationIds = @($Route.expected)
+            expectedHeading = $Route.heading
+        }
+        if ($null -ne (Get-InteractionProperty -Object $Route -Name "bounds")) {
+            $Step["expectedBounds"] = @($Route.bounds)
+        }
+        if ($null -ne (Get-InteractionProperty -Object $Route -Name "forbidden")) {
+            $Step["forbiddenAutomationIds"] = @($Route.forbidden)
+        }
+
+        $Shot = [ordered]@{
+            name = "v2-a-$($Route.key)-$($Size.suffix)"
+            args = @("--ui-shell", "v2-a")
+            shellMode = "v2-a"
+            width = $Size.width
+            height = $Size.height
+            seedPreview = [pscustomobject]@{ variant = "v2-a"; address = $Route.address; focusTarget = "" }
+            # Photograph the route, then assert against it; the assertions here change nothing.
+            captureBeforeInteraction = $true
+            interaction = [pscustomobject]@{ steps = @([pscustomobject]$Step) }
+            measureDeadSpace = $true
+        }
+        # The ultrawide bounds are the ones this package measured at 3840 and are looser than the
+        # 1920 ones by design: a plan that can only be as tall as the window leaves slate beside
+        # it there, which is a deferred layout problem, not a regression to catch tonight.
+        $EdgeBound = [double](Get-InteractionProperty -Object $Route -Name "edge" -Default -1)
+        if ($EdgeBound -ge 0) {
+            $Shot["maximumEdgeDeadFraction"] = if ($Size.width -ge 3840) { [Math]::Min(1.0, $EdgeBound + 0.15) } else { $EdgeBound }
+        }
+        $BandBound = [double](Get-InteractionProperty -Object $Route -Name "band" -Default -1)
+        if ($BandBound -ge 0) {
+            $Shot["maximumFlatBandFraction"] = if ($Size.width -ge 3840) { [Math]::Min(1.0, $BandBound + 0.15) } else { $BandBound }
+        }
+
+        $Shots.Add([pscustomobject]$Shot)
+    }
+}
 $Shots.Add([pscustomobject]@{
     name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
     width = 1100; height = 850
@@ -1092,6 +1357,22 @@ foreach ($Shot in $Shots) {
     $Process = $null
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
+        # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
+        if ($Shot.width -gt 0 -and $Shot.height -gt 0 -and
+            -not (Request-DesktopSize -Width ($Shot.width + 24) -Height ($Shot.height + 24))) {
+            $Desktop = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $Result.skipped = $true
+            $Result.presented = $true
+            $Result.visuallyVaried = $true
+            $Result.warningCaptureArmed = $true
+            $Result.gracefulShutdown = $true
+            $Result.interactionSmoke = $true
+            $Result.interactionDetail = "Skipped: the desktop is only $($Desktop.Width)x$($Desktop.Height)."
+            $Result.detail = "Skipped: a $($Shot.width)x$($Shot.height) window needs a desktop at least that large; this one is $($Desktop.Width)x$($Desktop.Height)."
+            $Result.deadSpaceDetail = "Not measured (skipped)."
+            continue
+        }
+
         $SeedPreview = Get-InteractionProperty -Object $Shot -Name "seedPreview"
         if ($null -ne $SeedPreview) { Set-V2PreviewState -Seed $SeedPreview }
         # Inherited by this launch only, and read back once it has exited. The application
@@ -1191,6 +1472,31 @@ foreach ($Shot in $Shots) {
         $Result.screenshot = (Split-Path -Leaf $Screenshot)
         $Result.distinctColors = $Content.distinctColors
         $Result.variedFraction = $Content.variedFraction
+
+        # V2 rough package 30 (acceptance sweep): a shot that declares a bound is measured
+        # against it. Shots without one are measured anyway and only reported, so the next
+        # person can see where the dead area actually is before choosing a bound for it.
+        $MaximumEdge = [double](Get-InteractionProperty -Object $Shot -Name "maximumEdgeDeadFraction" -Default -1)
+        $MaximumBand = [double](Get-InteractionProperty -Object $Shot -Name "maximumFlatBandFraction" -Default -1)
+        if ($MaximumEdge -ge 0 -or $MaximumBand -ge 0 -or [bool](Get-InteractionProperty -Object $Shot -Name "measureDeadSpace" -Default $false)) {
+            $Dead = Measure-DeadSpace -Path $Screenshot
+            $Result.edgeDeadFraction = $Dead.edgeDeadFraction
+            $Result.flatBandFraction = $Dead.flatBandFraction
+            $Breaches = @()
+            if ($MaximumEdge -ge 0 -and $Dead.edgeDeadFraction -gt $MaximumEdge) {
+                $Breaches += "a flat $([Math]::Round($Dead.edgeDeadFraction * 100, 1))% of the body runs in from the right edge (bound $([Math]::Round($MaximumEdge * 100, 1))%)"
+            }
+            if ($MaximumBand -ge 0 -and $Dead.flatBandFraction -gt $MaximumBand) {
+                $Breaches += "the widest flat band is $([Math]::Round($Dead.flatBandFraction * 100, 1))% of the body (bound $([Math]::Round($MaximumBand * 100, 1))%)"
+            }
+            $Result.deadSpaceWithinBounds = $Breaches.Count -eq 0
+            $Result.deadSpaceDetail = if ($Breaches.Count -eq 0) {
+                "Edge $([Math]::Round($Dead.edgeDeadFraction * 100, 1))% · widest flat band $([Math]::Round($Dead.flatBandFraction * 100, 1))%"
+            }
+            else {
+                "Dead area: " + ($Breaches -join "; ") + "."
+            }
+        }
     }
     catch {
         $Result.detail = $_.Exception.Message
@@ -1206,8 +1512,9 @@ foreach ($Shot in $Shots) {
 
         # Every outcome, including a launch that never showed a window: what the toolkit said
         # on the way down is often the explanation. Read after the close, so it is all there.
+        # A skipped shot never launched, so there is nothing of its own to read.
         try {
-            $Lines = Read-WarningLogLines -Path $WarningLog
+            $Lines = if ($Result.skipped) { $null } else { Read-WarningLogLines -Path $WarningLog }
             if ($null -ne $Lines) {
                 $Faults = Get-InterfaceFaultLines -Lines $Lines -Pattern $FailOnWarningPattern
                 $Result.warningCaptureArmed = $Lines.Count -gt 0
@@ -1233,10 +1540,11 @@ $Faulted = @($Results | Where-Object { $_.interfaceFaultCount -gt 0 })
 $Unarmed = @($Results | Where-Object { -not $_.warningCaptureArmed })
 $Ungraceful = @($Results | Where-Object { -not $_.gracefulShutdown })
 $InteractionFailed = @($Results | Where-Object { $_.interactionRequired -and -not $_.interactionSmoke })
+$DeadSpace = @($Results | Where-Object { -not $_.deadSpaceWithinBounds })
 $Failed = @($Results | Where-Object {
     -not $_.presented -or -not $_.visuallyVaried -or $_.interfaceFaultCount -gt 0 -or
         -not $_.warningCaptureArmed -or -not $_.gracefulShutdown -or
-        ($_.interactionRequired -and -not $_.interactionSmoke)
+        ($_.interactionRequired -and -not $_.interactionSmoke) -or -not $_.deadSpaceWithinBounds
 })
 
 $Report = [pscustomobject]@{
@@ -1250,6 +1558,8 @@ $Report = [pscustomobject]@{
     warningCaptureUnarmedCount = $Unarmed.Count
     ungracefulShutdownCount = $Ungraceful.Count
     interactionFailureCount = $InteractionFailed.Count
+    deadSpaceFailureCount = $DeadSpace.Count
+    skippedCount = @($Results | Where-Object { $_.skipped }).Count
     scope = "Responsive visual variation, retained-route, focus, dialog, title and current-destination UI Automation assertions, graceful shutdown, and toolkit interface faults; full usability/accessibility and data/tile readiness are not proven and remain open #279 criteria that depend on the application readiness signal owned by #281."
 }
 
@@ -1258,8 +1568,9 @@ New-Item -ItemType Directory -Path $Directory -Force | Out-Null
 $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $OutputPath -Encoding utf8
 
 foreach ($Result in $Results) {
-    $Mark = if ($Failed -contains $Result) { "FAIL" } else { "ok  " }
-    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)"
+    $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($Result.skipped) { "skip" } else { "ok  " }
+    $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
+    Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Dead"
     foreach ($Line in @($Result.interfaceFaults | Select-Object -First 5)) {
         Write-Host "     $Line"
     }
@@ -1276,6 +1587,7 @@ if ($Faulted.Count -gt 0) { $Problems += "interface faults: $(($Faulted | ForEac
 if ($Unarmed.Count -gt 0) { $Problems += "warning capture was not armed: $(($Unarmed | ForEach-Object { $_.page }) -join ', ')" }
 if ($Ungraceful.Count -gt 0) { $Problems += "packaged app did not shut down gracefully: $(($Ungraceful | ForEach-Object { $_.page }) -join ', ')" }
 if ($InteractionFailed.Count -gt 0) { $Problems += "packaged-shell interaction failed: $(($InteractionFailed | ForEach-Object { $_.page }) -join ', ')" }
+if ($DeadSpace.Count -gt 0) { $Problems += "too much of the window is empty: $(($DeadSpace | ForEach-Object { "$($_.page) ($($_.deadSpaceDetail))" }) -join '; ')" }
 
 if ($Problems.Count -gt 0) {
     throw ($Problems -join "; ")

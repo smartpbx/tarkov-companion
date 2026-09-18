@@ -345,6 +345,11 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
+              <!-- V2 rough package 30 (acceptance sweep): Customs lists thirty extracts. Drawn in
+                   full they pushed Marks and the loot filters past the bottom of a 1080-tall
+                   window, so the panel was one endless list instead of the concept's short
+                   extract card followed by the rest of the plan. It scrolls within its own card. -->
+              <ScrollViewer MaxHeight="330" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
               <ItemsControl ItemsSource="{Binding MapExtracts}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -370,6 +375,7 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
+              </ScrollViewer>
               <TextBlock Classes="v2-label" Text="{Binding ExtractsNotMatched}"
                          IsVisible="{Binding HasExtractsNotMatched}" TextWrapping="Wrap" />
               <TextBlock Classes="v2-label" Text="{Binding Transits}"

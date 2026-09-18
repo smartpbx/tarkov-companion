@@ -382,13 +382,31 @@ jobs:
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
-        timeout-minutes: 16
+        timeout-minutes: 35
         shell: powershell
         run: |
           ./scripts/windows-page-gallery.ps1 `
             -AppPath $env:TC_APP `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/page-gallery.json") `
             -ScreenshotDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/pages")
+
+      # V2 rough package 30 (acceptance sweep): the V2 route captures themselves, so a later run
+      # can be looked at rather than only counted. Deliberately narrow, and deliberately not the
+      # whole screenshot directory: these are the V2 shell's own surfaces on a machine that has
+      # not yet been given any game data or profile, photographed before the "Seed the data a
+      # user would already have" step below. The Events page is excluded because it prints the
+      # local configuration directory, which carries the runner account name; everything the
+      # sanitizer already covers stays in the windows-verification artifact instead.
+      - name: Publish the V2 route captures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v2-route-gallery
+          path: |
+            verification/pages/v2-a-*.png
+            !verification/pages/v2-a-plan-events-*.png
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Headless self-test after first run
         id: self-test-warm

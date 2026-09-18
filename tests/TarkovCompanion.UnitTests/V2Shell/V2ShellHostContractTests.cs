@@ -152,7 +152,8 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
         Assert.Contains("Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter", shell, StringComparison.Ordinal);
         Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
-        Assert.Contains("<ContentControl Grid.Row=\"1\" IsVisible=\"{Binding ShowsLegacyPage}\"", shell, StringComparison.Ordinal);
+        // V2 rough package 30 gave this host V1's own page inset; the binding is what matters here.
+        Assert.Contains("IsVisible=\"{Binding ShowsLegacyPage}\" Content=\"{Binding LegacyPage}\"", shell, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding SectionItems}\"", shell, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"v2-shell-sections\"", shell, StringComparison.Ordinal);
         // V2 rough package 21: the primary destinations row dropped DisplayLabel's "› " current
@@ -259,5 +260,42 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("gracefulShutdown", gallery, StringComparison.Ordinal);
         Assert.Contains("interactionSmoke", gallery, StringComparison.Ordinal);
         Assert.Contains("Save-ScreenImage", gallery, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// V2 rough package 30 (acceptance sweep): the three layout repairs that a photograph found
+    /// and no existing check could have.
+    /// </summary>
+    /// <remarks>
+    /// Source assertions rather than a rendered comparison, because the gallery that photographs
+    /// these pages only runs on Windows and these are one-line properties that are easy to lose
+    /// in an unrelated edit. What each one prevents is named in the assertion message the file
+    /// itself carries beside the change.
+    /// </remarks>
+    [Fact]
+    public void Hosted_V1_pages_and_the_Intel_panels_keep_the_insets_that_stopped_them_being_cut_off()
+    {
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+        var intel = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelWorkspaceView.axaml"));
+        var hideout = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Plan", "HideoutWorkspaceView.axaml"));
+        var raid = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"));
+
+        // A V1 page hosted here gets V1's own page inset; without it their right-hand buttons
+        // were sliced by the window frame.
+        Assert.Contains(
+            "<ContentControl Grid.Row=\"1\" Margin=\"18,6,18,12\"\n                          IsVisible=\"{Binding ShowsLegacyPage}\"",
+            shell,
+            StringComparison.Ordinal);
+
+        // The context column only exists once there is something to put in it.
+        Assert.Contains("IsVisible=\"{Binding HasIntelSelection}\"", intel, StringComparison.Ordinal);
+
+        // The item footprint and the hideout detail are the size of what they hold.
+        Assert.Contains("<Border Classes=\"v2-intel-stage\" HorizontalAlignment=\"Left\"", intel, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Setter Property=\"MinHeight\" Value=\"200\" />", intel, StringComparison.Ordinal);
+        Assert.Contains("HorizontalAlignment=\"Left\" VerticalAlignment=\"Top\" MaxWidth=\"860\"", hideout, StringComparison.Ordinal);
+
+        // Thirty extracts no longer push the rest of the raid plan off the bottom of the window.
+        Assert.Contains("<ScrollViewer MaxHeight=\"330\"", raid, StringComparison.Ordinal);
     }
 }
