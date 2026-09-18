@@ -91,6 +91,22 @@ Require-Text $Workflow '-ExpectedCommit "${{ github.sha }}"' 'expected GitHub SH
 Require-Text $Workflow 'Extracted package metadata does not match the expected GitHub version and commit.' 'extracted package identity check'
 Require-Text $Workflow 'Installed package metadata does not match the expected GitHub version and commit.' 'installed package identity check'
 
+# One version, decided once by scripts/build-version.sh and read everywhere else.
+#
+# The workflow used to spell "1.0." in front of the run number in seven places, so the number
+# never moved and an installed V2 build called itself 1.0.x. The checks below keep a version
+# from being typed into the workflow again, and keep each identity assertion comparing against
+# the decided version. The last one matters most: the launch probe skips its version check when
+# it is handed an empty string, so a misspelt variable would pass by comparing nothing.
+Require-Text $Workflow 'scripts/build-version.sh "${{ github.run_number }}"' 'build version decided by scripts/build-version.sh'
+Forbid-Text $Workflow '.${{ github.run_number }}' 'version spelt out in the workflow instead of read from TARKOV_BUILD_VERSION'
+Require-Text $Workflow '-ExpectedVersion $env:TARKOV_BUILD_VERSION' 'launch probe given the decided version'
+Require-Text $Workflow '$BuildInfo.version -cne $env:TARKOV_BUILD_VERSION' 'extracted package compared with the decided version'
+Require-Text $Workflow '$InstalledBuildInfo.version -cne $env:TARKOV_BUILD_VERSION' 'installed package compared with the decided version'
+Require-Text $Workflow 'The build version or the package path was not decided before this step.' 'refusal of an undecided version before any assertion can match nothing'
+Require-Text $Probe '[string] $ExpectedVersion' 'expected version parameter'
+Require-Text $Probe 'Expected package version' 'version identity failure'
+
 # Artifact policy, and a job summary that claims only what the artifact holds.
 Require-Text $Workflow 'windows-verification-summary.json' 'allowlisted sanitized summary upload'
 Require-Text $Workflow 'windows-verification-failures.txt' 'allowlisted failure excerpt upload'

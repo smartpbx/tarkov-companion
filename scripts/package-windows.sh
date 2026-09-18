@@ -3,7 +3,17 @@ set -euo pipefail
 
 readonly TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly TASK_PUBLISH_DIR="${TASK_PROJECT_ROOT}/artifacts/win-x64"
-readonly TASK_PACKAGE="${TASK_PROJECT_ROOT}/dist/TarkovCompanion-v1.0.0-win-x64.zip"
+# One version for everything this script stamps: the assemblies, BUILD_INFO.txt, update.json and
+# the zip's own name. CI decides it with scripts/build-version.sh and hands it over in
+# TARKOV_BUILD_VERSION; a local build asks the same script and gets a -dev version, which at
+# least does not claim to be a build a run produced.
+#
+# There used to be three. The zip was named v1.0.0 for every build ever made, the assemblies of
+# a local build said 1.0.0, and its BUILD_INFO.txt said 1.0.0-dev, all typed out separately, and
+# all still saying 1.0 long after the product was V2.
+TASK_VERSION="${TARKOV_BUILD_VERSION:-$("${TASK_PROJECT_ROOT}/scripts/build-version.sh")}"
+readonly TASK_VERSION
+readonly TASK_PACKAGE="${TASK_PROJECT_ROOT}/dist/TarkovCompanion-v${TASK_VERSION}-win-x64.zip"
 readonly TASK_TEMP_PACKAGE="${TASK_PACKAGE%.zip}.tmp.zip"
 readonly TASK_APP_PROJECT="${TASK_PROJECT_ROOT}/src/TarkovCompanion.App/TarkovCompanion.App.csproj"
 readonly TASK_SIMULATOR_PROJECT="${TASK_PROJECT_ROOT}/src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
@@ -26,7 +36,10 @@ if [[ "${TASK_PUBLISH_DIR}" != "${TASK_PROJECT_ROOT}/artifacts/win-x64" ]]; then
 fi
 
 rm -rf -- "${TASK_PUBLISH_DIR}"
-rm -f -- "${TASK_PACKAGE}" "${TASK_TEMP_PACKAGE}"
+# Every earlier package too, not only one of this name. The zip used to have one fixed name, so
+# removing it removed the last build; now the name carries the version, and a dist folder left
+# holding two zips is a folder somebody uploads the wrong one from.
+rm -f -- "${TASK_PROJECT_ROOT}"/dist/TarkovCompanion-v*-win-x64.zip "${TASK_PROJECT_ROOT}"/dist/TarkovCompanion-v*-win-x64.tmp.zip
 mkdir -p "${TASK_PUBLISH_DIR}" "${TASK_PROJECT_ROOT}/dist"
 
 # The application targets two frameworks: a portable one that Linux CI and the test projects
@@ -39,8 +52,6 @@ readonly TASK_APP_FRAMEWORK="net10.0-windows10.0.19041.0"
 # reported 1.0.0.0 -- including in the quest progress file it exports, which is the one place a
 # version travels to another machine -- so "which build produced this" had no answer at all.
 #
-# TARKOV_BUILD_VERSION is set by CI from the run number; a local build says so in its own name.
-readonly TASK_BUILD_VERSION="${TARKOV_BUILD_VERSION:-1.0.0}"
 TASK_BUILD_COMMIT="$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
 readonly TASK_BUILD_COMMIT
 
@@ -61,8 +72,8 @@ publish_project() {
         -p:PublishSingleFile=false \
         -p:DebugType=None \
         -p:DebugSymbols=false \
-        -p:Version="${TASK_BUILD_VERSION}" \
-        -p:InformationalVersion="${TASK_BUILD_VERSION}+${TASK_BUILD_COMMIT}"
+        -p:Version="${TASK_VERSION}" \
+        -p:InformationalVersion="${TASK_VERSION}+${TASK_BUILD_COMMIT}"
 }
 
 publish_project "${TASK_APP_PROJECT}" "${TASK_APP_FRAMEWORK}"
@@ -88,9 +99,7 @@ TASK_BUILT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # The build's own version, which must be the one the installer ships under. These were two
 # separate numbers: this file said 1.0.0 for every build ever made while the installer said
 # 1.0.<run>, so a report of "version 1.0.0" named no particular build and the two disagreed
-# on the machine. TARKOV_BUILD_VERSION is set by CI from the run number; a local build with
-# nothing set stays 1.0.0-dev, which at least does not claim to be a release.
-readonly TASK_VERSION="${TARKOV_BUILD_VERSION:-1.0.0-dev}"
+# on the machine. It is the one version decided at the top of this script.
 printf 'version=%s\ncommit=%s\nbuilt_utc=%s\n' \
     "${TASK_VERSION}" \
     "${TASK_COMMIT}" \
@@ -148,4 +157,9 @@ cat > "${TASK_PROJECT_ROOT}/dist/update.json" <<MANIFEST
   "run": "${TASK_RUN}"
 }
 MANIFEST
+# The workflow extracts, uploads and hands on this exact file. It is told the name rather than
+# left to spell it a second time, because a name spelled twice is a name that drifts.
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+    printf 'TARKOV_PACKAGE_ZIP=dist/%s\n' "$(basename "${TASK_PACKAGE}")" >> "${GITHUB_ENV}"
+fi
 printf 'Windows package created: %s\n' "${TASK_PACKAGE}"
