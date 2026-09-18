@@ -237,7 +237,7 @@ var build = typeof(GroupRooms).Assembly
 var version = build.Split('+')[0];
 // The first dot-separated piece of the metadata, because there are two commits in it.
 //
-// The workflow passes InformationalVersion=1.0.N+SHA and the SDK appends the source revision
+// The workflow passes InformationalVersion=VERSION+SHA and the SDK appends the source revision
 // on top, so /health reported the same forty characters twice with a dot between them. Nobody
 // read it closely enough to notice until the admin panel started printing it.
 var commit = build.Contains('+', StringComparison.Ordinal)

@@ -59,6 +59,17 @@ jobs:
           dotnet-version: 10.0.401
           cache: true
           cache-dependency-path: '**/*.csproj'
+      # The version of this build, decided once by scripts/build-version.sh and read by every
+      # step below from TARKOV_BUILD_VERSION. "1.0" used to be typed out nine times in
+      # this file, six in front of the run number and three in the zip's name, so it never
+      # moved and V2 shipped calling itself 1.0.x. No step spells a version any more, and the static check refuses one that does.
+      - name: Decide the build version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(./scripts/build-version.sh "${{ github.run_number }}")"
+          echo "TARKOV_BUILD_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "This build is $VERSION."
       - name: Restore
         run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
       - name: Build
@@ -78,7 +89,7 @@ jobs:
             --runtime linux-x64 \
             --self-contained true \
             -p:PublishSingleFile=false \
-            -p:InformationalVersion="1.0.${{ github.run_number }}+${{ github.sha }}" \
+            -p:InformationalVersion="${TARKOV_BUILD_VERSION}+${{ github.sha }}" \
             --output artifacts/group-server
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -163,6 +174,16 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
+      # The same decision the checks job made, from the same script and the same run number,
+      # so the relay built there and the desktop built here carry one version.
+      - name: Decide the build version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(./scripts/build-version.sh "${{ github.run_number }}")"
+          echo "TARKOV_BUILD_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "This build is $VERSION."
+
       - name: Report runner session facts
         shell: powershell
         run: |
@@ -237,12 +258,11 @@ jobs:
       - name: Package self-contained win-x64
         id: package
         shell: bash
-        env:
-          # The build's version, decided here and used by both the stamp inside the package
-          # and the installer that delivers it. They were separate numbers, so BUILD_INFO.txt
-          # read "1.0.0" on every build ever made while the installer said 1.0.<run>, and a
-          # report of "version 1.0.0" named no particular build.
-          TARKOV_BUILD_VERSION: 1.0.${{ github.run_number }}
+        # Reads TARKOV_BUILD_VERSION, so the stamp inside the package and the installer that
+        # delivers it are one number. They were separate once: BUILD_INFO.txt said the same
+        # fixed version on every build ever made while the installer counted runs, and a bug
+        # report naming that version named no particular build. It writes TARKOV_PACKAGE_ZIP,
+        # the zip it made, for the steps that extract and upload it.
         run: ./scripts/package-windows.sh
 
       - name: Extract package the way a user would
@@ -250,14 +270,23 @@ jobs:
         run: |
           $Target = Join-Path $env:RUNNER_TEMP "TarkovCompanion"
           New-Item -ItemType Directory -Path $Target -Force | Out-Null
-          Expand-Archive -LiteralPath "dist/TarkovCompanion-v1.0.0-win-x64.zip" -DestinationPath $Target -Force
+          # Empty would not fail by itself further down: the launch probe treats an empty
+          # expected version as "do not check", so a misspelt variable would pass every
+          # version assertion in this job by matching nothing.
+          if ([string]::IsNullOrWhiteSpace($env:TARKOV_BUILD_VERSION) -or [string]::IsNullOrWhiteSpace($env:TARKOV_PACKAGE_ZIP)) {
+            throw "The build version or the package path was not decided before this step."
+          }
+          if ((Split-Path -Leaf $env:TARKOV_PACKAGE_ZIP) -cne "TarkovCompanion-v$($env:TARKOV_BUILD_VERSION)-win-x64.zip") {
+            throw "The package is named $($env:TARKOV_PACKAGE_ZIP), which does not carry version $($env:TARKOV_BUILD_VERSION)."
+          }
+          Expand-Archive -LiteralPath $env:TARKOV_PACKAGE_ZIP -DestinationPath $Target -Force
           "TC_APP=$(Join-Path $Target 'TarkovCompanion.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TC_SIMULATOR=$(Join-Path $Target 'TarkovCompanion.EftSimulator.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $BuildInfo = @{}
           foreach ($Line in Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")) {
             if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $BuildInfo[$Matches.key] = $Matches.value }
           }
-          if ($BuildInfo.version -cne "1.0.${{ github.run_number }}" -or $BuildInfo.commit -cne "${{ github.sha }}") {
+          if ($BuildInfo.version -cne $env:TARKOV_BUILD_VERSION -or $BuildInfo.commit -cne "${{ github.sha }}") {
             throw "Extracted package metadata does not match the expected GitHub version and commit."
           }
           "Extracted package metadata matches the expected GitHub version and commit."
@@ -279,8 +308,7 @@ jobs:
           set -euo pipefail
           # Must match the version the packaging script stamped into BUILD_INFO.txt, or the
           # file inside the install and the installer that delivered it name different builds.
-          VERSION="1.0.${{ github.run_number }}"
-          echo "VELOPACK_VERSION=$VERSION" >> "$GITHUB_ENV"
+          VERSION="${TARKOV_BUILD_VERSION}"
           # Packs what verification actually launched, not a fresh build of it.
           # The pack id is the INSTALL DIRECTORY NAME, and it must not be the name the
           # application already uses for its data. Velopack installs to
@@ -316,7 +344,8 @@ jobs:
         shell: powershell
         run: |
           python scripts/release/rough_channel.py stage `
-            --velopack dist/velopack --output dist/rough-channel
+            --velopack dist/velopack --output dist/rough-channel `
+            --expect-version $env:TARKOV_BUILD_VERSION
           if ($LASTEXITCODE -ne 0) { throw "Staging the rough update channel failed." }
           Get-Content -LiteralPath dist/rough-channel/SHA256SUMS.txt
 
@@ -342,6 +371,12 @@ jobs:
           if (Test-Path -LiteralPath $Report) {
             $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
             "Cold self-test success: $($SelfTest.success)"
+            # What the binary says it is, against what it was packaged as. BUILD_INFO.txt is a
+            # file beside the executable and was already checked; this is the executable's own
+            # answer, which is what Setup, the crash log and a support bundle all print.
+            if ($SelfTest.build.version -cne $env:TARKOV_BUILD_VERSION -or $SelfTest.build.commit -cne "${{ github.sha }}") {
+              throw "The packaged application reports build '$($SelfTest.build.version)' at '$($SelfTest.build.commit)', not the version and commit it was packaged as."
+            }
           }
           exit $Process.ExitCode
 
@@ -380,7 +415,7 @@ jobs:
         run: |
           ./scripts/windows-launch-probe.ps1 `
             -AppPath $env:TC_APP `
-            -ExpectedVersion "1.0.${{ github.run_number }}" `
+            -ExpectedVersion $env:TARKOV_BUILD_VERSION `
             -ExpectedCommit "${{ github.sha }}" `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
@@ -492,7 +527,7 @@ jobs:
           foreach ($Line in Get-Content -LiteralPath (Join-Path (Split-Path -Parent $Installed) "BUILD_INFO.txt")) {
             if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $InstalledBuildInfo[$Matches.key] = $Matches.value }
           }
-          if ($InstalledBuildInfo.version -cne "1.0.${{ github.run_number }}" -or $InstalledBuildInfo.commit -cne "${{ github.sha }}") {
+          if ($InstalledBuildInfo.version -cne $env:TARKOV_BUILD_VERSION -or $InstalledBuildInfo.commit -cne "${{ github.sha }}") {
             throw "Installed package metadata does not match the expected GitHub version and commit."
           }
 
@@ -516,6 +551,11 @@ jobs:
           if (Test-Path -LiteralPath $Report) {
             $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
             "Installed self-test success: $($SelfTest.success)"
+            # The installed executable's own answer, which is the number Setup shows and the
+            # updater compares with the feed. It has to be the version the installer carried.
+            if ($SelfTest.build.version -cne $env:TARKOV_BUILD_VERSION -or $SelfTest.build.commit -cne "${{ github.sha }}") {
+              throw "The installed application reports build '$($SelfTest.build.version)' at '$($SelfTest.build.commit)', not the version and commit it was installed as."
+            }
           }
           exit $Process.ExitCode
 
@@ -619,7 +659,7 @@ jobs:
         with:
           name: TarkovCompanion-win-x64
           path: |
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
+            ${{ env.TARKOV_PACKAGE_ZIP }}
             dist/SHA256SUMS.txt
           if-no-files-found: warn
 
@@ -654,5 +694,5 @@ jobs:
             dist/COMPONENT-SHA256SUMS.txt
             dist/TarkovCompanion-data-*.json
             dist/TarkovCompanion-model-eng-*.traineddata
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
+            ${{ env.TARKOV_PACKAGE_ZIP }}
           if-no-files-found: error
