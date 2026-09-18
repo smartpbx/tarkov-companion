@@ -1178,7 +1178,11 @@ public sealed record ItemSearchResultViewModel(
     string Price,
     string PriceSource,
     string Updated,
-    long? BestValueRoubles = null);
+    long? BestValueRoubles = null,
+    long? ValuePerSlotRoubles = null,
+    double Score = 0,
+    string MatchedText = "",
+    string Size = "");
 
 public sealed class ItemsPageViewModel : PageViewModel
 {
@@ -1187,6 +1191,8 @@ public sealed class ItemsPageViewModel : PageViewModel
     private string _searchQuery = string.Empty;
     /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
     private const string ReadyToSearch = "Search by name or short name";
+
+    private const int DefaultResultLimit = 12;
 
     private bool _showingNoData;
     private string _searchStatus = ReadyToSearch;
@@ -1220,6 +1226,9 @@ public sealed class ItemsPageViewModel : PageViewModel
     }
 
     public AsyncDelegateCommand SearchCommand { get; }
+
+    /// <summary>How many hits a search keeps; V1's cards fit a dozen, V2's list scrolls and asks for more.</summary>
+    public int ResultLimit { get; set; } = DefaultResultLimit;
 
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
@@ -1270,7 +1279,7 @@ public sealed class ItemsPageViewModel : PageViewModel
         try
         {
             SearchStatus = "Searching the local item cache…";
-            var hits = await _searchService.SearchAsync(SearchQuery, 12, cancellationToken).ConfigureAwait(true);
+            var hits = await _searchService.SearchAsync(SearchQuery, Math.Max(1, ResultLimit), cancellationToken).ConfigureAwait(true);
             var results = new List<ItemSearchResultViewModel>(hits.Count);
             foreach (var hit in hits)
             {
@@ -1287,7 +1296,11 @@ public sealed class ItemsPageViewModel : PageViewModel
                     bestValue > 0 ? $"{bestValue:N0} ₽ · {hit.Item.ValuePerSlot(price!):N0} ₽ / slot" : "Price unavailable",
                     channel,
                     $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}",
-                    bestValue > 0 ? bestValue : null));
+                    bestValue > 0 ? bestValue : null,
+                    bestValue > 0 ? hit.Item.ValuePerSlot(price!) : null,
+                    hit.Score,
+                    hit.MatchedText,
+                    $"{hit.Item.Dimensions.Width}×{hit.Item.Dimensions.Height}"));
             }
 
             Results = results;
