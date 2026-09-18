@@ -128,6 +128,39 @@ public sealed class GroupSessionExchangeTests
         Assert.True(exchanges <= allowed, $"{exchanges} exchanges in {elapsed.TotalSeconds:0.0}s exceeds {allowed}.");
     }
 
+    /// <summary>
+    /// A relay that is refusing is not hammered because the player is taking screenshots.
+    /// </summary>
+    /// <remarks>
+    /// Publishing on change and backing off on failure pull in opposite directions, and the
+    /// failure has to win: a relay that answers instantly with a 502 would otherwise be asked
+    /// again as often as the local state moved, which during a raid is several times a second.
+    /// </remarks>
+    [Fact]
+    public async Task AFailingRelayIsNotAskedAgainBecauseTheLocalStateMoved()
+    {
+        var asked = new ConcurrentQueue<string>();
+        var handler = new RecordingHandler(asked, _ => new HttpResponseMessage(HttpStatusCode.BadGateway));
+        await using var service = Service(handler, out var store);
+
+        service.Start();
+        await WaitUntilAsync(() => asked.Count >= 1);
+        var before = asked.Count;
+
+        var flooding = Stopwatch.GetTimestamp();
+        for (var change = 0; change < 150; change++)
+        {
+            var moved = Somewhere(change);
+            store.Update(current => current with { Raid = current.Raid with { LastKnownPosition = moved } });
+            await Task.Delay(10);
+        }
+
+        var elapsed = Stopwatch.GetElapsedTime(flooding);
+        var exchanges = asked.Count - before;
+        var allowed = (int)Math.Ceiling(elapsed.TotalSeconds / GroupPublishing.Interval.TotalSeconds) + 1;
+        Assert.True(exchanges <= allowed, $"{exchanges} exchanges in {elapsed.TotalSeconds:0.0}s exceeds {allowed}.");
+    }
+
     private static ScreenshotPosition Somewhere(int step = 0) => new(
         DateTimeOffset.UtcNow.AddMilliseconds(step),
         new WorldPosition(12.5 + step, 0, 3.5),

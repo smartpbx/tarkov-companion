@@ -120,6 +120,17 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private bool _relayHolds;
 
+    /// <summary>
+    /// Whether the wait after this exchange must be waited out rather than cut short.
+    /// </summary>
+    /// <remarks>
+    /// Publishing on change and backing off on failure pull in opposite directions, and the
+    /// failure wins. A relay that refuses instantly, or sharing that is switched off, would
+    /// otherwise be revisited as often as the local state moved — which during a raid is
+    /// several times a second, and is the busy loop the backoff exists to prevent.
+    /// </remarks>
+    private bool _waitOutTheTick;
+
     /// <summary>When the last exchange started, for the rate bound.</summary>
     private DateTimeOffset _lastExchangeUtc = DateTimeOffset.MinValue;
 
@@ -278,13 +289,19 @@ public sealed class GroupSessionService : IAsyncDisposable
                 // backoff and the thing that stops a failure becoming a busy loop.
                 _roomRevision = null;
                 _relayHolds = false;
+                _waitOutTheTick = true;
             }
 
             try
             {
                 if (onATick)
                 {
-                    await Task.Delay(PublishInterval, cycle.Token).ConfigureAwait(false);
+                    // A failed exchange waits out the whole interval, and a local change does
+                    // not shorten it. Otherwise a player taking screenshots against a relay
+                    // that refuses instantly would retry as fast as the rate bound allowed,
+                    // which is the busy loop the backoff exists to prevent.
+                    await Task.Delay(PublishInterval, _waitOutTheTick ? cancellationToken : cycle.Token)
+                        .ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException)
@@ -524,6 +541,7 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private async Task PublishOnceAsync(TimeSpan hold, CancellationToken cancellationToken)
     {
+        _waitOutTheTick = false;
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsEnabled)
         {
@@ -531,6 +549,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // the loop goes back to its tick rather than spinning on a relay it is not calling.
             _roomRevision = null;
             _relayHolds = false;
+            _waitOutTheTick = true;
             // Turning sharing off is a thing to say, not a thing to stop saying. Left to time
             // out, the player vanishes from everybody's map three minutes after they thought
             // they had gone.
@@ -549,6 +568,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // published under the old identity, so it should not be left standing.
             _roomRevision = null;
             _relayHolds = false;
+            _waitOutTheTick = true;
             await WithdrawRegisteredAsync().ConfigureAwait(false);
             Publish(GroupSnapshot.Off with
             {
@@ -611,6 +631,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // a bad moment, and the squad that was on the map a second ago should stay on it.
             _roomRevision = null;
             _relayHolds = false;
+            _waitOutTheTick = true;
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 _lastGood = null;
