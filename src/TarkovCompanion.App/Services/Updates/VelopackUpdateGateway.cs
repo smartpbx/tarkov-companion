@@ -51,6 +51,7 @@ public sealed class VelopackUpdateGateway
     private readonly ILogger? _logger;
     private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
+    private UpdateInfo? _verified;
 
     public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null)
         : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger)
@@ -141,6 +142,7 @@ public sealed class VelopackUpdateGateway
             return new UpdateProgress("Run from a folder, so it cannot update itself");
         }
 
+        _verified = null;
         try
         {
             _pending = await manager.CheckForUpdatesAsync().ConfigureAwait(true);
@@ -177,8 +179,10 @@ public sealed class VelopackUpdateGateway
         var available = update.TargetFullRelease.Version.ToString();
         try
         {
+            _verified = null;
             await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
+            _verified = update;
             return new($"{available} is ready · it installs when this restarts", CanApply: true, Available: available);
         }
         catch (UpdateHashMismatchException exception)
@@ -201,9 +205,15 @@ public sealed class VelopackUpdateGateway
     /// <summary>
     /// Applies the update and reopens on the new build. Does not return if it succeeds.
     /// </summary>
+    /// <remarks>
+    /// Only a build whose download finished and matched the feed. Asked to apply a package that
+    /// is not on disk, the updater does not refuse: it runs anyway and applies whatever package
+    /// it finds. So a refused or interrupted download must never get this far, whatever a
+    /// caller's buttons happen to allow.
+    /// </remarks>
     public void ApplyAndRestart()
     {
-        if (_pending is not { } update || _manager.Value is not { } manager)
+        if (_verified is not { } update || _manager.Value is not { } manager)
         {
             return;
         }
