@@ -147,7 +147,14 @@ function Set-WindowSize {
 
     if ($Width -le 0 -or $Height -le 0) { return }
     Initialize-GalleryBounds
-    if (-not [TarkovCompanionGalleryBounds]::MoveWindow($WindowHandle, 12, 12, $Width, $Height, $true)) {
+    # V2 rough package 30 (acceptance sweep): the 12px offset is breathing room for a window
+    # smaller than the desktop. A window the size of the desktop — which the 1920x1080 captures
+    # are, on a 1920x1080 runner — has to start in its corner, or its right and bottom edges fall
+    # off the screen and the photograph is of a cropped layout.
+    $Desktop = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $Left = if (($Width + 24) -le $Desktop.Width) { 12 } else { $Desktop.Left }
+    $Top = if (($Height + 24) -le $Desktop.Height) { 12 } else { $Desktop.Top }
+    if (-not [TarkovCompanionGalleryBounds]::MoveWindow($WindowHandle, $Left, $Top, $Width, $Height, $true)) {
         throw "Could not resize the companion window for its narrow-layout capture."
     }
 }
@@ -559,38 +566,37 @@ function Invoke-ShellInteraction {
 # Matches the launch probe: the window asks for more room than a hosted runner's
 # default desktop has, and a cropped photograph of a layout is not evidence.
 <#
-    Asks the desktop for at least this much room and reports whether it got it.
+    Whether the desktop can already show a window this size.
 
-    V2 rough package 30 (acceptance sweep): the ultrawide captures need a desktop wider than the
-    1920x1080 this always asked for, and a hosted runner's virtual display may simply not offer
-    one. A photograph of a window cropped by a smaller desktop is not evidence of that window's
-    layout, so a shot that cannot be given its room is skipped with its reason recorded rather
-    than photographed and judged.
+    V2 rough package 30 (acceptance sweep): a photograph of a window cropped by a smaller desktop
+    is not evidence of that window's layout, so a shot that cannot be given its room is skipped
+    with its reason recorded rather than photographed and judged.
+
+    It reads the desktop; it does not change it. An earlier version asked for the shot's size plus
+    a margin before every sized launch, which drove a display-mode change between launches and
+    left the V2 route pass unable to get a window at all while the scenarios around it were fine.
+    The desktop is set once, below, exactly as it was before this pass existed.
 #>
-function Request-DesktopSize {
+function Test-DesktopFits {
     param([int] $Width, [int] $Height)
 
     $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    if ($Current.Width -ge $Width -and $Current.Height -ge $Height) { return $true }
-    if (-not (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue)) { return $false }
-
-    try {
-        Set-DisplayResolution -Width $Width -Height $Height -Force
-    }
-    catch {
-        Write-Host "Display resolution unchanged at ${Width}x${Height}: $($_.Exception.Message)"
-        return $false
-    }
-
-    $Deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        Start-Sleep -Milliseconds 250
-        $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    } while (($Current.Width -lt $Width -or $Current.Height -lt $Height) -and [DateTime]::UtcNow -lt $Deadline)
     return ($Current.Width -ge $Width -and $Current.Height -ge $Height)
 }
 
-$null = Request-DesktopSize -Width 1920 -Height 1080
+if (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue) {
+    try {
+        Set-DisplayResolution -Width 1920 -Height 1080 -Force
+        $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 250
+            $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        } while (($Current.Width -lt 1920 -or $Current.Height -lt 1080) -and [DateTime]::UtcNow -lt $Deadline)
+    }
+    catch {
+        Write-Host "Display resolution unchanged: $($_.Exception.Message)"
+    }
+}
 
 <#
     Measures how much of the photograph actually has something on it.
@@ -840,6 +846,21 @@ function New-ShotResult {
     }
 }
 
+<#
+    A focus target the preview store will accept: the text, or nothing at all.
+
+    V2 rough package 30 (acceptance sweep): "" is not "no focus target" to the store. It rejects
+    an empty one, and a rejected state is set aside whole, so a seed carrying an address and an
+    empty focus silently lost the address as well — which is the only reason the seed exists.
+#>
+function Resolve-FocusTarget {
+    param([AllowNull()] [object] $Value)
+
+    $Text = [string]$Value
+    if ([string]::IsNullOrEmpty($Text)) { return $null }
+    return $Text
+}
+
 function Set-V2PreviewState {
     param([object] $Seed)
 
@@ -851,7 +872,10 @@ function Set-V2PreviewState {
         variant = $Mode
         address = [string](Get-InteractionProperty -Object $Seed -Name "address")
         selectedEntity = $null
-        focusTarget = [string](Get-InteractionProperty -Object $Seed -Name "focusTarget")
+        # Null, not "": V2ShellPreviewStore accepts a missing focus target and rejects an empty
+        # one, and a rejected state is set aside whole — which would silently discard the address
+        # this seed exists to set. V2 rough package 30 seeds an address and no focus.
+        focusTarget = Resolve-FocusTarget (Get-InteractionProperty -Object $Seed -Name "focusTarget")
         recents = @()
         pins = @()
         window = $null
@@ -1221,7 +1245,7 @@ foreach ($Route in $V2AcceptanceRoutes) {
             shellMode = "v2-a"
             width = $Size.width
             height = $Size.height
-            seedPreview = [pscustomobject]@{ variant = "v2-a"; address = $Route.address; focusTarget = "" }
+            seedPreview = [pscustomobject]@{ variant = "v2-a"; address = $Route.address }
             # Photograph the route, then assert against it; the assertions here change nothing.
             captureBeforeInteraction = $true
             interaction = [pscustomobject]@{ steps = @([pscustomobject]$Step) }
@@ -1374,7 +1398,7 @@ foreach ($Shot in $Shots) {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
         # V2 rough package 30 (acceptance sweep): a window this size needs a desktop that size.
         if ($Shot.width -gt 0 -and $Shot.height -gt 0 -and
-            -not (Request-DesktopSize -Width ($Shot.width + 24) -Height ($Shot.height + 24))) {
+            -not (Test-DesktopFits -Width $Shot.width -Height $Shot.height)) {
             $Desktop = [System.Windows.Forms.SystemInformation]::VirtualScreen
             # Nothing ran, so nothing is claimed: the gate's six conditions are satisfied to keep
             # the run green, interactionRequired drops to false so the report does not say an
