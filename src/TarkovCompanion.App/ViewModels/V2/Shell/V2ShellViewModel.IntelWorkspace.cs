@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Core.Domain.Ammo;
+using TarkovCompanion.Core.Domain.Items;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -31,7 +33,35 @@ public sealed class V2IntelKindFilterViewModel(V2IntelKindFilter kind, Action<V2
     }
 }
 
-/// <summary>One search result row: name, category and best price, selectable into the detail pane.</summary>
+/// <summary>How the result list is ordered; relevance is the search's own ranking.</summary>
+public enum V2IntelSort
+{
+    Relevance,
+    Price,
+    PerSlot,
+    Name,
+}
+
+/// <summary>One sort chip under the Intel kind chips.</summary>
+public sealed class V2IntelSortViewModel(V2IntelSort sort, Action<V2IntelSort> select) : BindableViewModel
+{
+    private bool _isSelected;
+
+    public V2IntelSort Sort { get; } = sort;
+    public string Label => V2ShellText.Get($"V2.Shell.Intel.Sort.{Sort}");
+    public string AutomationId => $"v2-intel-sort-{Sort.ToString().ToLowerInvariant()}";
+    public ICommand SelectCommand { get; } = new DelegateCommand(() => select(sort));
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
+    }
+}
+
+/// <summary>One search result row: name, category, size and best price, selectable into the detail pane.</summary>
+/// <param name="PerSlotLabel">The value of one stash slot of it, where a price is known.</param>
+/// <param name="MatchLabel">Which text matched, only when that was not the item's own name.</param>
 public sealed record V2IntelResultRowViewModel(
     string ItemId,
     string Name,
@@ -39,10 +69,19 @@ public sealed record V2IntelResultRowViewModel(
     string Category,
     string PriceLabel,
     bool IsSelected,
-    ICommand OpenCommand)
+    ICommand OpenCommand,
+    string Size = "",
+    string PerSlotLabel = "",
+    string MatchLabel = "")
 {
     public string AutomationId => $"v2-intel-result-{ItemId}";
+    public string Subtitle => string.IsNullOrEmpty(Size) ? Category : $"{Category} · {Size}";
+    public bool HasPerSlot => PerSlotLabel.Length > 0;
+    public bool HasMatchLabel => MatchLabel.Length > 0;
 }
+
+/// <summary>One armor class's verdict for an ammo round, for the strip in the ballistics card.</summary>
+public sealed record V2IntelArmorClassViewModel(string ClassLabel, string Rating, bool IsStrong, bool IsMarginal, bool IsWeak);
 
 /// <summary>One line of the need summary in the context panel.</summary>
 public sealed record V2IntelNeedLineViewModel(string Text, bool IsActive);
@@ -63,6 +102,15 @@ public sealed partial class V2ShellViewModel
 {
     private V2IntelKindFilter _intelKindFilter = V2IntelKindFilter.All;
     private IReadOnlyList<V2IntelKindFilterViewModel>? _intelKindFilters;
+    private V2IntelSort _intelSort = V2IntelSort.Relevance;
+    private IReadOnlyList<V2IntelSortViewModel>? _intelSorts;
+
+    /// <summary>
+    /// How many hits an Intel search keeps. V1's cards fit a dozen; this list scrolls, and a
+    /// kind chip filters the hits it has, so a dozen left "Keys" empty for a search that had
+    /// keys past the twelfth.
+    /// </summary>
+    internal const int IntelResultLimit = 40;
 
     /// <summary>The search route, and the item route drawn as a selection inside it.</summary>
     public bool ShowsIntelWorkspace =>
@@ -80,6 +128,9 @@ public sealed partial class V2ShellViewModel
 
     public IReadOnlyList<V2IntelKindFilterViewModel> IntelKindFilters => _intelKindFilters ??= CreateIntelKindFilters();
 
+    public IReadOnlyList<V2IntelSortViewModel> IntelSorts => _intelSorts ??= CreateIntelSorts();
+    public string IntelSortHeading => V2ShellText.Get("V2.Shell.Intel.SortHeading");
+
     public IReadOnlyList<V2IntelResultRowViewModel> IntelResults
     {
         get
@@ -90,8 +141,9 @@ public sealed partial class V2ShellViewModel
             }
 
             var selected = IntelItem;
-            return Legacy.Items.Results
-                .Where(result => MatchesKind(result.Category, _intelKindFilter))
+            return SortResults(
+                    Legacy.Items.Results.Where(result => MatchesKind(result.Category, _intelKindFilter)),
+                    _intelSort)
                 .Select(result =>
                 {
                     var automationId = $"v2-intel-result-{result.Id}";
@@ -104,7 +156,12 @@ public sealed partial class V2ShellViewModel
                             ? Roubles(roubles)
                             : V2ShellText.Get("V2.Shell.Intel.NoPrice"),
                         string.Equals(result.Id, selected, StringComparison.Ordinal),
-                        new DelegateCommand(() => OpenSuggestedItem(result.Id, automationId)));
+                        new DelegateCommand(() => OpenSuggestedItem(result.Id, automationId)),
+                        result.Size,
+                        result.ValuePerSlotRoubles is { } perSlot
+                            ? V2ShellText.Format("V2.Shell.Intel.PerSlot", CultureInfo.CurrentCulture, perSlot)
+                            : string.Empty,
+                        MatchNote(result));
                 })
                 .ToArray();
         }
@@ -288,6 +345,30 @@ public sealed partial class V2ShellViewModel
     public string IntelAmmoPenetration => _intelResult?.Ammo?.Penetration.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     public string IntelAmmoTier => _intelResult?.Ammo?.Tier ?? string.Empty;
     public string IntelAmmoAdvice => _intelResult?.Ammo?.PracticalAdvice ?? string.Empty;
+    public string IntelArmorClassesHeading => V2ShellText.Get("V2.Shell.Intel.ArmorClasses");
+
+    /// <summary>Classes one to six, each rated by the same penetration comparison the Ammo page uses.</summary>
+    public IReadOnlyList<V2IntelArmorClassViewModel> IntelArmorClasses
+    {
+        get
+        {
+            if (_intelResult?.Ammo is not { } ammo)
+            {
+                return [];
+            }
+
+            return Enumerable.Range(1, 6)
+                .Select(armorClass => ammo.ArmorClassRatings.TryGetValue(armorClass, out var rating)
+                    ? new V2IntelArmorClassViewModel(
+                        armorClass.ToString(CultureInfo.CurrentCulture),
+                        rating.ToString(),
+                        rating is ArmorEffectiveness.Excellent or ArmorEffectiveness.Good,
+                        rating is ArmorEffectiveness.Fair or ArmorEffectiveness.Limited,
+                        rating is ArmorEffectiveness.Poor)
+                    : new V2IntelArmorClassViewModel(armorClass.ToString(CultureInfo.CurrentCulture), "–", false, false, false))
+                .ToArray();
+        }
+    }
     public string IntelDamageLabel => V2ShellText.Get("V2.Shell.Intel.Damage");
     public string IntelPenetrationLabel => V2ShellText.Get("V2.Shell.Intel.Penetration");
     public string IntelTierLabel => V2ShellText.Get("V2.Shell.Intel.Tier");
@@ -304,6 +385,45 @@ public sealed partial class V2ShellViewModel
 
         return filters;
     }
+
+    private IReadOnlyList<V2IntelSortViewModel> CreateIntelSorts()
+    {
+        var sorts = Enum.GetValues<V2IntelSort>()
+            .Select(sort => new V2IntelSortViewModel(sort, SelectIntelSort))
+            .ToArray();
+        foreach (var sort in sorts)
+        {
+            sort.IsSelected = sort.Sort == _intelSort;
+        }
+
+        return sorts;
+    }
+
+    private void SelectIntelSort(V2IntelSort sort)
+    {
+        _intelSort = sort;
+        foreach (var chip in IntelSorts)
+        {
+            chip.IsSelected = chip.Sort == sort;
+        }
+
+        RaiseIntelWorkspaceChanged();
+    }
+
+    /// <summary>Orders hits without disturbing relevance: LINQ's ordering is stable, so ties keep the search's own order.</summary>
+    internal static IEnumerable<ItemSearchResultViewModel> SortResults(IEnumerable<ItemSearchResultViewModel> results, V2IntelSort sort) => sort switch
+    {
+        V2IntelSort.Price => results.OrderByDescending(result => result.BestValueRoubles ?? -1),
+        V2IntelSort.PerSlot => results.OrderByDescending(result => result.ValuePerSlotRoubles ?? -1),
+        V2IntelSort.Name => results.OrderBy(result => result.Name, StringComparer.CurrentCultureIgnoreCase),
+        _ => results,
+    };
+
+    private static string MatchNote(ItemSearchResultViewModel result) =>
+        result.MatchedText.Length == 0 ||
+        string.Equals(result.MatchedText, result.Name, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : V2ShellText.Format("V2.Shell.Intel.MatchedAs", CultureInfo.CurrentCulture, result.MatchedText);
 
     private void SelectIntelKindFilter(V2IntelKindFilter kind)
     {
@@ -332,7 +452,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
             nameof(IntelIsKey), nameof(IntelIsAmmo), nameof(IntelKeyMapLabel), nameof(IntelKeyLocks),
             nameof(IntelHasAmmoFacts), nameof(IntelHasNoAmmoFacts), nameof(IntelAmmoDamage), nameof(IntelAmmoPenetration),
-            nameof(IntelAmmoTier), nameof(IntelAmmoAdvice),
+            nameof(IntelAmmoTier), nameof(IntelAmmoAdvice), nameof(IntelArmorClasses),
         })
         {
             OnPropertyChanged(property);

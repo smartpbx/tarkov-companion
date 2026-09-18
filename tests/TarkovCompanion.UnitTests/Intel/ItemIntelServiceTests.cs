@@ -5,6 +5,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
+using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.UnitTests.Intel;
 
@@ -116,6 +117,53 @@ public sealed class ItemIntelServiceTests
     }
 
     [Fact]
+    public async Task KeyItemCarriesUsesCostAndTheMapsName()
+    {
+        var item = Item("item-key", "Dorm 114 key", ItemCategory.Key);
+        var factCatalog = new FakeItemFactCatalog
+        {
+            KeyFacts = [new KeyFacts(item.Id, "map-customs", 12, ["Room 114"], [], 150_000, 0, 0, false, 0, Provenance)],
+        };
+
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            factCatalog,
+            new FakeMapData(("map-customs", "Customs")));
+
+        var key = (await service.GetAsync(item.Id, CancellationToken.None)).Key!;
+
+        Assert.Equal(12, key.MaximumUses);
+        Assert.Equal(150_000, key.AcquisitionCostRoubles);
+        Assert.Equal("Customs", key.MapName);
+        Assert.Equal("map-customs", key.MapId);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task KeyKeepsItsMapIdWhenNothingNamesTheMap(bool mapLookupThrows)
+    {
+        var item = Item("item-key", "Dorm 114 key", ItemCategory.Key);
+        var factCatalog = new FakeItemFactCatalog
+        {
+            KeyFacts = [new KeyFacts(item.Id, "map-unknown", null, [], [], null, 0, 0, false, 0, Provenance)],
+        };
+
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            factCatalog,
+            new FakeMapData(throws: mapLookupThrows));
+
+        var key = (await service.GetAsync(item.Id, CancellationToken.None)).Key!;
+
+        Assert.Equal("map-unknown", key.MapName);
+        Assert.Null(key.MaximumUses);
+        Assert.Null(key.AcquisitionCostRoubles);
+    }
+
+    [Fact]
     public async Task KeyItemDegradesHonestlyWhenTheCatalogHasNoFacts()
     {
         var item = Item("item-key-unknown", "Unlabelled key", ItemCategory.Key);
@@ -151,6 +199,23 @@ public sealed class ItemIntelServiceTests
         Assert.False(string.IsNullOrWhiteSpace(result.Ammo.Tier));
     }
 
+    [Fact]
+    public async Task AmmoItemCarriesArmorDamageFragmentationAndTheSixArmorClassRatings()
+    {
+        var item = Item("item-ammo", "M995", ItemCategory.Ammunition);
+        var stats = new AmmoStats("item-ammo", "7.62x51", 60, 55, 68, 0.25, 1, null, null, null, false, false, Provenance);
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog { AmmoStats = [stats] });
+
+        var ammo = (await service.GetAsync(item.Id, CancellationToken.None)).Ammo!;
+
+        Assert.Equal(68, ammo.ArmorDamagePercent);
+        Assert.Equal(0.25, ammo.FragmentationChance);
+        Assert.Equal(6, ammo.ArmorClassRatings.Count);
+    }
+
     private static ItemDefinition Item(string id, string name, ItemCategory category) => new(
         id,
         name,
@@ -177,6 +242,27 @@ public sealed class ItemIntelServiceTests
 
         public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken) =>
             Task.FromResult(price);
+    }
+
+    private sealed class FakeMapData(params (string Id, string Name)[] maps) : IMapDataService
+    {
+        private readonly bool _throws;
+
+        public FakeMapData(bool throws)
+            : this() => _throws = throws;
+
+        public Task<MapDefinition?> GetAsync(string mapId, CancellationToken cancellationToken)
+        {
+            if (_throws)
+            {
+                throw new InvalidOperationException("The maps table is not readable.");
+            }
+
+            var match = maps.FirstOrDefault(map => map.Id == mapId);
+            return Task.FromResult<MapDefinition?>(match.Id is null
+                ? null
+                : new MapDefinition(match.Id, match.Name, null, null, [], [], null, Provenance));
+        }
     }
 
     private sealed class FakeQuestProgressService(ItemNeedSummary summary) : IQuestProgressService

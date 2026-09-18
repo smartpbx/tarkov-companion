@@ -386,7 +386,9 @@ public sealed class KeysPageViewModel : PageViewModel
         Keys = query.Length == 0
             ? _allKeys
             : _allKeys
-                .Where(row => row.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                .Where(row =>
+                    row.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+                    row.HasMap && row.Map.Contains(query, StringComparison.CurrentCultureIgnoreCase))
                 .ToArray();
     }
 

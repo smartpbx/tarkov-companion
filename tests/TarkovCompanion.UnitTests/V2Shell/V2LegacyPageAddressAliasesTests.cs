@@ -89,6 +89,16 @@ public sealed class V2LegacyPageAddressAliasesTests
         Assert.Equal(expectedAddress, resolved);
     }
 
+    [Theory]
+    [InlineData("Ammo", "intel/ammo", "search/ammo")]
+    [InlineData("Keys", "intel/keys", "search/keys")]
+    [InlineData("flea", "intel/flea", "search/flea")]
+    public void AmmoKeysAndFleaResolveToTheirIntelWorkspacesInBothVariants(string requestedPage, string addressA, string addressB)
+    {
+        Assert.Equal(addressA, V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.A, requestedPage));
+        Assert.Equal(addressB, V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.B, requestedPage));
+    }
+
     [Fact]
     public void AnUnknownPageNameResolvesToNothing()
     {

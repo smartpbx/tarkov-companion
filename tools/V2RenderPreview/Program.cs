@@ -40,6 +40,8 @@ internal static class Program
         // ("intel", "intel/item/<id>"), and optionally run a search there first.
         var route = StringOption(args, "--route");
         var search = StringOption(args, "--search");
+        // Package 28: run a Flea lookup, so the Flea workspace can be rendered with results.
+        var fleaQuery = StringOption(args, "--flea-query");
         var options = AppCommandLine.Parse(args) with { Demo = true };
 
         var rendered = false;
@@ -146,6 +148,13 @@ internal static class Program
                 }
 
                 setup.Select(section);
+                Pump(20);
+            }
+
+            if (fleaQuery is not null)
+            {
+                viewModel.Flea.SearchQuery = fleaQuery;
+                DrainUntilComplete(viewModel.Flea.SearchAsync());
                 Pump(20);
             }
 

@@ -1,0 +1,284 @@
+using System.ComponentModel;
+using System.Windows.Input;
+
+namespace TarkovCompanion.App.ViewModels.V2.Intel;
+
+/// <summary>Which of the page's keep-or-sell calls a verdict chip keeps.</summary>
+public enum KeyVerdictFilter
+{
+    All,
+    Keep,
+    KeepForLater,
+    Sell,
+}
+
+/// <summary>One verdict chip above the key list.</summary>
+public sealed class KeyVerdictChipViewModel : BindableViewModel
+{
+    private bool _isSelected;
+
+    internal KeyVerdictChipViewModel(KeyVerdictFilter filter, string label, Action<KeyVerdictFilter> select)
+    {
+        Filter = filter;
+        Label = label;
+        SelectCommand = new DelegateCommand(() => select(filter));
+    }
+
+    public KeyVerdictFilter Filter { get; }
+
+    public string Label { get; }
+
+    public string AutomationId => $"v2-keys-filter-{Filter.ToString().ToLowerInvariant()}";
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set => SetProperty(ref _isSelected, value);
+    }
+}
+
+/// <summary>One key row: the verdict, then the four facts that decided it.</summary>
+public sealed record KeyListRowViewModel(KeyRowViewModel Key, bool IsSelected, ICommand SelectCommand)
+{
+    public string Name => Key.Name;
+
+    public string VerdictLabel => Key.VerdictLabel;
+
+    public bool IsKeep => Key.IsKeep;
+
+    public bool IsKeepForLater => Key.IsKeepForLater;
+
+    public bool IsSell => Key.IsSell;
+
+    public string VerdictReason => Key.VerdictReason;
+
+    public string Map => Key.Map;
+
+    public string LockSummary => Key.LockSummary;
+
+    public string Uses => Key.MaximumUses;
+
+    public string Cost => Key.AcquisitionCost;
+
+    public string AutomationId => $"v2-keys-row-{Key.ItemId}";
+}
+
+/// <summary>
+/// V2 Keys workspace: every cached key with its keep-or-sell call, the map it belongs to, how many
+/// locks it opens, its uses and its price, from the V1 Keys page's own rows.
+/// </summary>
+/// <remarks>
+/// An adapter over <see cref="KeysPageViewModel"/>, which owns the catalog read, the map names and
+/// the verdict (the player's tracked quest and hideout demand against the flea price). The only
+/// logic added here is the verdict filter, and it reads the verdicts the page already produced.
+/// </remarks>
+public sealed class KeysWorkspaceViewModel : BindableViewModel
+{
+    private readonly KeysPageViewModel _page;
+    private readonly Action<string>? _openItem;
+    private KeyVerdictFilter _filter;
+
+    public KeysWorkspaceViewModel(KeysPageViewModel page, Action<string>? openItem = null)
+    {
+        _page = page ?? throw new ArgumentNullException(nameof(page));
+        _openItem = openItem;
+        VerdictFilters =
+        [
+            new(KeyVerdictFilter.All, "All", SelectFilter),
+            new(KeyVerdictFilter.Keep, "Keep", SelectFilter),
+            new(KeyVerdictFilter.KeepForLater, "Keep for later", SelectFilter),
+            new(KeyVerdictFilter.Sell, "Sell", SelectFilter),
+        ];
+        MarkChips();
+        OpenInIntelCommand = new DelegateCommand(() =>
+        {
+            if (_page.Selected is { } key)
+            {
+                _openItem?.Invoke(key.ItemId);
+            }
+        });
+        _page.PropertyChanged += PageChanged;
+    }
+
+    public IReadOnlyList<KeyVerdictChipViewModel> VerdictFilters { get; }
+
+    public ICommand RefreshCommand => _page.RefreshCommand;
+
+    public ICommand OpenInIntelCommand { get; }
+
+    /// <summary>The filter box: a key's name, or the map it belongs to.</summary>
+    public string SearchQuery
+    {
+        get => _page.SearchQuery;
+        set => _page.SearchQuery = value;
+    }
+
+    public string Status => _page.Status;
+
+    public KeyVerdictFilter Filter
+    {
+        get => _filter;
+        private set
+        {
+            if (SetProperty(ref _filter, value))
+            {
+                MarkChips();
+                RaiseKeys();
+            }
+        }
+    }
+
+    public IReadOnlyList<KeyListRowViewModel> Keys
+    {
+        get
+        {
+            var selected = _page.Selected;
+            return
+            [
+                .. Narrow(_page.Keys, Filter).Select(key => new KeyListRowViewModel(
+                    key,
+                    ReferenceEquals(key, selected),
+                    new DelegateCommand(() => _page.Selected = key))),
+            ];
+        }
+    }
+
+    public bool HasKeys => Keys.Count > 0;
+
+    public bool ShowsNoKeys => !HasKeys;
+
+    /// <summary>Why the list is empty, in the terms of whichever of the page and the chip emptied it.</summary>
+    public string NoKeysLabel => _page.Keys.Count > 0
+        ? "No key matches this filter."
+        : _page.Status;
+
+    /// <summary>"12 keys", or "3 of 12 keys" while a verdict chip hides some.</summary>
+    public string KeyCountLabel
+    {
+        get
+        {
+            var shown = Keys.Count;
+            var total = _page.Keys.Count;
+            return shown == total
+                ? $"{total:N0} key{(total == 1 ? string.Empty : "s")}"
+                : $"{shown:N0} of {total:N0} keys";
+        }
+    }
+
+    /// <summary>The page's own status line already counts the keys; the count is only news while a chip is hiding some.</summary>
+    public bool ShowsKeyCount => Keys.Count != _page.Keys.Count;
+
+    public bool HasSelectedKey => _page.Selected is not null;
+
+    public bool ShowsNoSelectedKey => !HasSelectedKey;
+
+    public string SelectedName => _page.Selected?.Name ?? string.Empty;
+
+    /// <summary>The verdict as a heading; the row's dash for "no call" reads as a missing value there.</summary>
+    public string SelectedVerdict => _page.Selected switch
+    {
+        null => string.Empty,
+        { IsKeep: false, IsKeepForLater: false, IsSell: false } => "No call",
+        var key => key.VerdictLabel,
+    };
+
+    public bool SelectedIsKeep => _page.Selected?.IsKeep == true;
+
+    public bool SelectedIsKeepForLater => _page.Selected?.IsKeepForLater == true;
+
+    public bool SelectedIsSell => _page.Selected?.IsSell == true;
+
+    public string SelectedReason => _page.Selected?.VerdictReason ?? string.Empty;
+
+    public bool HasSelectedReason => SelectedReason.Length > 0;
+
+    public string SelectedMap => _page.Selected?.Map ?? string.Empty;
+
+    public string SelectedLocks => _page.Selected?.LockSummary ?? string.Empty;
+
+    public string SelectedUses => _page.Selected?.MaximumUses ?? string.Empty;
+
+    public string SelectedCost => _page.Selected?.AcquisitionCost ?? string.Empty;
+
+    public string SelectedProvenance => _page.Selected?.Provenance ?? string.Empty;
+
+    public IReadOnlyList<KeyLockViewModel> SelectedLockIds => _page.SelectedLocks;
+
+    public bool HasSelectedLockIds => _page.SelectedLocks.Count > 0;
+
+    /// <summary>Keeps the rows a verdict chip asks for. A key the page could not judge belongs to no chip but All.</summary>
+    internal static IReadOnlyList<KeyRowViewModel> Narrow(IReadOnlyList<KeyRowViewModel> keys, KeyVerdictFilter filter) => filter switch
+    {
+        KeyVerdictFilter.Keep => [.. keys.Where(key => key.IsKeep)],
+        KeyVerdictFilter.KeepForLater => [.. keys.Where(key => key.IsKeepForLater)],
+        KeyVerdictFilter.Sell => [.. keys.Where(key => key.IsSell)],
+        _ => keys,
+    };
+
+    private void SelectFilter(KeyVerdictFilter filter) => Filter = filter;
+
+    /// <summary>Opens the first key when none is chosen, so the context panel is never an empty column beside a full list.</summary>
+    private void EnsureSelection()
+    {
+        if (_page.Selected is null && Narrow(_page.Keys, Filter).FirstOrDefault() is { } first)
+        {
+            _page.Selected = first;
+        }
+    }
+
+    private void MarkChips()
+    {
+        foreach (var chip in VerdictFilters)
+        {
+            chip.IsSelected = chip.Filter == Filter;
+        }
+    }
+
+    private void RaiseKeys()
+    {
+        OnPropertyChanged(nameof(Keys));
+        OnPropertyChanged(nameof(HasKeys));
+        OnPropertyChanged(nameof(ShowsNoKeys));
+        OnPropertyChanged(nameof(NoKeysLabel));
+        OnPropertyChanged(nameof(KeyCountLabel));
+        OnPropertyChanged(nameof(ShowsKeyCount));
+    }
+
+    private void PageChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        switch (eventArgs.PropertyName)
+        {
+            case nameof(KeysPageViewModel.Keys):
+                RaiseKeys();
+                EnsureSelection();
+                break;
+            case nameof(KeysPageViewModel.Selected):
+                RaiseKeys();
+                foreach (var name in new[]
+                {
+                    nameof(HasSelectedKey), nameof(ShowsNoSelectedKey), nameof(SelectedName), nameof(SelectedVerdict),
+                    nameof(SelectedIsKeep), nameof(SelectedIsKeepForLater), nameof(SelectedIsSell), nameof(SelectedReason),
+                    nameof(HasSelectedReason), nameof(SelectedMap), nameof(SelectedLocks), nameof(SelectedUses),
+                    nameof(SelectedCost), nameof(SelectedProvenance),
+                })
+                {
+                    OnPropertyChanged(name);
+                }
+
+                break;
+            case nameof(KeysPageViewModel.SelectedLocks):
+                OnPropertyChanged(nameof(SelectedLockIds));
+                OnPropertyChanged(nameof(HasSelectedLockIds));
+                break;
+            case nameof(KeysPageViewModel.Status):
+                OnPropertyChanged(nameof(Status));
+                OnPropertyChanged(nameof(NoKeysLabel));
+                break;
+            case nameof(KeysPageViewModel.SearchQuery):
+                OnPropertyChanged(nameof(SearchQuery));
+                break;
+        }
+    }
+}

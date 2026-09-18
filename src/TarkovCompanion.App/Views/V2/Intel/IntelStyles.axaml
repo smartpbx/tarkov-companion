@@ -1,0 +1,217 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The Intel workspace's building blocks, shared by its sibling reference workspaces
+       (Ammo, Keys, Flea) so all of them read as one place: the search field, kind chips,
+       result rows, and the context panel with its cyan-edged sections. -->
+    <!-- A workspace pane: the flat raised card the Raid map sits in. -->
+    <Style Selector="Border.v2-intel-pane">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    </Style>
+    <Style Selector="Border.v2-intel-search">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,0,6,0" />
+      <Setter Property="MinHeight" Value="50" />
+    </Style>
+    <Style Selector="TextBox.v2-intel-search-input">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBox.v2-intel-search-input:focus /template/ Border#PART_BorderElement,
+                     TextBox.v2-intel-search-input:pointerover /template/ Border#PART_BorderElement">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="Button.v2-intel-plain">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <!-- Filter chips: outlined, cyan only when selected. -->
+    <Style Selector="Button.v2-intel-chip">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="16,6" />
+      <Setter Property="MinHeight" Value="38" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="Button.v2-intel-chip.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="Button.v2-intel-chip.selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <!-- Result rows: a quiet raised row; the selected one takes the cyan outline. -->
+    <Style Selector="Button.v2-intel-chip.v2-intel-chip-small">
+      <Setter Property="Padding" Value="12,2" />
+      <Setter Property="MinHeight" Value="30" />
+    </Style>
+    <Style Selector="Button.v2-intel-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="10,10" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.v2-intel-row.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-intel-thumb">
+      <Setter Property="Width" Value="56" />
+      <Setter Property="Height" Value="56" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <!-- The item's footprint, drawn as the stash cells it occupies. -->
+    <Style Selector="Border.v2-intel-stage">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="MinHeight" Value="200" />
+    </Style>
+    <Style Selector="Border.v2-intel-cell">
+      <Setter Property="Width" Value="64" />
+      <Setter Property="Height" Value="64" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-intel-fact">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="0,7" />
+    </Style>
+    <Style Selector="Border.v2-intel-panel">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+    </Style>
+    <!-- A context-panel section with the concept's cyan leading edge (the Raid panel's pattern). -->
+    <Style Selector="Border.v2-intel-section">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="18,14" />
+    </Style>
+    <!-- The accent edge is the outer border's own background showing through a 3px left inset,
+         so only the leading edge is cyan and the rest of the outline stays quiet. -->
+    <Style Selector="Border.v2-intel-accent">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="3,0,0,0" />
+    </Style>
+    <Style Selector="Border.v2-intel-accent > Border.v2-intel-section">
+      <Setter Property="CornerRadius" Value="0,6,6,0" />
+      <Setter Property="BorderThickness" Value="0,1,1,1" />
+    </Style>
+    <Style Selector="Path.v2-icon.v2-intel-yes">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-tag">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="Margin" Value="4,0" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-price">
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-price.v2-intel-best">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-name">
+      <Setter Property="FontSize" Value="34" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="ProgressBar.v2-intel-bar">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="Minimum" Value="0" />
+      <Setter Property="Maximum" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-unavailable">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Button.v2-intel-secondary">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Padding" Value="16,8" />
+    </Style>
+    <!-- A verdict or a rating: the word is always drawn, the tone only backs it up. -->
+    <Style Selector="TextBlock.v2-intel-good">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-fair">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-poor">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-num">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextAlignment" Value="Right" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-head">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- One armor class in the ballistics table: its number, boxed in the tone of the rating. -->
+    <Style Selector="Border.v2-intel-class">
+      <Setter Property="Width" Value="30" />
+      <Setter Property="Height" Value="30" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Border.v2-intel-class.good">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Border.v2-intel-class.fair">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-intel-class.poor">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+    <Style Selector="Border.v2-intel-headrow">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="10,0,10,6" />
+    </Style>
+</Styles>
