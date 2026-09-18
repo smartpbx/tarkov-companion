@@ -11,7 +11,13 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 /// <remarks>
 /// This started out on <see cref="FileSystemWatcher"/> and its notifications never arrived on
 /// a real installation, exactly as they never arrived for the game's logs. Polling costs one
-/// directory listing a second and cannot miss a file, so the same approach is used here.
+/// directory listing and cannot miss a file, so the same approach is used here.
+///
+/// How often it looks depends on whether anybody is waiting. A second when nobody is, and a
+/// quarter of a second during a raid with the group sharing, when four other maps are waiting on
+/// the next screenshot and the poll is the whole of what they wait. The folder itself has the
+/// last word: the interval is never less than ten times the last listing took, so a folder large
+/// enough to be expensive is looked at less often rather than costing a core.
 ///
 /// Every file is reported twice. The first report is its name, on the poll that first sees the
 /// entry, because the player's coordinates are in the name and are complete the moment it
@@ -31,10 +37,47 @@ public sealed class WindowsScreenshotWatcher(
     TimeProvider? timeProvider = null,
     int requiredStableProbes = 2,
     long maximumEncodedBytes = 64L * 1024 * 1024,
-    int maximumTrackedFiles = 16_384)
+    int maximumTrackedFiles = 16_384,
+    // Optional so every existing caller — and every platform without a runtime state store —
+    // gets exactly the one-second poll it always had.
+    IScreenshotWatchPacer? pacer = null,
+    TimeSpan? attentivePollInterval = null)
     : IScreenshotWatcher
 {
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>How often the folder is looked at while somebody is waiting for a screenshot.</summary>
+    /// <remarks>
+    /// A quarter of a second. The name is complete the moment the entry appears, so the poll is
+    /// now the whole of the wait before a squadmate's marker moves: at one second it was most of
+    /// the measured p95. Four times a second costs four directory listings a second and is only
+    /// paid during a raid with the group on.
+    /// </remarks>
+    private static readonly TimeSpan DefaultAttentivePollInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// The most of its time this watcher will spend listing, as one part in this many.
+    /// </summary>
+    /// <remarks>
+    /// A screenshot folder is normally a few dozen files and a listing is well under a
+    /// millisecond, so nothing here applies. A folder somebody has pointed at by mistake, or
+    /// years of screenshots nobody deleted, is a different thing: listing it takes a stat per
+    /// file, and polling that four times a second would be a core spent on looking. So the
+    /// interval is never less than ten times the last listing took — the listing cost is capped
+    /// at a tenth of the watcher, whatever the folder turns out to hold.
+    /// </remarks>
+    private const int ListingDutyCycle = 10;
+
+    /// <summary>Below this a listing is free and the duty cycle has nothing to say about it.</summary>
+    private static readonly TimeSpan NegligibleListing = TimeSpan.FromMilliseconds(5);
+
+    /// <summary>However slow the folder is, it is still looked at this often.</summary>
+    /// <remarks>
+    /// Thirty seconds. The backing off exists to stop a pathological folder costing a core, not
+    /// to stop watching it: a player whose screenshots land somewhere enormous should see their
+    /// marker late rather than never.
+    /// </remarks>
+    private static readonly TimeSpan SlowestPollInterval = TimeSpan.FromSeconds(30);
     private const FileAttributes CloudPlaceholderAttributes =
         FileAttributes.Offline | (FileAttributes)0x00040000 | (FileAttributes)0x00400000;
 
@@ -48,6 +91,9 @@ public sealed class WindowsScreenshotWatcher(
 
     private readonly TimeSpan _pollInterval = pollInterval ?? DefaultPollInterval;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TimeSpan _attentivePollInterval = Shorter(
+        attentivePollInterval ?? DefaultAttentivePollInterval,
+        pollInterval ?? DefaultPollInterval);
     private readonly int _requiredStableProbes = requiredStableProbes is >= 2 and <= 16
         ? requiredStableProbes
         : throw new ArgumentOutOfRangeException(nameof(requiredStableProbes));
@@ -59,6 +105,17 @@ public sealed class WindowsScreenshotWatcher(
         : throw new ArgumentOutOfRangeException(nameof(maximumTrackedFiles));
     private readonly object _watchStateGate = new();
     private WatchState? _watchState;
+    private long _lastListingTicks;
+    private long _pollIntervalTicks;
+
+    /// <summary>What the last directory listing cost, for the duty cycle and for diagnostics.</summary>
+    public TimeSpan LastListing => new(Interlocked.Read(ref _lastListingTicks));
+
+    /// <summary>How long this watcher is currently waiting between listings.</summary>
+    public TimeSpan PollInterval => new(Interlocked.Read(ref _pollIntervalTicks));
+
+    /// <summary>Whichever of two intervals is the shorter, because attentive is never slower.</summary>
+    private static TimeSpan Shorter(TimeSpan left, TimeSpan right) => left < right ? left : right;
 
     public async IAsyncEnumerable<ScreenshotSighting> WatchAsync(
         string screenshotRoot,
@@ -80,7 +137,11 @@ public sealed class WindowsScreenshotWatcher(
                 throw new CaptureSourceUnavailableException();
             }
 
+            var listingStarted = _timeProvider.GetTimestamp();
             var snapshot = Snapshot(screenshotRoot);
+            Interlocked.Exchange(
+                ref _lastListingTicks,
+                _timeProvider.GetElapsedTime(listingStarted).Ticks);
             var now = _timeProvider.GetUtcNow();
             var present = snapshot.Select(item => item.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var missing in settling.Keys.Where(path => !present.Contains(path)).ToArray())
@@ -167,18 +228,57 @@ public sealed class WindowsScreenshotWatcher(
             }
 
             PruneTracking(seen, settling, present);
-            if (!await WaitAsync(cancellationToken).ConfigureAwait(false))
+            if (!await WaitAsync(NextInterval(), cancellationToken).ConfigureAwait(false))
             {
                 yield break;
             }
         }
     }
 
-    private async Task<bool> WaitAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// How long to wait before looking again: as short as anybody needs, as long as the folder
+    /// costs.
+    /// </summary>
+    /// <remarks>
+    /// Asked once per wait rather than continuously. A raid beginning therefore speeds this up
+    /// within one idle interval rather than instantly, which costs nothing anybody can see: the
+    /// log announces the raid at the loading screen, and the second that takes passes before the
+    /// player can photograph anything. Re-checking mid-wait would mean waking four times a
+    /// second for the whole time the game is not running, to be ready a second earlier once.
+    /// </remarks>
+    private TimeSpan NextInterval()
+    {
+        var wanted = IntervalFor(
+            pacer?.Current == ScreenshotWatchPace.Attentive ? _attentivePollInterval : _pollInterval,
+            LastListing);
+        Interlocked.Exchange(ref _pollIntervalTicks, wanted.Ticks);
+        return wanted;
+    }
+
+    /// <summary>
+    /// The interval that satisfies both the pace somebody asked for and what the folder costs.
+    /// </summary>
+    /// <remarks>
+    /// Public and static because it is the whole of the backing-off policy and is worth checking
+    /// on its own: making a real folder slow enough to exercise it takes a pathological directory
+    /// and a machine-dependent amount of time, and proves less than the arithmetic does.
+    /// </remarks>
+    public static TimeSpan IntervalFor(TimeSpan wanted, TimeSpan lastListing)
+    {
+        if (lastListing <= NegligibleListing)
+        {
+            return wanted;
+        }
+
+        var floor = Shorter(lastListing * ListingDutyCycle, SlowestPollInterval);
+        return floor > wanted ? floor : wanted;
+    }
+
+    private async Task<bool> WaitAsync(TimeSpan interval, CancellationToken cancellationToken)
     {
         try
         {
-            await Task.Delay(_pollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(interval, _timeProvider, cancellationToken).ConfigureAwait(false);
             return true;
         }
         catch (OperationCanceledException)
@@ -220,15 +320,20 @@ public sealed class WindowsScreenshotWatcher(
             // though the retained dictionaries were later pruned. Walk the directory lazily and
             // retain only the newest bounded population; older entries are already behind the
             // delivery watermark and startup grace.
-            foreach (var path in Directory.EnumerateFiles(screenshotRoot))
+            // DirectoryInfo rather than Directory: enumerating paths and then constructing a
+            // FileInfo for each one costs a second stat per file, and on a folder of three
+            // thousand screenshots that stat was the listing. Enumerating FileInfo hands back
+            // the size and timestamps the directory read already produced, and it samples every
+            // file at one moment rather than over the length of the walk.
+            foreach (var info in new DirectoryInfo(screenshotRoot).EnumerateFiles())
             {
-                if (!SupportedExtensions.Contains(Path.GetExtension(path))
-                    || (!developerMode && path.Contains("EftSimulator", StringComparison.OrdinalIgnoreCase)))
+                if (!SupportedExtensions.Contains(info.Extension)
+                    || (!developerMode && info.Name.Contains("EftSimulator", StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
 
-                var candidate = TryProbe(path);
+                var candidate = Describe(info);
                 if (candidate is null)
                 {
                     continue;
@@ -261,18 +366,34 @@ public sealed class WindowsScreenshotWatcher(
 
     private static FileCandidate? TryProbe(string path)
     {
+        var info = new FileInfo(path);
+        info.Refresh();
+        return Describe(info);
+    }
+
+    /// <summary>
+    /// One enumerated file, from the data the directory read already produced.
+    /// </summary>
+    /// <remarks>
+    /// No Refresh: a FileInfo that came out of an enumeration is already populated, and asking
+    /// again is the per-file stat this exists to avoid. The caller that needs a genuinely fresh
+    /// read — the one confirming a file has not changed under it — goes through
+    /// <see cref="TryProbe"/>, which does refresh.
+    /// </remarks>
+    private static FileCandidate? Describe(FileInfo info)
+    {
         try
         {
-            var info = new FileInfo(path);
-            info.Refresh();
             return new(
-                path,
+                info.FullName,
                 info.LastWriteTimeUtc,
                 new(info.Length, info.LastWriteTimeUtc.Ticks),
                 info.Attributes);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            // A file deleted between the directory read and this is not an error; it is a file
+            // that is no longer there.
             return null;
         }
     }

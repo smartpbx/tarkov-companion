@@ -35,10 +35,10 @@ namespace TarkovCompanion.UnitTests.Group;
 ///
 /// Both tests run the same measurement. They differ only in the wiring between the two ends —
 /// <see cref="Wiring.Now"/> is what this branch does, and <see cref="Wiring.Before"/> is the
-/// three fixed waits it replaced: a watcher that reports a file only once its pixels have
-/// stopped changing, a sender that publishes on a five-second tick, and a receiver that learns
-/// about it on a tick of its own. The second is here so the first is a comparison rather than
-/// an assertion, and so a regression back to any one of the three is visible as a number.
+/// fixed waits it replaced: a watcher that polls once a second and reports a file only once its
+/// pixels have stopped changing, a sender that publishes on a five-second tick, and a receiver
+/// that learns about it on a tick of its own. The second is here so the first is a comparison
+/// rather than an assertion, and so a regression back to any one of them is visible as a number.
 /// </remarks>
 public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
 {
@@ -60,17 +60,26 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
         Before,
     }
 
+    /// <summary>
+    /// The budget, and a margin for a shared build box rather than for the design.
+    /// </summary>
+    /// <remarks>
+    /// The measurement settles at 0.40 s median and about 0.45 s at p95, which is a quarter of a
+    /// second of folder poll plus sixty milliseconds of round trip and very little else. The
+    /// numbers asserted are well above that on purpose: this runs on a box other builds are
+    /// using, and a test that fails when the machine is busy teaches nobody anything.
+    /// </remarks>
     [Fact]
-    public async Task ASquadmatesScreenshotMovesTheirMarkerWellInsideTwoSeconds()
+    public async Task ASquadmatesScreenshotMovesTheirMarkerInUnderASecond()
     {
         var measured = await MeasureAsync(Wiring.Now, samples: 9, budget: TimeSpan.FromSeconds(20));
         output.WriteLine($"Now: {measured}");
 
         Assert.True(
-            measured.Median < TimeSpan.FromSeconds(1.5),
+            measured.Median < TimeSpan.FromSeconds(1),
             $"Median was {measured.Median.TotalSeconds:0.00}s over {measured.Count} deliveries: {measured}");
         Assert.True(
-            measured.Slowest95 < TimeSpan.FromSeconds(3),
+            measured.Slowest95 < TimeSpan.FromSeconds(1.5),
             $"p95 was {measured.Slowest95.TotalSeconds:0.00}s over {measured.Count} deliveries: {measured}");
     }
 
@@ -78,9 +87,9 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
     /// The same measurement, against the waits this replaced.
     /// </summary>
     /// <remarks>
-    /// Three samples rather than nine, because each one costs most of seven seconds and that is
-    /// the finding. If this ever passes the budget above, the three delays are gone from the
-    /// comparison rather than from the product, and the test above has stopped proving anything.
+    /// Three samples rather than nine, because each one costs about five seconds and that is the
+    /// finding. If this ever passes the budget above, the delays are gone from the comparison
+    /// rather than from the product, and the test above has stopped proving anything.
     /// </remarks>
     [Fact]
     public async Task TheThreeWaitsThisReplacedDoNotMeetTheSameBudget()
@@ -111,6 +120,30 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
             _ = Task.Run(() => Positions(root, wiring, sending, stopping.Token), stopping.Token);
             ends.Add(Member(wiring, relay.Address, "Alpha", sending, sender, receives: false, stopping.Token));
             ends.Add(Member(wiring, relay.Address, "Bravo", receiving, receiver, receives: true, stopping.Token));
+            if (holds)
+            {
+                // The game's log says a raid has started at the loading screen, well before
+                // anybody can take a screenshot in it, so on a real installation the watcher is
+                // already watching closely when the first one lands. There is no log watcher in
+                // this harness, so the raid is stated directly and the first sample is measured
+                // under the same conditions as the rest.
+                sending.Update(current => current with
+                {
+                    Raid = current.Raid with { State = RaidLifecycleState.InRaid },
+                });
+                Assert.True(
+                    await UntilAsync(
+                        () => sending.Current.Group.IsSharing && receiving.Current.Group.IsSharing,
+                        TimeSpan.FromSeconds(20),
+                        stopping.Token),
+                    "Both members should have reached the relay before anything is timed.");
+                // The pace is chosen when each wait starts, so it takes hold within one idle
+                // interval of the raid beginning. On a real installation that interval passes
+                // during the loading screen — the log says the raid has started well before
+                // anybody can photograph anything in it — so it is waited out here rather than
+                // charged to the first screenshot, which no player could have taken that soon.
+                await Task.Delay(TimeSpan.FromSeconds(1), stopping.Token);
+            }
 
             for (var sample = 0; sample < samples; sample++)
             {
@@ -157,7 +190,12 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
     {
         var raid = new RaidStateService();
         var parser = new ScreenshotFilenameParser();
-        var watcher = new WindowsScreenshotWatcher();
+        // The pace is half the point of the Now wiring: a raid with the group sharing is the
+        // case where the folder is worth looking at four times a second. Before had one pace
+        // and one second.
+        var watcher = wiring == Wiring.Now
+            ? new WindowsScreenshotWatcher(pacer: new ScreenshotWatchPacer(store))
+            : new WindowsScreenshotWatcher();
         var offset = TimeZoneInfo.Local.GetUtcOffset(DateTimeOffset.UtcNow);
         await foreach (var sighting in watcher.WatchAsync(root, cancellationToken).ConfigureAwait(false))
         {
@@ -435,12 +473,24 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
     }
 
     /// <summary>What the samples came to.</summary>
-    private readonly record struct Measured(int Count, TimeSpan Median, TimeSpan Slowest95, TimeSpan Fastest)
+    private readonly record struct Measured(
+        int Count,
+        TimeSpan Median,
+        TimeSpan Slowest95,
+        TimeSpan Fastest,
+        string Samples)
     {
         public static Measured Of(IReadOnlyList<TimeSpan> samples)
         {
             var ordered = samples.OrderBy(sample => sample).ToArray();
-            return new(ordered.Length, At(ordered, 0.50), At(ordered, 0.95), ordered[0]);
+            return new(
+                ordered.Length,
+                At(ordered, 0.50),
+                At(ordered, 0.95),
+                ordered[0],
+                string.Join(
+                    " ",
+                    samples.Select(one => one.TotalSeconds.ToString("0.00", CultureInfo.InvariantCulture))));
         }
 
         private static TimeSpan At(IReadOnlyList<TimeSpan> ordered, double fraction) =>
@@ -448,6 +498,6 @@ public sealed class TeammatePositionLatencyTests(ITestOutputHelper output)
 
         public override string ToString() => string.Create(
             CultureInfo.InvariantCulture,
-            $"fastest {Fastest.TotalSeconds:0.00}s, median {Median.TotalSeconds:0.00}s, p95 {Slowest95.TotalSeconds:0.00}s");
+            $"fastest {Fastest.TotalSeconds:0.00}s, median {Median.TotalSeconds:0.00}s, p95 {Slowest95.TotalSeconds:0.00}s [{Samples}]");
     }
 }

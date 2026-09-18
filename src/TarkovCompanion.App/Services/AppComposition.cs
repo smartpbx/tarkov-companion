@@ -480,7 +480,14 @@ public static class AppComposition
                 null,
                 provider.GetRequiredService<IEftPathOverrideStore>()));
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
-            services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
+            // v2r-fast-positions (package 31): the pacer lets the watcher look four times a
+            // second while a raid is running and the group is sharing, and once a second
+            // otherwise. Without one it keeps the one-second poll it always had.
+            services.AddSingleton<IScreenshotWatchPacer>(provider =>
+                new ScreenshotWatchPacer(provider.GetRequiredService<IRuntimeStateStore>()));
+            services.AddSingleton<IScreenshotWatcher>(provider => new WindowsScreenshotWatcher(
+                commandLine.DeveloperMode,
+                pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();

@@ -523,6 +523,33 @@ public readonly record struct ScreenshotSighting(string Path, ScreenshotSighting
     public bool IsSettled => Kind == ScreenshotSightingKind.Settled;
 }
 
+/// <summary>How closely the screenshot folder is worth watching right now.</summary>
+/// <remarks>
+/// Looking at a folder costs a directory listing, so how often to look is a question about who
+/// is waiting for the answer. Almost always nobody is: the game is not running, or the player is
+/// in the menu. During a raid with the group on, four other people's maps are waiting on the
+/// next screenshot, and a second of folder poll is most of what they wait.
+/// </remarks>
+public enum ScreenshotWatchPace
+{
+    /// <summary>Nobody is waiting. Once a second, which is what it has always been.</summary>
+    Idle,
+
+    /// <summary>A raid is running and the group is sharing. Somebody's marker is waiting.</summary>
+    Attentive,
+}
+
+/// <summary>Says how closely the screenshot folder is worth watching.</summary>
+/// <remarks>
+/// A question the watcher cannot answer for itself: it knows about a folder, and whether
+/// anybody cares is a fact about the raid and the group. Kept to one synchronous property so
+/// asking it on every poll costs nothing.
+/// </remarks>
+public interface IScreenshotWatchPacer
+{
+    ScreenshotWatchPace Current { get; }
+}
+
 public interface IScreenshotWatcher
 {
     /// <summary>

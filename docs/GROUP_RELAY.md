@@ -117,6 +117,11 @@ Our client asks for a five-second hold rather than the full twenty, because the 
 keeps presence, position ages and staleness current — and it ends its own hold early whenever the
 player's position changes, so a new screenshot goes up at once instead of at the end of the wait.
 
+Its screenshot folder is polled four times a second while a raid is running and sharing is on, and
+once a second otherwise, so the poll is no longer most of the wait either. The whole path —
+screenshot written to the other member's marker moving — measures 0.40 s median and about 0.45 s
+at p95 over a 60 ms link.
+
 ## Marks
 
 A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and
