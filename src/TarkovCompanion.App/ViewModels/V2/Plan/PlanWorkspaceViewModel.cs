@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -22,6 +23,8 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 {
     private readonly PlanWorkspaceViewModel _owner;
     private bool? _hasMapPosition;
+    private int _number;
+    private bool _isLast;
 
     internal PlanObjectiveRowViewModel(
         QuestSummaryReadModel task,
@@ -33,8 +36,8 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
         Task = task;
         Objective = objective;
         _owner = owner;
-        Number = number;
-        IsLast = isLast;
+        _number = number;
+        _isLast = isLast;
         OpenWikiCommand = new DelegateCommand(() => _owner.TryOpenWiki(task.WikiUri));
         MarkObjectiveDoneCommand = new AsyncDelegateCommand(
             () => _owner.MarkObjectiveDoneAsync(objective.ObjectiveId, objective.TargetCount ?? objective.RecordedCount));
@@ -55,10 +58,29 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     internal QuestObjectiveReadModel Objective { get; }
 
     /// <summary>1-based position within its map group: the numbered step the Plan list draws.</summary>
-    public int Number { get; }
+    /// <remarks>
+    /// Settable because a filter pass that keeps this row may still move it: a search that drops the
+    /// objective above it makes this one step 2 instead of step 3, which is a renumbering rather
+    /// than a reason to build the row, its twelve commands and its group again.
+    /// </remarks>
+    public int Number
+    {
+        get => _number;
+        internal set => SetProperty(ref _number, value);
+    }
 
     /// <summary>The last step draws no connector line below its number.</summary>
-    public bool IsLast { get; }
+    public bool IsLast
+    {
+        get => _isLast;
+        internal set
+        {
+            if (SetProperty(ref _isLast, value))
+            {
+                OnPropertyChanged(nameof(HasNext));
+            }
+        }
+    }
 
     public bool HasNext => !IsLast;
 
@@ -241,6 +263,12 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool HasRequirements => Requirements.Count > 0;
 
+    /// <summary>
+    /// Whether this group's requirement rows have been worked out yet, so a filter pass that kept
+    /// the group does not work them out again.
+    /// </summary>
+    internal bool RequirementsBuilt { get; set; }
+
     public int StillNeededCount => Requirements.Count(row => !row.IsSatisfied);
 
     public bool RequirementsReady => HasRequirements && StillNeededCount == 0;
@@ -312,6 +340,15 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<PlanTraderLoyaltyViewModel> _traderLoyalty = [];
     private int _playerLevel = QuestsPageViewModel.MinimumLevel;
     private string _rollup = string.Empty;
+    // [V2 rough package 45] What the search reads, joined when the board is read instead of when a
+    // key is pressed, and the gate that keeps the filter off the keystroke's own stack.
+    private PlanSearchIndex _searchIndex = PlanSearchIndex.Empty;
+    private readonly Func<QuestSummaryReadModel, string> _searchableText;
+    private readonly DeferredDispatch _filterRequest;
+    // Held rather than made per pass: a filter pass allocating two closures per keystroke is the
+    // kind of thing this package exists to stop doing.
+    private readonly Action<PlanMapGroupViewModel> _selectGroup;
+    private readonly Func<string, Task> _openInRaid;
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
@@ -334,6 +371,16 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         IItemRepository? itemRepository = null)
     {
         _itemRepository = itemRepository;
+        _searchableText = SearchableText;
+        _selectGroup = group => SelectedGroup = group;
+        _openInRaid = OpenInRaidAsync;
+        // Package 45: typing must not wait on the filter. Behind input rather than through
+        // Avalonia's own context, which posts above it: see BehindInputSynchronizationContext.
+        _filterRequest = new DeferredDispatch(
+            SynchronizationContext.Current?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
+                ? new BehindInputSynchronizationContext()
+                : null,
+            ApplyFilter);
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
         _commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
@@ -355,7 +402,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         {
             if (e.PropertyName == nameof(MapViewModel.Locations))
             {
-                ApplyFilter();
+                // The names the search reads come from here, so the index is stale until they land.
+                RebuildSearchIndex();
+                _filterRequest.Request();
             }
             else if (e.PropertyName == nameof(MapViewModel.RenderModel))
             {
@@ -487,7 +536,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             if (SetProperty(ref _searchText, value ?? string.Empty))
             {
                 OnPropertyChanged(nameof(HasSearchText));
-                ApplyFilter();
+                // The box shows the character now and the list catches up on the dispatcher's next
+                // turn, once, however many characters were typed before it came.
+                _filterRequest.Request();
             }
         }
     }
@@ -583,6 +634,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             _missingItems.Clear();
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
+            RebuildSearchIndex();
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
             ApplyFilter();
@@ -627,9 +679,66 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         var previousMapKey = SelectedGroup is { } previous ? previous.MapId ?? AnyMapKey : null;
+        var entries = Bucket(
+            _board.Tasks,
+            Filter,
+            QuestsPageViewModel.SearchTerms(SearchText),
+            SelectedTrader.TraderId,
+            _searchableText);
+        // Keeps whatever the last pass built and this one still wants; Groups only changes when
+        // the result set does, so an unchanged list is not re-bound and not redrawn.
+        var composed = ComposeGroups(entries, Groups, NameOfMap, this, _selectGroup, _openInRaid);
+        var composedChanged = !ReferenceEquals(composed, Groups);
+        Groups = composed;
+        RebuildRequirements(composedChanged);
+        PlanMapGroupViewModel? keep = null;
+        if (previousMapKey is not null)
+        {
+            foreach (var group in Groups)
+            {
+                if (string.Equals(group.MapId ?? AnyMapKey, previousMapKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    keep = group;
+                    break;
+                }
+            }
+        }
+
+        SelectedGroup = keep ?? (Groups.Count > 0 ? Groups[0] : null);
+        UpdateStatus();
+    }
+
+    /// <summary>
+    /// The map groups for a filtered result set, reusing every group and row the last set already
+    /// had one of.
+    /// </summary>
+    /// <remarks>
+    /// A row is the same row when its quest and its objective are the same instances, which they
+    /// are for every pass over one board read and are not once the board has been re-read: a
+    /// keystroke keeps its rows, marking an objective done replaces them. A kept row may still move
+    /// up the list, so it is renumbered in place.
+    ///
+    /// A group is the same group when it ends up holding exactly the same rows in the same order.
+    /// That is what lets the requirements rollup, the selection, the centre map and the item-name
+    /// lookups all stay where they are: <see cref="SelectedGroup"/> compares by instance, so the
+    /// same instance coming back out of a filter pass is not a selection change at all.
+    ///
+    /// Returns <paramref name="previous"/> itself when nothing changed, so the caller's property
+    /// setter sees no change either.
+    /// </remarks>
+    internal static IReadOnlyList<PlanMapGroupViewModel> ComposeGroups(
+        IReadOnlyList<PlanObjectiveBucketEntry> entries,
+        IReadOnlyList<PlanMapGroupViewModel> previous,
+        Func<string, string> nameOfMap,
+        PlanWorkspaceViewModel? owner = null,
+        Action<PlanMapGroupViewModel>? select = null,
+        Func<string, Task>? openInRaid = null)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        ArgumentNullException.ThrowIfNull(previous);
+        ArgumentNullException.ThrowIfNull(nameOfMap);
         var buckets = new Dictionary<string, List<PlanObjectiveBucketEntry>>(StringComparer.OrdinalIgnoreCase);
-        var terms = QuestsPageViewModel.SearchTerms(SearchText);
-        foreach (var entry in Bucket(_board.Tasks, Filter, terms, SelectedTrader.TraderId, SearchableText))
+        foreach (var entry in entries)
         {
             if (!buckets.TryGetValue(entry.MapKey, out var list))
             {
@@ -639,37 +748,140 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             list.Add(entry);
         }
 
-        Groups = buckets
-            .Select(bucket => new PlanMapGroupViewModel(
-                bucket.Key.Length == 0 ? null : bucket.Key,
-                NameOfMap(bucket.Key),
-                bucket.Value
-                    .Select((entry, index) => new PlanObjectiveRowViewModel(
-                        entry.Task, entry.Objective, this, index + 1, index == bucket.Value.Count - 1))
-                    .ToArray(),
-                group => SelectedGroup = group,
-                OpenInRaidAsync))
-            .OrderBy(group => group.MapId is null ? 1 : 0)
-            .ThenBy(group => group.MapLabel, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
-        RebuildRequirements();
-        SelectedGroup = Groups.FirstOrDefault(group =>
-                previousMapKey is not null &&
-                string.Equals(group.MapId ?? AnyMapKey, previousMapKey, StringComparison.OrdinalIgnoreCase))
-            ?? Groups.FirstOrDefault();
-        UpdateStatus();
+        var groups = new List<PlanMapGroupViewModel>(buckets.Count);
+        foreach (var (mapKey, bucket) in buckets)
+        {
+            var existing = FindGroup(previous, mapKey);
+            var rows = ComposeRows(bucket, existing?.Objectives, owner);
+            groups.Add(existing is not null && SameRows(existing.Objectives, rows)
+                ? existing
+                : new PlanMapGroupViewModel(
+                    mapKey.Length == 0 ? null : mapKey,
+                    nameOfMap(mapKey),
+                    rows,
+                    select,
+                    openInRaid));
+        }
+
+        // "Any map" last, then by name. The map id breaks a tie because several unnamed ids share
+        // the "Other map" label, and an unstable sort would shuffle them between keystrokes.
+        groups.Sort(static (left, right) =>
+        {
+            var byKind = (left.MapId is null ? 1 : 0) - (right.MapId is null ? 1 : 0);
+            if (byKind != 0)
+            {
+                return byKind;
+            }
+
+            var byLabel = string.Compare(left.MapLabel, right.MapLabel, StringComparison.CurrentCultureIgnoreCase);
+            return byLabel != 0 ? byLabel : string.CompareOrdinal(left.MapId, right.MapId);
+        });
+        return SameGroups(previous, groups) ? previous : groups;
     }
+
+    private static PlanMapGroupViewModel? FindGroup(IReadOnlyList<PlanMapGroupViewModel> groups, string mapKey)
+    {
+        foreach (var group in groups)
+        {
+            if (string.Equals(group.MapId ?? AnyMapKey, mapKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return group;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// One map's rows, taking each from <paramref name="existing"/> where it is already there.
+    /// </summary>
+    /// <remarks>
+    /// Both lists run in board order, so one cursor through the old rows finds every survivor
+    /// whether the result set narrowed or widened, without a dictionary per group per keystroke.
+    /// </remarks>
+    private static PlanObjectiveRowViewModel[] ComposeRows(
+        List<PlanObjectiveBucketEntry> bucket,
+        IReadOnlyList<PlanObjectiveRowViewModel>? existing,
+        PlanWorkspaceViewModel? owner)
+    {
+        var rows = new PlanObjectiveRowViewModel[bucket.Count];
+        var cursor = 0;
+        for (var index = 0; index < bucket.Count; index++)
+        {
+            var entry = bucket[index];
+            PlanObjectiveRowViewModel? reused = null;
+            if (existing is not null)
+            {
+                for (var probe = cursor; probe < existing.Count; probe++)
+                {
+                    var candidate = existing[probe];
+                    if (ReferenceEquals(candidate.Objective, entry.Objective) && ReferenceEquals(candidate.Task, entry.Task))
+                    {
+                        reused = candidate;
+                        cursor = probe + 1;
+                        break;
+                    }
+                }
+            }
+
+            var row = reused ?? new PlanObjectiveRowViewModel(entry.Task, entry.Objective, owner!);
+            row.Number = index + 1;
+            row.IsLast = index == bucket.Count - 1;
+            rows[index] = row;
+        }
+
+        return rows;
+    }
+
+    private static bool SameRows(IReadOnlyList<PlanObjectiveRowViewModel> left, PlanObjectiveRowViewModel[] right)
+    {
+        if (left.Count != right.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < right.Length; index++)
+        {
+            if (!ReferenceEquals(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool SameGroups(IReadOnlyList<PlanMapGroupViewModel> left, List<PlanMapGroupViewModel> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < right.Count; index++)
+        {
+            if (!ReferenceEquals(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Joins what the search reads, for the board as it now is and the map names as they now are.</summary>
+    private void RebuildSearchIndex() =>
+        _searchIndex = _board is null ? PlanSearchIndex.Empty : PlanSearchIndex.Build(_board.Tasks, NameOfMap);
 
     private void UpdateStatus() => Status = _board?.UnavailableReason ?? (HasGroups
         ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
         : PlanQuestRules.DescribeEmpty(Filter, SearchText.Trim(), SelectedTrader.TraderId is not null));
 
-    /// <summary>Everything the search reads on a quest, so "customs" finds a quest by the map its objectives are on.</summary>
-    private string SearchableText(QuestSummaryReadModel task) => string.Join(
-        '\n',
-        new[] { task.Name, task.TraderName ?? string.Empty, task.TraderId ?? string.Empty }
-            .Concat(task.Objectives.Select(objective => objective.Description))
-            .Concat(task.Objectives.SelectMany(objective => objective.MapIds).Distinct(StringComparer.OrdinalIgnoreCase).Select(NameOfMap)));
+    /// <summary>
+    /// Everything the search reads on a quest, so "customs" finds a quest by the map its objectives
+    /// are on. Read from <see cref="PlanSearchIndex"/>, which joined it when the board was read.
+    /// </summary>
+    private string SearchableText(QuestSummaryReadModel task) => _searchIndex.TextFor(task);
 
     private IReadOnlyList<PlanFilterChipViewModel> CreateFilterChips()
     {
@@ -788,14 +1000,29 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private void RebuildRequirements()
+    /// <summary>
+    /// Works out the requirement rows of every group that does not have them yet, which after a
+    /// filter pass that kept its groups is none of them.
+    /// </summary>
+    private void RebuildRequirements(bool groupsChanged = true)
     {
+        var built = false;
         foreach (var group in Groups)
         {
+            if (group.RequirementsBuilt)
+            {
+                continue;
+            }
+
             group.Requirements = BuildRequirementsFor(group);
+            group.RequirementsBuilt = true;
+            built = true;
         }
 
-        UpdateRollup();
+        if (built || groupsChanged)
+        {
+            UpdateRollup();
+        }
     }
 
     private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group) =>
