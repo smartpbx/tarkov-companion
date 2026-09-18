@@ -277,6 +277,31 @@ internal static class Program
                 Pump(20);
             }
 
+            // Package 40: the guided full-stash scan, driven through the composed services from
+            // painted screenshots. "mid" stops after two of three screens; "complete" finishes;
+            // "unnamed" is the application as it ships, where no tile can be named yet.
+            if (shell is not null && StringOption(args, "--stash-scan-demo") is { } stashScanDemo)
+            {
+                var stashScan = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                var guided = services.GetRequiredService<TarkovCompanion.Application.Services.StashScan.GuidedStashScanService>();
+                DrainUntilComplete(stashScan.LoadAsync());
+                stashScan.StartSelectedScanCommand.Execute(null);
+                Pump(10);
+                var complete = stashScanDemo.StartsWith("complete", StringComparison.Ordinal);
+                DrainUntilComplete(StashScanDemo.AddScreensAsync(
+                    guided,
+                    complete ? [0, 10, 20] : [0, 10],
+                    nameItems: !stashScanDemo.EndsWith("unnamed", StringComparison.Ordinal)));
+                Pump(10);
+                if (complete)
+                {
+                    stashScan.FinishScanCommand.Execute(null);
+                    Pump(40);
+                }
+
+                Pump(20);
+            }
+
             SaveFrame(window, outputPath, width, height);
             rendered = true;
             return 0;

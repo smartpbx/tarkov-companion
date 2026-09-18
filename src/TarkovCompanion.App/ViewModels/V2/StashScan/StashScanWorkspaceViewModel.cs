@@ -177,7 +177,15 @@ public sealed class StashGridTileViewModel : BindableViewModel
 
     public bool IsUnresolved => Kind == StashTileKind.Unresolved;
 
-    public string AutomationName => HasDetail ? $"{Name}, {Detail}" : Name;
+    public string AutomationName
+    {
+        get
+        {
+            // The tile may draw a bare "?"; a screen reader gets the row's words instead.
+            var name = ItemRow?.DisplayName ?? Name;
+            return HasDetail ? $"{name}, {Detail}" : name;
+        }
+    }
 
     public bool IsSelected
     {
@@ -419,8 +427,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     {
         get
         {
+            // A scan that priced nothing sums to zero, and "₽0" reads as "worthless" rather
+            // than "no price was read", so zero is shown as absent too.
             var value = _selected?.Recognition.Result.Value?.TotalKnownValueRoubles.Value;
-            return value is null ? string.Empty : CompactRoubles(value.Value);
+            return value is null or 0 ? string.Empty : CompactRoubles(value.Value);
         }
     }
 
@@ -478,6 +488,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     public bool HasSnapshots => Snapshots.Count > 0;
 
     public bool HasNoSnapshots => !HasSnapshots;
+
+    /// <summary>Nothing saved and nothing being scanned: the only time the grid has nothing to draw.</summary>
+    public bool ShowsNothingScanned => HasNoSnapshots && !(IsScanInProgress && HasRegions);
 
     public bool HasSelection => _selected is not null;
 
@@ -648,6 +661,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         if (_guidedScan is { Current.IsCollecting: true } guided)
         {
             await BuildItemBreakdownAsync(guided.Current.Reconstruction, cancellationToken).ConfigureAwait(true);
+            Status = IsScanPaused ? "A stash scan is waiting to be finished." : "Scanning your stash.";
         }
     }
 
@@ -917,7 +931,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             {
                 var canonicalId = tile.ItemId;
                 var displayName = tile.DisplayName
-                    ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : "Unknown");
+                    ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : "Unknown item");
+
+                // A one-cell tile has room for about six characters, and "Unknown" is seven.
+                var tileName = tile.IsKnown || tile.CandidateNames.Count > 0 ? displayName : "?";
                 var quantity = tile.Quantity ?? 1;
 
                 var wikiUri = await WikiUriForAsync(canonicalId, wikiUriByItemId, cancellationToken).ConfigureAwait(true);
@@ -967,7 +984,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     new GridCellAddress(tile.Row, tile.Column),
                     tile.Width,
                     tile.Height,
-                    displayName,
+                    tileName,
                     quantity > 1 ? $"x{quantity.ToString(CultureInfo.CurrentCulture)}" : string.Empty,
                     kind,
                     row));
@@ -1068,6 +1085,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Snapshots));
         OnPropertyChanged(nameof(HasSnapshots));
         OnPropertyChanged(nameof(HasNoSnapshots));
+        OnPropertyChanged(nameof(ShowsNothingScanned));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(Items));
         OnPropertyChanged(nameof(AmmoSummary));

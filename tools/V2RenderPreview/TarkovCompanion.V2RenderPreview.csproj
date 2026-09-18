@@ -8,6 +8,10 @@
     <ProjectReference Include="../../src/TarkovCompanion.App/TarkovCompanion.App.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Package 40: one stash painter, shared with the measurement tests that score it. -->
+    <Compile Include="../../tests/TarkovCompanion.UnitTests/StashScan/SyntheticStash.cs" Link="SyntheticStash.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Avalonia.Headless" />
   </ItemGroup>
 </Project>

@@ -360,14 +360,14 @@
           </ScrollViewer>
 
           <!-- Nothing scanned yet. -->
-          <StackPanel IsVisible="{Binding HasNoSnapshots}" Spacing="10" MaxWidth="420"
+          <StackPanel IsVisible="{Binding ShowsNothingScanned}" Spacing="10" MaxWidth="420"
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
               <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Grid}" />
             </Viewbox>
             <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No stash scan yet" />
             <TextBlock Classes="v2-label" TextAlignment="Center" TextWrapping="Wrap"
-                       Text="Scan your stash screen by screen; each capture is added to the same snapshot." />
+                       Text="Start a scan, scroll to the top of your stash, and take a screenshot of each screenful." />
           </StackPanel>
         </Panel>
       </Border>
