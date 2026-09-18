@@ -719,8 +719,41 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     /// <summary>Why "Pair a tablet" is disabled, as its tooltip; null while pairing is available.</summary>
     public string? PairTabletTooltip => CanPairDevice ? null : PairingUnavailableReason;
 
+    /// <summary>
+    /// What a paired device is doing to this desktop right now, and the one action that ends it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24, #407] Control is only safe if the desktop says out loud that
+    /// something else is driving it and can take it back without hunting for a setting — which is
+    /// what the tablet concept (docs/design/v2/v2-tablet-desktop-control-concept.png) shows.
+    /// </remarks>
+    public string? ControlRequestMessage => _pairing?.ControlRequestMessage;
+
+    public bool HasControlRequest => _pairing?.HasControlRequest == true;
+
+    public string? ControlHolderMessage => _pairing?.ControlHolderMessage;
+
+    public bool HasControlHolder => _pairing?.HasControlHolder == true;
+
+    public ICommand? AllowControlCommand => _pairing?.AllowControlCommand;
+
+    public ICommand? DenyControlCommand => _pairing?.DenyControlCommand;
+
+    public ICommand? TakeBackControlCommand => _pairing?.TakeBackControlCommand;
+
     private void PairingChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
+        if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.ControlRequestMessage)
+            or nameof(CompanionPairingViewModel.HasControlRequest)
+            or nameof(CompanionPairingViewModel.ControlHolderMessage)
+            or nameof(CompanionPairingViewModel.HasControlHolder))
+        {
+            OnPropertyChanged(nameof(ControlRequestMessage));
+            OnPropertyChanged(nameof(HasControlRequest));
+            OnPropertyChanged(nameof(ControlHolderMessage));
+            OnPropertyChanged(nameof(HasControlHolder));
+        }
+
         if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.Devices) or nameof(CompanionPairingViewModel.HasNoDevices))
         {
             OnPropertyChanged(nameof(Devices));
