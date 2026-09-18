@@ -1144,7 +1144,8 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         bool StartsNewRaid,
         string? EventId,
         bool ResumesSession,
-        string? SideBasis)
+        string? SideBasis,
+        double? LoadSeconds = null)
     {
         public static StatePayload From(Guid raidId, RaidEvidence evidence) => new(
             raidId,
@@ -1158,7 +1159,8 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             evidence.StartsNewRaid,
             Text(evidence.EventId),
             evidence.ResumesSession,
-            Text(evidence.SideBasis));
+            Text(evidence.SideBasis),
+            evidence.LoadSeconds is { } load and > 0 and < 86400 ? load : null);
 
         public RaidHistoryCommand ToCommand() => RaidHistoryCommand.RecordState(
             RaidId,
@@ -1175,6 +1177,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                 EventId = EventId,
                 ResumesSession = ResumesSession,
                 SideBasis = SideBasis,
+                LoadSeconds = LoadSeconds,
             });
     }
 

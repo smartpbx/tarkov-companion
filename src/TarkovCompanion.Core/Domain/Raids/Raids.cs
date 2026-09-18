@@ -82,6 +82,12 @@ public sealed record RaidEvidence(
     /// travels with the value rather than being reconstructed by whoever displays it.
     /// </remarks>
     public string? SideBasis { get; init; }
+
+    /// <summary>
+    /// Seconds matchmaking and loading took before this raid began, where the game said so.
+    /// </summary>
+    /// <remarks>Set only on the evidence that begins a raid, from the game's <c>MatchingCompleted</c> line.</remarks>
+    public double? LoadSeconds { get; init; }
 }
 
 /// <summary>One bar of the game's own display, and how long it has ever been.</summary>

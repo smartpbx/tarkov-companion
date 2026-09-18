@@ -35,6 +35,9 @@ public interface IRaidActivityRecorder
 
     /// <summary>Ties a quest the game announced to the raid it was announced during.</summary>
     Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken);
+
+    /// <summary>Holds a matchmaking time until the raid it belongs to starts.</summary>
+    Task RecordLoadTimeAsync(LoadTimeObservation loadTime, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -73,6 +76,20 @@ public sealed class RaidActivityCoordinator(
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
+
+    /// <summary>
+    /// The most recent matchmaking time, waiting for the raid it belongs to.
+    /// </summary>
+    /// <remarks>
+    /// The game writes it before that raid has an id, so it cannot be recorded against one yet.
+    /// A plain field is enough: it has one writer (the log watcher, sequentially) and one
+    /// reader (the next raid start), and losing a race would at worst attach the wrong one of
+    /// two matches made in the same few seconds to the raid that followed.
+    /// </remarks>
+    private LoadTimeObservation? _pendingLoadTime;
+
+    /// <summary>How long after MatchingCompleted a raid may start and still be the one it timed.</summary>
+    private static readonly TimeSpan MaximumLoadTimeAge = TimeSpan.FromMinutes(5);
 
     /// <summary>Raised when durable raid-history delivery health changes.</summary>
     public event EventHandler? OutboxChanged
@@ -357,6 +374,22 @@ public sealed class RaidActivityCoordinator(
         return RecordForOpenRaidAsync(raidId => RaidHistoryCommand.RecordQuest(raidId, quest), cancellationToken);
     }
 
+    /// <summary>
+    /// Remembers a matchmaking time until the raid it measured begins.
+    /// </summary>
+    /// <remarks>
+    /// The game writes this line before the raid it belongs to has an id, so it cannot be
+    /// recorded against one yet. <see cref="AddStartIfNewAsync"/> collects it when that raid
+    /// starts and clears it, so a raid that never follows simply lets it go stale rather than
+    /// attaching to the wrong one.
+    /// </remarks>
+    public Task RecordLoadTimeAsync(LoadTimeObservation loadTime, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(loadTime);
+        _pendingLoadTime = loadTime;
+        return Task.CompletedTask;
+    }
+
     /// <summary>Applies one transition and records it, in the order the history store requires.</summary>
     /// <param name="apply">Applies the observation to the given raid state and returns the result.</param>
     /// <param name="describe">Adds the commands that record the move from the first snapshot to the second.</param>
@@ -451,6 +484,17 @@ public sealed class RaidActivityCoordinator(
         await AddStartIfNewAsync(commands, previous, current, alreadyRecorded, cancellationToken).ConfigureAwait(false);
         if (current.RaidId is { } raidId)
         {
+            // The queue/load time rides on the state event that begins the raid, because that
+            // event already has a durable route and a new command kind would need a schema change.
+            // Taken (and cleared) on every raid start, but only carried if it is recent: a match
+            // whose raid never began (queue cancelled, game closed) must not label a later raid.
+            if (previous.RaidId != raidId
+                && Interlocked.Exchange(ref _pendingLoadTime, null) is { } loadTime
+                && evidence.ObservedUtc - loadTime.ObservedUtc <= MaximumLoadTimeAge)
+            {
+                evidence = evidence with { LoadSeconds = loadTime.RealSeconds };
+            }
+
             commands.Add(RaidHistoryCommand.RecordState(raidId, evidence));
         }
 
