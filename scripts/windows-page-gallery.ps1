@@ -477,6 +477,26 @@ function Invoke-ShellInteraction {
                 throw "'$Description' measured '$BoundsLabel' at $($Bounds.Width)x$($Bounds.Height), below ${MinimumWidth}x${MinimumHeight}."
             }
 
+            # V2 rough package 32: some repairs are about a control being the size of what it
+            # holds, which is true whatever data the machine has — unlike how much of it is
+            # drawn on, which is not. Debrief's raid table is one: a full-height card holding a
+            # single row was the fault, and it is a fault with no raids as much as with one.
+            $MaximumHeightFraction = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "maximumHeightFraction" -Default (-1))
+            if ($MaximumHeightFraction -ge 0) {
+                Initialize-GalleryBounds
+                $HeightWindow = New-Object TarkovCompanionGalleryBounds+RECT
+                if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $HeightWindow)) {
+                    throw "'$Description' could not read the packaged window bounds."
+                }
+
+                $WindowHeight = [Math]::Max(1, $HeightWindow.Bottom - $HeightWindow.Top)
+                $Share = $Bounds.Height / $WindowHeight
+                if ($Share -gt $MaximumHeightFraction) {
+                    throw ("'$Description' left '$BoundsLabel' $([Math]::Round($Share * 100, 1))% of the window tall " +
+                        "(bound $([Math]::Round($MaximumHeightFraction * 100, 1))%): it is not the size of what it holds.")
+                }
+            }
+
             # V2 rough package 30 (acceptance sweep): a control the player is expected to press
             # must actually be on the window. Every V1 page hosted inside the V2 shell drew
             # without the page inset V1 gives it, so Ammo/Keys "Reload", Flea "Look up value",
@@ -505,6 +525,15 @@ function Invoke-ShellInteraction {
         # V2 rough package 32: of the pixels this control was given, how many did it draw on?
         foreach ($FillAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedFill" -Default @())) {
             $FillId = [string]$FillAssertion.automationId
+            # V2 rough package 32: a control that is telling the player its content is missing is
+            # not a layout to measure. The Raid map card draws one flat slate when the runner has
+            # no map artwork, and bounding that is bounding whether tiles downloaded.
+            $FillUnless = [string](Get-InteractionProperty -Object $FillAssertion -Name "unlessAutomationId" -Default "")
+            if ($FillUnless -and $null -ne (Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $FillUnless)) {
+                $Completed.Add("$Description : '$FillId' was not measured, because '$FillUnless' says its content is missing")
+                continue
+            }
+
             $FillElement = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $FillId
             if ($null -eq $FillElement) {
                 # A control that is not on this page cannot be measured. Only a shot that says the
@@ -1275,7 +1304,9 @@ $V2AcceptanceRoutes = @(
     # branch measured, with headroom; the PR carries the before figures they have to beat.
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
         expected = @("v2-shell-navigation-rail", "v2-map-plan")
-        fill = @([pscustomobject]@{ automationId = "v2-map-plan"; maximumFlatFraction = 0.45 }) },
+        fill = @([pscustomobject]@{
+            automationId = "v2-map-plan"; maximumFlatFraction = 0.45
+            unlessAutomationId = "v2-map-background-status" }) },
     [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
         expected = @("v2-shell-navigation-rail") },
     # The two bounded ones. Both were measured on this branch at under 2% of the body, against
@@ -1326,9 +1357,17 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
         expected = @("v2-shell-navigation-rail") },
+    # Height, not fill: with no raids recorded the table holds its empty state, which is mostly
+    # card either way, so "how much of it is drawn on" says nothing. "It is the height of the
+    # raids in it" is the repair, and it holds with no raids as well as with one — on today's
+    # main this pane is the full height of the window whatever is in it.
+    #
+    # Read against the history this gallery photographs, which is a first run's: none, or the one
+    # the launch probe opened. A machine with thirty raids would fill the window legitimately and
+    # trip this, the same way the readiness denominators above are written against a first run.
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
         expected = @("v2-shell-navigation-rail", "v2-debrief-history")
-        fill = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumFlatFraction = 0.70 }) },
+        bounds = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumHeightFraction = 0.50 }) },
     [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
         expected = @("v2-shell-navigation-rail") }
 )
