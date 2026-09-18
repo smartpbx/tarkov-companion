@@ -108,9 +108,7 @@ public sealed class VelopackUpdateGateway
         {
             // One client for the life of the process, never disposed: it is created at most
             // once, and only by a build that was installed.
-            source ??= new HashVerifiedUpdateSource(
-                Channel.OpenTransport(new HttpClient { Timeout = FeedTimeout }),
-                _logger);
+            source ??= new HashVerifiedUpdateSource(Channel.OpenTransport(CreateClient()), _logger);
             return new UpdateManager(source, options: null, locator);
         }
         catch (Exception exception)
@@ -120,6 +118,16 @@ public sealed class VelopackUpdateGateway
                 "Not started by the installed application, so it cannot update");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Named, because the relay sits behind a proxy that may challenge a request with no agent.
+    /// </summary>
+    private static HttpClient CreateClient()
+    {
+        var client = new HttpClient { Timeout = FeedTimeout };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-Updater/1.0");
+        return client;
     }
 
     /// <summary>Which feed this build follows.</summary>
