@@ -3,6 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Team"
+             xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:tabletVm="using:TarkovCompanion.App.ViewModels.V2.Tablet"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
   <UserControl.Resources>
@@ -320,13 +321,13 @@
                   </StackPanel>
                   <StackPanel Grid.Column="1" Spacing="6">
                     <TextBlock Classes="v2-label" Text="Group key" />
-                    <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}"
+                    <TextBox Classes="v2-field-input" Text="{Binding Key, Mode=TwoWay}" PasswordChar="•"
                              AutomationProperties.Name="Group key"
                              AutomationProperties.AutomationId="v2-team-key-input" />
                   </StackPanel>
                 </Grid>
                 <TextBlock Classes="v2-label" Margin="0,-10,0,0" TextWrapping="Wrap"
-                           Text="A new key creates a group; an existing key joins it." />
+                           Text="At least eight characters. A new key creates a group; an existing key joins it." />
 
                 <StackPanel Spacing="6">
                   <TextBlock Classes="v2-heading-3" Text="What you share" AutomationProperties.HeadingLevel="3" />
@@ -335,6 +336,7 @@
                   <ToggleSwitch Classes="v2-team-switch" IsChecked="{Binding SharesQuests, Mode=TwoWay}"
                                 OnContent="My quest progress" OffContent="My quest progress"
                                 AutomationProperties.Name="Share my quest progress" />
+                  <TextBlock Classes="v2-label" Text="Pinned and active quests, up to five." />
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -342,6 +344,42 @@
                           Content="Save" Command="{Binding SaveCommand}" />
                   <Button Classes="v2-team-plain" AutomationProperties.AutomationId="v2-team-leave"
                           Content="{Binding LeaveLabel}" Command="{Binding LeaveCommand}" />
+                </StackPanel>
+
+                <!-- Package 29 (parity): V1's Group page said what your own game never tells you —
+                     your kit, level, side and scav timer — because a squadmate's game wrote them down. -->
+                <StackPanel Spacing="6" AutomationProperties.AutomationId="v2-team-about-you">
+                  <TextBlock Classes="v2-heading-3" Text="What your group knows about you"
+                             AutomationProperties.HeadingLevel="3" />
+                  <TextBlock Classes="v2-body" Text="{Binding MyLoadout}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-body" Text="{Binding MyProfile}" TextWrapping="Wrap"
+                             IsVisible="{Binding HasMyProfile}" />
+                  <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                             Text="Read off a squadmate's game, not yours · matched on your in-game nickname." />
+                </StackPanel>
+
+                <StackPanel Spacing="8" IsVisible="{Binding HasPresence}" AutomationProperties.AutomationId="v2-team-members">
+                  <TextBlock Classes="v2-heading-3" Text="Who else is here" AutomationProperties.HeadingLevel="3" />
+                  <ItemsControl ItemsSource="{Binding Presence}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:TeamPresenceRowViewModel">
+                        <StackPanel Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Name}" />
+                            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
+                            <TextBlock Classes="v2-label v2-team-state" VerticalAlignment="Center"
+                                       Classes.v2-team-live="{Binding IsLive}" Classes.v2-team-stale="{Binding IsStale}"
+                                       Text="{Binding StateLabel}" />
+                          </StackPanel>
+                          <TextBlock Classes="v2-label" Text="{Binding Position}" IsVisible="{Binding HasPosition}" />
+                          <TextBlock Classes="v2-label" Text="{Binding Shared}" IsVisible="{Binding HasShared}" TextWrapping="Wrap" />
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
                 </StackPanel>
               </StackPanel>
             </Grid>
@@ -468,6 +506,50 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <!-- Package 29 (parity): V1's Squad page — who you are running with, from the game's own
+                 party notifications — over the same view model, in the panel's own card shape. -->
+            <Border Classes="v2-team-section" IsVisible="{Binding HasParty}"
+                    AutomationProperties.AutomationId="v2-team-party">
+              <StackPanel Spacing="10">
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.People}" />
+                  <TextBlock Grid.Column="1" Classes="v2-heading-3" VerticalAlignment="Center" Text="Party"
+                             AutomationProperties.HeadingLevel="3" />
+                  <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center" Text="{Binding Party.Status}" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding Party.Queue}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-label" IsVisible="{Binding Party.HasNoMembers}" TextWrapping="Wrap"
+                           Text="It fills in when you queue with somebody. A party formed before this started appears at its next change." />
+                <ItemsControl ItemsSource="{Binding Party.Members}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="appVm:SquadMemberViewModel">
+                      <StackPanel Spacing="2">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                          <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Nickname}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center"
+                                     Foreground="{Binding ReadinessColor}" Text="{Binding Readiness}" />
+                        </Grid>
+                        <TextBlock Classes="v2-label" TextWrapping="Wrap">
+                          <Run Text="{Binding Role}" /><Run Text=" · " /><Run Text="{Binding Level}" /><Run Text=" · " /><Run Text="{Binding Scav}" />
+                        </TextBlock>
+                        <ItemsControl IsVisible="{Binding HasGear}" ItemsSource="{Binding Gear}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="appVm:SquadGearViewModel">
+                              <TextBlock Classes="v2-label" Text="{Binding Text}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="v2-label" Text="{Binding Party.Evidence}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
 
