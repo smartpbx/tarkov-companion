@@ -392,9 +392,15 @@ public sealed record QuestPanelViewModel(
 /// <param name="Name">What the map calls the spawn.</param>
 /// <param name="FromStart">How far it is from where this raid began.</param>
 /// <param name="FromPlayer">Where it lies from the player now, or nothing if they have not been seen.</param>
-public sealed record SpawnPanelViewModel(string Name, string FromStart, string FromPlayer)
+/// <param name="Reach">
+/// [V2 rough package 39] How long until somebody who started there could be standing here, as a
+/// band rather than a number — see <see cref="SpawnReach"/> for why it is never a number.
+/// </param>
+public sealed record SpawnPanelViewModel(string Name, string FromStart, string FromPlayer, string Reach = "")
 {
     public bool HasFromPlayer => FromPlayer.Length > 0;
+
+    public bool HasReach => Reach.Length > 0;
 }
 
 /// <summary>One place near the player where the game spawns loot.</summary>
@@ -4576,11 +4582,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 SpawnProximity.Describe(spawn.MetresFromStart) + " from your start",
                 spawn.MetresFromPlayer is { } fromPlayer && spawn.Bearing is { } bearing
                     ? $"{SpawnProximity.Describe(fromPlayer)} {bearing} of you"
-                    : string.Empty))
+                    : string.Empty,
+                // Measured from where the player actually is when a screenshot has said so, and
+                // from where they started otherwise: the question is "how long until somebody
+                // from there could be here", and "here" moves.
+                SpawnReach.Describe(spawn.MetresFromPlayer ?? spawn.MetresFromStart)))
             .ToArray();
+        // [V2 rough package 39] Says what is in the list as well as what it is measured from:
+        // player spawns inside the radius, and nothing beyond it. Without the radius, a short
+        // list reads as missing data rather than as a quiet corner of the map.
         SpawnPanelDetail = near.Count == 0
             ? string.Empty
-            : $"Measured from your first screenshot of this raid, {anchor.Timestamp.ToLocalTime():t}.";
+            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {anchor.Timestamp.ToLocalTime():t}.";
     }
 
     /// <summary>
