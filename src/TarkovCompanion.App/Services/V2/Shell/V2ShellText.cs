@@ -49,6 +49,7 @@ public static class V2ShellText
         ["V2.Shell.Route.Stash"] = "Stash scan",
         ["V2.Shell.Route.Quests"] = "Quests",
         ["V2.Shell.Route.Hideout"] = "Hideout",
+        ["V2.Shell.Route.Keep"] = "Keep list",
         ["V2.Shell.Route.Loadout"] = "Loadout",
         ["V2.Shell.Route.Events"] = "Events",
         ["V2.Shell.Route.Squad"] = "Team",
