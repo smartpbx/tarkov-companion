@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Debrief;
@@ -22,6 +25,15 @@ public sealed record DebriefRaidRowViewModel(
     public bool IsSelected { get; init; }
 }
 
+/// <summary>One flea offer that sold during a raid, counted per item rather than per offer.</summary>
+public sealed record DebriefSaleRowViewModel(string ItemLabel, string CountLabel, string TimeLabel);
+
+/// <summary>One quest the game announced during a raid.</summary>
+public sealed record DebriefQuestEventRowViewModel(string QuestLabel, string StateLabel, string TimeLabel);
+
+/// <summary>What the companion has measured on one map: how often it's played and how it goes.</summary>
+public sealed record DebriefMapStatRowViewModel(string MapLabel, string RaidsLabel, string DurationLabel, string LoadLabel);
+
 /// <summary>
 /// V2 workspace over the existing raid-history backend: raid list, raid detail (map, duration,
 /// outcome, screenshot count), a correction for a wrong outcome or note, and export. Replaces the
@@ -32,6 +44,14 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private readonly IRaidHistoryService _raidHistoryService;
     private readonly AppDataPaths _paths;
     private readonly TimeProvider _clock;
+    // Optional: naming what sold and which quest fired is a readability improvement over the
+    // raw ids the history stores, not something the workspace needs to function without.
+    private readonly IItemRepository? _items;
+    private readonly IQuestCatalog? _questCatalog;
+    private readonly IPlayerProfileService? _profileService;
+    private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _taskNames = new(StringComparer.Ordinal);
+    private bool _taskCatalogLoaded;
     private RaidHistoryEntry? _selected;
     private IReadOnlyList<ScreenshotPosition> _selectedPositions = [];
     private string _status = "Raid history has not been loaded.";
@@ -42,11 +62,17 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
         AppDataPaths paths,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IItemRepository? items = null,
+        IQuestCatalog? questCatalog = null,
+        IPlayerProfileService? profileService = null)
     {
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _clock = clock ?? TimeProvider.System;
+        _items = items;
+        _questCatalog = questCatalog;
+        _profileService = profileService;
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         SaveCorrectionCommand = new AsyncDelegateCommand(SaveCorrectionAsync);
@@ -89,6 +115,27 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     };
 
     public string ScanBreakdownNotice { get; } = "Per-event scan/loot detail isn't available yet.";
+
+    /// <summary>How long matchmaking and loading took before this raid began, if it was seen.</summary>
+    public string SelectedLoadTimeLabel { get; private set; } = "Load time not recorded.";
+
+    public IReadOnlyList<DebriefSaleRowViewModel> SelectedSales { get; private set; } = [];
+
+    public bool HasSelectedSales => SelectedSales.Count > 0;
+
+    /// <summary>What the game reported starting, failing or finishing while this raid was open.</summary>
+    public IReadOnlyList<DebriefQuestEventRowViewModel> SelectedQuestEvents { get; private set; } = [];
+
+    public bool HasSelectedQuestEvents => SelectedQuestEvents.Count > 0;
+
+    /// <summary>
+    /// What the companion has measured per map: how many raids, how long, and — where a
+    /// matchmaking line was seen — how long loading took. Never survival: the game records no
+    /// outcome, and this workspace does not invent one from what a player typed by hand.
+    /// </summary>
+    public IReadOnlyList<DebriefMapStatRowViewModel> MapStats { get; private set; } = [];
+
+    public bool HasMapStats => MapStats.Count > 0;
 
     public string CorrectedOutcome
     {
@@ -138,6 +185,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     IsSelected = _selected?.Id == raid.Id,
                 })
                 .ToArray();
+            MapStats = await BuildMapStatsAsync(raids, cancellationToken).ConfigureAwait(true);
             if (_selected is null && Raids.Count > 0)
             {
                 // Master-detail: the newest raid is what a debrief is almost always about.
@@ -152,6 +200,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Raids = [];
+            MapStats = [];
             Status = $"Raid history unavailable: {exception.Message}";
             RaiseAll();
         }
@@ -166,8 +215,279 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             : await _raidHistoryService.ListPositionsAsync(raidId, cancellationToken).ConfigureAwait(true);
         CorrectedOutcome = _selected?.Outcome ?? string.Empty;
         CorrectedNotes = _selected?.Notes ?? string.Empty;
+        if (_selected is null)
+        {
+            SelectedSales = [];
+            SelectedQuestEvents = [];
+            SelectedLoadTimeLabel = "Load time not recorded.";
+        }
+        else
+        {
+            SelectedSales = await LoadSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
+            SelectedQuestEvents = await LoadQuestEventsAsync(raidId, cancellationToken).ConfigureAwait(true);
+            SelectedLoadTimeLabel = await LoadLoadTimeLabelAsync(raidId, cancellationToken).ConfigureAwait(true);
+        }
+
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
         RaiseAll();
+    }
+
+    /// <summary>What sold on the flea while this raid was open, counted per item.</summary>
+    private async Task<IReadOnlyList<DebriefSaleRowViewModel>> LoadSalesAsync(
+        Guid raidId,
+        CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, "sale", cancellationToken)
+            .ConfigureAwait(true);
+        if (payloads.Count == 0)
+        {
+            return [];
+        }
+
+        var byItem = new Dictionary<string, (int Count, DateTimeOffset Latest)>(StringComparer.Ordinal);
+        foreach (var payload in payloads)
+        {
+            if (ReadPayload<FleaSaleObservation>(payload) is not { } sale)
+            {
+                continue;
+            }
+
+            var key = sale.HandbookItemId ?? string.Empty;
+            var quantity = Math.Max(1, sale.Count);
+            byItem[key] = byItem.TryGetValue(key, out var known)
+                ? (known.Count + quantity, sale.ObservedUtc > known.Latest ? sale.ObservedUtc : known.Latest)
+                : (quantity, sale.ObservedUtc);
+        }
+
+        var rows = new List<DebriefSaleRowViewModel>(byItem.Count);
+        foreach (var (itemId, info) in byItem)
+        {
+            var name = itemId.Length == 0
+                ? "Item not in the synced catalog"
+                : await ResolveItemNameAsync(itemId, cancellationToken).ConfigureAwait(true);
+            rows.Add(new(
+                name,
+                info.Count == 1 ? "1 sold" : $"{info.Count.ToString(CultureInfo.CurrentCulture)} sold",
+                info.Latest.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)));
+        }
+
+        return rows.OrderBy(row => row.ItemLabel, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    /// <summary>What the game announced starting, failing or finishing while this raid was open.</summary>
+    private async Task<IReadOnlyList<DebriefQuestEventRowViewModel>> LoadQuestEventsAsync(
+        Guid raidId,
+        CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, "quest", cancellationToken)
+            .ConfigureAwait(true);
+        if (payloads.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = new List<DebriefQuestEventRowViewModel>(payloads.Count);
+        foreach (var payload in payloads)
+        {
+            if (ReadPayload<QuestStatusObservation>(payload) is not { } quest)
+            {
+                continue;
+            }
+
+            var name = await ResolveTaskNameAsync(quest.TaskId, cancellationToken).ConfigureAwait(true);
+            rows.Add(new(
+                name,
+                DescribeTaskState(quest.State),
+                quest.ObservedUtc.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)));
+        }
+
+        return rows;
+    }
+
+    /// <summary>The queue/load time seen ahead of this raid, from the first line that measured it.</summary>
+    private async Task<string> LoadLoadTimeLabelAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        return await ReadLoadSecondsAsync(raidId, cancellationToken).ConfigureAwait(true) is { } seconds
+            ? $"{seconds.ToString("0.0", CultureInfo.CurrentCulture)}s queue/load"
+            : "Load time not recorded.";
+    }
+
+    /// <summary>
+    /// Raids, durations and — where seen — load times, grouped by map. Never survival: the game
+    /// records no outcome, so this does not compute one from a field the player fills in by hand.
+    /// </summary>
+    private async Task<IReadOnlyList<DebriefMapStatRowViewModel>> BuildMapStatsAsync(
+        IReadOnlyList<RaidHistoryEntry> raids,
+        CancellationToken cancellationToken)
+    {
+        var byMap = raids
+            .Where(raid => raid.MapId is { Length: > 0 })
+            .GroupBy(raid => raid.MapId!, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(group => group.Count());
+        var rows = new List<DebriefMapStatRowViewModel>();
+        foreach (var group in byMap)
+        {
+            var raidsOnMap = group.ToArray();
+            var durations = raidsOnMap
+                .Where(raid => raid.StartedUtc is not null && raid.EndedUtc is { } end && end > raid.StartedUtc)
+                .Select(raid => raid.EndedUtc!.Value - raid.StartedUtc!.Value)
+                .ToArray();
+
+            var loadTimes = new List<double>();
+            foreach (var raid in raidsOnMap)
+            {
+                if (await ReadLoadSecondsAsync(raid.Id, cancellationToken).ConfigureAwait(true) is { } seconds)
+                {
+                    loadTimes.Add(seconds);
+                }
+            }
+
+            rows.Add(new(
+                MapLabel(group.Key),
+                CountLabel(raidsOnMap.Length, "raid"),
+                durations.Length == 0
+                    ? "Duration unknown"
+                    : $"avg {FormatDuration(AverageTicks(durations))}",
+                loadTimes.Count == 0
+                    ? "Load time unknown"
+                    : $"avg {loadTimes.Average().ToString("0.0", CultureInfo.CurrentCulture)}s "
+                        + $"({CountLabel(loadTimes.Count, "raid")} measured)"));
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// The queue/load time is carried on the raid's opening state event, so it is read from there
+    /// rather than from an event kind of its own.
+    /// </summary>
+    private async Task<double?> ReadLoadSecondsAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, "state", cancellationToken)
+            .ConfigureAwait(true);
+        foreach (var payload in payloads)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(payload);
+                if (document.RootElement.ValueKind == JsonValueKind.Object
+                    && document.RootElement.TryGetProperty("LoadSeconds", out var load)
+                    && load.ValueKind == JsonValueKind.Number
+                    && load.TryGetDouble(out var seconds)
+                    && seconds > 0)
+                {
+                    return seconds;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<string> ResolveItemNameAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (_itemNames.TryGetValue(itemId, out var cached))
+        {
+            return cached;
+        }
+
+        if (_items is null)
+        {
+            return itemId;
+        }
+
+        try
+        {
+            var item = await _items.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+            var name = item?.Name ?? itemId;
+            _itemNames[itemId] = name;
+            return name;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return itemId;
+        }
+    }
+
+    private async Task<string> ResolveTaskNameAsync(string taskId, CancellationToken cancellationToken)
+    {
+        if (!_taskNames.TryGetValue(taskId, out var cached))
+        {
+            await EnsureTaskCatalogAsync(cancellationToken).ConfigureAwait(true);
+            cached = _taskNames.GetValueOrDefault(taskId, taskId);
+        }
+
+        return cached;
+    }
+
+    /// <summary>
+    /// Loaded once per view model lifetime rather than per lookup, and never refreshed: a
+    /// catalog sync mid-session renaming a quest is not worth a second read for what is already
+    /// a cosmetic lookup with the id as a safe fallback.
+    /// </summary>
+    private async Task EnsureTaskCatalogAsync(CancellationToken cancellationToken)
+    {
+        if (_taskCatalogLoaded || _questCatalog is null || _profileService is null)
+        {
+            return;
+        }
+
+        _taskCatalogLoaded = true;
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+            var catalog = await _questCatalog.GetAsync(profile.GameMode, "en", cancellationToken).ConfigureAwait(true);
+            if (catalog is null)
+            {
+                return;
+            }
+
+            foreach (var task in catalog.Tasks)
+            {
+                _taskNames[task.Id] = task.Name;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The task id remains a usable, if less friendly, label.
+        }
+    }
+
+    private static string DescribeTaskState(RecordedTaskState state) => state switch
+    {
+        RecordedTaskState.Completed => "Handed in",
+        RecordedTaskState.Failed => "Failed",
+        RecordedTaskState.Active => "Started",
+        _ => state.ToString(),
+    };
+
+    private static TimeSpan AverageTicks(IReadOnlyList<TimeSpan> durations) =>
+        TimeSpan.FromTicks((long)durations.Average(duration => duration.Ticks));
+
+    private static string FormatDuration(TimeSpan elapsed) =>
+        elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\h\ mm\m" : @"mm\m\ ss\s", CultureInfo.InvariantCulture);
+
+    private static string CountLabel(int count, string noun) =>
+        count == 1 ? $"1 {noun}" : $"{count.ToString(CultureInfo.CurrentCulture)} {noun}s";
+
+    /// <summary>Reads one stored payload, or nothing rather than failing the whole workspace.</summary>
+    private static T? ReadPayload<T>(string payload)
+        where T : class
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<T>(payload);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private async Task SaveCorrectionAsync()
@@ -234,9 +554,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
 
         var elapsed = raid.EndedUtc.Value - started;
-        return elapsed <= TimeSpan.Zero
-            ? "Unknown"
-            : elapsed.ToString(elapsed.TotalHours >= 1 ? @"h\h\ mm\m" : @"mm\m\ ss\s", CultureInfo.InvariantCulture);
+        return elapsed <= TimeSpan.Zero ? "Unknown" : FormatDuration(elapsed);
     }
 
     private void RaiseAll()
@@ -253,5 +571,12 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SelectedOutcomeLabel));
         OnPropertyChanged(nameof(SelectedNotesLabel));
         OnPropertyChanged(nameof(SelectedPathLabel));
+        OnPropertyChanged(nameof(SelectedLoadTimeLabel));
+        OnPropertyChanged(nameof(SelectedSales));
+        OnPropertyChanged(nameof(HasSelectedSales));
+        OnPropertyChanged(nameof(SelectedQuestEvents));
+        OnPropertyChanged(nameof(HasSelectedQuestEvents));
+        OnPropertyChanged(nameof(MapStats));
+        OnPropertyChanged(nameof(HasMapStats));
     }
 }

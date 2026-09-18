@@ -69,6 +69,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private DateTimeOffset _homeOverviewLoadedUtc;
     private RaidLifecycleState _homeOverviewRaid;
     private readonly HideoutWorkspaceViewModel? _hideout;
+    // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
+    private readonly KeepListWorkspaceViewModel? _keep;
     private DateTimeOffset? _planDataUpdatedUtc;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
     private readonly TeamWorkspaceViewModel? _team;
@@ -148,6 +150,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // as stashScan/debrief above.
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        // V2 rough package 25 (#402): optional for the same reason as plan/hideout above.
+        KeepListWorkspaceViewModel? keep = null,
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null)
         : this(
@@ -169,6 +173,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             debrief,
             plan,
             hideout,
+            keep,
             team,
             options.DeveloperMode)
     {
@@ -189,6 +194,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false)
         : this(
@@ -207,6 +213,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             debrief,
             plan,
             hideout,
+            keep,
             team,
             developerMode)
     {
@@ -228,6 +235,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false)
     {
@@ -238,6 +246,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _debrief = debrief;
         _plan = plan;
         _hideout = hideout;
+        _keep = keep;
         _team = team;
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
@@ -750,6 +759,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route when route == V2Routes.Debrief => _debrief,
         var route when route == V2Routes.Plan => _plan,
         var route when route == V2Routes.Hideout => _hideout,
+        var route when route == V2Routes.Keep => _keep,
         // v2r-team (package 9, wave 2): Group and Tablet are separate addresses/section tabs but
         // render the same Team workspace rather than their own content.
         var route when route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet => _team,
@@ -1438,7 +1448,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route = Router.Current.Location.Route;
         // Setup joins Plan and Hideout here (package 17, home): its overview shows the same plan,
         // and variant A lands on it, so it is the page most likely to be open when data first lands.
-        if (route == V2Routes.Plan || route == V2Routes.Hideout || route == V2Routes.Setup)
+        if (route == V2Routes.Plan || route == V2Routes.Hideout || route == V2Routes.Keep || route == V2Routes.Setup)
         {
             LoadCurrentWorkspace();
         }
@@ -1463,6 +1473,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         else if (route == V2Routes.Hideout && _hideout is not null)
         {
             _ = _hideout.LoadAsync();
+        }
+        else if (route == V2Routes.Keep && _keep is not null)
+        {
+            _ = _keep.LoadAsync();
         }
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {

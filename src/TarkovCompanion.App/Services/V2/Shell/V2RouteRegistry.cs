@@ -130,6 +130,10 @@ public sealed class V2RouteRegistry
             UsesGameData: true),
         new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Hideout",
             Parent: V2Routes.Plan, UsesGameData: true),
+        // V2 rough package 25 (#402): a computed Keep list, alongside Hideout as a Plan section —
+        // it reads the same requirement catalog and profile the Hideout tab already does.
+        new(V2Routes.Keep, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Keep",
+            Parent: V2Routes.Plan, UsesGameData: true),
         new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Loadout", "Loadout",
             Parent: V2Routes.Plan, UsesGameData: true),
         new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Events", "Events",
