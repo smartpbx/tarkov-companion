@@ -95,6 +95,103 @@ public sealed class StashScanCaptureHandoffTests
         Assert.Null(store.Saved);
     }
 
+    [Fact]
+    public async Task WhileAGuidedScanCollectsAStashCaptureJoinsItAndSavesNothingOfItsOwn()
+    {
+        var store = new MemorySnapshotStore();
+        using var runtime = await ReadyProfileContextAsync();
+        var guided = GuidedScan(store);
+        await guided.StartAsync(new(Id(402), "generation-a", "Pvp"), "data-1", CancellationToken.None);
+        var handoff = new StashScanCaptureHandoff(
+            runtime,
+            new InventoryGridReconstructor(),
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()),
+            guidedScan: guided);
+
+        // The anchor detector called the screen a flea listing; it was armed as Stash and carries
+        // a Stash grid, and a scroll-through must not lose a screen to that.
+        await using var harness = new Harness(handoff, RecognizedContext.Flea, ScanIntent.Stash, RealStashGrid());
+        await harness.CaptureAsync();
+
+        Assert.Null(store.Saved);
+        Assert.Equal(1, guided.Current.Screenshots);
+
+        await guided.FinishAsync(CancellationToken.None);
+        Assert.NotNull(store.Saved);
+        Assert.Single(store.Saved!.Recognition.Result.Value!.CapturedRegions);
+    }
+
+    [Fact]
+    public async Task TheStashIntentIsHeldArmedOnlyWhileAScanIsActivelyBeingTaken()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.Parse("2026-09-17T00:00:00Z"));
+        var guided = GuidedScan(new MemorySnapshotStore());
+        await using var coordinator = new CaptureSessionCoordinator(
+            new InlineCaptureWorkScheduler(),
+            new StubPipeline(RecognizedContext.Stash),
+            new CompositeFreeHandoff(),
+            Origin,
+            clock);
+        using var arming = new GuidedStashScanArming(coordinator, guided, Origin, clock);
+
+        // No scan: asking to resume arms nothing.
+        arming.Resume();
+        Assert.DoesNotContain(coordinator.Snapshot.Sessions, session => !session.IsTerminal);
+
+        // A scan read back from disk waits until the player says to keep going.
+        await guided.StartAsync(new(Id(402), "generation-a", "Pvp"), "data-1", CancellationToken.None);
+        arming.Pause();
+        Assert.False(arming.IsActive);
+        Assert.DoesNotContain(coordinator.Snapshot.Sessions, session => !session.IsTerminal);
+
+        arming.Resume();
+        var armed = Assert.Single(coordinator.Snapshot.Sessions, session => !session.IsTerminal);
+        Assert.Equal(ScanIntent.Stash, armed.Request.Intent);
+
+        // Left alone past the idle limit, it lets the one armed slot go.
+        clock.Advance(GuidedStashScanArming.IdleAfter + TimeSpan.FromMinutes(1));
+        coordinator.Cancel(armed.Request.SessionId, "test");
+        Assert.False(arming.IsActive);
+        Assert.DoesNotContain(coordinator.Snapshot.Sessions, session => !session.IsTerminal);
+    }
+
+    private static GuidedStashScanService GuidedScan(IStashSnapshotStore store)
+    {
+        var assembler = new StashScanAssembler();
+        return new(
+            assembler,
+            new StashLayoutAligner(),
+            new StashReconstructionProjector(),
+            new StashScanWorkflow(assembler, store, new StashSnapshotComparer()),
+            new StashOwnedCountsApplier(new StubProfileService(TarkovCompanion.UnitTests.V2Shell.V2ShellTestData.Snapshot().Profile!)),
+            new MemoryPendingStore());
+    }
+
+    private sealed class CompositeFreeHandoff : ICaptureResultHandoff
+    {
+        public ValueTask<CaptureHandoffResult> AcceptAsync(CaptureHandoffRequest request, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(CaptureHandoffResult.Accepted);
+    }
+
+    private sealed class MemoryPendingStore : IGuidedStashScanPendingStore
+    {
+        private GuidedStashScanPending? _pending;
+
+        public Task<GuidedStashScanPending?> LoadAsync(CancellationToken cancellationToken) => Task.FromResult(_pending);
+
+        public Task SaveAsync(GuidedStashScanPending pending, CancellationToken cancellationToken)
+        {
+            _pending = pending;
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAsync(CancellationToken cancellationToken)
+        {
+            _pending = null;
+            return Task.CompletedTask;
+        }
+    }
+
     private static GridReconstructionRequest RealStashGrid()
     {
         var provenance = new EvidenceProvenance(
