@@ -1130,7 +1130,9 @@ $Shots.Add([pscustomobject]@{
 # Bounds, not opinions. Three of them, one per defect this package repaired:
 #   * insideWindow  - the V1 pages the shell still hosts drew without V1's own page inset, so
 #                     "Reload", "Look up value", "Empty the kit" and "Create" were cut off by
-#                     the window frame at both widths.
+#                     the window frame at both widths. Ammo, Keys and Flea have since become
+#                     native workspaces (package 28); they keep the measurement against their
+#                     own controls, and Loadout and Events are the V1 pages that remain.
 #   * forbidden     - the Intel context panel was a fixed 460px column drawn empty until an item
 #                     was selected: a quarter of a 1920-wide window, every landing.
 #   * dead space    - a ceiling on how much of the body may be one flat colour, so the Intel
@@ -1159,12 +1161,18 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "intel"; address = "#/intel"; heading = "Intel"
         expected = @("v2-shell-navigation-rail", "v2-intel-results")
         forbidden = @("v2-intel-context"); edge = 0.12 },
+    # Package 28 made these three native V2 workspaces, so they no longer host a V1 page and no
+    # longer have a V1 button to measure. Their own controls are named and identified, so they
+    # are asserted by id and measured with the same rule instead.
     [pscustomobject]@{ key = "intel-ammo"; address = "#/intel/ammo"; heading = "Ammo"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload") },
+        expected = @("v2-shell-navigation-rail", "v2-ammo-search")
+        bounds = @([pscustomobject]@{ automationId = "v2-ammo-reload"; insideWindow = $true }) },
     [pscustomobject]@{ key = "intel-keys"; address = "#/intel/keys"; heading = "Keys"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload") },
+        expected = @("v2-shell-navigation-rail", "v2-keys-search")
+        bounds = @([pscustomobject]@{ automationId = "v2-keys-reload"; insideWindow = $true }) },
     [pscustomobject]@{ key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Look up value") },
+        expected = @("v2-shell-navigation-rail", "v2-flea-search")
+        bounds = @([pscustomobject]@{ automationId = "v2-flea-search-go"; insideWindow = $true }) },
     # A real tarkov.dev item id (Graphics card). With no data synced yet this is the honest
     # "nothing known about this item" state, which is exactly what a first run shows — and the
     # state in which the context column used to draw itself empty anyway.

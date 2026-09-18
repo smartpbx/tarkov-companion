@@ -1,0 +1,158 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.FleaWorkspaceView"
+             x:DataType="vm:FleaWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- V1's Flea page in the Intel layout: look up an item, read its price, where it sells best and
+       what a slot of it is worth; the context panel keeps the item's locally stored observations
+       and the offers the game reported sold while the player was busy. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Border Grid.Row="0" Classes="v2-intel-search">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                Data="{DynamicResource V2.Icon.Search}" />
+          <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
+                   PlaceholderText="Look up an item's value"
+                   AutomationProperties.AutomationId="v2-flea-search"
+                   AutomationProperties.Name="Look up an item's value">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-flea-search-go"
+                  AutomationProperties.Name="Look up value" ToolTip.Tip="Look up value"
+                  Command="{Binding SearchCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="v2-intel-pane" Padding="14"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-flea-results">
+        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+          <TextBlock Grid.Row="0" Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Polite" Margin="2,0" />
+          <StackPanel Grid.Row="1" Spacing="10" MaxWidth="420" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      IsVisible="{Binding ShowsNoResults}">
+            <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Cart}" />
+            </Viewbox>
+            <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="Flea prices" />
+            <TextBlock Classes="v2-label" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                       Text="Look up an item for its flea price, its best sale and what a slot of it is worth." />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Results}" IsVisible="{Binding HasResults}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FleaListRowViewModel">
+                  <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Name}"
+                          Command="{Binding SelectCommand}">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="2">
+                      <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-body" FontWeight="SemiBold"
+                                 Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
+                                 Text="{Binding FleaPrice}" />
+                      <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" Text="{Binding BestSale}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label" Text="{Binding ValuePerSlot}" />
+                      <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" Text="{Binding DailyBand}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-label" Text="{Binding Dimensions}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Context panel: sales while playing, and the chosen item's stored observations. -->
+    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.LandmarkType="Complementary"
+            AutomationProperties.AutomationId="v2-flea-context">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <Border Classes="v2-intel-accent" IsVisible="{Binding HasSelection}">
+            <Border Classes="v2-intel-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2" TextWrapping="Wrap"
+                           Text="{Binding SelectedName}" />
+                <TextBlock Classes="v2-intel-price v2-intel-best" Text="{Binding SelectedPrice}" />
+                <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedBestSale}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedBand}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedValuePerSlot}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedProvenance}" />
+                <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                        AutomationProperties.AutomationId="v2-flea-open-intel"
+                        AutomationProperties.Name="Open in Intel"
+                        Command="{Binding OpenInIntelCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Link}" />
+                    <TextBlock VerticalAlignment="Center" Text="Prices and needs" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding !HasSelection}">
+            <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                       TextWrapping="Wrap" Text="Pick an item to see its stored price observations." />
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelection}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Observed prices" />
+              <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding HistoryStatus}" />
+              <ItemsControl ItemsSource="{Binding History}" IsVisible="{Binding HasHistory}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:FleaHistoryPointViewModel">
+                    <Border Classes="v2-intel-fact">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="14">
+                        <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Observed}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding FleaPrice}" />
+                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding TraderValue}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-intel-section">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Sold while you were playing" />
+              <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SalesStatus}" />
+              <ItemsControl ItemsSource="{Binding Sales}" IsVisible="{Binding HasSales}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:FleaSaleViewModel">
+                    <Border Classes="v2-intel-fact">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="14">
+                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Item}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding Quantity}" />
+                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Observed}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

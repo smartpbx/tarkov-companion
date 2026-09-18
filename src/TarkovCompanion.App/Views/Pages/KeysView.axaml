@@ -6,7 +6,7 @@
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
-               PlaceholderText="Filter keys by name" />
+               PlaceholderText="Filter keys by name or map" />
       <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" />
     </Grid>
 
