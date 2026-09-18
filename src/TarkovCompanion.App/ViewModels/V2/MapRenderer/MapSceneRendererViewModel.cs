@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Avalonia;
 using Avalonia.Media;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.App.ViewModels;
@@ -71,6 +72,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private const int ClusterColumns = 20;
     private const int ClusterRows = 14;
+    // [V2 rough package 39] How the floor stack is drawn. The gap between two plates is a
+    // fraction of the drawn plan rather than V1's fixed 140 canvas units, because this card is
+    // whatever size the window makes it and a fixed gap is a shove off the top of a small card
+    // and invisible on a large one. Clamped so it stays a stack at both ends.
+    private const double FloorSeparationFraction = 0.075;
+    private const double MinimumFloorSeparation = 16;
+    private const double MaximumFloorSeparation = 110;
+    /// <summary>How solid a floor that is not being read is drawn; the read one is solid.</summary>
+    private const double ContextFloorOpacity = 0.45;
     private const double MapInset = MarkerExtent / 2;
     private static readonly MapSceneLayerId HazardsLayerId = new("hazards");
 
@@ -79,6 +89,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly Func<MapSceneAsset, IImage?>? _reviewedAssetResolver;
     private readonly Func<string, string>? _floorNameResolver;
     private readonly Func<MapSceneObject, MapSceneObjectStyle?>? _styleResolver;
+    private readonly Func<string, double?>? _floorElevationResolver;
     private MapSceneSnapshot _scene;
     private MapSceneObjectId? _selectedObjectId;
     private string _rendererNotice = string.Empty;
@@ -128,7 +139,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         // presentation choice and so has no place in the scene contract. Both default to "no
         // opinion", which is what every other host wants.
         Func<string, string>? floorNameResolver = null,
-        Func<MapSceneObject, MapSceneObjectStyle?>? styleResolver = null)
+        Func<MapSceneObject, MapSceneObjectStyle?>? styleResolver = null,
+        // [V2 rough package 39] How high a floor sits in the building, so the stack can be drawn
+        // in the order a person walks it rather than the order the catalog happens to list. The
+        // scene knows floor ids; only the host holds the catalog's height bands. Null means "no
+        // opinion", which leaves the floors in the order the scene gave them.
+        Func<string, double?>? floorElevationResolver = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
@@ -138,6 +154,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         _reviewedAssetResolver = reviewedAssetResolver;
         _floorNameResolver = floorNameResolver;
         _styleResolver = styleResolver;
+        _floorElevationResolver = floorElevationResolver;
         _lootPresetPreservedLayers = CreateLootPresetPreserveSet(scene, highValueLootPresetPreservedLayers);
         _projection = CreateProjection();
 
@@ -151,6 +168,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         NextPageCommand = new DelegateCommand(() => ChangePage(1));
         ClearClusterCommand = new DelegateCommand(ClearClusterFilter);
         HighValueLootPresetCommand = new DelegateCommand(ApplyHighValueLootPreset);
+        FloorUpCommand = new DelegateCommand(() => StepFloor(1));
+        FloorDownCommand = new DelegateCommand(() => StepFloor(-1));
         _lootCategories = highValueLootCategories;
         if (highValueLoot is not null)
         {
@@ -241,6 +260,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public ICommand NextPageCommand { get; }
     public ICommand ClearClusterCommand { get; }
     public ICommand HighValueLootPresetCommand { get; }
+    /// <summary>Step one floor up the building; nothing when there is no floor above.</summary>
+    public ICommand FloorUpCommand { get; }
+    /// <summary>Step one floor down the building; nothing when there is no floor below.</summary>
+    public ICommand FloorDownCommand { get; }
 
     public double CanvasWidth => _canvasWidth;
     public double CanvasHeight => _canvasHeight;
@@ -265,7 +288,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double CameraRotationDegrees => -_scene.View.Camera.BearingDegrees;
     public string LocationLabel => _scene.LocationId;
     public string VariantLabel => _scene.VariantKey;
-    public string ModeLabel => DescribeMode(MapSceneMode.Flat2D);
+    public string ModeLabel => DescribeMode(_scene.View.Mode);
     public string ZoomOutLabel => Text("Map.Action.ZoomOut");
     public string ZoomInLabel => Text("Map.Action.ZoomIn");
     public string FitPlanLabel => Text("Map.Action.Fit");
@@ -283,9 +306,40 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public string SearchPlaceholder => Text("Map.Label.SearchPlaceholder");
     public string RendererNotice => _rendererNotice;
     public bool HasRendererNotice => !string.IsNullOrWhiteSpace(RendererNotice);
-    public bool HasFloorStack => false;
-    public bool HasFloorFilters => Floors.Count > 0;
-    public bool HasFloors => HasFloorFilters;
+    /// <summary>
+    /// The map's floors drawn one above another, lowest first, when the stack is showing.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] The floor being read stays at offset zero and is drawn into exactly
+    /// the projection's own plan rectangle, so every marker — which is projected into that same
+    /// rectangle — lands on its own floor's artwork. The other floors are the same pictures,
+    /// offset up or down the screen and quieted. Nothing is sheared or scaled: a plate that was
+    /// squashed to look three-dimensional would no longer be the rectangle objects project into.
+    /// </remarks>
+    public IReadOnlyList<MapSceneRendererFloorLayerViewModel> FloorLayers { get; private set; } = [];
+    /// <summary>Whether the shared scene is asking for the floors to be stacked.</summary>
+    public bool IsStacked => _scene.View.Mode == MapSceneMode.FloorStack2D;
+    public bool HasFloorStack => IsStacked && FloorLayers.Count > 1;
+    /// <summary>The one flat picture, drawn only while the stack is not.</summary>
+    public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
+    /// <summary>What the stack did, in one line: how many plates of how many floors.</summary>
+    public string StackStatus { get; private set; } = string.Empty;
+    public bool HasStackStatus => StackStatus.Length > 0;
+    // [V2 rough package 39] More than one: a ladder with a single rung on a map drawn as one
+    // storey is a control that asks a question with one answer.
+    public bool HasFloorFilters => Floors.Count > 1;
+    public bool HasFloors => Floors.Count > 0;
+    /// <summary>Which floor of how many, for the ladder's own readout ("Floor 2 of 4").</summary>
+    public string FloorPositionLabel => Floors.Count == 0 || SelectedFloor is null
+        ? string.Empty
+        : Format(
+            "Map.Floor.Position",
+            _presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected)),
+            _presentation.Number(Floors.Count));
+    public bool CanGoUpAFloor => StepTarget(1) is not null;
+    public bool CanGoDownAFloor => StepTarget(-1) is not null;
+    public string FloorUpLabel => Text("Map.Action.FloorUp");
+    public string FloorDownLabel => Text("Map.Action.FloorDown");
     public bool HasSpatialObjects => SpatialObjects.Count > 0 || GeometryObjects.Count > 0;
     public bool HasListItems => ListItems.Count > 0;
     public bool ShowsEmptyMap => !HasSpatialObjects;
@@ -307,9 +361,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The two-or-three-word form drawn over the plan; the full notice is its tooltip.</summary>
     public string DenseSceneChip { get; private set; } = string.Empty;
     public bool HasDenseSceneNotice => !string.IsNullOrWhiteSpace(DenseSceneNotice);
-    public string ModeFallbackNotice => _scene.View.Mode == MapSceneMode.Flat2D
-        ? string.Empty
-        : Format("Map.Mode.Fallback", DescribeMode(_scene.View.Mode));
+    public string ModeFallbackNotice => _scene.View.Mode switch
+    {
+        MapSceneMode.Flat2D => string.Empty,
+        // [V2 rough package 39] The renderer draws this mode now, so it is not a fallback — and
+        // when its artwork has not arrived, StackStatus says so in one line right beside this.
+        // Two paragraphs about one missing picture is one too many.
+        MapSceneMode.FloorStack2D => string.Empty,
+        _ => Format("Map.Mode.Fallback", DescribeMode(_scene.View.Mode)),
+    };
     public string ThreeDimensionalFallback => ModeFallbackNotice;
     public bool ShowsModeFallback => !string.IsNullOrWhiteSpace(ModeFallbackNotice);
     public bool ShowsThreeDimensionalFallback => ShowsModeFallback;
@@ -1153,13 +1213,19 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         .Select(mode => new MapSceneRendererModeViewModel(
             mode,
             DescribeMode(mode),
-            mode == MapSceneMode.Flat2D,
+            // [V2 rough package 39] The scene's own mode, now that more than one of them draws.
+            mode == _scene.View.Mode,
             CanRenderMode(mode),
             RendererUnavailableReason(mode),
             () => RequestMode(mode)))
         .ToArray();
 
-    private void BuildFloors() => Floors = _scene.FloorIds
+    // [V2 rough package 39] Top floor first, the way a lift's buttons and a building's section
+    // drawing both read. Ordered by the host's own height bands where it has them; with no
+    // opinion every floor scores the same and the scene's order survives untouched, which is
+    // what every host but the Raid cockpit gives.
+    private void BuildFloors() => Floors = OrderedFloorIds()
+        .Reverse()
         .Select(floor => new MapSceneRendererFloorViewModel(
             floor,
             string.Equals(floor, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase),
@@ -1167,15 +1233,125 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             _floorNameResolver?.Invoke(floor)))
         .ToArray();
 
-    private void BuildLayers() => Layers = _scene.Layers
-        .OrderBy(layer => layer.ZIndex)
-        .ThenBy(layer => layer.Name, StringComparer.OrdinalIgnoreCase)
-        .Select(layer => new MapSceneRendererLayerViewModel(
-            layer,
-            IsLayerVisible(layer.Id),
-            _presentation,
-            visible => SetLayerVisibility(layer.Id, visible)))
+    /// <summary>Every floor of this map, lowest first.</summary>
+    private IReadOnlyList<string> OrderedFloorIds() => _scene.FloorIds
+        .Select((id, index) => (Id: id, Index: index, Elevation: _floorElevationResolver?.Invoke(id)))
+        .OrderBy(entry => entry.Elevation ?? double.NegativeInfinity)
+        .ThenBy(entry => entry.Index)
+        .Select(entry => entry.Id)
         .ToArray();
+
+    /// <summary>The floor one step up (+1) or down (-1) the building, or null at the end.</summary>
+    private string? StepTarget(int direction)
+    {
+        var ordered = OrderedFloorIds();
+        var at = FindIndex(ordered, id => string.Equals(id, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase));
+        if (at < 0)
+        {
+            return null;
+        }
+
+        var next = at + direction;
+        return next >= 0 && next < ordered.Count ? ordered[next] : null;
+    }
+
+    private void StepFloor(int direction)
+    {
+        if (StepTarget(direction) is { } floorId)
+        {
+            SelectFloor(floorId);
+        }
+    }
+
+    /// <summary>
+    /// Draws the map's floors one above another, from the per-floor artwork the scene declares.
+    /// </summary>
+    /// <remarks>
+    /// A floor whose picture the host cannot produce is left out rather than drawn blank, and
+    /// <see cref="StackStatus"/> then says how many of how many arrived. A gap in the stack is
+    /// honest; an empty plate at the right height is a floor that looks empty.
+    /// </remarks>
+    private void BuildFloorStack()
+    {
+        if (_scene.View.Mode != MapSceneMode.FloorStack2D)
+        {
+            FloorLayers = [];
+            StackStatus = string.Empty;
+            return;
+        }
+
+        var ordered = DrawableFloorIds();
+        var artwork = _scene.Assets
+            .Where(asset => asset.Kind == MapSceneAssetKind.Floor2D && asset.FloorId is not null)
+            .GroupBy(asset => asset.FloorId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var selectedAt = FindIndex(ordered, id => string.Equals(id, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase));
+        var separation = FloorSeparation;
+        var layers = new List<MapSceneRendererFloorLayerViewModel>(ordered.Count);
+        for (var index = 0; index < ordered.Count; index++)
+        {
+            var floorId = ordered[index];
+            if (!artwork.TryGetValue(floorId, out var asset) ||
+                _reviewedAssetResolver?.Invoke(asset) is not { } image)
+            {
+                continue;
+            }
+
+            var isSelected = index == selectedAt;
+            layers.Add(new MapSceneRendererFloorLayerViewModel(
+                floorId,
+                _floorNameResolver?.Invoke(floorId) ?? MapRendererToken.Humanize(floorId),
+                image,
+                // Measured from the floor being read, not from the lowest one. That keeps the
+                // read floor at zero, which is where the projection — and so every marker — is.
+                (index - (selectedAt < 0 ? index : selectedAt)) * separation,
+                isSelected ? 1 : ContextFloorOpacity,
+                isSelected,
+                _projection,
+                () => SelectFloor(floorId)));
+        }
+
+        FloorLayers = layers;
+        var floorCount = _scene.FloorIds.Count;
+        StackStatus = layers.Count switch
+        {
+            0 => Text("Map.Stack.NoArtwork"),
+            _ when layers.Count < floorCount =>
+                Format("Map.Stack.Partial", _presentation.Number(layers.Count), _presentation.Number(floorCount)),
+            _ => Format("Map.Stack.Floors", _presentation.Number(layers.Count)),
+        };
+    }
+
+    private void BuildLayers()
+    {
+        // [V2 rough package 39] How many objects each layer holds, counted once for all of them
+        // rather than once per layer over the whole object list. The loot layer is counted from
+        // what its own filters currently leave visible, because that is what turning it on would
+        // actually draw.
+        var counts = new Dictionary<MapSceneLayerId, int>();
+        foreach (var item in _scene.Objects)
+        {
+            if (HighValueLoot is not null &&
+                item.LayerId == HighValueLootLayerService.LayerId &&
+                !HighValueLoot.VisibleObjectIds.Contains(item.Id))
+            {
+                continue;
+            }
+
+            counts[item.LayerId] = counts.TryGetValue(item.LayerId, out var running) ? running + 1 : 1;
+        }
+
+        Layers = _scene.Layers
+            .OrderBy(layer => layer.ZIndex)
+            .ThenBy(layer => layer.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(layer => new MapSceneRendererLayerViewModel(
+                layer,
+                IsLayerVisible(layer.Id),
+                _presentation,
+                visible => SetLayerVisibility(layer.Id, visible),
+                counts.TryGetValue(layer.Id, out var count) ? count : 0))
+            .ToArray();
+    }
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()
     {
@@ -1207,6 +1383,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             SelectedLootEntry = null;
         }
+        // Built here rather than only on a scene change: the plates are positioned in the same
+        // projected rectangle the markers are, so a resized card has to move both together.
+        BuildFloorStack();
         return visibleObjects;
     }
 
@@ -1430,8 +1609,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         };
     }
 
-    private bool CanRenderMode(MapSceneMode mode) =>
-        mode == MapSceneMode.Flat2D && _scene.Capabilities.Flat2D.IsAvailable;
+    private bool CanRenderMode(MapSceneMode mode) => mode switch
+    {
+        MapSceneMode.Flat2D => _scene.Capabilities.Flat2D.IsAvailable,
+        // [V2 rough package 39] Offered whenever the scene says the map has floors. Whether the
+        // artwork for each one can actually be produced is the host's answer and arrives with
+        // the next scene; a stack that came back empty says so through StackStatus rather than
+        // refusing the press and leaving a dead control.
+        MapSceneMode.FloorStack2D => _scene.Capabilities.FloorStack2D.IsAvailable,
+        _ => false,
+    };
 
     private string RendererUnavailableReason(MapSceneMode mode) => mode switch
     {
@@ -1674,6 +1861,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(HasFloorFilters));
             OnPropertyChanged(nameof(HasFloors));
             OnPropertyChanged(nameof(SelectedFloor));
+            RaiseFloorStackChanged();
         }
         if (layers) OnPropertyChanged(nameof(Layers));
         if (visibleContent)
@@ -1707,6 +1895,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             OnPropertyChanged(nameof(BackgroundImage));
             OnPropertyChanged(nameof(HasBackgroundImage));
+            OnPropertyChanged(nameof(ShowsFlatBackground));
             OnPropertyChanged(nameof(ReviewedAssetLabel));
             OnPropertyChanged(nameof(BackgroundStatus));
             OnPropertyChanged(nameof(HasBackgroundStatus));
@@ -1727,8 +1916,22 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
+    private void RaiseFloorStackChanged()
+    {
+        foreach (var propertyName in new[]
+                 {
+                     nameof(FloorLayers), nameof(IsStacked), nameof(HasFloorStack), nameof(ShowsFlatBackground),
+                     nameof(StackStatus), nameof(HasStackStatus), nameof(FloorPositionLabel),
+                     nameof(CanGoUpAFloor), nameof(CanGoDownAFloor),
+                 })
+        {
+            OnPropertyChanged(propertyName);
+        }
+    }
+
     private void RaiseProjectionChanged()
     {
+        RaiseFloorStackChanged();
         foreach (var propertyName in new[]
                  {
                      nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(GeometryObjects),
@@ -1745,8 +1948,59 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
-    private MapSceneProjection CreateProjection() =>
-        new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport, _planAspect);
+    private MapSceneProjection CreateProjection()
+    {
+        // [V2 rough package 39] A stacked map is drawn a little smaller so the floors above and
+        // below the one being read have somewhere to be. Without this the plan already fills the
+        // card and every other plate is clipped away at the card's edge, which is a stack nobody
+        // can see. The read floor still lands in exactly the rectangle this returns.
+        var (above, below) = StackHeadroom();
+        return new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport, _planAspect, above, below);
+    }
+
+    /// <summary>How far apart two plates are drawn, in canvas pixels.</summary>
+    /// <remarks>
+    /// Measured against the card rather than against the plan, because the plan's own height is
+    /// what the headroom this feeds is about to change.
+    /// </remarks>
+    private double FloorSeparation =>
+        Math.Clamp(CanvasHeight * FloorSeparationFraction, MinimumFloorSeparation, MaximumFloorSeparation);
+
+    /// <summary>How much room the plates above and below the read floor need.</summary>
+    private (double Above, double Below) StackHeadroom()
+    {
+        if (_scene.View.Mode != MapSceneMode.FloorStack2D)
+        {
+            return (0, 0);
+        }
+
+        var drawable = DrawableFloorIds();
+        if (drawable.Count < 2)
+        {
+            return (0, 0);
+        }
+
+        var at = Math.Max(0, FindIndex(drawable, id =>
+            string.Equals(id, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase)));
+        var separation = FloorSeparation;
+        // The same room above and below, because the camera centres the plan in the card: room
+        // reserved on one side only is given straight back by the centring, and the top plate
+        // goes off the card again. A little unused space under a ground floor is the price.
+        var reach = Math.Max(drawable.Count - 1 - at, at) * separation;
+        return (reach, reach);
+    }
+
+    /// <summary>The floors, lowest first, whose artwork this host can actually produce.</summary>
+    private IReadOnlyList<string> DrawableFloorIds()
+    {
+        var artwork = _scene.Assets
+            .Where(asset => asset.Kind == MapSceneAssetKind.Floor2D && asset.FloorId is not null)
+            .Select(asset => asset.FloorId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return artwork.Count == 0
+            ? []
+            : [.. OrderedFloorIds().Where(artwork.Contains)];
+    }
 
     /// <summary>
     /// Adopts the decoded artwork's shape, and reprojects when it differs from what is drawn.
@@ -1856,23 +2110,138 @@ public sealed class MapSceneRendererFloorViewModel
     public ICommand SelectCommand { get; }
 }
 
+/// <summary>
+/// One floor's artwork in the stacked view: the plan rectangle, where it sits, how solid it is.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 39] <see cref="Left"/>, <see cref="Top"/>, <see cref="Width"/> and
+/// <see cref="Height"/> are the projection's own plan rectangle, identical on every floor —
+/// which is the contract #413 established and this keeps: whatever rectangle the artwork draws
+/// into is the rectangle objects project into. Only <see cref="Translate"/> differs, and it is
+/// zero for the floor being read, so the markers sit on their own floor's picture.
+/// </remarks>
+public sealed class MapSceneRendererFloorLayerViewModel
+{
+    public MapSceneRendererFloorLayerViewModel(
+        string floorId,
+        string name,
+        IImage image,
+        double offset,
+        double opacity,
+        bool isSelected,
+        MapSceneProjection projection,
+        Action select)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(floorId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(select);
+        FloorId = floorId;
+        Name = name;
+        Image = image ?? throw new ArgumentNullException(nameof(image));
+        Offset = offset;
+        Opacity = opacity;
+        IsSelected = isSelected;
+        Left = projection.MapLeft;
+        Top = projection.MapTop;
+        Width = projection.MapWidth;
+        Height = projection.MapHeight;
+        SelectCommand = new DelegateCommand(select);
+    }
+
+    public string FloorId { get; }
+
+    public string Name { get; }
+
+    public IImage Image { get; }
+
+    /// <summary>How far up the card this plate sits, measured from the floor being read.</summary>
+    public double Offset { get; }
+
+    /// <summary>Negative, because up the screen is a smaller Y.</summary>
+    public double Translate => -Offset;
+
+    /// <summary>
+    /// Where this plate is drawn, as a transform rather than as Canvas.Left/Top.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia leaves the generated ContentPresenter at the Canvas origin, so an attached
+    /// Canvas.Left on the templated control does nothing — the same reason every marker layer in
+    /// this renderer positions itself with a transform inside its own template.
+    /// </remarks>
+    public double TranslateX => Left;
+
+    public double TranslateY => Top + Translate;
+
+    public double Opacity { get; }
+
+    /// <summary>The name stays readable on a quieted plate; a stack you cannot label is mush.</summary>
+    public double NameOpacity => IsSelected ? 1 : 0.8;
+
+    public bool IsSelected { get; }
+
+    /// <summary>Every sheet has an edge; the one being read has a thicker one.</summary>
+    public Thickness BorderThickness => IsSelected ? new Thickness(2) : new Thickness(1);
+
+    public double Left { get; }
+
+    public double Top { get; }
+
+    public double Width { get; }
+
+    public double Height { get; }
+
+    public string AutomationId => $"v2-map-floor-plate-{MapRendererToken.From(FloorId)}";
+
+    public ICommand SelectCommand { get; }
+}
+
 public sealed class MapSceneRendererLayerViewModel
 {
     public MapSceneRendererLayerViewModel(
         MapSceneLayer layer,
         bool isVisible,
         MapSceneRendererPresentation presentation,
-        Action<bool> setVisible)
+        Action<bool> setVisible,
+        // [V2 rough package 39] How many objects this layer would draw if it were on. Defaulted
+        // so the hosts that build a layer row without a scene behind it (the gallery, a test)
+        // keep working; every real scene passes the real count.
+        int count = 0)
     {
         Layer = layer ?? throw new ArgumentNullException(nameof(layer));
         IsVisible = isVisible;
+        Count = Math.Max(0, count);
         ToggleLabel = presentation.Format(isVisible ? "Map.Layer.Hide" : "Map.Layer.Show", layer.Name);
-        StateLabel = presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");
-        ToggleCommand = new DelegateCommand(() => setVisible(!IsVisible));
+        // The switch itself carries the count, so "Extracts" reads "Extracts 12" and a player
+        // can see what turning it on would give them without turning it on.
+        Label = Count == 0
+            ? presentation.Format("Map.Layer.Empty", layer.Name)
+            : presentation.Format("Map.Layer.Count", layer.Name, presentation.Number(Count));
+        StateLabel = Count == 0
+            ? presentation.Get("Map.Layer.NothingToShow")
+            : presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");
+        // A layer with nothing on it says so rather than switching the map to empty. The view
+        // disables the switch too; this is the guard that does not depend on it doing so.
+        ToggleCommand = new DelegateCommand(() =>
+        {
+            if (Count > 0)
+            {
+                setVisible(!IsVisible);
+            }
+        });
     }
 
     public MapSceneLayer Layer { get; }
     public string Name => Layer.Name;
+
+    /// <summary>How many objects this layer holds, whether or not it is currently drawn.</summary>
+    public int Count { get; }
+
+    /// <summary>The layer's name with its count, which is what the switch shows.</summary>
+    public string Label { get; }
+
+    /// <summary>True when the layer would draw nothing, so the switch says so and stays off.</summary>
+    public bool HasNothingToShow => Count == 0;
+
     public bool IsVisible { get; }
     public string ToggleLabel { get; }
     public string StateLabel { get; }
@@ -2486,13 +2855,22 @@ public sealed class MapSceneProjection
     /// non-positive falls back to the bounds' own ratio, which is what a synthetic test scene
     /// and the map gallery want.
     /// </param>
+    /// <param name="headroomAbove">
+    /// [V2 rough package 39] Canvas pixels to keep clear above the plan, and
+    /// <paramref name="headroomBelow"/> below it, for a stacked view whose other floors are
+    /// drawn off the read floor. The plan is fitted into what is left and the read floor still
+    /// lands in exactly this rectangle, so nothing about where an object projects changes — the
+    /// map is simply drawn a little smaller to leave the stack somewhere to be.
+    /// </param>
     public MapSceneProjection(
         MapSceneBounds bounds,
         double canvasWidth,
         double canvasHeight,
         double inset,
         bool fillCanvas = false,
-        double planAspect = double.NaN)
+        double planAspect = double.NaN,
+        double headroomAbove = 0,
+        double headroomBelow = 0)
     {
         _bounds = bounds;
         _canvasWidth = canvasWidth;
@@ -2501,8 +2879,14 @@ public sealed class MapSceneProjection
         var boundsHeight = bounds.Height;
         var finiteBounds = double.IsFinite(boundsWidth) && double.IsFinite(boundsHeight) &&
             boundsWidth > 0 && boundsHeight > 0;
+        // Never let the stack eat the map: half the card is the most the plates may claim.
+        var requested = Math.Max(0, headroomAbove) + Math.Max(0, headroomBelow);
+        var allowed = Math.Max(0, canvasHeight * 0.45);
+        var factor = requested > allowed && requested > 0 ? allowed / requested : 1;
+        var above = Math.Max(0, headroomAbove) * factor;
+        var below = Math.Max(0, headroomBelow) * factor;
         var availableWidth = Math.Max(1, canvasWidth - (inset * 2));
-        var availableHeight = Math.Max(1, canvasHeight - (inset * 2));
+        var availableHeight = Math.Max(1, canvasHeight - (inset * 2) - above - below);
         // "Contain" (the default) never crops the plan, at the cost of letterboxing when the
         // viewport's aspect ratio does not match the plan's. A host with its own fixed frame
         // around the map instead asks to "cover": fill the viewport edge to edge, cropping the
@@ -2529,7 +2913,7 @@ public sealed class MapSceneProjection
         MapWidth = fillCanvas ? Math.Max(byWidth, byHeight) : Math.Min(byWidth, byHeight);
         MapHeight = MapWidth / aspect;
         MapLeft = (canvasWidth - MapWidth) / 2;
-        MapTop = (canvasHeight - MapHeight) / 2;
+        MapTop = above + ((canvasHeight - above - below - MapHeight) / 2);
         // Separate axis scales: scene space is a percent box, so mapping it onto a rectangle of
         // the artwork's shape is exactly what puts a marker back over the feature it names.
         ScaleX = MapWidth / boundsWidth;

@@ -1,6 +1,7 @@
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Headless;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -290,6 +291,63 @@ internal static class Program
                     Pump(80);
                 }
 
+                // [V2 rough package 39] Layers the map does not open with, by scene layer id,
+                // so a render can show what a player would after one press each.
+                if (StringOption(args, "--map-layers") is { } wanted && raid.Renderer is { } layerRenderer)
+                {
+                    foreach (var layerId in wanted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        var layer = layerRenderer.Layers.FirstOrDefault(item =>
+                            string.Equals(item.Layer.Id.Value, layerId, StringComparison.OrdinalIgnoreCase));
+                        if (layer is null)
+                        {
+                            Console.Error.WriteLine($"No map layer '{layerId}'.");
+                        }
+                        else if (!layer.IsVisible)
+                        {
+                            layer.ToggleCommand.Execute(null);
+                            Pump(10);
+                        }
+                    }
+
+                    Pump(20);
+                }
+
+                // [V2 rough package 39] Two render-only presses, both of them the app's own
+                // controls rather than a fixture: choose the drawing (the stack needs it — a
+                // tile grid and a drawing cover different rectangles), then stack the floors.
+                if (args.Contains("--map-drawing") && raid.HasArtworkChoice && !raid.PrefersDrawing)
+                {
+                    raid.ToggleArtworkCommand.Execute(null);
+                    for (var i = 0; i < 400 && !raid.PrefersDrawing; i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        Thread.Sleep(25);
+                    }
+
+                    Pump(40);
+                }
+
+                if (args.Contains("--map-stacked"))
+                {
+                    if (!raid.CanStack)
+                    {
+                        Console.Error.WriteLine("This map has no floors to stack.");
+                    }
+                    else
+                    {
+                        raid.ToggleStackCommand.Execute(null);
+                        for (var i = 0; i < 400 && !raid.HasFloorStack; i++)
+                        {
+                            Dispatcher.UIThread.RunJobs();
+                            Thread.Sleep(25);
+                        }
+
+                        Pump(40);
+                        Console.WriteLine("Stack: " + raid.StackStatus);
+                    }
+                }
+
                 // V2 rough package 20: which maps a --map value can name, so a render run that
                 // asks for one that is not in this install's catalog says so instead of quietly
                 // rendering whichever map came first.
@@ -342,6 +400,11 @@ internal static class Program
                         Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
                     }
                 }
+                // [V2 rough package 39] Which artwork this map actually publishes, so a render
+                // that shows no chooser says whether that is a bug or a one-variant map.
+                Console.WriteLine("Artwork: " + string.Join(
+                    ", ",
+                    raid.ArtworkVariants.Select(item => item.Key + (item.IsSelected ? "*" : string.Empty))));
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and
@@ -357,6 +420,25 @@ internal static class Program
             Pump(5);
             window.Width = width;
             Pump(10);
+
+            // [V2 rough package 39] The Raid workspace's context panel is a scroller taller than
+            // any screen, so a card further down it cannot be photographed without scrolling to
+            // it — which is exactly what a player does.
+            if (IntOption(args, "--raid-panel-scroll", 0) is var panelScroll and > 0)
+            {
+                var panel = window.GetVisualDescendants()
+                    .OfType<ScrollViewer>()
+                    .FirstOrDefault(scroller => scroller.Name == "RaidPanelScroll");
+                if (panel is null)
+                {
+                    Console.Error.WriteLine("No Raid context panel to scroll.");
+                }
+                else
+                {
+                    panel.Offset = panel.Offset.WithY(panelScroll);
+                    Pump(10);
+                }
+            }
 
             // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
             // A headless run has no relay to join, and the offline group session republishes

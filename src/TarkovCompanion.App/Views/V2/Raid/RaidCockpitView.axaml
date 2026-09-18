@@ -231,8 +231,45 @@
                                 AutomationProperties.AutomationId="v2-raid-auto-hide"
                                 ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
                 </WrapPanel>
+                <!-- V2 rough package 39: every reviewed piece of artwork this map publishes,
+                     not just the drawn/photo pair. Remembered per map by V1's selection service,
+                     with the attribution for whichever one is showing beneath it (ADR 0015). -->
+                <StackPanel Spacing="4" IsVisible="{Binding HasArtworkVariants}">
+                  <ItemsControl ItemsSource="{Binding ArtworkVariants}"
+                                AutomationProperties.AutomationId="v2-raid-artwork-variants"
+                                AutomationProperties.AccessibilityView="Control"
+                                AutomationProperties.Name="Map artwork">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:RaidArtworkVariantViewModel">
+                        <ToggleButton Classes="v2-target v2-raid-viewcontrol"
+                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                      Command="{Binding SelectCommand}"
+                                      Content="{Binding Name}"
+                                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                                      AutomationProperties.Name="{Binding Name}"
+                                      ToolTip.Tip="{Binding Detail}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+                <!-- ADR 0015: whoever made the artwork on screen is credited beside it, whether
+                     or not this map offers a choice of artwork. -->
+                <TextBlock Classes="v2-label" Opacity="0.85" TextWrapping="Wrap" MaxWidth="480"
+                           AutomationProperties.AutomationId="v2-raid-artwork-attribution"
+                           IsVisible="{Binding HasArtworkAttribution}"
+                           Text="{Binding ArtworkAttribution}" />
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-raid-stack-status"
                            IsVisible="{Binding HasStackStatus}" />
+                <!-- V2 rough package 39: automatic floor selection says what it did, or why it
+                     could not. It used to change floors in silence and stay silent when it had
+                     nothing to go on, which looked the same as being broken. -->
+                <TextBlock Classes="v2-label" Text="{Binding FloorSource}" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-raid-floor-source"
+                           IsVisible="{Binding HasFloorSource}" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
                   <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
                           Command="{Binding UseFloorVariantCommand}"
@@ -306,9 +343,13 @@
                   <!-- No AutomationProperties.AutomationId here: this switch shares its view model
                        (and so its AutomationId) with the renderer's own Layers list further down the
                        same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
+                  <!-- V2 rough package 39: the switch says how many things it would show, and
+                       a layer with nothing on it is disabled rather than switching the map to
+                       an empty plan and leaving the player to work out why. -->
                   <ToggleSwitch Classes="v2-layer-switch"
                                 IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                OnContent="{Binding Name}" OffContent="{Binding Name}"
+                                IsEnabled="{Binding !HasNothingToShow}"
+                                OnContent="{Binding Label}" OffContent="{Binding Label}"
                                 AutomationProperties.Name="{Binding ToggleLabel}"
                                 AutomationProperties.HelpText="{Binding StateLabel}"
                                 Command="{Binding ToggleCommand}" />
@@ -321,7 +362,8 @@
     </Grid>
 
     <Border Grid.Column="1" Classes="v2-raid-panel">
-      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
+      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="16,12,16,16">
           <TextBlock Classes="v2-heading-2" Text="Raid plan" AutomationProperties.HeadingLevel="2" />
 
@@ -568,6 +610,7 @@
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Where the others started" />
               <TextBlock Classes="v2-label" Text="{Binding SpawnPanelDetail}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-raid-spawn-detail"
                          IsVisible="{Binding HasSpawnPanelDetail}" />
               <ItemsControl ItemsSource="{Binding SpawnPanel}">
                 <ItemsControl.ItemsPanel>
@@ -576,13 +619,19 @@
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="mapvm:SpawnPanelViewModel">
                     <Border Classes="v2-raid-row">
-                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                        <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding FromStart}" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding FromPlayer}" VerticalAlignment="Center"
-                                   IsVisible="{Binding HasFromPlayer}" />
-                      </Grid>
+                      <StackPanel Spacing="2">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
+                                     TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                          <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding FromStart}" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding FromPlayer}" VerticalAlignment="Center"
+                                     IsVisible="{Binding HasFromPlayer}" />
+                        </Grid>
+                        <!-- V2 rough package 39: how long until somebody who started there could
+                             be here. A band, never a number — see SpawnReach. -->
+                        <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding Reach}"
+                                   IsVisible="{Binding HasReach}" />
+                      </StackPanel>
                     </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
