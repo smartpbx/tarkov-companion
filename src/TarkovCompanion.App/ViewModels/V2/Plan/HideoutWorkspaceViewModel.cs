@@ -60,6 +60,12 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
 
     public bool IsReady => HasNextLevel && CanBuildNow;
 
+    /// <summary>The level the profile says is built, which the stepper edits.</summary>
+    public int BuiltLevel { get; init; }
+
+    /// <summary>The highest level the station has.</summary>
+    public int MaximumLevel { get; init; }
+
     public bool IsSelected
     {
         get => _isSelected;
@@ -79,6 +85,19 @@ public sealed record HideoutRequirementRowViewModel(
 {
     /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure.</summary>
     public string ProgressLabel => $"{Owned} / {Required}";
+
+    /// <summary>The cheapest barter, where one beats buying the item and the player's loyalty allows it; empty otherwise.</summary>
+    public string CheapestRoute { get; init; } = string.Empty;
+
+    public bool HasCheapestRoute => CheapestRoute.Length > 0;
+}
+
+/// <summary>One item still short across the next level of every station, with the totals behind it.</summary>
+public sealed record HideoutRollupRowViewModel(string ItemName, int Need, int Have)
+{
+    public int Remaining => Math.Max(0, Need - Have);
+
+    public string ProgressLabel => $"{Have:N0} / {Need:N0}";
 }
 
 /// <summary>
@@ -91,6 +110,10 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     private readonly IRequirementCatalog _requirements;
     private readonly IPlayerProfileService _profileService;
     private readonly IItemRepository _itemRepository;
+    private readonly IBarterCatalog? _barters;
+    private readonly ITraderCatalog? _traders;
+    private IReadOnlyDictionary<string, int> _traderLevels = new Dictionary<string, int>(StringComparer.Ordinal);
+    private IReadOnlyList<HideoutRollupRowViewModel> _rollup = [];
     private IReadOnlyDictionary<string, int> _ownedItemCounts = new Dictionary<string, int>(StringComparer.Ordinal);
     private IReadOnlyList<HideoutItemRequirement> _allRequirements = [];
     private IReadOnlyList<HideoutStationRowViewModel> _stations = [];
@@ -102,8 +125,14 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     public HideoutWorkspaceViewModel(
         IRequirementCatalog requirements,
         IPlayerProfileService profileService,
-        IItemRepository itemRepository)
+        IItemRepository itemRepository,
+        // Package 28: the cheapest-barter line V1's Hideout page carries. Optional, so a
+        // composition without the barter catalog simply has no route lines.
+        IBarterCatalog? barters = null,
+        ITraderCatalog? traders = null)
     {
+        _barters = barters;
+        _traders = traders;
         _requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
@@ -148,6 +177,36 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
     public bool HasItems => Items.Count > 0;
 
+    /// <summary>Whether the selected station has a level above the one built.</summary>
+    public bool CanRaiseLevel => _selected is { HasNextLevel: true };
+
+    public bool CanLowerLevel => _selected is { BuiltLevel: > 0 };
+
+    public ICommand RaiseLevelCommand => _raiseLevel ??= new AsyncDelegateCommand(() => ChangeLevelAsync(1));
+
+    public ICommand LowerLevelCommand => _lowerLevel ??= new AsyncDelegateCommand(() => ChangeLevelAsync(-1));
+
+    private ICommand? _raiseLevel;
+    private ICommand? _lowerLevel;
+
+    /// <summary>Items still short for the next level of every station, each counted once across them.</summary>
+    public IReadOnlyList<HideoutRollupRowViewModel> Rollup
+    {
+        get => _rollup;
+        private set
+        {
+            if (SetProperty(ref _rollup, value))
+            {
+                OnPropertyChanged(nameof(HasRollup));
+                OnPropertyChanged(nameof(RollupHeading));
+            }
+        }
+    }
+
+    public bool HasRollup => _rollup.Count > 0;
+
+    public string RollupHeading => _rollup.Count == 1 ? "1 item still needed" : $"{_rollup.Count:N0} items still needed";
+
     /// <summary>"26 stations", the station list's heading figure.</summary>
     public string StationCountLabel => Stations.Count == 1 ? "1 station" : $"{Stations.Count:N0} stations";
 
@@ -176,6 +235,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             {
                 Stations = [];
                 Items = [];
+                Rollup = [];
                 _selected = null;
                 OnPropertyChanged(nameof(HasSelection));
                 Status = "No hideout data cached yet.";
@@ -184,6 +244,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             _ownedItemCounts = profile.OwnedItemCounts;
+            _traderLevels = profile.TraderLevels;
             _allRequirements = await _requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(true);
             var byStation = _allRequirements
                 .GroupBy(requirement => requirement.StationId, StringComparer.OrdinalIgnoreCase)
@@ -198,6 +259,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
             Status = $"{StationCountLabel} · {buildable} ready to build now";
+            Rollup = await BuildRollupAsync(cancellationToken).ConfigureAwait(true);
 
             // The detail pane is the page's primary content, so something is always selected
             // once stations exist: the previous choice if it survived, else the first station.
@@ -227,6 +289,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(SelectedStationName));
         OnPropertyChanged(nameof(SelectedLevelLabel));
+        OnPropertyChanged(nameof(CanRaiseLevel));
+        OnPropertyChanged(nameof(CanLowerLevel));
         if (!station.HasNextLevel)
         {
             Items = [];
@@ -241,6 +305,9 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                     string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
                     requirement.TargetLevel == station.NextLevel)
                 .ToArray();
+            var routes = await HideoutBarterRoutes
+                .ComputeAsync(_barters, _traders, _itemRepository, wanted, _traderLevels, cancellationToken)
+                .ConfigureAwait(true);
             var rows = new List<HideoutRequirementRowViewModel>(wanted.Length);
             foreach (var requirement in wanted)
             {
@@ -252,7 +319,10 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                     Count(requirement.Required),
                     Count(owned),
                     remaining == 0 ? "Complete" : Count(remaining),
-                    remaining == 0));
+                    remaining == 0)
+                {
+                    CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                });
             }
 
             Items = rows
@@ -284,6 +354,88 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         _ = SelectAsync(station, CancellationToken.None);
     }
 
+    private Task ChangeLevelAsync(int direction) =>
+        _selected is { } row ? SetBuiltLevelAsync(row.StationId, row.BuiltLevel + direction) : Task.CompletedTask;
+
+    /// <summary>
+    /// Records the level a station has been built to, and re-reads everything, because a station
+    /// at a different level has different requirements rather than the same ones with another number.
+    /// </summary>
+    /// <remarks>
+    /// Clamped to what the catalog says the station has: the profile is a file somebody can open,
+    /// and a station at level 9 of 3 would make the "next level" arithmetic name one that does not exist.
+    /// </remarks>
+    internal async Task SetBuiltLevelAsync(string stationId, int level)
+    {
+        var row = Stations.FirstOrDefault(station => string.Equals(station.StationId, stationId, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return;
+        }
+
+        var wanted = Math.Clamp(level, 0, row.MaximumLevel);
+        if (wanted == row.BuiltLevel)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            var levels = new Dictionary<string, int>(profile.HideoutStationLevels, StringComparer.OrdinalIgnoreCase)
+            {
+                [stationId] = wanted,
+            };
+            await _profileService
+                .SaveAsync(profile with { HideoutStationLevels = levels, UpdatedUtc = DateTimeOffset.UtcNow }, CancellationToken.None)
+                .ConfigureAwait(true);
+            await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Station level not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// What is still short across every station's next level. Required amounts are summed per item
+    /// before the player's holding is taken off, because one pile of bolts serves whichever station
+    /// is built first, not each of them in turn.
+    /// </summary>
+    private async Task<IReadOnlyList<HideoutRollupRowViewModel>> BuildRollupAsync(CancellationToken cancellationToken)
+    {
+        var totals = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var station in Stations.Where(row => row.HasNextLevel))
+        {
+            foreach (var requirement in _allRequirements.Where(requirement =>
+                string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
+                requirement.TargetLevel == station.NextLevel))
+            {
+                totals[requirement.ItemId] = totals.GetValueOrDefault(requirement.ItemId) + requirement.Required;
+            }
+        }
+
+        var rows = new List<HideoutRollupRowViewModel>(totals.Count);
+        foreach (var (itemId, need) in totals)
+        {
+            var have = _ownedItemCounts.GetValueOrDefault(itemId);
+            if (have >= need)
+            {
+                continue;
+            }
+
+            var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+            rows.Add(new(item?.Name ?? itemId, need, have));
+        }
+
+        return
+        [
+            .. rows
+                .OrderByDescending(row => row.Remaining)
+                .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
+        ];
+    }
+
     private HideoutStationRowViewModel Describe(
         HideoutStationSummary station,
         IReadOnlyDictionary<string, int> builtLevels,
@@ -311,7 +463,11 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             {
                 var found = Stations.FirstOrDefault(row => row.StationId == stationId);
                 Select(found);
-            });
+            })
+        {
+            BuiltLevel = built,
+            MaximumLevel = maximum,
+        };
     }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);

@@ -72,6 +72,19 @@ public sealed class V2ShellRegistryTests
     }
 
     [Fact]
+    public void LoadoutAndEventsHostNativeWorkspacesUnderPlanRatherThanTheLegacyPages()
+    {
+        var registry = V2RouteRegistry.Default;
+
+        foreach (var route in new[] { V2Routes.Loadout, V2Routes.Events })
+        {
+            Assert.Equal(V2RouteContent.Workspace, registry[route].Content);
+            Assert.Null(registry[route].LegacyPage);
+            Assert.Equal(V2Routes.Plan, registry[route].Parent);
+        }
+    }
+
+    [Fact]
     public void AmmoKeysAndFleaHostNativeWorkspacesUnderIntelRatherThanTheLegacyPages()
     {
         var registry = V2RouteRegistry.Default;
