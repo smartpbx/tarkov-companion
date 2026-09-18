@@ -258,6 +258,10 @@ app.MapGet("/health", () => Results.Ok(new
     members = rooms.MemberCount,
     // v2r-fast-positions (package 31): exchanges being held open for a change right now.
     held = roomChanges.WaitingCount,
+    // [V2 rough package 34] And the same for the paired tablets' map reads, which are held by
+    // the same rules against the same Kestrel. Counted separately because they are bounded
+    // separately, and the only way to see either bound being reached is from outside.
+    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
 }));
 
 // The second screen.
