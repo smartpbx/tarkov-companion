@@ -38,6 +38,10 @@
     <DataTemplate DataType="{x:Type intelVm:FleaWorkspaceViewModel}">
       <intelViews:FleaWorkspaceView />
     </DataTemplate>
+    <!-- V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout. -->
+    <DataTemplate DataType="{x:Type planVm:KeepListWorkspaceViewModel}">
+      <planViews:KeepListWorkspaceView />
+    </DataTemplate>
     <!-- v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes. -->
     <DataTemplate DataType="{x:Type teamVm:TeamWorkspaceViewModel}">
       <teamViews:TeamWorkspaceView />
