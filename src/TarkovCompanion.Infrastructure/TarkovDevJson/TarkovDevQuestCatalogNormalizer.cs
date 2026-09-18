@@ -275,7 +275,7 @@ public sealed class TarkovDevQuestCatalogNormalizer
                     null,
                     null,
                     null,
-                    "Possible location",
+                    QuestObjectiveZone.PossibleLocationName,
                     rawObjectiveJson));
             }
         }

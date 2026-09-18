@@ -1,6 +1,8 @@
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.UnitTests.V2MapRenderer;
 
 namespace TarkovCompanion.UnitTests.V2Plan;
 
@@ -137,7 +139,7 @@ public sealed class PlanWorkspaceViewModelTests
     }
 
     [Fact]
-    public void Objective_markers_carry_the_row_number_and_skip_objectives_with_no_placed_geometry()
+    public void The_objective_scene_carries_the_row_numbers_and_lists_objectives_with_no_placed_geometry_as_having_none()
     {
         var task = Task("quest-a", RecordedTaskState.Active,
         [
@@ -155,27 +157,41 @@ public sealed class PlanWorkspaceViewModelTests
             Projected("placed-region", QuestMapGeometryKind.Region, [new(40, 40), new(60, 40), new(60, 60), new(40, 60)]),
         ];
 
-        var markers = PlanWorkspaceViewModel.BuildObjectiveMarkers(rows, projected, point => point);
+        var scene = PlanWorkspaceViewModel.BuildObjectiveScene(rows, projected, RealQuestZones.Load().Model("customs"), DateTimeOffset.UnixEpoch);
 
-        Assert.Equal(["1", "3"], markers.Select(marker => marker.Label));
-        Assert.Equal(new TarkovCompanion.Core.Domain.Maps.MapPoint(10, 20), markers[0].Position);
-        Assert.Equal(new TarkovCompanion.Core.Domain.Maps.MapPoint(50, 50), markers[1].Position);
+        // The points are the projection's own: there is no second mapping between them and the plan.
+        var spot = Assert.Single(scene.Objects, item => item.Label == "1");
+        Assert.Equal(new(10, 20), spot.Geometry.Points[0]);
+        var area = Assert.Single(scene.Objects, item => item.Geometry.Kind == MapSceneGeometryKind.Area);
+        Assert.Equal("Area 3", area.Label);
+        Assert.Equal(4, area.Geometry.Points.Count);
+        Assert.Equal(new(50, 50), Assert.Single(scene.Objects, item => item.Label == "3").Geometry.Points[0]);
+        Assert.Equal(["placed-point", "association-only", "placed-region"], scene.Entries.Select(entry => entry.ObjectiveId));
+        var none = scene.Entries.Single(entry => entry.ObjectiveId == "association-only");
+        Assert.False(none.IsPlaced);
+        Assert.Equal("No location", none.PlacementLabel);
+        Assert.DoesNotContain(scene.Objects, item => item.Id.Value.Contains("association-only", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void Objective_markers_outside_the_plan_square_are_left_to_the_list()
+    public void The_objective_scene_draws_only_the_objectives_the_list_shows()
     {
-        var task = Task("quest-a", RecordedTaskState.Active, [Objective("far", RecordedObjectiveState.InProgress)]);
+        var task = Task("quest-a", RecordedTaskState.Active, [Objective("listed", RecordedObjectiveState.InProgress)]);
         var rows = PlanWorkspaceViewModel.Bucket([task], showAll: false)
             .Select(entry => new PlanObjectiveRowViewModel(entry.Task, entry.Objective, null!))
             .ToArray();
 
-        var markers = PlanWorkspaceViewModel.BuildObjectiveMarkers(
+        var scene = PlanWorkspaceViewModel.BuildObjectiveScene(
             rows,
-            [Projected("far", QuestMapGeometryKind.Point, [new(250, 20)])],
-            point => point);
+            [
+                Projected("listed", QuestMapGeometryKind.Point, [new(10, 20)]),
+                Projected("someone-elses", QuestMapGeometryKind.Point, [new(30, 40)]),
+            ],
+            RealQuestZones.Load().Model("customs"),
+            DateTimeOffset.UnixEpoch);
 
-        Assert.Empty(markers);
+        Assert.Equal("listed", Assert.Single(scene.Entries).ObjectiveId);
+        Assert.Single(scene.Objects);
     }
 
     private static QuestMapObjectiveProjection Projected(

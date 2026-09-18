@@ -70,6 +70,34 @@ public sealed class QuestCatalogPersistenceTests
     }
 
     [Fact]
+    public async Task ATaskWhoseWikiColumnIsEmptyLinksThroughTheFeedsOwnWikiLinkInItsRawJson()
+    {
+        // Migration 0012 added wiki_url and left existing rows null until the next sync, but the
+        // feed's wikiLink has been in raw_json all along, so an upgraded cache links now.
+        await using var database = await TestDatabase.CreateAsync();
+        var catalog = ParseAndNormalize(await FixtureJson.ReadAsync("tasks-contract.json"), GameMode.Regular);
+        await new SqliteDataRefreshRepository(database.Factory).RefreshTasksAsync(catalog, TestContext.Current.CancellationToken);
+        var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using (connection)
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE quest_catalog_tasks
+                SET wiki_url = NULL,
+                    raw_json = json_set(raw_json, '$.wikiLink', 'https://escapefromtarkov.fandom.com/wiki/Debut');
+                """;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        var loaded = await new SqliteQuestCatalog(database.Factory).GetAsync(
+            GameMode.Regular,
+            "EN",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("https://escapefromtarkov.fandom.com/wiki/Debut", Assert.Single(loaded!.Tasks).WikiUri);
+    }
+
+    [Fact]
     public async Task TasksSharingAnObjectiveIdEachKeepTheirOwnRequirementRowInsteadOfOverwriting()
     {
         // json.tarkov.dev reuses one objective id for the same underlying objective shared by
