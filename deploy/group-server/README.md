@@ -101,6 +101,66 @@ unit directory below it. Those managed destinations must be canonical, root/upda
 not group/world-writable. Run `tarkov-group-update.sh --validate-paths` for a non-mutating
 containment, ownership and overlap check before enabling the service.
 
+## The rough update channel
+
+The relay also serves the desktop's rough test builds, as plain files, at
+`/updates/rough/`. What that channel proves and does not is in
+[`docs/RELEASES.md`](../../docs/RELEASES.md#the-rough-channel). This is the operator's half.
+
+It is apart from everything else the relay does. `GET` and `HEAD` only, no key, no state, no
+upload route, nothing read at startup and nothing running when nobody is downloading. It serves
+`/srv/tarkov-updates/<channel>/<file>` and refuses any name that is not a plain file name. The
+folder is outside `/opt/tarkov-group`, so a relay update does not remove it, and outside the
+relay's state directory, so the relay itself cannot write to it. `tarkov-group.service` needs no
+change: `ProtectSystem=strict` still allows reading `/srv`. Set `TARKOV_UPDATE_FEED_ROOT` in a
+drop-in only if the folder has to be somewhere else.
+
+**Once:** the relay has to be running a build that has this route. Deploy it the way you deploy
+any relay build, then make the folder:
+
+```bash
+ssh proxmox 'pct exec 115 -- install -d -m 0755 /srv/tarkov-updates/rough'
+```
+
+**Each build.** Take the run id of a green Windows verification run on `main`; its version is
+`1.0.<run number>`. From a machine with `gh`, this repository and SSH to the Proxmox host:
+
+```bash
+RUN=<run id>
+rm -rf /tmp/rough-channel
+gh run download "$RUN" --repo smartpbx/tarkov-companion --name rough-channel --dir /tmp/rough-channel
+python3 scripts/release/rough_channel.py verify /tmp/rough-channel    # must print "ok ..." and exit 0
+scp -r /tmp/rough-channel proxmox:/tmp/rough-channel
+ssh proxmox '
+  set -e
+  while read -r name; do
+    pct push 115 "/tmp/rough-channel/$name" "/srv/tarkov-updates/rough/$name" --perms 0644
+  done < /tmp/rough-channel/COPY-ORDER.txt
+  keep=$(grep -e "-full.nupkg$" /tmp/rough-channel/COPY-ORDER.txt)
+  pct exec 115 -- find /srv/tarkov-updates/rough -name "*.nupkg" ! -name "$keep" -delete
+  rm -rf /tmp/rough-channel'
+```
+
+What that copies, in this order, is exactly the three files in `COPY-ORDER.txt`:
+
+1. `TarkovCompanionDesktop-<version>-full.nupkg`, the package an installed build downloads
+2. `TarkovCompanionDesktop-win-Setup.exe`, the installer somebody runs once
+3. `releases.win.json`, the feed, **last**: a client must never read a feed naming a package that
+   has not arrived
+
+Files must be world-readable (`0644`, folder `0755`) because the relay runs as a dynamic user.
+The `find` afterwards removes older packages: each build is about 190 MB and CT 115 has an 8 GB
+disk. Then check it from outside:
+
+```bash
+curl -s https://tarkov.mannerow.net/updates/rough/releases.win.json      # names the new version
+curl -sI https://tarkov.mannerow.net/updates/rough/TarkovCompanionDesktop-win-Setup.exe | head -1
+```
+
+To take a build back, publish an older run's folder the same way **and** tell the testers: an
+installed client never moves to a lower version by itself, so a withdrawn build stays on the
+machines that already took it until a newer one is published.
+
 ## Why wget and not curl
 
 The container has no `curl` and is awkward to give one. `wget` ships on a minimal Debian, so

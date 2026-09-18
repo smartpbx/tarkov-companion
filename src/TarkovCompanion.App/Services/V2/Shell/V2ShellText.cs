@@ -76,8 +76,11 @@ public static class V2ShellText
         ["V2.Setup.Data.SyncLabel"] = "Sync now",
         ["V2.Setup.TeamDevices.OpenLabel"] = "Open Team",
         ["V2.Setup.Updates.CheckLabel"] = "Check for updates",
-        ["V2.Setup.Updates.DownloadLabel"] = "Download",
-        ["V2.Setup.Updates.RestartLabel"] = "Install and restart",
+        ["V2.Setup.Updates.UpdateNowLabel"] = "Update now",
+        ["V2.Setup.Updates.InstallerLabel"] = "Get the installer",
+        ["V2.Setup.Updates.ChannelLabel"] = "Channel",
+        ["V2.Setup.Updates.InstalledLabel"] = "Installed",
+        ["V2.Setup.Updates.AvailableLabel"] = "Available",
         ["V2.Setup.Privacy.ScreenshotIntro"] = "Deletes the game's own screenshots to the recycle bin. Off until you turn it on.",
         ["V2.Setup.Privacy.RetentionLabel"] = "Keep longer",
         // Package 29 (parity): what V1's Settings page carried that Setup had dropped. The old
@@ -114,6 +117,12 @@ public static class V2ShellText
         ["V2.Setup.Appearance.LargerLabel"] = "Larger",
         ["V2.Setup.Appearance.ResetLabel"] = "Reset",
         ["V2.Setup.Displays.Info"] = "Window position and size are remembered, and return to a visible monitor if a display goes.",
+        // V2 rough package 41 (#292, #281): the self-test, in Diagnostics.
+        ["V2.Setup.Diagnostics.SelfTestHeading"] = "Self-test",
+        ["V2.Setup.Diagnostics.SelfTestIntro"] = "Tests every part against your installation. Safe to press mid-raid.",
+        ["V2.Setup.Diagnostics.SelfTestRun"] = "Run self-test",
+        ["V2.Setup.Diagnostics.SelfTestStop"] = "Stop",
+        ["V2.Setup.Diagnostics.SelfTestCopy"] = "Copy result",
         ["V2.Setup.Diagnostics.CopyLabel"] = "Copy diagnostics",
         ["V2.Setup.Diagnostics.ReportLabel"] = "Report a problem",
         // V2 rough package 17 (home): the Setup overview, after docs/design/v2/v2-home-setup-concept.png.

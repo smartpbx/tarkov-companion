@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -37,17 +38,31 @@ namespace TarkovCompanion.App.Services.V2;
 /// </remarks>
 public sealed class TabletMapSurfacePublisher : IDisposable
 {
-    /// <summary>A raid ticks several times a second; a second screen does not need every tick.</summary>
-    private static readonly TimeSpan MinimumInterval = TimeSpan.FromSeconds(1);
+    /// <summary>
+    /// How long one publish waits for the rest of a burst to arrive.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 34] This was a fixed one-second throttle, which meant the second screen
+    /// was up to a second behind the desk before it had even asked for the change, on top of its
+    /// own poll. A floor rather than a period: a change is published as soon as this much time has
+    /// passed, and a tick that changes nothing never starts the clock at all. Small enough to be
+    /// invisible beside a screenshot's own cost, large enough that the several rebuilds one
+    /// screenshot causes become one publish.
+    /// </remarks>
+    private static readonly TimeSpan CoalesceFloor = TimeSpan.FromMilliseconds(40);
 
     private readonly RaidCockpitViewModel _cockpit;
     private readonly ITabletMapSurfaceSink _sink;
     private readonly DesktopCompanionAuthority _authority;
     private readonly RelayMarksBridge? _bridge;
+    private readonly IItemSearchService? _items;
+    private readonly IItemRepository? _prices;
     private readonly TimeProvider _clock;
+    private TabletSearch? _search;
     private readonly SemaphoreSlim _publishGate = new(1, 1);
-    private DateTimeOffset _lastPublishedUtc = DateTimeOffset.MinValue;
-    private long _publishedRevision = -1;
+    private long _seenSceneRevision = -1;
+    private int _scheduled;
+    private byte[]? _publishedContent;
     private string? _artworkSha;
     private TabletMapArtworkBytes? _artwork;
     private object? _artworkSource;
@@ -59,12 +74,16 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         ITabletMapSurfaceSink sink,
         DesktopCompanionAuthority authority,
         RelayMarksBridge? bridge = null,
+        IItemSearchService? items = null,
+        IItemRepository? prices = null,
         TimeProvider? timeProvider = null)
     {
         _cockpit = cockpit ?? throw new ArgumentNullException(nameof(cockpit));
         _sink = sink ?? throw new ArgumentNullException(nameof(sink));
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _bridge = bridge;
+        _items = items;
+        _prices = prices;
         _clock = timeProvider ?? TimeProvider.System;
         _cockpit.SceneRebuilt += OnSceneRebuilt;
         if (_bridge is not null)
@@ -72,6 +91,18 @@ public sealed class TabletMapSurfacePublisher : IDisposable
             _bridge.DesktopWorkspaceRequested += OnDesktopWorkspaceRequested;
         }
     }
+
+    /// <summary>
+    /// When this desktop last put a scene on the relay, and which scene it was.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 41] Read by Setup's self-test, which has to answer "is the desktop
+    /// publishing anything" without publishing to find out. Null until the first publish, which
+    /// is itself the answer when a tablet is paired and its map is empty.
+    /// </remarks>
+    public DateTimeOffset? LastPublishedUtc { get; private set; }
+
+    public TabletMapSurface? LastSurface { get; private set; }
 
     /// <summary>Publishes now, regardless of the rebuild throttle. The test seam, and the first publish.</summary>
     public async Task PublishNowAsync(CancellationToken cancellationToken = default)
@@ -94,12 +125,32 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 name,
                 artwork?.Descriptor,
                 _authority.Snapshot.CanonicalState.Workspace.Projection,
+                await SearchResultsAsync(cancellationToken).ConfigureAwait(false),
                 artwork is null ? null : _cockpit.BackgroundStatus(),
                 Utc());
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
-            await _sink.PublishMapSurfaceAsync(surface, artwork?.Bytes, cancellationToken).ConfigureAwait(false);
-            _publishedRevision = scene.Revision;
-            _lastPublishedUtc = _clock.GetUtcNow();
+
+            // The scene is rebuilt on every runtime tick and most ticks change nothing a tablet
+            // would draw, so what is published is compared rather than the revision that carries
+            // it. Serialized with the timestamp blanked, because the timestamp is the one field
+            // that differs on every publish and comparing it would make every tick a change.
+            var content = TabletMapSurfaceJson.Serialize(surface with { PublishedUtc = default });
+            if (_publishedContent is { } previous && previous.AsSpan().SequenceEqual(content))
+            {
+                return;
+            }
+
+            await _sink.PublishMapSurfaceAsync(
+                TabletMapSurfaceJson.Serialize(surface),
+                artwork?.Bytes,
+                cancellationToken).ConfigureAwait(false);
+            _publishedContent = content;
+            // Package 41's self-test asks when this desktop last put a scene on the relay, and
+            // which one, so these follow the publish that actually happened. A tick that
+            // deduplicated above published nothing, and leaving them where they were is the
+            // honest answer to that question.
+            LastPublishedUtc = _clock.GetUtcNow();
+            LastSurface = surface;
         }
         finally
         {
@@ -114,21 +165,31 @@ public sealed class TabletMapSurfacePublisher : IDisposable
             return;
         }
 
-        var now = _clock.GetUtcNow();
-        if (renderer.Scene.Revision == _publishedRevision || now - _lastPublishedUtc < MinimumInterval)
+        // A rebuild that produced the same scene revision is the same scene: nothing is
+        // scheduled, so a quiet desktop wakes nothing at all.
+        if (Interlocked.Exchange(ref _seenSceneRevision, renderer.Scene.Revision) == renderer.Scene.Revision)
         {
             return;
         }
 
-        _lastPublishedUtc = now;
+        // One publish per burst. A screenshot lands as several rebuilds in quick succession (the
+        // position, then the marks, then the loot layer), and the tablet wants the last of them.
+        if (Interlocked.Exchange(ref _scheduled, 1) == 1)
+        {
+            return;
+        }
+
         _ = Task.Run(async () =>
         {
             try
             {
+                await Task.Delay(CoalesceFloor, _clock).ConfigureAwait(false);
+                Interlocked.Exchange(ref _scheduled, 0);
                 await PublishNowAsync(CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
+                Interlocked.Exchange(ref _scheduled, 0);
                 // A second screen that misses one frame of the map is a stale tablet, never a
                 // desktop that stops drawing its own.
             }
@@ -206,6 +267,61 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 projection),
             cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// The answers to the lookup the desktop is currently showing, for the tablet that asked for
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 34] Run here rather than on the relay because this is the side that has
+    /// the catalogue and the prices; #417 could only set the desktop's search box and leave the
+    /// person holding the tablet looking at the wrong screen. Resolved once per query rather than
+    /// per publish: the query changes when somebody types, and the scene republishes constantly.
+    /// </remarks>
+    private async Task<TabletSearch?> SearchResultsAsync(CancellationToken cancellationToken)
+    {
+        var query = _authority.Snapshot.CanonicalState.Workspace.Projection.SearchQuery;
+        if (string.IsNullOrWhiteSpace(query) || _items is null)
+        {
+            return string.IsNullOrWhiteSpace(query) ? null : _search;
+        }
+
+        if (_search is { } cached && string.Equals(cached.Query, query, StringComparison.Ordinal))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var hits = await _items.SearchAsync(query, MaximumSearchResults, cancellationToken).ConfigureAwait(false);
+            var results = new List<TabletSearchResult>(hits.Count);
+            foreach (var hit in hits)
+            {
+                var price = _prices is null
+                    ? null
+                    : await _prices.GetPriceAsync(hit.Item.Id, cancellationToken).ConfigureAwait(false);
+                results.Add(new(
+                    hit.Item.Id,
+                    hit.Item.Name,
+                    hit.Item.ShortName,
+                    price?.FleaPriceRoubles,
+                    price?.BestTrader?.ValueRoubles));
+            }
+
+            _search = new(query, results);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException)
+        {
+            // A catalogue that is not loaded yet is a tablet told nothing, never a map that stops
+            // publishing.
+            _search = new(query, []);
+        }
+
+        return _search;
+    }
+
+    /// <summary>What fits on a tablet beside the map, and the same twelve the relay's own search returned.</summary>
+    private const int MaximumSearchResults = 12;
 
     /// <summary>A paired device holding a control lease has moved the map; the desktop follows it.</summary>
     private void OnDesktopWorkspaceRequested(WorkspaceProjection projection)

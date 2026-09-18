@@ -19,6 +19,100 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
 
     public void Dispose() => Directory.Delete(_config, recursive: true);
 
+    /// <summary>
+    /// V2 rough package 30 (acceptance sweep): every address the Windows sweep seeds is one the
+    /// store will restore, written the way the sweep writes it.
+    /// </summary>
+    /// <remarks>
+    /// The sweep reaches each V2 route by writing this file and launching. It first wrote an
+    /// empty focus target, which the store rejects — and a rejected state is set aside whole, so
+    /// the address went with it and every route landed on the variant's landing page instead.
+    /// Nothing on Linux could see that, and on Windows it was hidden behind a launch failure.
+    ///
+    /// This reads the addresses out of the script rather than restating them, so a route added to
+    /// the sweep is covered the day it is added.
+    /// </remarks>
+    [Fact]
+    public void Every_address_the_Windows_sweep_seeds_survives_a_reload()
+    {
+        var gallery = File.ReadAllText(V2ShellTestData.RepositoryPath("scripts", "windows-page-gallery.ps1"));
+        var addresses = System.Text.RegularExpressions.Regex.Matches(gallery, "address = \"(#/[^\"]+)\"")
+            .Select(match => match.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.NotEmpty(addresses);
+
+        foreach (var address in addresses)
+        {
+            var directory = Path.Combine(_config, "seed", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(directory, "v2-shell-preview"));
+
+            // Byte for byte what Set-V2PreviewState writes: schema, variant, address, no focus.
+            File.WriteAllText(
+                Path.Combine(directory, "v2-shell-preview", "v2-a.json"),
+                $$"""
+                {
+                  "schema": 1,
+                  "variant": "v2-a",
+                  "address": "{{address}}",
+                  "selectedEntity": null,
+                  "focusTarget": null,
+                  "recents": [],
+                  "pins": [],
+                  "window": null,
+                  "captureShortcutEnabled": true
+                }
+                """);
+
+            var load = new V2ShellPreviewStore(directory, V2ShellMode.VariantA).Load();
+
+            Assert.Equal(V2PreviewLoadOutcome.Restored, load.Outcome);
+            Assert.Equal(address, load.State.Address);
+        }
+
+        // And the focus target the script writes beside them. An empty one is rejected, and a
+        // rejected state is set aside whole, so this is the difference between a seeded address
+        // taking effect and every route quietly landing on the variant's landing page.
+        Assert.DoesNotContain("focusTarget = \"\"", gallery, StringComparison.Ordinal);
+        foreach (System.Text.RegularExpressions.Match focus in System.Text.RegularExpressions.Regex.Matches(
+            gallery, "focusTarget = \"([^\"]*)\""))
+        {
+            Assert.True(
+                focus.Groups[1].Value.Length > 0,
+                "a seeded focus target is either absent or a real identifier; \"\" makes the store " +
+                "discard the whole state, address included.");
+        }
+    }
+
+    [Fact]
+    public void An_empty_focus_target_is_not_a_missing_one_and_takes_the_address_with_it()
+    {
+        var directory = Path.Combine(_config, "empty-focus");
+        Directory.CreateDirectory(Path.Combine(directory, "v2-shell-preview"));
+        File.WriteAllText(
+            Path.Combine(directory, "v2-shell-preview", "v2-a.json"),
+            """
+            {
+              "schema": 1,
+              "variant": "v2-a",
+              "address": "#/raid",
+              "selectedEntity": null,
+              "focusTarget": "",
+              "recents": [],
+              "pins": [],
+              "window": null,
+              "captureShortcutEnabled": true
+            }
+            """);
+
+        var load = new V2ShellPreviewStore(directory, V2ShellMode.VariantA).Load();
+
+        // Not a quirk to work around — the reason the sweep writes null. Recorded so the next
+        // person to seed one of these files knows the address goes with the focus target.
+        Assert.Equal(V2PreviewLoadOutcome.ResetAfterCorruption, load.Outcome);
+        Assert.NotEqual("#/raid", load.State.Address);
+    }
+
     [Fact]
     public void Each_variant_keeps_its_own_file_under_the_preview_directory()
     {

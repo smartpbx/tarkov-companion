@@ -337,6 +337,13 @@
                                          IsVisible="{Binding ShowsNoMapPosition}" />
                               <TextBlock Classes="v2-label" Text="Unsupported objective" IsVisible="{Binding IsUnsupported}"
                                          VerticalAlignment="Center" />
+                              <!-- [Package 35] The quest's wiki page, where the quest is: a link out that opens the
+                                   player's browser. Nothing of the page is fetched or shown here. -->
+                              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Content="Wiki" Padding="6,0"
+                                      Command="{Binding OpenWikiCommand}" IsVisible="{Binding HasWikiLink}"
+                                      ToolTip.Tip="{Binding WikiAttribution}"
+                                      AutomationProperties.AutomationId="v2-plan-objective-wiki"
+                                      AutomationProperties.Name="Open this quest's page on the wiki" />
                             </WrapPanel>
                           </StackPanel>
                         </Border>

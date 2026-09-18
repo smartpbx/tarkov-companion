@@ -104,6 +104,9 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool HasWikiLink => WikiLinkPolicy.IsAllowed(Task.WikiUri);
 
+    /// <summary>Whose page the link opens and where, for the link's tooltip.</summary>
+    public string WikiAttribution => WikiLinkPolicy.Attribution;
+
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
     /// <summary>What the quest is doing when it is not being played: available now, locked and why, completed, failed.</summary>
@@ -583,6 +586,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
             ApplyFilter();
+            await RefreshMapQuestLayerAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -594,6 +598,23 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
             System.Diagnostics.Trace.TraceWarning($"Plan workspace refresh failed: {exception}");
+        }
+    }
+
+    /// <summary>
+    /// Tells the map what the player is now doing. It reads the active and pinned quests when it
+    /// loads a map and when V1's Quests page changes them; starting, finishing or pinning a quest
+    /// here left the Raid plan showing yesterday's objectives until a map was reopened.
+    /// </summary>
+    private async Task RefreshMapQuestLayerAsync()
+    {
+        try
+        {
+            await _map.RefreshQuestLayerAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not refresh the map's quest layer: {exception.Message}");
         }
     }
 
@@ -983,22 +1004,24 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             projected = [];
         }
 
-        var toPlan = _map.SelectedVariant is { } selectedVariant ? PlanPercentMapper(selectedVariant) : null;
-        var elements = toPlan is null ? [] : BuildObjectiveMarkers(group.Objectives, projected, toPlan);
+        var scene = _map.RenderModel is { } renderModel
+            ? BuildObjectiveScene(group.Objectives, projected, renderModel, DateTimeOffset.UtcNow)
+            : QuestObjectiveScene.Empty;
         var known = _projected.ContainsKey(group.MapId);
         foreach (var row in group.Objectives)
         {
-            var number = row.Number.ToString(CultureInfo.InvariantCulture);
-            row.HasMapPosition = known ? elements.Any(element => element.Label == number) : null;
+            row.HasMapPosition = known
+                ? scene.Entries.Any(entry => entry.IsPlaced && entry.ObjectiveId == row.Objective.ObjectiveId)
+                : null;
         }
 
-        var signature = $"{_map.RenderModel?.Location.Id}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', elements.Select(element => $"{element.Label}@{element.Position.X:R},{element.Position.Y:R}"))}";
+        var signature = $"{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', scene.Objects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
         if (MapPreview is not null && signature == _mapPreviewSignature)
         {
             return;
         }
 
-        var preview = _raidCockpit.CreateObjectivePreview(elements, MapPreview);
+        var preview = _raidCockpit.CreateObjectivePreview(scene.Objects, MapPreview);
         _mapPreviewSignature = preview is null ? null : signature;
         MapPreview = preview;
         MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
@@ -1019,84 +1042,27 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     }
 
     /// <summary>
-    /// One marker per objective the projection placed, labelled with the row's step number.
-    /// A region is marked at the mean of its outline, which lands inside every convex zone the
-    /// catalog publishes. The number is the marker's label, which the renderer draws as the
-    /// marker itself (see MapSceneRendererObjectViewModel.IsNumberedStep).
+    /// The objectives the list shows, as the plan draws them: each numbered like its row, an
+    /// outline as an area with the number inside it, several possible locations as several spots,
+    /// and the ones the projection could not place listed as having no location instead of being
+    /// guessed onto the map. The scene points are the projection's own (Leaflet units, the units
+    /// of the plan's bounds): the 0 to 100 box this used to convert into had stopped being the
+    /// plan's space, which put most objectives off the artwork.
     /// </summary>
-    internal static IReadOnlyList<MapOverlayElement> BuildObjectiveMarkers(
+    internal static QuestObjectiveScene BuildObjectiveScene(
         IReadOnlyList<PlanObjectiveRowViewModel> rows,
         IReadOnlyList<QuestMapObjectiveProjection> projected,
-        Func<MapPoint, MapPoint> toPlan)
+        MapRenderModel model,
+        DateTimeOffset nowUtc)
     {
-        var markers = new List<MapOverlayElement>(rows.Count);
-        foreach (var row in rows)
-        {
-            var match = projected.FirstOrDefault(objective =>
-                string.Equals(objective.ObjectiveId, row.Objective.ObjectiveId, StringComparison.Ordinal) &&
-                objective.GeometryKind is QuestMapGeometryKind.Point or QuestMapGeometryKind.Region &&
-                objective.Points.Count > 0);
-            if (match is null)
-            {
-                continue;
-            }
-
-            var position = toPlan(new MapPoint(match.Points.Average(point => point.X), match.Points.Average(point => point.Y)));
-            if (position.X is < 0 or > 100 || position.Y is < 0 or > 100)
-            {
-                continue;
-            }
-
-            markers.Add(new MapOverlayElement(
-                MapOverlayKind.QuestObjectives,
-                position,
-                row.Number.ToString(CultureInfo.InvariantCulture))
-            {
-                Detail = row.Description,
-            });
-        }
-
-        return markers;
-    }
-
-    /// <summary>
-    /// Projected map units to the V2 scene's 0–100 plan space. The Raid cockpit stretches the
-    /// 2D plan artwork over that square, and the artwork spans the variant's SVG bounds (the map
-    /// bounds when it publishes none) — the same extent the V1 canvas mapper places markers in
-    /// (MapCanvasCoordinateMapper.Create). Null when the variant cannot be projected.
-    /// </summary>
-    internal static Func<MapPoint, MapPoint>? PlanPercentMapper(MapVariant variant)
-    {
-        if (variant.Transform is not { } transform || (variant.SvgBounds ?? variant.Bounds) is not { IsValid: true } bounds)
-        {
-            return null;
-        }
-
-        var corners = new[]
-        {
-            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
-        };
-        var projected = new List<MapPoint>(corners.Length);
-        foreach (var corner in corners)
-        {
-            if (!transform.TryProject(corner, out var point))
-            {
-                return null;
-            }
-
-            projected.Add(point);
-        }
-
-        var minimumX = projected.Min(point => point.X);
-        var minimumY = projected.Min(point => point.Y);
-        var width = projected.Max(point => point.X) - minimumX;
-        var height = projected.Max(point => point.Y) - minimumY;
-        return width <= 0 || height <= 0
-            ? null
-            : point => new((point.X - minimumX) / width * 100, (point.Y - minimumY) / height * 100);
+        var numbers = rows
+            .GroupBy(row => row.Objective.ObjectiveId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Number.ToString(CultureInfo.InvariantCulture), StringComparer.Ordinal);
+        return new QuestObjectiveSceneBuilder().Build(
+            projected.Where(item => numbers.ContainsKey(item.ObjectiveId)).ToArray(),
+            model.Floors,
+            id => numbers.GetValueOrDefault(id),
+            nowUtc);
     }
 
     private void MapPreviewViewChangeRequested(MapSceneViewChange change)

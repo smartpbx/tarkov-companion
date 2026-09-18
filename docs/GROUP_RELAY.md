@@ -90,6 +90,38 @@ The reply is everyone else in the group:
 You are never in your own `members` list. `room` is the hash, returned so a client can notice it
 has been talking to a different group than it thought.
 
+## Being told sooner: holding the exchange open
+
+Calling every few seconds means a squadmate's position waits most of a tick to be published and
+most of another to be collected. So the exchange may be held:
+
+    POST /state?wait=5&since=41
+
+- `wait` — seconds you are willing to wait for the room to change. The relay caps it at 20.
+- `since` — the `revision` your previous reply carried.
+
+Send both and the relay publishes you as usual, then keeps the reply back until the room changes
+or your wait runs out, whichever is first. Send neither, or either alone, and you get the
+immediate reply you always got. Nothing else about the request or the reply changed.
+
+The reply carries `revision`, which counts changes made by everybody but you — your own publish
+cannot be what ends your own hold, or every wait would finish on the request that started it.
+Send the last one you saw back as `since`. A reply with no `revision` is a relay that does not
+hold; keep to your own tick against it.
+
+What it costs the relay: one socket and one continuation per held request, at most 256 held at
+once (past that you are answered immediately), and the hold ends as soon as you disconnect. When
+it answers it writes one room, which is 4.4 KB for a five-member squad.
+
+Our client asks for a five-second hold rather than the full twenty, because the tick is also what
+keeps presence, position ages and staleness current — and it ends its own hold early whenever the
+player's position changes, so a new screenshot goes up at once instead of at the end of the wait.
+
+Its screenshot folder is polled four times a second while a raid is running and sharing is on, and
+once a second otherwise, so the poll is no longer most of the wait either. The whole path —
+screenshot written to the other member's marker moving — measures 0.40 s median and about 0.45 s
+at p95 over a 60 ms link.
+
 ## Marks
 
 A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and
@@ -392,8 +424,22 @@ reviewed asset served to anybody who asked would be a redistribution its licence
 Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
 at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
 the scene and never learns which map it is. The artwork is uploaded only when its content hash
-changes, while the scene is republished about once a second during a raid, and a tablet that sees
-a scene older than twenty seconds says the desktop is offline.
+changes, and a tablet that sees a scene older than twenty seconds says the desktop is offline.
+
+**The read is held, not polled.** `GET /v2/companion/relay/map?since=<revision>&wait=<seconds>`
+waits until the desktop publishes something newer than the revision the tablet already has, or
+until the wait runs out — the same shape the group exchange uses, the same twenty-second cap, the
+same global bound of 256 held requests past which a caller is answered immediately rather than
+refused, and the same rule that a caller naming neither parameter is answered exactly as before.
+The revision travels in the `X-Relay-Map-Revision` response header rather than in the body,
+because the body is the desktop's own bytes and the relay never parses them. `/health` reports
+`heldTabletReads`.
+
+Both compatibility directions work untouched: an older tablet page names neither parameter and is
+answered at once; an older relay ignores both and sends no revision header, and a newer page falls
+back to its timer when the header is absent. The desktop publishes when its scene actually changes
+— coalesced over a 40 ms floor, and a tick that changes nothing never starts the clock — rather
+than on the fixed one-second throttle it used before.
 
 **Follow, Control and Independent** need no route of their own. They are the same revisioned
 commands over the same sealed frames: `SetInteractionModeCommand` for Follow and Independent,

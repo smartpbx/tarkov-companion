@@ -5,16 +5,19 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Devices;
+using TarkovCompanion.Infrastructure.Diagnostics;
 using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intel;
@@ -480,8 +483,19 @@ public static class AppComposition
             services.AddSingleton<IEftPathLocator>(provider => new WindowsEftPathLocator(
                 null,
                 provider.GetRequiredService<IEftPathOverrideStore>()));
+            // [V2 rough package 41] The same locator, offered as the discovery source Setup's
+            // self-test re-probes for the folders it reports and why each was chosen.
+            services.AddSingleton<IEftInstallDiscoverySource>(provider =>
+                (IEftInstallDiscoverySource)provider.GetRequiredService<IEftPathLocator>());
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
-            services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
+            // v2r-fast-positions (package 31): the pacer lets the watcher look four times a
+            // second while a raid is running and the group is sharing, and once a second
+            // otherwise. Without one it keeps the one-second poll it always had.
+            services.AddSingleton<IScreenshotWatchPacer>(provider =>
+                new ScreenshotWatchPacer(provider.GetRequiredService<IRuntimeStateStore>()));
+            services.AddSingleton<IScreenshotWatcher>(provider => new WindowsScreenshotWatcher(
+                commandLine.DeveloperMode,
+                pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
@@ -542,6 +556,16 @@ public static class AppComposition
         services.AddSingleton<InMemoryStashReviewCommandSink>();
         services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<InMemoryStashReviewCommandSink>());
         services.AddSingleton<StashScanWorkflow>();
+        // [V2 rough package 40] The guided full-stash scan: several screenshots, one stash, and
+        // the owned counts a finished scan feeds. Refs #283 #273.
+        services.AddSingleton<StashLayoutAligner>();
+        services.AddSingleton<StashReconstructionProjector>();
+        services.AddSingleton<StashOwnedCountsApplier>();
+        services.AddSingleton<IGuidedStashScanPendingStore>(provider => new JsonFileGuidedStashScanStore(
+            Path.Combine(paths.Config, "stash-scan-in-progress.json"),
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<JsonFileGuidedStashScanStore>>()));
+        services.AddSingleton<GuidedStashScanService>();
+        services.AddSingleton<GuidedStashScanArming>();
         services.AddSingleton<StashScanWorkspaceViewModel>();
         services.AddSingleton<DebriefWorkspaceViewModel>();
         // v2r-team (package 9, wave 2): the Team workspace, over the same GroupSessionService and
@@ -605,7 +629,9 @@ public static class AppComposition
             timeProvider,
             // [V2 rough package 20] so the Raid marks list can remove a group waypoint or ping
             // too, through the same relay call the Team workspace uses.
-            provider.GetRequiredService<GroupSessionService>()));
+            provider.GetRequiredService<GroupSessionService>(),
+            // [Package 35] The wiki link on a selected quest objective.
+            provider.GetRequiredService<IWikiLinkOpener>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
@@ -655,7 +681,40 @@ public static class AppComposition
             provider.GetRequiredService<RelayMarksBridge>(),
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<RelayMarksBridge>(),
+            provider.GetRequiredService<IItemSearchService>(),
+            provider.GetRequiredService<IItemRepository>(),
             timeProvider));
+        // [V2 rough package 41] Setup's self-test. Refs #292, #281. Every reading is read-only:
+        // discovery re-probes folders, the log and screenshot readers open files for reading,
+        // game data and the database are SELECTs, and the relay is asked only for its health.
+        services.AddSingleton<SqliteSelfTestReader>();
+        services.AddSingleton<SelfTestJournal>();
+        services.AddSingleton<SelfTestFolderReader>();
+        services.AddSingleton(provider => new SelfTestLogReader(provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SelfTestScreenshotWatch(
+            provider.GetRequiredService<IScreenshotFilenameParser>(),
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<ISelfTestReadings>(provider => new AppSelfTestReadings(
+            provider.GetRequiredService<SqliteSelfTestReader>(),
+            provider.GetRequiredService<IGroupSettingsStore>(),
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<HttpClient>(),
+            provider.GetRequiredService<SelfTestFolderReader>(),
+            provider.GetRequiredService<SelfTestLogReader>(),
+            provider.GetRequiredService<SelfTestScreenshotWatch>(),
+            TarkovDevDataRefreshOperation.ModeSlug(runtimeOptions.GameMode),
+            runtimeOptions.Language.ToLowerInvariant(),
+            provider.GetService<IEftInstallDiscoverySource>(),
+            provider.GetService<IEftPathOverrideStore>(),
+            provider.GetService<DesktopCompanionAuthority>(),
+            provider.GetService<TabletMapSurfacePublisher>(),
+            provider.GetRequiredService<CompanionPairingAvailability>().RelayOrigin ?? companionOrigin,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SetupSelfTestViewModel(
+            provider.GetRequiredService<ISelfTestReadings>,
+            provider.GetRequiredService<SelfTestJournal>(),
+            provider.GetRequiredService<TimeProvider>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions

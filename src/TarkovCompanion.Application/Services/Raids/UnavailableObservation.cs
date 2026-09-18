@@ -33,7 +33,7 @@ public sealed class UnavailableEftLogWatcher : IEftLogWatcher
 
 public sealed class UnavailableScreenshotWatcher : IScreenshotWatcher
 {
-    public async IAsyncEnumerable<string> WatchAsync(
+    public async IAsyncEnumerable<ScreenshotSighting> WatchAsync(
         string screenshotRoot,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {

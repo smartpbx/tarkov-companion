@@ -11,6 +11,7 @@ using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
@@ -124,6 +125,14 @@ internal static class Program
             if (IntOption(args, "--seed-active-quests", 0) is var questCount and > 0)
             {
                 DrainUntilComplete(SeedActiveQuestsAsync(services, questCount));
+                DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+            }
+
+            // Package 35: name the quests to mark active, by task id, where the first few available
+            // quests are not the ones a render is about (a map's objectives with zones, say).
+            if (StringOption(args, "--seed-quest-tasks") is { } taskIds)
+            {
+                DrainUntilComplete(SeedTasksAsync(services, taskIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
             }
 
@@ -285,6 +294,54 @@ internal static class Program
                 // asks for one that is not in this install's catalog says so instead of quietly
                 // rendering whichever map came first.
                 Console.WriteLine("Maps: " + string.Join(", ", raid.MapPicker.Select(item => item.MapId)));
+
+                // Package 35: a floor by name, then an objective by its number, the way the floor
+                // chooser and the objective list are used.
+                if (StringOption(args, "--floor") is { } floorName)
+                {
+                    var floor = raid.Renderer?.Floors.FirstOrDefault(item => string.Equals(item.Name, floorName, StringComparison.OrdinalIgnoreCase));
+                    if (floor is null)
+                    {
+                        Console.Error.WriteLine($"No floor named '{floorName}'; the map has: {string.Join(", ", raid.Renderer?.Floors.Select(item => item.Name) ?? [])}.");
+                    }
+                    else
+                    {
+                        floor.SelectCommand.Execute(null);
+                        // A floor is its own artwork, fetched and drawn asynchronously: wait until the
+                        // plan is showing it rather than photographing the map mid-swap.
+                        for (var i = 0; i < 400; i++)
+                        {
+                            Dispatcher.UIThread.RunJobs();
+                            if (raid.HasRenderer &&
+                                string.Equals(raid.Renderer!.Scene.View.SelectedFloorId, floor.Id, StringComparison.OrdinalIgnoreCase) &&
+                                i > 20)
+                            {
+                                break;
+                            }
+
+                            Thread.Sleep(25);
+                        }
+
+                        Pump(80);
+                    }
+                }
+
+                Console.WriteLine("Quest layer: " + viewModel.Map.QuestLayerStatus);
+                Console.WriteLine("Objectives: " + string.Join(" | ", raid.QuestObjectives.Select(row => $"{(row.HasNumber ? row.Number : "-")} {row.Where}")));
+                if (StringOption(args, "--select-objective") is { } objectiveNumber)
+                {
+                    var row = raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
+                    if (row is null)
+                    {
+                        Console.Error.WriteLine($"No objective is numbered '{objectiveNumber}'.");
+                    }
+                    else
+                    {
+                        row.SelectCommand.Execute(null);
+                        Pump(40);
+                        Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
+                    }
+                }
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and
@@ -386,6 +443,51 @@ internal static class Program
                 Pump(20);
             }
 
+            // Package 40: the guided full-stash scan, driven through the composed services from
+            // painted screenshots. "mid" stops after two of three screens; "complete" finishes;
+            // "unnamed" is the application as it ships, where no tile can be named yet.
+            if (shell is not null && StringOption(args, "--stash-scan-demo") is { } stashScanDemo)
+            {
+                var stashScan = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                var guided = services.GetRequiredService<TarkovCompanion.Application.Services.StashScan.GuidedStashScanService>();
+                DrainUntilComplete(stashScan.LoadAsync());
+                stashScan.StartSelectedScanCommand.Execute(null);
+                Pump(10);
+                var complete = stashScanDemo.StartsWith("complete", StringComparison.Ordinal);
+                DrainUntilComplete(StashScanDemo.AddScreensAsync(
+                    guided,
+                    complete ? [0, 10, 20] : [0, 10],
+                    nameItems: !stashScanDemo.EndsWith("unnamed", StringComparison.Ordinal)));
+                Pump(10);
+                if (complete)
+                {
+                    stashScan.FinishScanCommand.Execute(null);
+                    Pump(40);
+                }
+
+                Pump(20);
+            }
+
+            // [V2 rough package 41] Setup's self-test, run before the frame. --selftest-demo
+            // substitutes fixtures at the readings seam so all three verdicts are on screen;
+            // --selftest-live runs the composed readings, which on a machine with no game
+            // installed is what "could not be tested" actually looks like.
+            if (shell?.SetupWorkspace is { } setupWorkspace &&
+                (args.Contains("--selftest-demo") || args.Contains("--selftest-live")))
+            {
+                setupWorkspace.Select(V2SetupSection.Diagnostics);
+                if (args.Contains("--selftest-demo"))
+                {
+                    setupWorkspace.AttachSelfTest(new SetupSelfTestViewModel(
+                        () => new SelfTestDemoReadings(),
+                        new SelfTestJournal()));
+                }
+
+                Pump(2);
+                DrainUntilComplete(setupWorkspace.SelfTest!.RunAsync());
+                Pump(20);
+            }
+
             SaveFrame(window, outputPath, width, height);
             rendered = true;
             return 0;
@@ -409,6 +511,19 @@ internal static class Program
                 Environment.Exit(0);
             }
         }
+    }
+
+    private static async Task SeedTasksAsync(IServiceProvider services, IReadOnlyList<string> taskIds)
+    {
+        var profile = await services.GetRequiredService<IPlayerProfileService>().GetActiveAsync(CancellationToken.None);
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var commands = services.GetRequiredService<IQuestProgressCommandService>();
+        foreach (var taskId in taskIds)
+        {
+            await commands.SetTaskStateAsync(scope, taskId, RecordedTaskState.Active, CancellationToken.None);
+        }
+
+        Console.WriteLine($"Marked {taskIds.Count} named quest(s) active.");
     }
 
     /// <summary>Three raids through the real history store; the newest of them is the one with a trail, and its id is returned.</summary>

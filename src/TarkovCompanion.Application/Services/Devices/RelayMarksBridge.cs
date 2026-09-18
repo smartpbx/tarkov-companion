@@ -55,8 +55,13 @@ public sealed record TabletMapArtworkBytes(string MediaType, string ContentSha25
 /// </remarks>
 public interface ITabletMapSurfaceSink
 {
+    /// <param name="surfaceJson">
+    /// The surface already serialized. The caller has it in hand because it compares one publish
+    /// with the last to decide whether there is anything to send at all, and serializing a
+    /// megabyte twice per change to hand over a record would undo the saving.
+    /// </param>
     ValueTask PublishMapSurfaceAsync(
-        TabletMapSurface surface,
+        byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default);
 }
@@ -390,11 +395,11 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     /// and one that does not fetches it.
     /// </remarks>
     public async ValueTask PublishMapSurfaceAsync(
-        TabletMapSurface surface,
+        byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(surfaceJson);
         HttpClient? relay;
         OwnerCredential? owner;
         lock (_gate)
@@ -410,7 +415,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 
         using var surfaceRequest = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/map")
         {
-            Content = new ByteArrayContent(TabletMapSurfaceJson.Serialize(surface)),
+            Content = new ByteArrayContent(surfaceJson),
         };
         surfaceRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         AddBearer(surfaceRequest, owner);

@@ -15,7 +15,12 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
         SELECT id, name, normalized_name, trader_id, min_player_level, faction_name,
                primary_map_id, restartable, kappa_required, lightkeeper_required,
                required_prestige_id, available_delay_seconds_min,
-               available_delay_seconds_max, source_game_modes_json, wiki_url, raw_json
+               available_delay_seconds_max, source_game_modes_json,
+               -- Migration 0012 added the column and left existing rows null "until the next sync
+               -- fills it in", but the feed's own wikiLink has been in raw_json all along. Reading it
+               -- from there means an upgraded cache links to the wiki now, not after a sync.
+               COALESCE(wiki_url, CASE WHEN json_valid(raw_json) THEN json_extract(raw_json, '$.wikiLink') END),
+               raw_json
         FROM quest_catalog_tasks
         WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language
         ORDER BY id COLLATE BINARY;

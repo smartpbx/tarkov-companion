@@ -250,7 +250,7 @@ public sealed class WindowsIntegrationTests
             using var timeout = new CancellationTokenSource();
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
             await using var enumerator = new WindowsScreenshotWatcher()
-                .WatchAsync(root, timeout.Token)
+                .WatchSettledAsync(root, timeout.Token)
                 .GetAsyncEnumerator(timeout.Token);
             var next = enumerator.MoveNextAsync().AsTask();
             var expected = Path.Combine(root, "2026-09-04[18-33]_1, 2, 3_0, 0, 0, 1.png");

@@ -54,9 +54,12 @@ public sealed class TabletPageTests
     {
         // Both map resources are read with this session's own relay credential, never anonymously:
         // a revoked device's credential stops authenticating, so it stops seeing the map too.
-        Assert.Contains("relayCall(\"/v2/companion/relay/map\")", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("relayCall(`/v2/companion/relay/map${query}`)", Tablet.Page, StringComparison.Ordinal);
         Assert.Contains("relayCall(\"/v2/companion/relay/map/artwork\")", Tablet.Page, StringComparison.Ordinal);
         Assert.Contains("X-Relay-Credential", Tablet.Page, StringComparison.Ordinal);
+        // Every fetch on this page goes through relayCall, which is the only thing that attaches
+        // the session credential. A bare fetch to a relay route would be an unauthenticated read.
+        Assert.DoesNotContain("fetch(\"/v2/companion/relay/", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -111,6 +114,49 @@ public sealed class TabletPageTests
         Assert.Contains("item.sourceUri", Tablet.Page, StringComparison.Ordinal);
         Assert.Contains("item.licenseUri", Tablet.Page, StringComparison.Ordinal);
         Assert.Contains("item.contentSha256", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheMapReadIsHeldRatherThanPolledOnceTheRelayHasNamedARevision()
+    {
+        // [V2 rough package 34] The second screen was two waits behind the desk: the desktop
+        // published on a one-second throttle and this page read on its own 1.5 s timer. The read
+        // now waits on the relay, so a change arrives when it happens.
+        Assert.Contains("since=${live.mapRevision}&wait=${HOLD_SECONDS}", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("X-Relay-Map-Revision", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARelayThatCannotHoldIsStillReadable()
+    {
+        // The compatibility rule from the page's side: a relay that has not been redeployed sends
+        // no revision header, and this falls back to the timer it always used rather than
+        // spinning on a read that answers instantly.
+        Assert.Contains("if (revision === null)", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("if (!held) await new Promise", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TappingAThingOnTheMapSelectsItOnTheDesktop()
+    {
+        Assert.Contains("function objectAt(", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("type: \"select\"", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheAnswersToALookupComeBackToTheTablet()
+    {
+        // #417 sent the query to the desktop and left the answers there, which is half a feature:
+        // the person is holding the tablet.
+        Assert.Contains("surface.search?.results", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("The desktop looks it up and the answers come back here.", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LayersCanBeSwitchedFromTheTablet()
+    {
+        Assert.Contains("function toggleLayer(", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("type: \"filter\"", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]

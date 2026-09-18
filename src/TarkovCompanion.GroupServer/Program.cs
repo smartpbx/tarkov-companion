@@ -17,6 +17,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
+// v2r-fast-positions (package 31): what has changed in each room, so POST /state can hold its
+// answer until there is something new in it instead of making a caller wait for its own tick.
+builder.Services.AddSingleton<GroupRoomChanges>();
 // StateDirectory=tarkov-group gives the unit /var/lib/tarkov-group, which is outside the tree
 // the updater replaces with `rm -rf /opt/tarkov-group` — so a plan survives the update that
 // used to destroy it. Falls back to memory-only where the directory is not configured, which
@@ -163,6 +166,8 @@ builder.Services.AddSingleton(provider => new RelayMapSurfaceStore(
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
+// v2r-fast-positions (package 31).
+var roomChanges = app.Services.GetRequiredService<GroupRoomChanges>();
 var registry = app.Services.GetRequiredService<GroupRoomRegistry>();
 var relayOwnerRecoveryConfigured = OwnerRecoverySecret() is not null;
 app.MapRelayCompanionRoutes(
@@ -251,6 +256,12 @@ app.MapGet("/health", () => Results.Ok(new
     startedUtc,
     rooms = rooms.RoomCount,
     members = rooms.MemberCount,
+    // v2r-fast-positions (package 31): exchanges being held open for a change right now.
+    held = roomChanges.WaitingCount,
+    // [V2 rough package 34] And the same for the paired tablets' map reads, which are held by
+    // the same rules against the same Kestrel. Counted separately because they are bounded
+    // separately, and the only way to see either bound being reached is from outside.
+    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
 }));
 
 // The second screen.
@@ -450,38 +461,10 @@ app.MapGet("/v2/companion/pairing/denied/{attemptId:guid}", (Guid attemptId, Com
 //
 // The room is not in the URL any more. It is derived from the group's key, which is the only
 // thing a member configures: see GroupKey for why one value replaced two.
-app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadRequest<string>> (
-    GroupMemberState state,
-    HttpRequest request) =>
-{
-    if (!TryReadKey(request, out var key))
-    {
-        return TypedResults.Unauthorized();
-    }
-
-    // One validation, and it tolerates nulls. `"observed": null` used to reach
-    // state.Observed.Count and throw, which the framework turned into a 500 — a malformed
-    // request answered as a server fault, and an unhandled exception per attempt for anybody
-    // who cared to send them.
-    if (state.Validate() is { } invalid)
-    {
-        return TypedResults.BadRequest(invalid);
-    }
-
-    var room = GroupKey.RoomFor(key);
-    // Keyed by the display name within the room, so a member who reconnects replaces their own
-    // entry rather than appearing twice. Two people choosing the same name is their problem to
-    // notice, and is better than a server that hands out identities.
-    rooms.Publish(room, state.Name, state);
-    var (waypoints, pings) = marks.Read(room);
-    // The marks ride along on the exchange a client already makes every few seconds, so
-    // nothing has to poll a second endpoint to find out the group moved a waypoint.
-    return TypedResults.Ok(rooms.Read(room, state.Name) with
-    {
-        Waypoints = waypoints,
-        Pings = pings,
-    });
-});
+//
+// v2r-fast-positions (package 31): the handler lives in RelayRoomStateRoutes so a test can drive
+// the route this relay actually serves. It also takes an optional hold — see that file.
+app.MapGroupRoomState(rooms, marks, roomChanges);
 
 // Reading the room without joining it.
 //
@@ -605,8 +588,11 @@ app.MapPost("/waypoints", Results<Ok<GroupWaypoint>, UnauthorizedHttpResult, Bad
         return TypedResults.BadRequest(problem);
     }
 
-    return TypedResults.Ok(marks.AddWaypoint(
-        GroupKey.RoomFor(key), request.By, request.MapId, request.X, request.Y, request.Z, request.Label));
+    var room = GroupKey.RoomFor(key);
+    var added = marks.AddWaypoint(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+    // v2r-fast-positions (package 31): a mark is a change to the room, so a held exchange ends.
+    roomChanges.Record(room, null);
+    return TypedResults.Ok(added);
 });
 
 app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<string>> (
@@ -623,8 +609,11 @@ app.MapPost("/pings", Results<Ok<GroupPing>, UnauthorizedHttpResult, BadRequest<
         return TypedResults.BadRequest(problem);
     }
 
-    return TypedResults.Ok(marks.AddPing(
-        GroupKey.RoomFor(key), request.By, request.MapId, request.X, request.Y, request.Z, request.Label));
+    var room = GroupKey.RoomFor(key);
+    var added = marks.AddPing(room, request.By, request.MapId, request.X, request.Y, request.Z, request.Label);
+    // v2r-fast-positions (package 31).
+    roomChanges.Record(room, null);
+    return TypedResults.Ok(added);
 });
 
 app.MapPost("/waypoints/{id:long}/reached", Results<Ok, NotFound, UnauthorizedHttpResult, BadRequest<string>> (
@@ -642,9 +631,15 @@ app.MapPost("/waypoints/{id:long}/reached", Results<Ok, NotFound, UnauthorizedHt
         return TypedResults.BadRequest("A display name is required and must be 48 characters or fewer.");
     }
 
-    return marks.Complete(GroupKey.RoomFor(key), id, request.By)
-        ? TypedResults.Ok()
-        : TypedResults.NotFound();
+    var room = GroupKey.RoomFor(key);
+    if (!marks.Complete(room, id, request.By))
+    {
+        return TypedResults.NotFound();
+    }
+
+    // v2r-fast-positions (package 31).
+    roomChanges.Record(room, null);
+    return TypedResults.Ok();
 });
 
 app.MapDelete("/waypoints/{id:long}", Results<Ok, NotFound, UnauthorizedHttpResult> (
@@ -656,7 +651,15 @@ app.MapDelete("/waypoints/{id:long}", Results<Ok, NotFound, UnauthorizedHttpResu
         return TypedResults.Unauthorized();
     }
 
-    return marks.Remove(GroupKey.RoomFor(key), id) ? TypedResults.Ok() : TypedResults.NotFound();
+    var room = GroupKey.RoomFor(key);
+    if (!marks.Remove(room, id))
+    {
+        return TypedResults.NotFound();
+    }
+
+    // v2r-fast-positions (package 31).
+    roomChanges.Record(room, null);
+    return TypedResults.Ok();
 });
 
 // Anyone in the group may clear the group's marks, because they are the group's. A server that
@@ -671,7 +674,11 @@ app.MapDelete("/waypoints", Results<Ok<int>, UnauthorizedHttpResult> (
         return TypedResults.Unauthorized();
     }
 
-    return TypedResults.Ok(marks.Clear(GroupKey.RoomFor(key), mapId, reachedOnly == true));
+    var room = GroupKey.RoomFor(key);
+    var cleared = marks.Clear(room, mapId, reachedOnly == true);
+    // v2r-fast-positions (package 31).
+    roomChanges.Record(room, null);
+    return TypedResults.Ok(cleared);
 });
 
 app.MapDelete("/state/{name}", Results<Ok, UnauthorizedHttpResult> (
@@ -683,7 +690,10 @@ app.MapDelete("/state/{name}", Results<Ok, UnauthorizedHttpResult> (
         return TypedResults.Unauthorized();
     }
 
-    rooms.Remove(GroupKey.RoomFor(key), name);
+    var room = GroupKey.RoomFor(key);
+    rooms.Remove(room, name);
+    // v2r-fast-positions (package 31): somebody leaving is what the others were waiting for.
+    roomChanges.Record(room, null);
     return TypedResults.Ok();
 });
 
@@ -934,6 +944,10 @@ app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, U
         : TypedResults.BadRequest("This relay cannot be asked to update: it has no writable state directory.");
 });
 
+// V2 rough package 36 (self-updating builds): the desktop's rough update channel, as read-only
+// static files under /updates. No key, no state, nothing at startup; see UpdateFeedFiles.
+app.MapUpdateFeed(UpdateFeedFiles.Root());
+
 app.Run();
 
 // The only thing checked here is that a key is long enough to be a key. In open mode there is no
@@ -999,23 +1013,7 @@ static async Task<T?> ReadCompanionBodyAsync<T>(HttpRequest request, Cancellatio
     }
 }
 
-static bool TryReadKey(HttpRequest request, out string key)
-{
-    key = string.Empty;
-    if (!request.Headers.TryGetValue("X-Group-Key", out var provided) || provided.Count != 1)
-    {
-        return false;
-    }
-
-    var candidate = provided[0];
-    if (!GroupKey.IsAcceptable(candidate))
-    {
-        return false;
-    }
-
-    key = candidate!;
-    return true;
-}
+static bool TryReadKey(HttpRequest request, out string key) => GroupKey.TryRead(request, out key);
 
 /// <summary>A place somebody is marking, from whoever is marking it.</summary>
 public sealed record MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label)

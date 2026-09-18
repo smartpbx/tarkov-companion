@@ -147,6 +147,15 @@ public sealed record QuestMapObjectiveReadModel(
     /// way to say whose quest it was.
     /// </remarks>
     public string? TraderName { get; init; }
+
+    /// <summary>How many the objective asks for altogether, where it counts.</summary>
+    public decimal? TargetCount { get; init; }
+
+    /// <summary>How many the player has recorded so far, where progress is being recorded.</summary>
+    public decimal? RecordedCount { get; init; }
+
+    /// <summary>The wiki page for the quest this belongs to, where the last sync had one.</summary>
+    public string? WikiUri { get; init; }
 }
 
 public sealed record QuestMapObjectivesReadModel(

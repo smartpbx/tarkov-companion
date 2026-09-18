@@ -322,6 +322,17 @@ public sealed record GroupRoomState(
     /// <summary>What this server speaks, so a client can tell skew from breakage.</summary>
     [JsonPropertyName("protocol")]
     public int Protocol { get; init; } = GroupProtocol.Version;
+
+    /// <summary>
+    /// How many times this room has changed for whoever is reading it.
+    /// </summary>
+    /// <remarks>
+    /// Sent back on the next exchange so the relay can hold the answer until there is something
+    /// new in it. Null from a relay that does not hold answers, and from the routes that do not:
+    /// a caller seeing null keeps to its own tick, which is what it did before this existed.
+    /// </remarks>
+    [JsonPropertyName("revision")]
+    public long? Revision { get; init; }
 }
 
 /// <summary>

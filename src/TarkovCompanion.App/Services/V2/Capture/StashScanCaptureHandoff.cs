@@ -25,12 +25,18 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// coverage) rather than this adapter guessing the stash's real size; stitching several captures
 /// into one wider snapshot is deferred to whichever package wires the capture-session UI for it.
 /// </remarks>
+/// <remarks>
+/// Package 40 is that package. While a <see cref="GuidedStashScanService"/> scan is in progress a
+/// Stash capture is one more screenshot of it and saves nothing on its own; the one-frame path
+/// above stays for a Stash capture taken with no scan running.
+/// </remarks>
 public sealed class StashScanCaptureHandoff(
     IProfileRuntimeContextService profileContext,
     InventoryGridReconstructor gridReconstructor,
     StashScanWorkflow workflow,
     TimeProvider? timeProvider = null,
-    ILogger<StashScanCaptureHandoff>? logger = null) : ICaptureResultHandoff
+    ILogger<StashScanCaptureHandoff>? logger = null,
+    GuidedStashScanService? guidedScan = null) : ICaptureResultHandoff
 {
     private readonly IProfileRuntimeContextService _profileContext =
         profileContext ?? throw new ArgumentNullException(nameof(profileContext));
@@ -45,7 +51,12 @@ public sealed class StashScanCaptureHandoff(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (request.EffectiveIntent != ScanIntent.Stash)
+        // A screenshot armed as Stash carries a Stash-surface grid whatever the screen detector
+        // then called it. While a guided scan is collecting, that is enough: a stash row read as
+        // "flea" by the anchor detector must not drop out of the scroll-through.
+        var isGuidedFrame = guidedScan is { Current.IsCollecting: true } &&
+                            request.Analysis.Grid is { Surface: InventoryGridSurface.Stash };
+        if (request.EffectiveIntent != ScanIntent.Stash && !isGuidedFrame)
         {
             return CaptureHandoffResult.Accepted;
         }
@@ -81,6 +92,23 @@ public sealed class StashScanCaptureHandoff(
             ? stashRequest
             : new(InventoryGridSurface.Stash, lattice: null, occupiedCells: []);
         var reconstruction = _gridReconstructor.Reconstruct(reconstructionRequest, cancellationToken);
+        if (guidedScan is { Current.IsCollecting: true })
+        {
+            var outcome = await guidedScan.AddScreenshotAsync(
+                    request.ArtifactId,
+                    request.CorrelationId,
+                    request.Context,
+                    contentHash,
+                    request.CapturedUtc,
+                    request.DecodeRevision,
+                    reconstruction,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (outcome != GuidedStashFrameOutcome.NotCollecting)
+            {
+                return;
+            }
+        }
 
         var provenance = new EvidenceProvenance(
             EvidenceSourceClass.GameWrittenScreenshot,

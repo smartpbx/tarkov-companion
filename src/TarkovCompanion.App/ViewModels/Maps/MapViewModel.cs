@@ -1399,6 +1399,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
     private QuestMapProjectionReadModel? _questProjection;
+    private QuestMapProjectionReadModel? _questSceneProjection;
     private Bitmap? _backgroundImage;
     private string _status = "Loading the tarkov.dev map catalog…";
     private string _questLayerStatus = "Looking for quests on this map…";
@@ -1568,6 +1569,20 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _questAssociations;
         private set => Set(ref _questAssociations, value);
+    }
+
+    /// <summary>
+    /// The objectives on this map with none of them hidden for being on another floor.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="QuestPoints"/> and <see cref="QuestRegions"/> are what V1's canvas draws for
+    /// the floor it is showing. The V2 plan carries its own floor selection, so it takes the
+    /// unfiltered projection and places each objective on its floor itself.
+    /// </remarks>
+    public QuestMapProjectionReadModel? QuestSceneProjection
+    {
+        get => _questSceneProjection;
+        private set => Set(ref _questSceneProjection, value);
     }
 
     /// <summary>
@@ -3133,7 +3148,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         .ToArray();
 
     /// <summary>What an item is called, or its id where the catalog has not been asked yet.</summary>
-    private string NameOfItem(string itemId) =>
+    internal string NameOfItem(string itemId) =>
         _itemNames.TryGetValue(itemId, out var name) ? name : itemId;
 
     /// <summary>
@@ -3184,6 +3199,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public Task RefreshQuestLayerAsync() => RefreshQuestLayerAsync(CancellationToken.None);
 
+    private MapGameIdResolver? _gameIdResolver;
+
+    /// <summary>The location with the game's id for it, where the synced maps table has one.</summary>
+    private Task<MapLocation> WithGameIdAsync(MapLocation location, CancellationToken cancellationToken) =>
+        _mapDataService is null
+            ? Task.FromResult(location)
+            : (_gameIdResolver ??= new MapGameIdResolver(_mapDataService)).ResolveAsync(location, cancellationToken);
+
     private async Task RefreshQuestLayerAsync(CancellationToken cancellationToken)
     {
         var refreshGeneration = Interlocked.Increment(ref _questRefreshGeneration);
@@ -3211,7 +3234,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
-            var mapIds = QuestMapProjectionService.CompatibleMapIds(location, variant)
+            // Quests and keys name a map by the game's own id, and the map catalog names it only
+            // by slug, so a location as parsed matches none of them until it is given that id.
+            var located = await WithGameIdAsync(location, cancellationToken).ConfigureAwait(true);
+            var mapIds = QuestMapProjectionService.CompatibleMapIds(located, variant)
                 .Order(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             var query = await _questReadService
@@ -3226,11 +3252,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
             var projection = _questProjectionService.Project(
                 query,
-                location,
+                located,
                 variant,
                 SelectedFloor,
                 _mapCatalogProvenance);
             _questProjection = projection;
+            // The plan draws every floor's objectives and lets its own floor selection decide
+            // which show, so it needs them placed whichever floor V1's canvas is on.
+            var sceneProjection = _questProjectionService.Project(
+                query,
+                located,
+                variant,
+                selectedFloor: null,
+                _mapCatalogProvenance);
             QuestAssociations = _questProjection.Objectives.Select(objective => new QuestMapAssociationViewModel(
                 $"{objective.TaskName} · {objective.ObjectiveKind}",
                 objective.Availability,
@@ -3246,6 +3280,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // its trader ids were resolved.
             await NameItemsAsync(_questProjection.Objectives, cancellationToken).ConfigureAwait(true);
             QuestPanel = SummarizeQuests(_questProjection.Objectives, NameOfItem);
+            QuestSceneProjection = sceneProjection;
             UpdateQuestGeometry();
             var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
             var associationCount = _questProjection.Objectives.Count - exactCount;
@@ -4705,7 +4740,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(locations);
         var elsewhere = !isHere;
-        var age = member.PositionAge;
+        // The age including the trip here, not the age the sender measured before it started.
+        var age = member.PositionAgeNow;
         // Supplied by the caller, which is the only thing that knows whether this map has
         // floors at all: saying "floor unknown" about Factory's single storey would be noise,
         // and saying nothing about Reserve's five would be the omission this fixes.
@@ -4885,7 +4921,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             var bearing = member.HeadingDegrees is { } heading
                 ? ((heading - rotation) % 360 + 360) % 360
                 : 0;
-            var age = member.PositionAge ?? TimeSpan.MaxValue;
+            var age = member.PositionAgeNow ?? TimeSpan.MaxValue;
             markers.Add(new(
                 member.Name,
                 point.X,
@@ -5892,6 +5928,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private void ClearQuestLayer(string status)
     {
         _questProjection = null;
+        QuestSceneProjection = null;
         QuestPoints = [];
         QuestRegions = [];
         QuestAssociations = [];

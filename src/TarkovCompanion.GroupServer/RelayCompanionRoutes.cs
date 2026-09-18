@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -120,6 +121,15 @@ public static class RelayCompanionRoutes
 {
     private const string SessionHeader = "X-Relay-Session";
     private const int BodyReadBufferBytes = 64 * 1024;
+
+    /// <summary>The revision of the map this answer carries; a tablet sends it back as <c>since</c>.</summary>
+    public const string MapRevisionHeader = "X-Relay-Map-Revision";
+
+    /// <summary>How long a tablet says it will hold, before the relay's own bound.</summary>
+    public const string WaitQuery = "wait";
+
+    /// <summary>The revision the tablet already has, from the answer it got last time.</summary>
+    public const string SinceQuery = "since";
     private const string CredentialHeader = "X-Relay-Credential";
 
     public static void MapRelayCompanionRoutes(
@@ -325,6 +335,13 @@ public static class RelayCompanionRoutes
 
         // What a paired tablet draws. No group key reaches this: only a live relay session
         // credential does, so a revoked device sees nothing at all here.
+        //
+        // [V2 rough package 34] `?since=<revision>&wait=<seconds>` holds the read until the
+        // desktop publishes something newer, the same shape #422 gave the group exchange. Both
+        // parameters or neither: one without the other is a caller that cannot tell a change from
+        // the answer it already had. A caller that names neither is answered immediately, which is
+        // what keeps an older tablet page working against this relay, and an older relay — which
+        // ignores both and sends no revision header — working against a newer page.
         app.MapGet("/v2/companion/relay/map", async Task<IResult> (
             HttpRequest request,
             CancellationToken cancellationToken) =>
@@ -340,10 +357,18 @@ public static class RelayCompanionRoutes
                 return Results.Unauthorized();
             }
 
-            var entry = mapSurfaces.Read(principal);
-            return entry is null
-                ? Results.NotFound()
-                : Results.Bytes(entry.SurfaceJson, "application/json; charset=utf-8");
+            var entry = HoldFor(request) is var (since, wait)
+                ? await mapSurfaces.WaitAsync(principal, since, wait, cancellationToken).ConfigureAwait(false)
+                : mapSurfaces.Read(principal);
+            if (entry is null)
+            {
+                return Results.NotFound();
+            }
+
+            // The body is the desktop's own bytes and the relay never parses them, so the
+            // revision it assigned travels beside them rather than inside them.
+            request.HttpContext.Response.Headers[MapRevisionHeader] = entry.Revision.ToString(CultureInfo.InvariantCulture);
+            return Results.Bytes(entry.SurfaceJson, "application/json; charset=utf-8");
         });
 
         app.MapGet("/v2/companion/relay/map/artwork", async Task<IResult> (
@@ -415,6 +440,23 @@ public static class RelayCompanionRoutes
         return recovered.Succeeded
             ? Results.Ok(RelaySessionCredentialResponse.From(recovered.Value!))
             : Results.BadRequest(recovered.Code);
+    }
+
+    /// <summary>Both hold parameters, or null when the caller named fewer than both.</summary>
+    private static (long Since, TimeSpan Wait)? HoldFor(HttpRequest request)
+    {
+        if (!request.Query.TryGetValue(SinceQuery, out var sinceValues) ||
+            !long.TryParse(sinceValues.ToString(), CultureInfo.InvariantCulture, out var since) ||
+            since < 0 ||
+            !request.Query.TryGetValue(WaitQuery, out var waitValues) ||
+            !double.TryParse(waitValues.ToString(), CultureInfo.InvariantCulture, out var seconds) ||
+            !double.IsFinite(seconds) ||
+            seconds <= 0)
+        {
+            return null;
+        }
+
+        return (since, TimeSpan.FromSeconds(Math.Min(seconds, RelayMapSurfaceStore.MaximumWait.TotalSeconds)));
     }
 
     /// <summary>

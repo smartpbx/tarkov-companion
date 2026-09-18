@@ -37,7 +37,7 @@ public sealed class TabletMapSurfaceTests
         var y = minimumY + ((maximumY - minimumY) * 3 / 4d);
         var scene = Scene(new(minimumX, minimumY, maximumX, maximumY), Point("extract:water", x, y));
 
-        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
 
         var plan = Assert.IsType<TabletMapPlan>(surface.Plan);
         var item = Assert.Single(surface.Objects);
@@ -66,7 +66,7 @@ public sealed class TabletMapSurfaceTests
             scene.Objects,
             scene.Assets);
 
-        var surface = TabletMapSurfaceBuilder.Build(withCamera, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(withCamera, "Customs", Artwork(), null, null, null, Now);
 
         Assert.Equal(250, surface.View.CenterX);
         Assert.Equal(375, surface.View.CenterY);
@@ -82,7 +82,7 @@ public sealed class TabletMapSurfaceTests
         // (MapSceneSnapshot refuses one outright), so the case is a scene with no plan at all.
         var scene = Scene(new(0, 0, 100, 100), [Point("extract:water", 10, 10)], withArtwork: false);
 
-        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
 
         Assert.Null(surface.Artwork);
         Assert.Equal("This map has no reviewed 2D plan yet.", surface.Message);
@@ -95,7 +95,7 @@ public sealed class TabletMapSurfaceTests
         // only on the desktop that fetched the artwork.
         var scene = Scene(new(0, 0, 100, 100), Point("extract:water", 10, 10));
 
-        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
 
         var attribution = Assert.Single(surface.Attribution);
         Assert.Equal("Example map author", attribution.Text);
@@ -112,7 +112,7 @@ public sealed class TabletMapSurfaceTests
     {
         var scene = Scene(new(10, 20, 110, 220), Point("extract:water", 35, 170));
 
-        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
         var round = TabletMapSurfaceJson.Deserialize(TabletMapSurfaceJson.Serialize(surface));
 
         Assert.NotNull(round);
@@ -129,7 +129,7 @@ public sealed class TabletMapSurfaceTests
             .ToArray();
         var scene = Scene(new(0, 0, 100, 100), objects);
 
-        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, Now);
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
 
         Assert.Equal(TabletMapSurfaceBuilder.MaximumObjects, surface.Objects.Count);
     }
