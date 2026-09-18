@@ -125,7 +125,8 @@ public static class RelayCompanionRoutes
         RelayDeviceRegistry? registry,
         OpaqueRelayFrameHub? hub,
         OwnerRecoveryProtector? recovery,
-        RelayOwnerClaimGate claimGate)
+        RelayOwnerClaimGate claimGate,
+        RelayMapSurfaceStore? mapSurfaces = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(claimGate);
@@ -256,6 +257,112 @@ public static class RelayCompanionRoutes
 
             var acknowledged = hub.Acknowledge(principal, deliveryId);
             return acknowledged.Accepted ? Results.Ok() : Results.BadRequest(acknowledged.Code);
+        });
+
+        // [V2 rough package 24, #407] The desktop's current map, for its paired tablets. Artwork
+        // cannot travel as a sealed frame (a relay payload root is bounded at 64 KiB), so the
+        // reviewed picture and the scene that places objects on it are their own authenticated
+        // resources — served only to a session this relay has just authenticated, never publicly.
+        app.MapPost("/v2/companion/relay/map", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || mapSurfaces is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var body = await ReadBoundedBodyAsync(request, cancellationToken, RelayMapSurfaceStore.MaximumSurfaceBytes)
+                .ConfigureAwait(false);
+            if (body is null)
+            {
+                return Results.BadRequest("A map surface is required.");
+            }
+
+            var published = mapSurfaces.Publish(principal, body);
+            return published.Accepted ? Results.Ok() : Results.BadRequest(published.Code);
+        });
+
+        // The picture itself, uploaded separately and only when its content hash changes: the
+        // desktop republishes its scene on every raid tick and its artwork almost never.
+        app.MapPost("/v2/companion/relay/map/artwork", async Task<IResult> (
+            HttpRequest request,
+            string? sha256,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || mapSurfaces is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var body = await ReadBoundedBodyAsync(request, cancellationToken, RelayMapSurfaceStore.MaximumArtworkBytes)
+                .ConfigureAwait(false);
+            if (body is null || string.IsNullOrWhiteSpace(sha256))
+            {
+                return Results.BadRequest("Artwork bytes and their content hash are required.");
+            }
+
+            var mediaType = request.ContentType is { Length: > 0 } declared
+                ? declared.Split(';', 2)[0].Trim()
+                : string.Empty;
+            var published = mapSurfaces.PublishArtwork(principal, mediaType, sha256, body);
+            return published.Accepted ? Results.Ok() : Results.BadRequest(published.Code);
+        });
+
+        // What a paired tablet draws. No group key reaches this: only a live relay session
+        // credential does, so a revoked device sees nothing at all here.
+        app.MapGet("/v2/companion/relay/map", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || mapSurfaces is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var entry = mapSurfaces.Read(principal);
+            return entry is null
+                ? Results.NotFound()
+                : Results.Bytes(entry.SurfaceJson, "application/json; charset=utf-8");
+        });
+
+        app.MapGet("/v2/companion/relay/map/artwork", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || mapSurfaces is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var entry = mapSurfaces.Read(principal);
+            return entry?.Artwork is null || entry.ArtworkMediaType is null
+                ? Results.NotFound()
+                : Results.Bytes(entry.Artwork, entry.ArtworkMediaType, entityTag: new('"' + entry.ArtworkSha256 + '"'));
         });
     }
 
@@ -420,12 +527,34 @@ public static class RelayCompanionRoutes
             ? Encoding.UTF8.GetBytes(element.GetRawText())
             : throw new JsonException($"'{property}' is required.");
 
-    private static async Task<byte[]?> ReadBoundedBodyAsync(HttpRequest request, CancellationToken cancellationToken)
+    private static async Task<byte[]?> ReadBoundedBodyAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken,
+        int? maximumBytes = null)
     {
-        using var stream = new MemoryStream();
-        await request.Body.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
-        var bytes = stream.ToArray();
-        return bytes.Length == 0 || bytes.Length > ProtocolBounds.MaxPayloadBytes * 4 ? null : bytes;
+        var limit = maximumBytes ?? ProtocolBounds.MaxPayloadBytes * 4;
+        if (request.ContentLength > limit)
+        {
+            return null;
+        }
+
+        // Bounded while it is read, not after: a caller that declares no length (or lies about
+        // it) must not be able to make this buffer an unbounded body in memory.
+        using var bounded = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        int read;
+        while ((read = await request.Body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (bounded.Length + read > limit)
+            {
+                return null;
+            }
+
+            bounded.Write(buffer, 0, read);
+        }
+
+        var bytes = bounded.ToArray();
+        return bytes.Length == 0 ? null : bytes;
     }
 
     /// <summary>Reads a bounded body as one paired-device wire root, or null for anything malformed.</summary>
