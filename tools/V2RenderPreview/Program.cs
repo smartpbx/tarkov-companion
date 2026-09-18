@@ -264,6 +264,19 @@ internal static class Program
                 Pump(20);
             }
 
+            // Package 37: the same workspace over a picture the shipped recognizer actually read.
+            if (shell is not null && StringOption(args, "--loot-scan-frame") is { } lootFrame)
+            {
+                var scan = ScanFrame.EvaluateAsync(
+                    services,
+                    lootFrame,
+                    StringOption(args, "--icon-cache"),
+                    StringOption(args, "--loot-scan-now"));
+                DrainUntilComplete(scan);
+                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(scan.Result));
+                Pump(20);
+            }
+
             if (shell is not null && args.Contains("--stash-demo"))
             {
                 var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
