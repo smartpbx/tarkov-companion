@@ -1,5 +1,8 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows.Input;
+using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
@@ -152,7 +155,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private static readonly MapSceneLayerId PlayerLayerId = new("you");
     private static readonly MapSceneLayerId VisitedLayerId = new("visited");
     private static readonly MapSceneLayerId SquadLayerId = new("squad");
-    private static readonly MapSceneBounds PlanBounds = new(0, 0, 100, 100);
+    /// <summary>
+    /// The plan rectangle to fall back on when the map cannot say where its artwork is.
+    /// </summary>
+    /// <remarks>
+    /// This used to be the plan bounds for every map, and every coordinate in the scene — an
+    /// extract, the player's dot, a trail, a loot spawn — is a Leaflet map unit from the
+    /// variant's own transform, not a percentage. The two spaces only coincide for a map whose
+    /// projected bounds happen to run 0–100, so on a real map the markers were laid out in a
+    /// different rectangle from the artwork, the off-plan count counted the mismatch, and the
+    /// camera opened centred on a point that was not on the plan at all. The real rectangle now
+    /// comes from <see cref="MapPlanProjection"/>; this remains only for a model that has no
+    /// usable transform, where nothing can be placed anyway.
+    /// </remarks>
+    private static readonly MapSceneBounds UnplaceablePlanBounds = new(0, 0, 100, 100);
     private const string MarkIdPrefix = "mark:";
     private const string PlayerObjectId = "you:position";
     private const string PlayerTrailObjectId = "you:trail";
@@ -165,6 +181,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// pulled back out by their next screenshot.
     /// </remarks>
     private const double FollowZoom = 3.0;
+
+    /// <summary>The longest edge a composed tile picture is allowed to have, in pixels.</summary>
+    private const double MaximumComposedTileExtent = 4096;
 
     private readonly MapViewModel _map;
     private readonly RaidPageViewModel _raid;
@@ -187,7 +206,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> _objectStyles =
         new Dictionary<MapSceneObjectId, MapSceneObjectStyle>();
     private bool _followPending;
+    private MapSceneBounds _planBounds = UnplaceablePlanBounds;
     private CachedMapAsset? _cachedAsset;
+    private string? _backgroundSha;
     private Bitmap? _backgroundImage;
 
     public RaidCockpitViewModel(
@@ -530,7 +551,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// is about to draw, decoded ahead of time in <see cref="RebuildCoreAsync"/> since this is
     /// called synchronously from the renderer's own present/rebuild pass.</summary>
     private IImage? ResolveBackgroundImage(MapSceneAsset asset) =>
-        _cachedAsset is { } cached && string.Equals(asset.ContentSha256, cached.ContentSha256, StringComparison.OrdinalIgnoreCase)
+        _backgroundSha is { } sha && string.Equals(asset.ContentSha256, sha, StringComparison.OrdinalIgnoreCase)
             ? _backgroundImage
             : null;
 
@@ -547,6 +568,82 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             Dispatcher.UIThread.Post(previous.Dispose, DispatcherPriority.Background);
         }
     }
+
+    /// <summary>
+    /// [V2 rough package 23] V1's loaded tile grid as one picture the renderer can draw.
+    /// </summary>
+    /// <remarks>
+    /// V1 has already planned the grid, fetched the reviewed tiles for the level it chose and
+    /// decoded them; this only stitches them onto one surface the size of the grid, so the V2
+    /// renderer keeps its one-background-image contract without a second tile pipeline beside
+    /// V1's. A tile that never arrived is left undrawn — blank in its own square, with every
+    /// other tile still in the right place.
+    ///
+    /// Scaled down when the grid is enormous (Customs' grid at its sharpest level is several
+    /// thousand pixels square): the plan rectangle is the same ground either way, so shrinking
+    /// the picture costs detail and nothing else, and it keeps one map inside a sane amount of
+    /// video memory. Returns null when there is nothing to draw, or when this process has no
+    /// rendering platform to draw with — a unit-test host, for one.
+    /// </remarks>
+    private ComposedTileArtwork? ComposeTileArtwork(MapRenderModel model)
+    {
+        var tiles = _map.Tiles.Where(tile => tile.HasArtwork).ToArray();
+        if (tiles.Length == 0 ||
+            MapPlanProjection.For(model) is not { IsValid: true } ||
+            _map.CanvasWidth <= 0 || _map.CanvasHeight <= 0)
+        {
+            return null;
+        }
+
+        var scale = Math.Min(1, MaximumComposedTileExtent / Math.Max(_map.CanvasWidth, _map.CanvasHeight));
+        var width = (int)Math.Round(_map.CanvasWidth * scale);
+        var height = (int)Math.Round(_map.CanvasHeight * scale);
+        if (width <= 0 || height <= 0)
+        {
+            return null;
+        }
+
+        // The identity of this picture, for the renderer's own change detection: which tiles
+        // were drawn, at which level, onto how large a surface. Two rebuilds that composed the
+        // same grid must produce the same hash or the renderer re-resolves the artwork on every
+        // raid tick; one more tile arriving must produce a different one or it never updates.
+        var identity = string.Join(
+            "\n",
+            tiles.Select(tile => string.Create(
+                CultureInfo.InvariantCulture,
+                $"{tile.LocalPath}|{tile.Left}|{tile.Top}|{tile.Size}")).Order(StringComparer.Ordinal));
+        var sha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Create(CultureInfo.InvariantCulture, $"{width}x{height}\n{identity}")))).ToLowerInvariant();
+        if (string.Equals(sha, _backgroundSha, StringComparison.Ordinal) && _backgroundImage is { } unchanged)
+        {
+            return new(unchanged, sha);
+        }
+
+        try
+        {
+            var surface = new RenderTargetBitmap(new PixelSize(width, height));
+            using (var context = surface.CreateDrawingContext())
+            {
+                foreach (var tile in tiles)
+                {
+                    context.DrawImage(
+                        tile.Image,
+                        new Rect(0, 0, tile.Image.Size.Width, tile.Image.Size.Height),
+                        new Rect(tile.Left * scale, tile.Top * scale, tile.Size * scale, tile.Size * scale));
+                }
+            }
+
+            return new(surface, sha);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+        {
+            // No rendering platform (a headless unit-test host). The scene still builds; it just
+            // has no picture, and the renderer says so rather than drawing the wrong one.
+            return null;
+        }
+    }
+
+    private sealed record ComposedTileArtwork(Bitmap Image, string ContentSha256);
 
     /// <summary>Decodes a cached rasterized-map image file off the UI thread.</summary>
     private static async Task<Bitmap?> LoadBackgroundImageAsync(string? path, CancellationToken cancellationToken)
@@ -877,63 +974,105 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         var variant = model.Variant;
-        if (variant.SvgPath is null)
-        {
-            SetUnavailable("This map has no reviewed 2D plan yet, so the V2 renderer cannot draw it.");
-            return;
-        }
-
-        // Refetching on every rebuild (a runtime snapshot changes often) would re-hash a
-        // multi-megabyte SVG on disk each time for no reason once the variant and floor have
-        // not changed. Keyed on the floor too: a multi-floor SVG rasterizes a different upstream
-        // layer per floor onto the same cache file, so the source hash alone cannot tell floors
-        // apart the way V1's own floor switch relies on (see TarkovDevMapAssetCache.GetSvgAsync).
         var selectedFloor = model.SelectedFloor;
-        var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
-        if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
+        var nowUtc = _timeProvider.GetUtcNow();
+        var transformVersion = variant.Key;
+
+        // [V2 rough package 23] Two kinds of artwork, one background asset. A map drawn from PNG
+        // tiles (Customs is, by default) has no single picture to hand the renderer, so V1's own
+        // loaded tiles — the same grid, the same reviewed assets, the same per-floor selection —
+        // are composed into one image covering the tile grid exactly. Missing tiles are simply
+        // not drawn, which leaves them blank without moving anything else. Before this, the
+        // cockpit rasterized the variant's SVG whatever V1 was showing, so a tiles map was drawn
+        // from a floor layer covering a fraction of the plan while its status line reported
+        // tiles it was not drawing.
+        MapSceneAsset asset;
+        if (model.Background?.Kind == MapBackgroundKind.TileTemplate)
         {
-            var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
+            if (ComposeTileArtwork(model) is not { } composed)
             {
+                ReplaceBackgroundImage(null);
                 _cachedAssetVariantKey = null;
                 _cachedAsset = null;
-                ReplaceBackgroundImage(null);
-                SetUnavailable(assetResult.Message ?? "The reviewed map asset is not available yet.");
+                _backgroundSha = null;
+                SetUnavailable(model.Background.Message ?? "The map's tiles are not available yet.");
                 return;
             }
 
-            // Decoded, and the cache markers updated, only once both steps succeed: if the
-            // decode is cancelled by a newer rebuild landing first, leaving the markers behind
-            // would make the next rebuild trust a bitmap that was never actually produced.
-            var decoded = await LoadBackgroundImageAsync(fetched.RenderPath, cancellationToken).ConfigureAwait(true);
-            cancellationToken.ThrowIfCancellationRequested();
-            _cachedAssetVariantKey = assetCacheKey;
-            _cachedAsset = fetched;
-            ReplaceBackgroundImage(decoded);
+            _cachedAssetVariantKey = null;
+            _cachedAsset = null;
+            _backgroundSha = composed.ContentSha256;
+            ReplaceBackgroundImage(composed.Image);
+            asset = new MapSceneAsset(
+                new($"asset:{model.Location.Id}:{variant.Key}:tiles:{selectedFloor?.Id ?? "base"}"),
+                MapSceneAssetKind.Background2D,
+                model.Background.SourceUri,
+                model.LicenseUri,
+                composed.ContentSha256,
+                string.IsNullOrWhiteSpace(variant.Author) ? "Tarkov.dev community mapping" : variant.Author,
+                variant.Key,
+                "current",
+                MapSceneAssetReviewStatus.Reviewed,
+                nowUtc);
         }
+        else
+        {
+            if (variant.SvgPath is null)
+            {
+                SetUnavailable("This map has no reviewed 2D plan yet, so the V2 renderer cannot draw it.");
+                return;
+            }
 
-        var cached = _cachedAsset!;
+            // Refetching on every rebuild (a runtime snapshot changes often) would re-hash a
+            // multi-megabyte SVG on disk each time for no reason once the variant and floor have
+            // not changed. Keyed on the floor too: a multi-floor SVG rasterizes a different upstream
+            // layer per floor onto the same cache file, so the source hash alone cannot tell floors
+            // apart the way V1's own floor switch relies on (see TarkovDevMapAssetCache.GetSvgAsync).
+            var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
+            if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
+            {
+                var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
+                {
+                    _cachedAssetVariantKey = null;
+                    _cachedAsset = null;
+                    _backgroundSha = null;
+                    ReplaceBackgroundImage(null);
+                    SetUnavailable(assetResult.Message ?? "The reviewed map asset is not available yet.");
+                    return;
+                }
 
-        var nowUtc = _timeProvider.GetUtcNow();
-        var transformVersion = variant.Key;
-        // The floor is part of the asset identity, not just its cache key: a multi-floor SVG
-        // rasterizes a different upstream layer per floor onto the one cached file, so two
-        // floors' artwork share every other field (source, licence, content hash) and would
-        // otherwise look identical to the renderer's own change detection (see
-        // MapSceneRendererViewModel.ResolveBackground), leaving a stale floor's picture on
-        // screen after switching.
-        var asset = new MapSceneAsset(
-            new($"asset:{model.Location.Id}:{variant.Key}:{selectedFloor?.Id ?? "base"}"),
-            MapSceneAssetKind.Background2D,
-            cached.SourceUri,
-            cached.LicenseUri,
-            cached.ContentSha256,
-            string.IsNullOrWhiteSpace(cached.Author) ? "Tarkov.dev community mapping" : cached.Author,
-            variant.Key,
-            "current",
-            MapSceneAssetReviewStatus.Reviewed,
-            cached.RetrievedUtc);
+                // Decoded, and the cache markers updated, only once both steps succeed: if the
+                // decode is cancelled by a newer rebuild landing first, leaving the markers behind
+                // would make the next rebuild trust a bitmap that was never actually produced.
+                var decoded = await LoadBackgroundImageAsync(fetched.RenderPath, cancellationToken).ConfigureAwait(true);
+                cancellationToken.ThrowIfCancellationRequested();
+                _cachedAssetVariantKey = assetCacheKey;
+                _cachedAsset = fetched;
+                _backgroundSha = fetched.ContentSha256;
+                ReplaceBackgroundImage(decoded);
+            }
+
+            var cached = _cachedAsset!;
+            // The floor is part of the asset identity, not just its cache key: a multi-floor SVG
+            // rasterizes a different upstream layer per floor onto the one cached file, so two
+            // floors' artwork share every other field (source, licence, content hash) and would
+            // otherwise look identical to the renderer's own change detection (see
+            // MapSceneRendererViewModel.ResolveBackground), leaving a stale floor's picture on
+            // screen after switching.
+            asset = new MapSceneAsset(
+                new($"asset:{model.Location.Id}:{variant.Key}:{selectedFloor?.Id ?? "base"}"),
+                MapSceneAssetKind.Background2D,
+                cached.SourceUri,
+                cached.LicenseUri,
+                cached.ContentSha256,
+                string.IsNullOrWhiteSpace(cached.Author) ? "Tarkov.dev community mapping" : cached.Author,
+                variant.Key,
+                "current",
+                MapSceneAssetReviewStatus.Reviewed,
+                cached.RetrievedUtc);
+        }
 
         var raidSnapshot = _stateStore.Current.Raid;
         // [V2 rough package 22] Place names, spawn areas and locked doors too, not only extracts
@@ -951,11 +1090,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     : MapSceneOfferState.Unknown))
             .ToArray();
 
+        // The rectangle the artwork covers, in the same Leaflet units every coordinate in this
+        // scene is already expressed in. It changes when the map changes and when the artwork
+        // does (a tile grid and a drawing cover different ground), and the camera has to be
+        // re-fitted to it whenever it does or the view opens somewhere that is no longer there.
+        var previousBounds = _planBounds;
+        _planBounds = PlanBoundsFor(model);
+        var planBounds = _planBounds;
+        var boundsChanged = previousBounds != planBounds;
+
         var floorIds = model.Floors.Select(floor => floor.Id).ToArray();
         var lootLayer = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
             transformVersion,
-            PlanBounds,
+            planBounds,
             nowUtc,
             _lootFilter.Filter,
             floorIds));
@@ -978,18 +1126,26 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // for the moment between the two halves of one change.
         var modelFloorChanged = !string.Equals(_modelFloorId, model.SelectedFloor?.Id, StringComparison.OrdinalIgnoreCase);
         _modelFloorId = model.SelectedFloor?.Id;
-        var requestedView = Renderer is { } current && string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal)
+        var requestedView = Renderer is { } current &&
+            string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal) && !boundsChanged
             ? modelFloorChanged
                 ? current.Scene.View with { SelectedFloorId = model.SelectedFloor?.Id }
                 : current.Scene.View
-            // A map opens the way V1 has it turned: which way round a map wants to be is a fact
-            // about the map, remembered per map, not about this session.
-            : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, new(50, 50, 1, Bearing(), 0), []);
+            // A map opens fitted: the whole plan, centred, at whatever size the card is. Zoom 1
+            // is exactly that, because the projection fits the plan rectangle into the viewport
+            // before the camera's own zoom is applied. It also opens the way V1 has it turned —
+            // which way round a map wants to be is a fact about the map, remembered per map,
+            // rather than about this session.
+            : new MapSceneViewState(
+                MapSceneMode.Flat2D,
+                model.SelectedFloor?.Id,
+                FitCamera(planBounds, Bearing()),
+                []);
 
         var request = new MapSceneBuildRequest(
             Interlocked.Increment(ref _revision),
             model,
-            PlanBounds,
+            planBounds,
             transformVersion,
             requestedView,
             legacyElements,
@@ -1036,10 +1192,16 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         OnPropertyChanged(nameof(HasRenderer));
-        if (_followPending || _map.FollowsPlayer && Renderer.Scene.View.Camera.Zoom <= 1.0001)
+        if (_followPending)
         {
             // A screenshot that arrived before the artwork finished decoding still moves the map
             // to the player, once there is a map to move.
+            //
+            // Only that case. This also used to re-follow on every rebuild whenever "Follow" was
+            // on and the camera happened to be at the fit zoom, and a rebuild happens whenever
+            // anything in the raid snapshot ticks — so pressing Fit, or opening a map, put the
+            // view straight back to a zoomed-in crop a moment later. Following a new position is
+            // what PlayerFollowRequested is for, and it still does it.
             FollowPlayer();
         }
 
@@ -1103,14 +1265,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var sameMap = existing is not null &&
             string.Equals(existing.Scene.LocationId, model.Location.Id, StringComparison.Ordinal);
+        var bounds = PlanBoundsFor(model);
         var request = new MapSceneBuildRequest(
             (existing?.Scene.Revision ?? 0) + 1,
             model,
-            PlanBounds,
+            bounds,
             model.Variant.Key,
-            sameMap
+            sameMap && existing!.Scene.Bounds == bounds
                 ? existing!.Scene.View
-                : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, new(50, 50, 1, 0, 0), []),
+                : new MapSceneViewState(MapSceneMode.Flat2D, model.SelectedFloor?.Id, FitCamera(bounds, 0), []),
             legacyElements,
             layers,
             objects,
@@ -1125,6 +1288,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             existing!.Present(scene);
             return existing;
         }
+
 
         return new MapSceneRendererViewModel(
             scene,
@@ -1213,6 +1377,29 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>
     private double Bearing() => (_map.RotationDegrees % 360 + 360) % 360;
 
+    /// <summary>The rectangle this model's artwork covers, as scene bounds.</summary>
+    /// <remarks>Internal for direct coverage: this one line decides whether every marker on the
+    /// map lands on the artwork or beside it (see the marker-landing tests).</remarks>
+    internal static MapSceneBounds PlanBoundsFor(MapRenderModel model) =>
+        MapPlanProjection.For(model) is { IsValid: true } rect
+            ? new(rect.MinimumX, rect.MinimumY, rect.MaximumX, rect.MaximumY)
+            : UnplaceablePlanBounds;
+
+    /// <summary>
+    /// The whole plan, centred: the camera a map opens on and the one "Fit" returns to.
+    /// </summary>
+    /// <remarks>
+    /// Zoom 1 is a fit rather than an arbitrary scale because the renderer's projection already
+    /// fits the plan rectangle into the viewport, at whatever size the card happens to be,
+    /// before the camera's zoom multiplies it.
+    /// </remarks>
+    private static MapSceneCamera FitCamera(MapSceneBounds bounds, double bearingDegrees) => new(
+        bounds.MinimumX + (bounds.Width / 2),
+        bounds.MinimumY + (bounds.Height / 2),
+        1,
+        bearingDegrees,
+        0);
+
     private void HighValueLootFilterRequested(HighValueLootFilterRequest request)
     {
         if (Renderer is null || _map.RenderModel is not { } model ||
@@ -1227,7 +1414,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var result = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
             request.TransformVersion,
-            PlanBounds,
+            _planBounds,
             _timeProvider.GetUtcNow(),
             request.State.Filter,
             model.Floors.Select(floor => floor.Id).ToArray()));
@@ -1518,10 +1705,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </remarks>
     private static IReadOnlyList<MapScenePoint> PlanPoints(MapRenderModel model, IEnumerable<WorldPosition> positions)
     {
+        var bounds = PlanBoundsFor(model);
         var points = new List<MapScenePoint>();
         foreach (var position in positions)
         {
-            if (TryPlan(model, position, out var point) && PlanBounds.Contains(point))
+            if (TryPlan(model, position, out var point) && bounds.Contains(point))
             {
                 points.Add(point);
             }
