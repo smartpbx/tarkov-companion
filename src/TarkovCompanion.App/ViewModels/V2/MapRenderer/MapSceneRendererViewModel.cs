@@ -1599,6 +1599,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(PointMarkers));
             OnPropertyChanged(nameof(ClusterMarkers));
             OnPropertyChanged(nameof(GeometryObjects));
+            OnPropertyChanged(nameof(LabelObjects));
+            OnPropertyChanged(nameof(HasLabelObjects));
             OnPropertyChanged(nameof(SelectedObject));
             OnPropertyChanged(nameof(SelectedLootEntry));
             OnPropertyChanged(nameof(HasSelection));
@@ -1647,6 +1649,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         foreach (var propertyName in new[]
                  {
                      nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(GeometryObjects),
+                     nameof(LabelObjects), nameof(HasLabelObjects),
                      nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
                      nameof(MapWidth), nameof(MapHeight), nameof(MessageWidth), nameof(EmptyMessageWidth), nameof(StatusLeft),

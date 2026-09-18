@@ -89,12 +89,18 @@ internal static class Program
 
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             V2ShellViewModel? shell = null;
+            Task? seeding = null;
             if (options.UiShell.IsPreview())
             {
                 shell = services.GetRequiredService<V2ShellViewModel>();
                 viewModel.PreviewShell = shell;
                 services.GetRequiredService<V2ShellCaptureBridge>();
-                DrainUntilComplete(services.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync(CancellationToken.None));
+                // [V2 rough package 22] Started, not awaited: since #9f7c369 this waits for the
+                // database feature, which only becomes ready inside MainWindowViewModel
+                // .InitializeAsync below. Draining it here deadlocked every render run — the
+                // drain loop pumped the dispatcher forever for a task whose gate had not been
+                // opened yet. It is drained after initialization instead.
+                seeding = services.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync(CancellationToken.None);
             }
             else if (options.StartPage is { } startPage && !viewModel.Navigate(startPage))
             {
@@ -104,6 +110,10 @@ internal static class Program
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
+            if (seeding is not null)
+            {
+                DrainUntilComplete(seeding);
+            }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
             // plan. --seed-active-quests marks that many available quests active through the same
@@ -361,15 +371,19 @@ internal static class Program
             new(now.AddSeconds(-secondsAgo), At(planX, planY), default, heading, null, null, $"demo-{secondsAgo}.png");
 
         // A walk across the middle of the plan, oldest first, ending where the player is now.
+        // Deliberately not a straight line: a trail drawn from collinear points is
+        // indistinguishable from one long segment, which tells a reviewer nothing.
         var trail = new[]
         {
-            Step(24, 68, 40, 330),
-            Step(31, 62, 44, 280),
-            Step(38, 58, 52, 230),
-            Step(45, 55, 61, 180),
-            Step(51, 49, 70, 130),
-            Step(57, 45, 66, 80),
-            Step(62, 40, 58, 30),
+            Step(30, 78, 350, 330),
+            Step(28, 68, 20, 290),
+            Step(36, 64, 80, 250),
+            Step(46, 66, 95, 210),
+            Step(52, 58, 20, 170),
+            Step(48, 50, 330, 130),
+            Step(54, 44, 40, 90),
+            Step(62, 42, 80, 50),
+            Step(64, 34, 10, 15),
         };
         var raid = new TarkovCompanion.Core.Domain.Raids.RaidSnapshot(
             Guid.NewGuid(),

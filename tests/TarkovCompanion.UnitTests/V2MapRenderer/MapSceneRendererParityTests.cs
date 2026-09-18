@@ -80,6 +80,34 @@ public sealed class MapSceneRendererParityTests
     }
 
     [Fact]
+    public void A_new_scene_tells_the_view_its_place_names_changed()
+    {
+        // Without this the plan kept drawing the previous map's street names, pinned at the
+        // pixels the previous map's projection put them at: a render of Lighthouse showed
+        // Customs' "Old Gas" sitting off the edge of the plan.
+        var scene = Scene([Label("dorms", "Dorms")]);
+        var renderer = Renderer(scene);
+        var changed = new List<string?>();
+        renderer.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        renderer.Present(new(
+            scene.Revision + 1,
+            "streets",
+            scene.VariantKey,
+            scene.TransformVersion,
+            scene.Bounds,
+            scene.FloorIds,
+            scene.Capabilities,
+            scene.View,
+            scene.Layers,
+            [Label("kolokol", "Kolokol")],
+            scene.Assets));
+
+        Assert.Contains(nameof(MapSceneRendererViewModel.LabelObjects), changed);
+        Assert.Equal("Kolokol", Assert.Single(renderer.LabelObjects).Text);
+    }
+
+    [Fact]
     public void A_hidden_labels_layer_hides_its_place_names()
     {
         var scene = Scene([Label("dorms", "Dorms")]);
