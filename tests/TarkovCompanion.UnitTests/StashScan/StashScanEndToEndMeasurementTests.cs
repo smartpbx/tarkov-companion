@@ -17,16 +17,23 @@ public sealed class StashScanEndToEndMeasurementTests(ITestOutputHelper output)
     public async Task ReportsTheGuidedPathOverAPackedStash()
     {
         var layout = SyntheticStashLayout.Build(rows: 34);
+        var lowContrast = new SyntheticStashFrameOptions(CellLuminance: 60, LineLuminance: 30);
         var results = new[]
         {
-            await StashScanMeasurement.RunAsync("packed stash · icon cache fed", layout, ThreeScreens, new(), feedIconCache: true),
-            await StashScanMeasurement.RunAsync("packed stash · icon cache empty (the app today)", layout, ThreeScreens, new(), feedIconCache: false),
-            await StashScanMeasurement.RunAsync("packed stash · low line contrast · icon cache fed", layout, ThreeScreens, new(CellLuminance: 60, LineLuminance: 30), feedIconCache: true),
+            await StashScanMeasurement.RunAsync("icon cache empty (the app today) · identity stitch only", layout, ThreeScreens, new(), StashIconReferences.None, layoutStitch: false),
+            await StashScanMeasurement.RunAsync("icon cache empty (the app today) · layout stitch", layout, ThreeScreens, new(), StashIconReferences.None),
+            await StashScanMeasurement.RunAsync("catalogue-icon references · layout stitch", layout, ThreeScreens, new(), StashIconReferences.CatalogueIcons),
+            await StashScanMeasurement.RunAsync("in-game tile references · layout stitch", layout, ThreeScreens, new(), StashIconReferences.InGameTiles),
+            await StashScanMeasurement.RunAsync("in-game tile references · low line contrast", layout, ThreeScreens, lowContrast, StashIconReferences.InGameTiles),
         };
         foreach (var result in results)
         {
             output.WriteLine(result.Describe());
             Console.WriteLine(result.Describe());
         }
+
+        var nearMatch = StashScanMeasurement.DescribeNearMatch(layout, new(), maximumDistance: 12, minimumGap: 4);
+        output.WriteLine(nearMatch);
+        Console.WriteLine(nearMatch);
     }
 }

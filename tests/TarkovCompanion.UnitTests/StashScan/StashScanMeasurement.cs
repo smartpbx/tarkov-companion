@@ -72,6 +72,18 @@ internal sealed record StashScanMeasurementResult(
 /// plumbing faults - a packed grid merged into one footprint, an overlap that cannot stitch, a
 /// double count - and it cannot say how the recognizer fares on the game's own pixels.
 /// </remarks>
+internal enum StashIconReferences
+{
+    /// <summary>Nothing in the icon cache: the application as it ships today.</summary>
+    None,
+
+    /// <summary>The published icon of each item, as a catalogue icon index would supply.</summary>
+    CatalogueIcons,
+
+    /// <summary>Each item's fingerprint as the game itself draws the tile.</summary>
+    InGameTiles,
+}
+
 internal static class StashScanMeasurement
 {
     public static readonly DateTimeOffset ObservedUtc = new(2026, 9, 18, 12, 0, 0, TimeSpan.Zero);
@@ -86,13 +98,20 @@ internal static class StashScanMeasurement
         SyntheticStashLayout layout,
         IReadOnlyList<int> firstRows,
         SyntheticStashFrameOptions options,
-        bool feedIconCache,
-        Func<IReadOnlyList<StashScanCaptureFrame>, IReadOnlyList<StashScanCaptureFrame>>? prepare = null)
+        StashIconReferences references,
+        bool layoutStitch = true)
     {
         var catalog = SyntheticStashLayout.Catalog;
-        var evidence = feedIconCache
-            ? catalog.Select(item => Evidence(item.ItemId, SkiaPerceptualIconMatcher.ComputeDifferenceHash(SyntheticStashPainter.RenderReferenceIcon(item)))).ToArray()
-            : [];
+        var evidence = references switch
+        {
+            StashIconReferences.CatalogueIcons => catalog
+                .Select(item => Evidence(item.ItemId, SkiaPerceptualIconMatcher.ComputeDifferenceHash(SyntheticStashPainter.RenderReferenceIcon(item))))
+                .ToArray(),
+            StashIconReferences.InGameTiles => catalog
+                .Select(item => Evidence(item.ItemId, InGameFingerprint(item, options)))
+                .ToArray(),
+            _ => [],
+        };
         var builder = new GridPixelReconstructionBuilder(
             new FixedIconEvidenceCache(evidence),
             new FixedItemRepository(catalog.ToDictionary(item => item.ItemId, Definition, StringComparer.Ordinal)),
@@ -189,15 +208,21 @@ internal static class StashScanMeasurement
                 layout.Placements.Count, 0, 0, 0, 0, 0, ["no frame carried a grid"], null);
         }
 
-        var prepared = prepare?.Invoke(frames) ?? frames;
-        var assembly = new StashScanAssembler().Assemble(new StashScanAssemblyRequest(
+        var assembler = new StashScanAssembler();
+        StashScanAssemblyRequest Request(IReadOnlyList<StashScanCaptureFrame> captures) => new(
             "measure-result",
             "measure-snapshot",
             sessionId,
             Scope,
             "measure-data",
             ObservedUtc,
-            prepared));
+            captures);
+        var assembly = assembler.Assemble(Request(frames));
+        if (layoutStitch)
+        {
+            assembly = assembler.Assemble(Request(new StashLayoutAligner().AddLayoutOrigins(frames, assembly, ObservedUtc)));
+        }
+
         return Score(scenario, layout, firstRows, frameRowOffsets, assembly, latticesFound, latticesExact, truthVisible, footprintsFound, spurious, identified, identifiedCorrectly) with
         {
             Lattices = lattices,
@@ -297,6 +322,82 @@ internal static class StashScanMeasurement
             unknown,
             assembly.Report.Issues.Select(issue => issue.Code).Distinct(StringComparer.Ordinal).ToArray(),
             assembly);
+    }
+
+    /// <summary>
+    /// The fingerprint of the item as the game draws it: one tile painted alone and cropped to
+    /// exactly the rectangle the pixel reader crops.
+    /// </summary>
+    public static ulong InGameFingerprint(SyntheticStashItem item, SyntheticStashFrameOptions options)
+    {
+        var image = SyntheticStashPainter.RenderFrame(SyntheticStashLayout.Of(8, new SyntheticStashPlacement(item, 1, 1)), 0, options);
+        return Fingerprint(image, options.PanelX + options.Pitch, options.PanelY + options.Pitch, item.Width * options.Pitch, item.Height * options.Pitch);
+    }
+
+    public static ulong Fingerprint(CapturedImage image, int x, int y, int width, int height)
+    {
+        var buffer = new byte[width * 4 * height];
+        for (var row = 0; row < height; row++)
+        {
+            image.Pixels.Span.Slice(((y + row) * image.Stride) + (x * 4), width * 4).CopyTo(buffer.AsSpan(row * width * 4));
+        }
+
+        return SkiaPerceptualIconMatcher.ComputeDifferenceHash(
+            new CapturedImage(buffer, width, height, width * 4, image.Format, image.CapturedUtc, "measure-crop"));
+    }
+
+    /// <summary>
+    /// What a near-match rule would do with catalogue icons, without changing the shipped rule:
+    /// every whole tile in the first frame is hashed and compared with every catalogue icon of its
+    /// own footprint, under "within <paramref name="maximumDistance"/> bits and
+    /// <paramref name="minimumGap"/> clear of the runner-up".
+    /// </summary>
+    public static string DescribeNearMatch(SyntheticStashLayout layout, SyntheticStashFrameOptions options, int maximumDistance, int minimumGap)
+    {
+        var image = SyntheticStashPainter.RenderFrame(layout, 0, options);
+        var catalogue = SyntheticStashLayout.Catalog.ToDictionary(
+            item => item.ItemId,
+            item => SkiaPerceptualIconMatcher.ComputeDifferenceHash(SyntheticStashPainter.RenderReferenceIcon(item)),
+            StringComparer.Ordinal);
+        var tiles = 0;
+        var exact = 0;
+        var separated = 0;
+        var wrong = 0;
+        var distances = new List<int>();
+        foreach (var placement in layout.Placements.Where(placement => placement.Row + placement.Item.Height <= options.VisibleRows))
+        {
+            tiles++;
+            var hash = Fingerprint(
+                image,
+                options.PanelX + (placement.Column * options.Pitch),
+                options.PanelY + (placement.Row * options.Pitch),
+                placement.Item.Width * options.Pitch,
+                placement.Item.Height * options.Pitch);
+            var ranked = SyntheticStashLayout.Catalog
+                .Where(item => item.Width == placement.Item.Width && item.Height == placement.Item.Height)
+                .Select(item => (item.ItemId, Distance: System.Numerics.BitOperations.PopCount(hash ^ catalogue[item.ItemId])))
+                .OrderBy(entry => entry.Distance)
+                .ToArray();
+            distances.Add(ranked.First(entry => entry.ItemId == placement.Item.ItemId).Distance);
+            if (ranked[0].Distance == 0)
+            {
+                exact++;
+            }
+
+            if (ranked.Length >= 2 && ranked[0].Distance <= maximumDistance && ranked[1].Distance - ranked[0].Distance >= minimumGap)
+            {
+                separated++;
+                if (ranked[0].ItemId != placement.Item.ItemId)
+                {
+                    wrong++;
+                }
+            }
+        }
+
+        distances.Sort();
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"[stash-e2e] catalogue icons against in-game tiles: {tiles} tiles · bit-exact {exact} · distance to the true icon median {distances[distances.Count / 2]} max {distances[^1]} bits · a rule of <= {maximumDistance} bits and >= {minimumGap} clear would name {separated}, {wrong} of them wrongly");
     }
 
     public static StashScanCaptureFrame Frame(

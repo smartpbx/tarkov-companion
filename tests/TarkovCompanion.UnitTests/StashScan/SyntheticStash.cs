@@ -69,6 +69,9 @@ internal sealed class SyntheticStashLayout
         new("syn-pack", "Backpack", 4, 5),
     ];
 
+    /// <summary>A stash holding exactly these items, for a fixture that needs one known tile.</summary>
+    public static SyntheticStashLayout Of(int rows, params SyntheticStashPlacement[] placements) => new(rows, placements);
+
     /// <summary>Packs a stash first-fit from a seeded shuffle, leaving a few cells empty.</summary>
     public static SyntheticStashLayout Build(int rows, int seed = 20260918, double emptyCellFraction = 0.12)
     {

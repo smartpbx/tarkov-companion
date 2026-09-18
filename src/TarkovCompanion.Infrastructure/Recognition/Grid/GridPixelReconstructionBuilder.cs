@@ -73,6 +73,7 @@ public sealed class GridPixelReconstructionBuilder(
 
     // [V2 rough package 40] The stash is the one surface whose lattice shape is known in advance.
     private readonly StashPanelLatticeDetector _stashLattice = new();
+    private readonly StashFootprintReader _stashFootprints = new();
 
     public async Task<GridReconstructionRequest> BuildAsync(
         CapturedImage image,
@@ -98,8 +99,13 @@ public sealed class GridPixelReconstructionBuilder(
             return new(surface, null, []);
         }
 
-        var segments = _segmenter.Segment(image, spec, cancellationToken);
-        var footprints = MergeFootprints(segments, spec.Rows, spec.Columns, cancellationToken);
+        // [V2 rough package 40] A packed stash has no gaps for the general merge to split on, so
+        // the stash reads its footprints from the lines between cells instead.
+        var footprints = surface == InventoryGridSurface.Stash
+            ? _stashFootprints.Read(image, spec, cancellationToken)
+                .Select(footprint => new Footprint(footprint.Row, footprint.Column, footprint.Width, footprint.Height))
+                .ToList()
+            : MergeFootprints(_segmenter.Segment(image, spec, cancellationToken), spec.Rows, spec.Columns, cancellationToken);
         if (footprints.Count == 0)
         {
             return new(surface, lattice, []);
