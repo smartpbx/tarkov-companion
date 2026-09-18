@@ -1,0 +1,97 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.KeepListWorkspaceView"
+             x:DataType="vm:KeepListWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+  <UserControl.Styles>
+    <!-- Same visual language as the Hideout tab's card and chip. -->
+    <Style Selector="Border.v2-keep-card">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    </Style>
+    <Style Selector="Border.v2-keep-row">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="12,8" />
+    </Style>
+    <Style Selector="Border.v2-keep-chip">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,1" />
+    </Style>
+    <Style Selector="Border.v2-keep-chip.v2-keep-high-value">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-keep-chip.v2-keep-high-value TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- V2 rough package 25 (#402): items worth keeping, computed from synced quest/hideout
+       requirements, key market prices, and value-per-slot tiers — no editorial list. -->
+  <Border Classes="v2-keep-card" Margin="16,8,16,16">
+    <Grid RowDefinitions="Auto,*">
+      <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Classes="v2-heading-1" Text="Keep list" AutomationProperties.HeadingLevel="1"
+                     VerticalAlignment="Center" />
+          <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
+                  VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-keep-refresh" AutomationProperties.Name="Refresh"
+                  ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
+          </Button>
+        </Grid>
+        <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-keep-status"
+                   AutomationProperties.LiveSetting="Polite" />
+      </StackPanel>
+
+      <Panel Grid.Row="1">
+        <TextBlock IsVisible="{Binding !HasGroups}" Classes="v2-body" Opacity="0.8"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                   TextWrapping="Wrap" MaxWidth="420"
+                   Text="Nothing to keep yet — this fills in once quests, hideout requirements, and key prices have synced." />
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasGroups}">
+          <ItemsControl ItemsSource="{Binding Groups}" Margin="16,0,16,12">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="16" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:KeepListGroupViewModel">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
+                  <ItemsControl ItemsSource="{Binding Items}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:KeepListRowViewModel">
+                        <Border Classes="v2-keep-row">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Spacing="2">
+                              <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                              <TextBlock Classes="v2-label" Text="{Binding ReasonSummary}" TextWrapping="Wrap"
+                                         Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Classes="v2-keep-chip" Classes.v2-keep-high-value="{Binding IsHighValue}"
+                                    VerticalAlignment="Center" IsVisible="{Binding IsHighValue}">
+                              <TextBlock Classes="v2-label" Text="{Binding Tier}" />
+                            </Border>
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Panel>
+    </Grid>
+  </Border>
+</UserControl>

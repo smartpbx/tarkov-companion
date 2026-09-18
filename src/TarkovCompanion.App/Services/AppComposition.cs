@@ -551,6 +551,8 @@ public static class AppComposition
         // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
         services.AddSingleton<PlanWorkspaceViewModel>();
         services.AddSingleton<HideoutWorkspaceViewModel>();
+        // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
+        services.AddSingleton<KeepListWorkspaceViewModel>();
 
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its
