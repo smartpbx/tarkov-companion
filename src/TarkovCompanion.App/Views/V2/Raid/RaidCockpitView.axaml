@@ -202,6 +202,34 @@
                                 AutomationProperties.AutomationId="v2-raid-auto-hide"
                                 ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
                 </WrapPanel>
+                <!-- V2 rough package 39: every reviewed piece of artwork this map publishes,
+                     not just the drawn/photo pair. Remembered per map by V1's selection service,
+                     with the attribution for whichever one is showing beneath it (ADR 0015). -->
+                <StackPanel Spacing="4" IsVisible="{Binding HasArtworkVariants}">
+                  <ItemsControl ItemsSource="{Binding ArtworkVariants}"
+                                AutomationProperties.AutomationId="v2-raid-artwork-variants"
+                                AutomationProperties.AccessibilityView="Control"
+                                AutomationProperties.Name="Map artwork">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:RaidArtworkVariantViewModel">
+                        <ToggleButton Classes="v2-target v2-raid-viewcontrol"
+                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                      Command="{Binding SelectCommand}"
+                                      Content="{Binding Name}"
+                                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                                      AutomationProperties.Name="{Binding Name}"
+                                      ToolTip.Tip="{Binding Detail}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="v2-label" Opacity="0.85" TextWrapping="Wrap" MaxWidth="480"
+                             AutomationProperties.AutomationId="v2-raid-artwork-attribution"
+                             IsVisible="{Binding HasArtworkAttribution}"
+                             Text="{Binding ArtworkAttribution}" />
+                </StackPanel>
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-raid-stack-status"
                            IsVisible="{Binding HasStackStatus}" />

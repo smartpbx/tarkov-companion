@@ -35,6 +35,40 @@ public sealed class RaidMapPickerItemViewModel(string mapId, string name, Func<s
     public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(mapId));
 }
 
+/// <summary>
+/// One piece of artwork this location publishes, for the chooser over the map.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 39] Several maps publish more than the drawn/photographic pair the "Drawing"
+/// toggle covered: an aerial photograph, a drawing, a 3D rendering, sometimes two orientations of
+/// one of them. Which reads better depends on the map and on what you are doing, so every
+/// reviewed variant is offered and the answer is remembered per map by V1's own selection
+/// service. Only variants with a runtime asset appear, so nothing here is offered that cannot
+/// draw.
+/// </remarks>
+public sealed class RaidArtworkVariantViewModel(
+    string key,
+    string name,
+    string detail,
+    bool isSelected,
+    Func<string, Task> select)
+{
+    public string Key { get; } = key;
+
+    public string Name { get; } = name;
+
+    /// <summary>What kind of picture it is, in a word or two: "Photo", "Drawing · 4 floors".</summary>
+    public string Detail { get; } = detail;
+
+    public bool HasDetail => Detail.Length > 0;
+
+    public bool IsSelected { get; } = isSelected;
+
+    public string AutomationId => $"v2-raid-artwork-{MapRendererToken.From(Key)}";
+
+    public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(key));
+}
+
 /// <summary>One local mark, for the marks list beside the map.</summary>
 /// <remarks>
 /// Its label is precomputed by <see cref="RaidCockpitViewModel.LabelMarksForMap"/> in the same
@@ -247,6 +281,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
 
         RebuildMapPicker();
+        RebuildArtworkVariants();
 
         PlaceWaypointCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Waypoint));
         PlacePingCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Ping));
@@ -377,6 +412,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public bool HasArtworkChoice => _map.HasArtworkChoice;
 
     public bool PrefersDrawing => _map.PrefersDrawing;
+
+    /// <summary>Every reviewed piece of artwork this map publishes, for the chooser.</summary>
+    public IReadOnlyList<RaidArtworkVariantViewModel> ArtworkVariants { get; private set; } = [];
+
+    /// <summary>Only worth a chooser when there is actually something to choose between.</summary>
+    public bool HasArtworkVariants => ArtworkVariants.Count > 1;
+
+    /// <summary>
+    /// Who made the artwork on screen, and which map and game version it is — ADR 0015's asset
+    /// attribution, for whichever variant is showing.
+    /// </summary>
+    public string ArtworkAttribution => Renderer?.ReviewedAssetLabel ?? string.Empty;
+
+    public bool HasArtworkAttribution => ArtworkAttribution.Length > 0;
 
     public bool HideControlsWhenIdle => _map.HideControlsWhenIdle;
 
@@ -901,6 +950,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             OnPropertyChanged(nameof(SelectedMap));
             _ = RebuildAsync();
         }
+        else if (e.PropertyName is nameof(MapViewModel.Variants) or nameof(MapViewModel.SelectedVariant))
+        {
+            RebuildArtworkVariants();
+        }
         else if (e.PropertyName is nameof(MapViewModel.Locations))
         {
             // The catalog loads after construction, so the picker built from an empty list at
@@ -974,6 +1027,58 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         _map.RequestFit();
         FollowPlayer();
+    }
+
+    /// <summary>
+    /// Rebuilds the artwork chooser from the location's reviewed variants.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MapViewModel.Variants"/> is already filtered to variants with a runtime asset,
+    /// which is the rule that keeps a variant that cannot draw from being offered. A tile-only
+    /// variant is offered and does draw: the cockpit composes V1's loaded tile grid into one
+    /// picture (package 23), so "photo" is a real choice rather than a blank plan.
+    /// </remarks>
+    private void RebuildArtworkVariants()
+    {
+        var selectedKey = _map.SelectedVariant?.Key;
+        ArtworkVariants = [.. _map.Variants
+            .OrderByDescending(variant => variant.IsInteractive)
+            .ThenBy(variant => variant.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .Select(variant => new RaidArtworkVariantViewModel(
+                variant.Key,
+                variant.DisplayName,
+                DescribeVariant(variant),
+                string.Equals(variant.Key, selectedKey, StringComparison.OrdinalIgnoreCase),
+                SelectArtworkAsync))];
+        OnPropertyChanged(nameof(ArtworkVariants));
+        OnPropertyChanged(nameof(HasArtworkVariants));
+        OnPropertyChanged(nameof(ArtworkAttribution));
+        OnPropertyChanged(nameof(HasArtworkAttribution));
+    }
+
+    /// <summary>What sort of picture a variant is, in the fewest words that tell them apart.</summary>
+    private static string DescribeVariant(MapVariant variant)
+    {
+        var kind = variant.SvgPath is not null && variant.TilePath is not null
+            ? "Drawing + photo"
+            : variant.SvgPath is not null
+                ? "Drawing"
+                : "Photo";
+        return variant.Floors.Count > 1
+            ? string.Create(CultureInfo.CurrentCulture, $"{kind} · {variant.Floors.Count} floors")
+            : kind;
+    }
+
+    private async Task SelectArtworkAsync(string variantKey)
+    {
+        if (_map.Variants.FirstOrDefault(variant =>
+                string.Equals(variant.Key, variantKey, StringComparison.OrdinalIgnoreCase)) is { } chosen &&
+            !string.Equals(_map.SelectedVariant?.Key, variantKey, StringComparison.OrdinalIgnoreCase))
+        {
+            // V1's own selection, so the answer is persisted per map exactly as the V1 page
+            // persists it and both shells reopen on the artwork you last chose.
+            await _map.SelectVariantAsync(chosen).ConfigureAwait(true);
+        }
     }
 
     private void RebuildMapPicker()
@@ -1490,6 +1595,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         OnPropertyChanged(nameof(HasFloorStack));
         OnPropertyChanged(nameof(StackStatus));
         OnPropertyChanged(nameof(HasStackStatus));
+        // The attribution belongs to the asset the renderer has just resolved.
+        OnPropertyChanged(nameof(ArtworkAttribution));
+        OnPropertyChanged(nameof(HasArtworkAttribution));
     }
 
     private void ViewChangeRequested(MapSceneViewChange change)
