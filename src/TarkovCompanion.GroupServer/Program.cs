@@ -155,6 +155,10 @@ builder.Services.AddSingleton(provider => new OpaqueRelayFrameHub(
     provider.GetRequiredService<RelayDeviceRegistry>(),
     provider.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton(provider => new RelayOwnerClaimGate(provider.GetRequiredService<TimeProvider>()));
+// [V2 rough package 24] The desktop's current map, held for its paired tablets.
+builder.Services.AddSingleton(provider => new RelayMapSurfaceStore(
+    provider.GetRequiredService<RelayDeviceRegistry>(),
+    provider.GetRequiredService<TimeProvider>()));
 
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
@@ -165,7 +169,8 @@ app.MapRelayCompanionRoutes(
     app.Services.GetRequiredService<RelayDeviceRegistry>(),
     app.Services.GetRequiredService<OpaqueRelayFrameHub>(),
     relayOwnerRecoveryConfigured ? app.Services.GetRequiredService<OwnerRecoveryProtector>() : null,
-    app.Services.GetRequiredService<RelayOwnerClaimGate>());
+    app.Services.GetRequiredService<RelayOwnerClaimGate>(),
+    app.Services.GetRequiredService<RelayMapSurfaceStore>());
 
 // Which rooms may be used at all.
 //

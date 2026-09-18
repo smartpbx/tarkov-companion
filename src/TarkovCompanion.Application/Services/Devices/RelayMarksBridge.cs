@@ -44,7 +44,24 @@ internal readonly record struct MarkReconciliationAction(
 /// reducer path to fold through; inventing one for this package risked untested canonical-state
 /// surgery shared by every other paired-device flow. See the package PR's "Deferred to polish".
 /// </remarks>
-public sealed class RelayMarksBridge : IAsyncDisposable
+/// <summary>The artwork bytes behind a <see cref="TabletMapSurface"/>, uploaded only when they change.</summary>
+public sealed record TabletMapArtworkBytes(string MediaType, string ContentSha256, byte[] Bytes);
+
+/// <summary>Where the desktop hands its current map to whatever is carrying it to paired tablets.</summary>
+/// <remarks>
+/// An interface so the V2 raid cockpit — which is where the scene, the plan rectangle and the
+/// decoded artwork all already are — can publish without taking a dependency on the relay
+/// transport, and so a test can watch what it published.
+/// </remarks>
+public interface ITabletMapSurfaceSink
+{
+    ValueTask PublishMapSurfaceAsync(
+        TabletMapSurface surface,
+        TabletMapArtworkBytes? artwork,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 {
     private const string SessionHeader = "X-Relay-Session";
     private const string CredentialHeader = "X-Relay-Credential";
@@ -61,6 +78,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable
     private OwnerCredential? _owner;
     private CancellationTokenSource? _loop;
     private long _afterDeliveryId;
+    private string? _publishedArtworkSha;
 
     public RelayMarksBridge(DesktopCompanionAuthority authority, IRaidMarkStore marks, TimeProvider timeProvider)
     {
@@ -322,6 +340,18 @@ public sealed class RelayMarksBridge : IAsyncDisposable
 
         await ReconcileAsync(command.Command, application.Acknowledgement.Disposition, cancellationToken).ConfigureAwait(false);
 
+        // [V2 rough package 24] Control mode: a paired device the desktop has granted a lease to
+        // just moved canonical workspace state, so the desktop's own map has to move with it. The
+        // reducer has already decided whether that device may — an unauthorized control command
+        // never reaches Applied — so this only carries the result.
+        if (application.Acknowledgement.Disposition == CommandDisposition.Applied &&
+            command.Command is ControlWorkspaceCommand)
+        {
+            DesktopWorkspaceRequested?.Invoke(application.State.CanonicalState.Workspace.Projection);
+        }
+
+        CanonicalStateChanged?.Invoke(application.State.CanonicalState);
+
         foreach (var delivery in application.Deliveries)
         {
             PairedSessionState? target;
@@ -335,6 +365,113 @@ public sealed class RelayMarksBridge : IAsyncDisposable
                 await PublishDeliveryAsync(target, delivery, application.State.CanonicalState, cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Raised after a paired device in Control mode has moved canonical workspace state, with the
+    /// projection the desktop must now be showing.
+    /// </summary>
+    public event Action<WorkspaceProjection>? DesktopWorkspaceRequested;
+
+    /// <summary>
+    /// Raised after any paired command lands, so the desktop's own panels see a control request
+    /// arrive without polling the authority.
+    /// </summary>
+    public event Action<CanonicalCompanionState>? CanonicalStateChanged;
+
+    /// <summary>
+    /// Publishes the desktop's current map for its paired tablets: the scene as JSON, and the
+    /// reviewed artwork behind it when that picture has changed.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24, #407] Artwork is uploaded only when its content hash changes, because
+    /// a scene is republished on every raid tick and a rasterized plan is megabytes. The surface
+    /// always names the hash it expects, so a tablet that has the picture already keeps drawing it
+    /// and one that does not fetches it.
+    /// </remarks>
+    public async ValueTask PublishMapSurfaceAsync(
+        TabletMapSurface surface,
+        TabletMapArtworkBytes? artwork,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            return;
+        }
+
+        using var surfaceRequest = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/map")
+        {
+            Content = new ByteArrayContent(TabletMapSurfaceJson.Serialize(surface)),
+        };
+        surfaceRequest.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        AddBearer(surfaceRequest, owner);
+        using var surfaceResponse = await relay.SendAsync(surfaceRequest, cancellationToken).ConfigureAwait(false);
+        if (!surfaceResponse.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        if (artwork is null ||
+            string.Equals(_publishedArtworkSha, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        using var artworkRequest = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"v2/companion/relay/map/artwork?sha256={Uri.EscapeDataString(artwork.ContentSha256)}")
+        {
+            Content = new ByteArrayContent(artwork.Bytes),
+        };
+        artworkRequest.Content.Headers.ContentType = new MediaTypeHeaderValue(artwork.MediaType);
+        AddBearer(artworkRequest, owner);
+        using var artworkResponse = await relay.SendAsync(artworkRequest, cancellationToken).ConfigureAwait(false);
+        if (artworkResponse.IsSuccessStatusCode)
+        {
+            _publishedArtworkSha = artwork.ContentSha256;
+        }
+    }
+
+    /// <summary>
+    /// Applies one command the desktop itself issues and delivers what it produced to every paired
+    /// tablet: the desktop's own workspace changes, and its answers to a control request.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24] Follow has to mean something: a tablet mirrors the desktop only if the
+    /// desktop's own navigation reaches canonical state, which is what
+    /// <c>UpdateDesktopWorkspaceCommand</c> is for and what nothing called. The deliveries come back
+    /// through exactly the path a tablet's own command already uses.
+    /// </remarks>
+    public async Task<CommandDisposition> ApplyDesktopCommandAsync(
+        CompanionCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var application = await _authority.ApplyDesktopCommandAsync(command, Now(), cancellationToken).ConfigureAwait(false);
+        foreach (var delivery in application.Deliveries)
+        {
+            PairedSessionState? target;
+            lock (_gate)
+            {
+                target = _sessionsById.Values.FirstOrDefault(candidate => candidate.DeviceId == delivery.DeviceId);
+            }
+
+            if (target is not null)
+            {
+                await PublishDeliveryAsync(target, delivery, application.State.CanonicalState, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return application.Acknowledgement.Disposition;
     }
 
     public async Task ReconcileAsync(CompanionCommand command, CommandDisposition disposition, CancellationToken cancellationToken)

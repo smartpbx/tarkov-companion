@@ -3,12 +3,17 @@ using TarkovCompanion.GroupServer;
 namespace TarkovCompanion.UnitTests;
 
 /// <summary>
-/// The second screen, which is one embedded page.
+/// The second screen, which is one embedded page — and, since #407, one paired surface.
 /// </summary>
 /// <remarks>
 /// Embedded rather than copied beside the binary, so the failure this guards against is a
 /// deployment that serves an empty page because a file moved. It fails at startup instead, and
 /// these say so before a deployment does.
+///
+/// The rest of these are about what the page can reach. A tablet is only ever a companion paired
+/// to one desktop: the group-key half — its own name, a shared key, `/state` polling, posting
+/// `/waypoints` and `/pings`, and the relay's `/search` — is gone, and these fail if any of it
+/// comes back, whether by a revert or by somebody reaching for the shortest way to add a feature.
 /// </remarks>
 public sealed class TabletPageTests
 {
@@ -21,56 +26,91 @@ public sealed class TabletPageTests
     }
 
     [Fact]
-    public void ItReadsTheGroupWithoutJoiningIt()
+    public void ThereIsNoGroupKeyPathLeftToReach()
     {
-        // A second screen has nothing to contribute -- it is not in the raid -- so it reads
-        // rather than publishes. Posting to /state would put a phantom marker in the group and
-        // a phantom name in everybody's panel.
-        Assert.Contains("\"/state\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.DoesNotContain("method: \"POST\", body: JSON.stringify({ name", Tablet.Page, StringComparison.Ordinal);
+        // The standalone mode is what #407 removed: a tablet with a group key showed a second
+        // copy of the same information, in a different shape, with no map — and the desktop has
+        // to be running anyway to read the game's logs and screenshots.
+        Assert.DoesNotContain("X-Group-Key", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"/state\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("/waypoints", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("/pings", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("/landmarks", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("Group key", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ItSendsTheKeyAsTheHeaderTheServerReads()
+    public void ItemLookupsGoToThePairedDesktop()
     {
-        Assert.Contains("X-Group-Key", Tablet.Page, StringComparison.Ordinal);
+        // The relay's /search answers anybody holding a group key and knows nothing about the
+        // person's quests or hideout. The desktop has the catalogue and that context, so a search
+        // typed here drives the desktop's own search over the paired command path.
+        Assert.DoesNotContain("/search?q=", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("type: \"search\"", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ItDoesNotPretendToBeTheMap()
+    public void EverythingItReadsIsBoundToThePairedSession()
     {
-        // No artwork and no projection, so it says outright that it is a schematic. A plot of
-        // world coordinates presented as the map would send somebody to the wrong place.
-        Assert.Contains("A schematic, not the map", Tablet.Page, StringComparison.Ordinal);
+        // Both map resources are read with this session's own relay credential, never anonymously:
+        // a revoked device's credential stops authenticating, so it stops seeing the map too.
+        Assert.Contains("relayCall(\"/v2/companion/relay/map\")", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("relayCall(\"/v2/companion/relay/map/artwork\")", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("X-Relay-Credential", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ItCanTakeAMarkBackOffTheMap()
+    public void ItDrawsTheRealMapRatherThanASchematic()
     {
-        // The server has served DELETE /waypoints/{id} since the marks were written and no
-        // client had ever called it, so a plan could be added to and never corrected. The
-        // second screen is where a plan is most likely to be edited: it is the one screen
-        // somebody can reach without leaving the game.
-        Assert.Contains("method: \"DELETE\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("/waypoints/${id}", Tablet.Page, StringComparison.Ordinal);
+        // The schematic and the tap pad are both gone; the map is the surface. Objects are drawn
+        // against the plan rectangle the desktop sent, so a mark is in the same place on both.
+        Assert.DoesNotContain("A schematic, not the map", Tablet.Page, StringComparison.Ordinal);
+        Assert.DoesNotContain("tapPad", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("context.drawImage(artwork", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("This map has no reviewed 2D plan yet.", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void ClearingIsScopedToTheMapTheGroupIsOn()
+    public void AMarkFromTheTabletIsPlacedInThePlansOwnUnits()
     {
-        // Otherwise tidying after a Customs raid takes the plan somebody made for Lighthouse
-        // with it, and nothing anywhere would say that it had.
-        Assert.Contains("new URLSearchParams({ mapId })", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("reachedOnly", Tablet.Page, StringComparison.Ordinal);
+        // The tap pad sent 0-1 of a blank square, which put every mark from a tablet in the
+        // corner of the real map. A mark now carries plan coordinates and the desktop's own
+        // projection version, which is the same space its local marks are already stored in.
+        Assert.Contains("coordinateSpace: \"World\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("projectionVersion: live.surface.transformVersion", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void AnAnswerWithNoBodyIsNotReadAsAFailure()
+    public void AControlFrameDoesNotBounceBackAsAFollowUpdate()
     {
-        // Removing a mark is answered 200 with nothing in it. response.json() on an empty body
-        // throws, which would report a removal that worked as one that did not and leave the
-        // button disabled over it.
-        Assert.Contains("body ? JSON.parse(body) : null", Tablet.Page, StringComparison.Ordinal);
+        // A workspace change this tablet caused is broadcast back to it like any other. Applying
+        // it would fight the pan the person is still making, so it is dropped by its origin.
+        Assert.Contains("update.origin?.deviceId?.value === live.deviceId", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ControlIsAskedForRatherThanTaken()
+    {
+        // Entering Control is a request the desktop answers; only Follow and Independent are set
+        // directly. That is the reducer's own rule (SetInteractionModeCommand refuses Control).
+        Assert.Contains("\"requestControl\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("\"setInteractionMode\"", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ADesktopThatIsNotThereIsSaidSoPlainly()
+    {
+        Assert.Contains("The desktop is offline.", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheReviewedArtworksAttributionIsVisibleOnTheTablet()
+    {
+        // ADR 0015: source, licence and content hash travel with the artwork and are shown where
+        // it is drawn, not only on the desktop that fetched it.
+        Assert.Contains("item.sourceUri", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("item.licenseUri", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("item.contentSha256", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]
