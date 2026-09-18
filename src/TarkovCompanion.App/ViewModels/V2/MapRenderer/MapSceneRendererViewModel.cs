@@ -2440,8 +2440,17 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// <summary>Where to point the facing cone on screen; see <see cref="ConeFor"/>.</summary>
     public double ConeDegrees => _coneDegrees;
 
-    /// <summary>The V1 player/squadmate cone, drawn inside the 44px marker box.</summary>
-    public string ConeGeometry => "M 22,22 L 8,2 A 18,18 0 0 1 36,2 Z";
+    /// <summary>
+    /// The V1 player/squadmate cone, drawn inside the 44px marker box.
+    /// </summary>
+    /// <remarks>
+    /// The apex is at the centre of that box on purpose: it is the point the dot is drawn on and
+    /// the point the heading turns the cone about. The two only agree while the Path is given the
+    /// whole box — see MapPersonConeTests, and the note beside the Path in the view.
+    /// </remarks>
+    public const string PersonConeGeometry = "M 22,22 L 8,2 A 18,18 0 0 1 36,2 Z";
+
+    public string ConeGeometry => PersonConeGeometry;
 
     /// <summary>A host-chosen style for this marker (a squadmate's own colour), where there is one.</summary>
     public MapSceneObjectStyle? Style { get; }

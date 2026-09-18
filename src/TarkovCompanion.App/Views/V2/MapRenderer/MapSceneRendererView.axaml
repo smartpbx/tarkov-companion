@@ -455,7 +455,15 @@
                          it, and it turns with the recorded heading rather than with the marker. -->
                     <Panel>
                     <Panel IsVisible="{Binding IsPersonIcon}" Width="44" Height="44" IsHitTestVisible="False">
+                      <!-- [V2 rough package 46] The 44x44 box and Stretch="None" are what keep the
+                           cone on the dot. A Path with no size measures to its own geometry, which
+                           for this cone is 36 wide and 22 tall, so 50% of it was (18,11) and the
+                           turn swung the apex — written at (22,22), the centre of the marker box —
+                           away from the dot by up to 23px. Reported as the facing cones not being
+                           attached to anybody. V1 turns a Panel filling the same square, which is
+                           why V1 never showed it. -->
                       <Path Classes="v2-map-person-cone" Data="{Binding ConeGeometry}"
+                            Width="44" Height="44" Stretch="None"
                             RenderTransformOrigin="50%,50%">
                         <Path.RenderTransform>
                           <RotateTransform Angle="{Binding ConeDegrees}" />

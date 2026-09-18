@@ -13,5 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia.Headless" />
+    <!-- Package 46: the crop option magnifies one region of the frame, so a 44-pixel marker can be read. -->
+    <PackageReference Include="SkiaSharp" />
   </ItemGroup>
 </Project>

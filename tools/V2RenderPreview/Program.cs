@@ -631,6 +631,10 @@ internal static class Program
             }
 
             SaveFrame(window, outputPath, width, height);
+            if (StringOption(args, "--crop") is { } crop)
+            {
+                SaveCrop(window, outputPath, crop, IntOption(args, "--crop-scale", 4));
+            }
             rendered = true;
             return 0;
         }
@@ -959,6 +963,52 @@ internal static class Program
         }
 
         Console.WriteLine($"Saved {outputPath} ({width}x{height}).");
+    }
+
+    /// <summary>
+    /// [V2 rough package 46] One region of the frame, magnified, as its own file.
+    /// </summary>
+    /// <remarks>
+    /// A 1920x1080 render is read at about a third of its real size, which is enough to judge a
+    /// layout and not nearly enough to judge a 44-pixel marker. `--crop x,y,w,h` with an optional
+    /// `--crop-scale` writes `<out>.crop.png` alongside the full frame so a detail — a facing cone
+    /// sitting on its dot, say — can actually be looked at.
+    /// </remarks>
+    private static void SaveCrop(Window window, string outputPath, string region, int scale)
+    {
+        var parts = region.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 4 || !parts.All(part => int.TryParse(part, out _)))
+        {
+            throw new ArgumentException("--crop takes x,y,width,height in frame pixels.");
+        }
+
+        var (x, y, w, h) = (int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
+        using var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("The headless platform produced no frame.");
+        using var full = new MemoryStream();
+        frame.Save(full, new PngBitmapEncoderOptions());
+        full.Position = 0;
+        using var source = SkiaSharp.SKBitmap.Decode(full)
+            ?? throw new InvalidOperationException("The captured frame could not be decoded.");
+        var rect = SkiaSharp.SKRectI.Intersect(
+            new(x, y, x + w, y + h),
+            new(0, 0, source.Width, source.Height));
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            throw new ArgumentException($"--crop {region} is outside the {source.Width}x{source.Height} frame.");
+        }
+
+        using var cropped = new SkiaSharp.SKBitmap(rect.Width, rect.Height);
+        source.ExtractSubset(cropped, rect);
+        using var enlarged = cropped.Resize(
+            new SkiaSharp.SKImageInfo(rect.Width * scale, rect.Height * scale),
+            new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Nearest, SkiaSharp.SKMipmapMode.None))
+            ?? throw new InvalidOperationException("The crop could not be enlarged.");
+        var cropPath = Path.ChangeExtension(outputPath, ".crop.png");
+        using var data = enlarged.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        using var output = File.Create(cropPath);
+        data.SaveTo(output);
+        Console.WriteLine($"Saved {cropPath} ({rect.Width}x{rect.Height} at {scale}x).");
     }
 
     private static void Pump(int turns)
