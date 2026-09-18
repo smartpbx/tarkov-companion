@@ -1190,7 +1190,7 @@ public static class MapCanvasCoordinateMapper
     /// detail. That is the difference between Factory reading as a flat brown mass and reading
     /// as a floor plan.
     /// </remarks>
-    public const int MaximumTilesPerView = 256;
+    public const int MaximumTilesPerView = MapTilePlanner.MaximumTilesPerView;
 
     /// <summary>
     /// Picks the sharpest pyramid level that fits the tile budget.
@@ -1230,51 +1230,17 @@ public static class MapCanvasCoordinateMapper
             return null;
         }
 
-        // The level the loader actually fetched, not the pyramid's minimum. These must be the
-        // same number or every marker lands in a different coordinate space from the artwork.
-        if (renderModel.Background?.Kind == MapBackgroundKind.TileTemplate
-            && (renderModel.Background.TileZoom ?? variant.MinimumZoom) is { } zoom)
-        {
-            var plan = MapTilePlanner.Plan(variant, zoom, MaximumTilesPerView);
-            if (plan.IsValid)
-            {
-                var scale = Math.Pow(2, zoom);
-                return point => new(
-                    (point.X * scale) - plan.OriginPixelX,
-                    (point.Y * scale) - plan.OriginPixelY);
-            }
-        }
-
-        if (variant.Bounds?.IsValid != true)
-        {
-            return null;
-        }
-
-        var bounds = variant.SvgBounds ?? variant.Bounds;
-        var corners = new[]
-        {
-            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
-        };
-        var projected = corners.Select(corner =>
-        {
-            variant.Transform.TryProject(corner, out var point);
-            return point;
-        }).ToArray();
-        var minimumX = projected.Min(point => point.X);
-        var maximumX = projected.Max(point => point.X);
-        var minimumY = projected.Min(point => point.Y);
-        var maximumY = projected.Max(point => point.Y);
-        if (maximumX <= minimumX || maximumY <= minimumY)
+        // One rectangle for the artwork and for everything drawn on it (see MapPlanProjection).
+        // For tiles the canvas IS the tile grid, so this is the same arithmetic the mapper used
+        // to do inline; for the drawing it is the same normalized fit it has always done.
+        if (MapPlanProjection.For(renderModel) is not { IsValid: true } plan)
         {
             return null;
         }
 
         return point => new(
-            ((point.X - minimumX) / (maximumX - minimumX)) * canvasWidth,
-            ((point.Y - minimumY) / (maximumY - minimumY)) * canvasHeight);
+            ((point.X - plan.MinimumX) / plan.Width) * canvasWidth,
+            ((point.Y - plan.MinimumY) / plan.Height) * canvasHeight);
     }
 }
 

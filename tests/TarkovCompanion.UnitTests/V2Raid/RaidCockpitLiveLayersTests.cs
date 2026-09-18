@@ -250,8 +250,11 @@ public sealed class RaidCockpitLiveLayersTests
             256,
             null,
             null,
-            new(new(0, 0), new(100, 100)),
-            new(new(0, 0), new(100, 100)),
+            // World Z runs the other way from plan Y (the transform negates it), so the reviewed
+            // bounds have to run the other way too for the projected plan rectangle to be the
+            // 0-100 box this fixture's positions are written against.
+            new(new(0, 0), new(100, -100)),
+            new(new(0, 0), new(100, -100)),
             new(1, 0, 1, 0, 0),
             null,
             null,
