@@ -108,4 +108,70 @@ public sealed class ScreenshotFilenameParserTests
 
         Assert.Equal(90, heading, 6);
     }
+
+    /// <summary>
+    /// A OneDrive-synced folder can rewrite a file's write time to whenever it synced, hours
+    /// away from when the shot was actually taken. Read at 05:37Z off a name naming 21:37 local
+    /// (-8) on a live installation, the write time then disagreed with the name by eight hours
+    /// and every position that arrived was stamped hours in the future.
+    /// </summary>
+    [Fact]
+    public void KeepsTheNamesTimeWhenTheFilesTimeDisagreesByHours()
+    {
+        var parser = new ScreenshotFilenameParser();
+        var directory = Directory.CreateTempSubdirectory("tarkov-screenshot-drift");
+        try
+        {
+            var path = Path.Combine(
+                directory.FullName,
+                "2026-09-16[21-37]_80.02, 1.39, -51.06_-0.00242, 0.84404, 0.00393, 0.53626_9.91 (0).png");
+            File.WriteAllBytes(path, [0]);
+            // The name says 2026-09-17T05:37:00Z (21:37 local at -8); a sync artifact eight
+            // hours later is nothing like a filesystem stamping the file it just wrote.
+            File.SetLastWriteTimeUtc(path, new DateTime(2026, 9, 17, 13, 37, 0, DateTimeKind.Utc));
+
+            Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-8), out var position));
+            Assert.NotNull(position);
+            Assert.Equal(new DateTimeOffset(2026, 9, 17, 5, 37, 0, TimeSpan.Zero), position.Timestamp);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Neither clock is allowed to place a screenshot in the future: it would sit ahead of
+    /// every real position that follows it and hold the raid's "last seen" time ahead of now
+    /// until real time caught up.
+    /// </summary>
+    [Fact]
+    public void NeverReportsAPositionInTheFuture()
+    {
+        var now = new DateTimeOffset(2026, 9, 17, 2, 25, 0, TimeSpan.Zero);
+        var parser = new ScreenshotFilenameParser(new FakeTimeProvider(now));
+        var directory = Directory.CreateTempSubdirectory("tarkov-screenshot-future");
+        try
+        {
+            var path = Path.Combine(
+                directory.FullName,
+                "2026-09-16[21-37]_80.02, 1.39, -51.06_-0.00242, 0.84404, 0.00393, 0.53626_9.91 (0).png");
+            File.WriteAllBytes(path, [0]);
+            // Close enough to the name to be trusted, but still three hours ahead of "now".
+            File.SetLastWriteTimeUtc(path, new DateTime(2026, 9, 17, 5, 37, 34, DateTimeKind.Utc));
+
+            Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-8), out var position));
+            Assert.NotNull(position);
+            Assert.Equal(now, position.Timestamp);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    private sealed class FakeTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 }

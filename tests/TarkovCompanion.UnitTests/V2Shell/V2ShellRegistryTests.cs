@@ -21,7 +21,7 @@ public sealed class V2ShellRegistryTests
         Assert.Equal(
             [
                 "home", "raid", "raid.loot", "items", "items.ammo", "items.keys", "items.flea", "item", "stash",
-                "plan", "plan.hideout", "plan.loadout", "plan.events", "team", "team.group", "team.tablet",
+                "plan", "plan.hideout", "plan.keep", "plan.loadout", "plan.events", "team", "team.group", "team.tablet",
                 "debrief", "setup",
             ],
             V2RouteRegistry.Default.Routes.Select(route => route.Id.Value));
@@ -171,7 +171,7 @@ public sealed class V2ShellRegistryTests
             [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Stash],
             registry.VisibleSections(V2ShellVariants.A, V2Routes.Items).Select(route => route.Id));
         Assert.Equal(
-            [V2Routes.Plan, V2Routes.Hideout, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],
+            [V2Routes.Plan, V2Routes.Hideout, V2Routes.Keep, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],
             registry.VisibleSections(V2ShellVariants.B, V2Routes.Plan).Select(route => route.Id));
         Assert.Equal(
             [V2Routes.Team, V2Routes.Group, V2Routes.Tablet],
