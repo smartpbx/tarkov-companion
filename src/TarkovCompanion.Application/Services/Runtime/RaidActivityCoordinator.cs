@@ -88,6 +88,9 @@ public sealed class RaidActivityCoordinator(
     /// </remarks>
     private LoadTimeObservation? _pendingLoadTime;
 
+    /// <summary>How long after MatchingCompleted a raid may start and still be the one it timed.</summary>
+    private static readonly TimeSpan MaximumLoadTimeAge = TimeSpan.FromMinutes(5);
+
     /// <summary>Raised when durable raid-history delivery health changes.</summary>
     public event EventHandler? OutboxChanged
     {
@@ -483,7 +486,11 @@ public sealed class RaidActivityCoordinator(
         {
             // The queue/load time rides on the state event that begins the raid, because that
             // event already has a durable route and a new command kind would need a schema change.
-            if (previous.RaidId != raidId && Interlocked.Exchange(ref _pendingLoadTime, null) is { } loadTime)
+            // Taken (and cleared) on every raid start, but only carried if it is recent: a match
+            // whose raid never began (queue cancelled, game closed) must not label a later raid.
+            if (previous.RaidId != raidId
+                && Interlocked.Exchange(ref _pendingLoadTime, null) is { } loadTime
+                && evidence.ObservedUtc - loadTime.ObservedUtc <= MaximumLoadTimeAge)
             {
                 evidence = evidence with { LoadSeconds = loadTime.RealSeconds };
             }

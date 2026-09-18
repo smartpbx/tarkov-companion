@@ -119,6 +119,26 @@ public sealed class RaidActivityCoordinatorTests
         Assert.Contains("\"LoadSeconds\":25.02", history.Payloads[^1]);
     }
 
+    /// <summary>A match whose raid never began must not label a raid that starts hours later.</summary>
+    [Fact]
+    public async Task AStaleLoadTimeIsDiscardedRatherThanCarriedToALaterRaid()
+    {
+        var history = new RecordingRaidHistory();
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            history,
+            new StubProfileService(),
+            Store());
+
+        await coordinator.RecordLoadTimeAsync(new(25.02, DateTimeOffset.UnixEpoch), CancellationToken.None);
+        await coordinator.ApplyEvidenceAsync(
+            InRaid() with { ObservedUtc = DateTimeOffset.UnixEpoch.AddHours(3) },
+            CancellationToken.None);
+
+        Assert.Equal(["start", "state"], history.Calls);
+        Assert.DoesNotContain("LoadSeconds\":25", history.Payloads[^1]);
+    }
+
     /// <summary>A load time with no raid ever following it is never written.</summary>
     [Fact]
     public async Task ALoadTimeWithNoRaidFollowingItIsNeverRecorded()
