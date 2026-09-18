@@ -69,7 +69,7 @@ its key in cleartext (`RISK-RELAY-KEY-DISCLOSURE`).
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
-| `POST` | `/state` | Publish yourself, receive everyone else and the group's marks |
+| `POST` | `/state` | Publish yourself, receive everyone else and the group's marks; `?wait=&since=` holds the answer until the room changes |
 | `GET` | `/state` | Read the room without joining it, for the second screen |
 | `DELETE` | `/state/{name}` | Leave immediately rather than timing out |
 | `POST` | `/waypoints` | Mark a place for the group; it stays until cleared |
@@ -88,6 +88,37 @@ somebody types a key into it.
 
 One exchange does both halves, so there is no connection to hold open and no subscription to
 leak. A companion that is not running sends nothing and therefore shows nothing.
+
+## Holding an exchange open
+
+`POST /state` takes two optional query values, and nothing else about it changed:
+
+| Value | Meaning |
+| --- | --- |
+| `wait` | Seconds the caller will wait for the room to change. Capped at 20 by the server. |
+| `since` | The `revision` the caller got from its previous answer. |
+
+Given both, the server publishes the caller as usual and then keeps the answer back until the
+room changes or the wait runs out. Given neither — or either alone — it answers immediately, byte
+for byte as it always did, so a build that predates this keeps working against a relay that does
+not, and against one that does.
+
+The answer carries a `revision`. It counts changes made by **everybody but the caller**, so a
+member's own publish cannot be what ends their own hold; otherwise every wait would finish on the
+request that started it. A client that never sees a `revision` is talking to an older relay and
+keeps to its own five-second tick.
+
+Bounds: at most 20 seconds a hold, at most 256 held at once across the whole relay (past that a
+caller is answered immediately rather than refused), and a hold ends the moment the caller
+disconnects. A held request costs a socket and a continuation, not a thread. When it answers it
+writes one room: measured at **4.4 KB for a five-member squad** and **76 KB for sixteen members
+with every publishable field at its documented ceiling**, which nothing real sends
+(`GroupRoomChangesTests.AHeldExchangeEndsBySendingOneSmallPage`).
+
+Why: a squadmate's position comes out of a screenshot filename and is a few hundred bytes. The
+delay between taking the screenshot and the marker moving on everybody else's map was three fixed
+waits — the sender's watcher, the sender's publish tick, and the reader's tick — and this removes
+the third. Measured end to end at 0.70 s median and 1.28 s at p95, against 5.2 s median before.
 
 ## Marks
 
