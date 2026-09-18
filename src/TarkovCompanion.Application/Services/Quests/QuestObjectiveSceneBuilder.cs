@@ -107,14 +107,16 @@ public sealed class QuestObjectiveSceneBuilder
         var sequence = 0;
         foreach (var group in projections.GroupBy(projection => projection.ObjectiveId, StringComparer.Ordinal))
         {
-            sequence++;
-            var number = numberFor?.Invoke(group.Key) ?? sequence.ToString(CultureInfo.InvariantCulture);
             // json.tarkov.dev lists the very same zone twice for 77 objectives (Customs' dorm room
             // 214 is one), and drawing both would stack two identical areas and call them "2 areas".
             var placed = group
                 .Where(item => item.HasExactGeometry && item.Points.Count > 0)
                 .DistinctBy(item => $"{item.ZoneId}|{string.Join(';', item.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}")
                 .ToArray();
+            // Only what is on the map is numbered, so the numbers on it run one, two, three with
+            // no gap where an objective that has no place would have been.
+            var number = numberFor?.Invoke(group.Key) ??
+                (placed.Length == 0 ? string.Empty : (++sequence).ToString(CultureInfo.InvariantCulture));
             var first = group.First();
             var objective = first.Source ?? FromProjection(first);
             if (placed.Length == 0)
@@ -141,7 +143,7 @@ public sealed class QuestObjectiveSceneBuilder
                     ? QuestObjectivePlacement.Area
                     : QuestObjectivePlacement.Point;
             var floorIds = FloorIdsOf(placed, floors);
-            var floorNames = FloorNamesOf(floorIds, floors);
+            var floorNames = FloorNamesOf(placed, floors);
             var label = PlacementLabelFor(placement, placed.Length);
             var detail = DetailFor(objective, label, floorNames);
             var ids = new List<MapSceneObjectId>();
@@ -300,16 +302,66 @@ public sealed class QuestObjectiveSceneBuilder
               (extent.MaximumHeight is null || span.Minimum < extent.MaximumHeight);
 
     /// <summary>
-    /// The named floors an objective is on. A floor with no extents claims everything (the
-    /// ground plan), so it is not an answer to "which floor" and is left out: an objective in a
-    /// dorm room is on the 2nd Floor, and one in a field on none of them.
+    /// The upper floors an objective is on, named for the player. The floor the plan opens on
+    /// claims every height and is no answer to "which floor", so it is left out: an objective in a
+    /// dorm room is on the 2nd Floor, and one in a field is on none of them.
     /// </summary>
-    private static IReadOnlyList<string> FloorNamesOf(IReadOnlyList<string> floorIds, IReadOnlyList<MapFloorDefinition> floors) => floors.Count <= 1
-        ? []
-        : floors
-            .Where(floor => floor.Extents.Count > 0 && floorIds.Contains(floor.Id, StringComparer.OrdinalIgnoreCase))
-            .Select(floor => floor.Name)
-            .ToArray();
+    /// <remarks>
+    /// Decided at the zone's middle rather than over its whole span. A trigger volume thirty metres
+    /// tall (Interchange's exits) overlaps every floor and is drawn on each of them, but it is not
+    /// "on the 2nd and 3rd floors" in any sense a player means.
+    /// </remarks>
+    private static IReadOnlyList<string> FloorNamesOf(
+        IReadOnlyList<QuestMapObjectiveProjection> placed,
+        IReadOnlyList<MapFloorDefinition> floors)
+    {
+        var names = new List<string>();
+        foreach (var item in placed)
+        {
+            if (item.Zone is not { } zone || MiddleOf(zone) is not { } middle)
+            {
+                continue;
+            }
+
+            foreach (var floor in floors)
+            {
+                if (string.Equals(floor.Id, BaseFloorId, StringComparison.OrdinalIgnoreCase) ||
+                    floor.Extents.Count == 0 ||
+                    names.Contains(floor.Name, StringComparer.Ordinal))
+                {
+                    continue;
+                }
+
+                if (floor.Extents.Any(extent => extent.Contains(middle)))
+                {
+                    names.Add(floor.Name);
+                }
+            }
+        }
+
+        return names;
+    }
+
+    private const string BaseFloorId = "base";
+
+    /// <summary>Where a zone is: its position, or the middle of its outline, at its own height.</summary>
+    private static WorldPosition? MiddleOf(QuestObjectiveZone zone)
+    {
+        if (zone.Position is { } position)
+        {
+            return position;
+        }
+
+        if (zone.Outline.Count == 0)
+        {
+            return null;
+        }
+
+        return new(
+            zone.Outline.Average(point => point.X),
+            zone.Outline.Average(point => point.Y),
+            zone.Outline.Average(point => point.Z));
+    }
 
     private static (double Minimum, double Maximum)? HeightsOf(QuestObjectiveZone zone)
     {

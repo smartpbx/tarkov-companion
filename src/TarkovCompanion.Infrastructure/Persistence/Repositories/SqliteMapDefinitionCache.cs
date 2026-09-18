@@ -132,7 +132,10 @@ public sealed class SqliteMapDefinitionCache(
             [],
             extracts,
             null,
-            provenance);
+            provenance)
+        {
+            GameId = storedId,
+        };
     }
 
     private static async Task<IReadOnlyList<MapExtract>> LoadExtractsAsync(

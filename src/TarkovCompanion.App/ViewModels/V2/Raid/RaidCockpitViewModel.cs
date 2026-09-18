@@ -13,8 +13,10 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
@@ -195,6 +197,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
     private readonly MapSceneRendererPresentation _presentation;
+    private readonly IWikiLinkOpener? _wikiOpener;
 
     private long _revision;
     private CancellationTokenSource? _rebuildCancellation;
@@ -210,6 +213,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private CachedMapAsset? _cachedAsset;
     private string? _backgroundSha;
     private Bitmap? _backgroundImage;
+    private QuestObjectiveScene _questScene = QuestObjectiveScene.Empty;
+    private string? _selectedObjectiveId;
+    private string _objectiveSignature = string.Empty;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -226,7 +232,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // V2 rough package 20: so the marks list can offer "Remove" on a group waypoint or ping
         // too, instead of only on our own. Optional: a cockpit built without one simply lists no
         // group marks, which is what the unit tests and the map gallery want.
-        GroupSessionService? groupSession = null)
+        GroupSessionService? groupSession = null,
+        // [Package 35] Opens the wiki page of the quest a selected objective belongs to, in the
+        // player's browser. Optional: without one the link is simply not offered.
+        IWikiLinkOpener? wikiOpener = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
@@ -236,6 +245,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         ArgumentNullException.ThrowIfNull(traffic);
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
+        _wikiOpener = wikiOpener;
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
@@ -257,6 +267,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         ToggleArtworkCommand = new DelegateCommand(() => _ = _map.ToggleArtworkAsync());
         ToggleHideControlsCommand = new DelegateCommand(() => _ = _map.ToggleHideControlsWhenIdleAsync());
         FrameAreaCommand = new DelegateCommand(FrameArea);
+        ClearObjectiveCommand = new DelegateCommand(ClearObjectiveSelection);
         UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
 
         _map.PropertyChanged += MapPropertyChanged;
@@ -400,6 +411,37 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool HasQuestPanel => _map.HasQuestPanel;
 
+    // ---------------------------------------------------------------------------------------
+    // [Package 35] Quest objectives on the plan. The scene objects come from the one builder the
+    // Plan workspace uses too, and these are the same objectives as a list: numbered like their
+    // markers, with the ones that have no place on the map said to have none.
+    // ---------------------------------------------------------------------------------------
+
+    /// <summary>Every objective the map's quests ask for here, the placed ones first and in marker order.</summary>
+    public IReadOnlyList<RaidObjectiveRowViewModel> QuestObjectives { get; private set; } = [];
+
+    public bool HasQuestObjectives => QuestObjectives.Count > 0;
+
+    /// <summary>"3 on the plan · 2 with no location".</summary>
+    public string QuestObjectiveSummary
+    {
+        get
+        {
+            var placed = QuestObjectives.Count(row => row.IsPlaced);
+            var unplaced = QuestObjectives.Count - placed;
+            return unplaced == 0
+                ? string.Create(CultureInfo.CurrentCulture, $"{placed:N0} on the plan")
+                : string.Create(CultureInfo.CurrentCulture, $"{placed:N0} on the plan · {unplaced:N0} with no location");
+        }
+    }
+
+    /// <summary>The objective selected on the plan or in the list, and what it is.</summary>
+    public RaidObjectiveDetailViewModel? SelectedObjective { get; private set; }
+
+    public bool HasSelectedObjective => SelectedObjective is not null;
+
+    public ICommand ClearObjectiveCommand { get; }
+
     public IReadOnlyList<LootPanelViewModel> LootPanel => _map.LootPanel;
 
     public bool HasLootPanel => _map.HasLootPanel;
@@ -540,6 +582,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
+            renderer.PropertyChanged -= RendererPropertyChanged;
         }
 
         _rebuildCancellation?.Cancel();
@@ -747,6 +790,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         nameof(MapViewModel.ShowsGroupNames),
         nameof(MapViewModel.SelectedFloor),
         nameof(MapViewModel.Overlays),
+        nameof(MapViewModel.QuestSceneProjection),
     };
 
     private void MapPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1112,13 +1156,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // [V2 rough package 22] You, your trail, the squad and where you have been before.
         var live = BuildLiveLayers(model, nowUtc);
         _objectStyles = live.Styles;
+        _questScene = BuildQuestScene(_map.QuestSceneProjection, model, nowUtc);
         // The renderer requires the scene to already declare the exact loot layer it is handed
         // beside it (see EnsureHighValueLootMatchesScene), so the loot layer and its objects are
         // merged in here rather than attached only through the constructor/Present overload.
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).ToArray();
-        var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).ToArray();
+        var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects).ToArray();
 
         // The floor the plan is drawn on is V1's, because V1 is what fetches the artwork for it
         // and what an automatic floor change (AutoSelectsFloor) moves. The renderer's own
@@ -1183,6 +1228,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 styleResolver: StyleFor);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
+            renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
             OnPropertyChanged(nameof(Renderer));
         }
@@ -1206,6 +1252,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         RefreshSceneLists(scene);
+        RefreshObjectives();
         SceneRebuilt?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1323,6 +1370,113 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             },
             item.OfferState))
         .ToArray();
+
+    /// <summary>
+    /// The objectives the selected map's quests ask for, as scene objects and as the entries that
+    /// explain them. Empty until the quest layer has been read for this very map and artwork: a
+    /// projection made for another variant carries another variant's transform.
+    /// </summary>
+    internal static QuestObjectiveScene BuildQuestScene(
+        QuestMapProjectionReadModel? projection,
+        MapRenderModel model,
+        DateTimeOffset nowUtc) =>
+        projection is not null &&
+        string.Equals(projection.LocationId, model.Location.Id, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(projection.VariantKey, model.Variant.Key, StringComparison.OrdinalIgnoreCase)
+            ? new QuestObjectiveSceneBuilder().Build(projection.Objectives, model.Floors, null, nowUtc)
+            : QuestObjectiveScene.Empty;
+
+    private void RefreshObjectives()
+    {
+        var entries = _questScene.Entries;
+        if (_selectedObjectiveId is not null && entries.All(entry => entry.ObjectiveId != _selectedObjectiveId))
+        {
+            _selectedObjectiveId = null;
+        }
+
+        var signature = string.Join('|', entries.Select(entry => string.Join(
+            ':',
+            entry.ObjectiveId,
+            entry.Number,
+            entry.PlacementLabel,
+            entry.FloorLabel,
+            entry.Objective.TaskState,
+            entry.Objective.ObjectiveState,
+            entry.Objective.RecordedCount,
+            entry.Objective.IsTaskPinned,
+            entry.Objective.IsObjectivePinned))) + "#" + _selectedObjectiveId;
+        if (signature == _objectiveSignature)
+        {
+            return;
+        }
+
+        _objectiveSignature = signature;
+        QuestObjectives = entries
+            .OrderBy(entry => entry.IsPlaced ? 0 : 1)
+            .Select(entry => new RaidObjectiveRowViewModel(entry, SelectObjective)
+            {
+                IsSelected = entry.ObjectiveId == _selectedObjectiveId,
+            })
+            .ToArray();
+        SelectedObjective = entries.FirstOrDefault(entry => entry.ObjectiveId == _selectedObjectiveId) is { } selected
+            ? new RaidObjectiveDetailViewModel(selected, _map.NameOfItem, uri => _wikiOpener?.TryOpen(uri) == true, ClearObjectiveSelection)
+            : null;
+        OnPropertyChanged(nameof(QuestObjectives));
+        OnPropertyChanged(nameof(HasQuestObjectives));
+        OnPropertyChanged(nameof(QuestObjectiveSummary));
+        OnPropertyChanged(nameof(SelectedObjective));
+        OnPropertyChanged(nameof(HasSelectedObjective));
+    }
+
+    /// <summary>
+    /// Selects an objective from its row: shows what it is, marks it on the plan where it has a
+    /// place that is on the floor being shown, and brings the plan to it.
+    /// </summary>
+    private void SelectObjective(string objectiveId)
+    {
+        _selectedObjectiveId = objectiveId;
+        if (Renderer is { } renderer &&
+            _questScene.Entries.FirstOrDefault(entry => entry.ObjectiveId == objectiveId) is { } entry)
+        {
+            var visible = renderer.Scene.VisibleObjects;
+            var marker = entry.ObjectIds
+                .Select(id => visible.FirstOrDefault(item => item.Id == id && item.Geometry.Kind == MapSceneGeometryKind.Point))
+                .FirstOrDefault(item => item is not null);
+            if (marker is not null)
+            {
+                renderer.SelectObject(marker.Id);
+                renderer.FocusOn(marker.Geometry.Points[0], 2);
+            }
+        }
+
+        RefreshObjectives();
+    }
+
+    private void ClearObjectiveSelection()
+    {
+        _selectedObjectiveId = null;
+        Renderer?.ClearSelection();
+        RefreshObjectives();
+    }
+
+    /// <summary>Following the plan: selecting an objective's marker on it selects the objective here.</summary>
+    private void RendererPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(MapSceneRendererViewModel.SelectedObject) ||
+            Renderer?.SelectedObject?.SceneObject is not { } selected)
+        {
+            return;
+        }
+
+        var objectiveId = _questScene.EntryFor(selected.Id)?.ObjectiveId;
+        if (objectiveId == _selectedObjectiveId)
+        {
+            return;
+        }
+
+        _selectedObjectiveId = objectiveId;
+        RefreshObjectives();
+    }
 
     private void RefreshSceneLists(MapSceneSnapshot scene)
     {
