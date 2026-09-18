@@ -84,7 +84,11 @@ public sealed class V2ShellHostContractTests
         var raid = File.ReadAllText(V2ShellTestData.RepositoryPath(
             "src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"));
 
-        Assert.Contains("IsVisible=\"{Binding ShowsMarkerIcon}\"", map, StringComparison.Ordinal);
+        // V2 rough package 22: the glyph chip is now ShowsGlyphIcon, because a person on the
+        // plan (you, a squadmate) is drawn as a dot with a facing cone instead of a chip.
+        Assert.Contains("IsVisible=\"{Binding ShowsGlyphIcon}\"", map, StringComparison.Ordinal);
+        Assert.Contains("IsVisible=\"{Binding IsPersonIcon}\"", map, StringComparison.Ordinal);
+        Assert.Contains("Data=\"{Binding ConeGeometry}\"", map, StringComparison.Ordinal);
         Assert.Contains("{DynamicResource V2.Icon.Exit}", map, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding HasMarkerNumber}\"", map, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding FactionGlyph}\"", map, StringComparison.Ordinal);
