@@ -172,6 +172,17 @@ public sealed class MapSceneRendererPresentation
             ["Map.Mode.InteriorUnsupported"] = "Reviewed 3D rendering is not available in this renderer. Use the 2D plan.",
             ["Map.Mode.Unavailable"] = "{0} is unavailable. {1}",
             ["Map.Floor.Unavailable"] = "That floor is not available in this map.",
+            // V2 rough package 39: the floor ladder, the stack's own readout, and the layer
+            // switches that now carry a count.
+            ["Map.Floor.Position"] = "Floor {0} of {1}",
+            ["Map.Action.FloorUp"] = "Up a floor",
+            ["Map.Action.FloorDown"] = "Down a floor",
+            ["Map.Stack.Floors"] = "Stacked · {0} floors",
+            ["Map.Stack.Partial"] = "Stacked · {0} of {1} floors have artwork",
+            ["Map.Stack.NoArtwork"] = "Stacked · no floor artwork loaded, showing one floor",
+            ["Map.Layer.Count"] = "{0} {1}",
+            ["Map.Layer.Empty"] = "{0} · none",
+            ["Map.Layer.NothingToShow"] = "Nothing to show",
             ["Map.Layer.Unavailable"] = "That layer is no longer available.",
             ["Map.Change.Pending"] = "Waiting for the shared map to confirm the previous change.",
             ["Map.Background.Bounds"] = "The reviewed scene bounds are too large to project safely. Spatial references are withheld.",

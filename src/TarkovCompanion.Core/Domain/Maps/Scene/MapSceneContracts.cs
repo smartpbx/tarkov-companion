@@ -450,7 +450,8 @@ public sealed record MapSceneAsset
         string mapVersion,
         string gameVersion,
         MapSceneAssetReviewStatus reviewStatus,
-        DateTimeOffset reviewedUtc)
+        DateTimeOffset reviewedUtc,
+        string? floorId = null)
     {
         ArgumentNullException.ThrowIfNull(sourceUri);
         ArgumentNullException.ThrowIfNull(licenseUri);
@@ -486,6 +487,7 @@ public sealed record MapSceneAsset
         GameVersion = Required(gameVersion, nameof(gameVersion));
         ReviewStatus = reviewStatus;
         ReviewedUtc = reviewedUtc;
+        FloorId = string.IsNullOrWhiteSpace(floorId) ? null : floorId;
     }
 
     public MapSceneAssetId Id { get; }
@@ -507,6 +509,18 @@ public sealed record MapSceneAsset
     public MapSceneAssetReviewStatus ReviewStatus { get; }
 
     public DateTimeOffset ReviewedUtc { get; }
+
+    /// <summary>
+    /// The floor this artwork draws, for a scene whose floors are drawn as a stack.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Null for the one picture a flat map draws, which is every scene
+    /// that came before this. A stacked map declares one <see cref="MapSceneAssetKind.Floor2D"/>
+    /// asset per floor and names the floor on it, because a renderer holding several pictures of
+    /// one map has no other way to say which floor each belongs to — and a paired device
+    /// receiving the scene needs the same answer.
+    /// </remarks>
+    public string? FloorId { get; }
 
     public bool IsRenderable => ReviewStatus == MapSceneAssetReviewStatus.Reviewed;
 
