@@ -116,11 +116,13 @@ public sealed class V2RouteRegistry
         // the V1 Items page; the item route draws the same workspace with that item selected.
         new(V2Routes.Items, [V2Capabilities.ItemSearch], V2RouteContent.IntelWorkspace, "V2.Shell.Route.Items",
             UsesGameData: true),
-        new(V2Routes.Ammo, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Ammo", "Ammo",
+        // V2 rough package 28 (parity): Ammo, Keys and Flea are native workspaces over the V1
+        // pages' own view models rather than passthroughs to V1's chrome.
+        new(V2Routes.Ammo, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Ammo",
             Parent: V2Routes.Items, UsesGameData: true),
-        new(V2Routes.Keys, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Keys", "Keys",
+        new(V2Routes.Keys, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Keys",
             Parent: V2Routes.Items, UsesGameData: true),
-        new(V2Routes.Flea, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Flea", "Flea",
+        new(V2Routes.Flea, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Flea",
             Parent: V2Routes.Items, UsesGameData: true),
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),

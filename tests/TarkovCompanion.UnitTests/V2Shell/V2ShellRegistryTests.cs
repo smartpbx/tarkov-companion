@@ -72,6 +72,19 @@ public sealed class V2ShellRegistryTests
     }
 
     [Fact]
+    public void AmmoKeysAndFleaHostNativeWorkspacesUnderIntelRatherThanTheLegacyPages()
+    {
+        var registry = V2RouteRegistry.Default;
+
+        foreach (var route in new[] { V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea })
+        {
+            Assert.Equal(V2RouteContent.Workspace, registry[route].Content);
+            Assert.Null(registry[route].LegacyPage);
+            Assert.Equal(V2Routes.Items, registry[route].Parent);
+        }
+    }
+
+    [Fact]
     public void Both_variants_expose_every_capability_and_the_same_ones()
     {
         var registry = V2RouteRegistry.Default;
