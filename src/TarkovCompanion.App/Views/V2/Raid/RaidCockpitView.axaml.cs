@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Views.V2.Raid;
@@ -31,11 +32,19 @@ public sealed partial class RaidCockpitView : UserControl
         _idleTimer.Tick += IdleElapsed;
     }
 
-    private void RendererPlanClicked(object? sender, MapScenePoint point)
+    /// <summary>
+    /// A right-click on bare map: a ping, or a waypoint when Shift is held.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] There is nothing to arm any more. The renderer raises this only when
+    /// the gesture hit no object — anything under the pointer is a removal instead — so this and
+    /// <see cref="RendererMarkerRightClicked"/> cannot both fire for one press.
+    /// </remarks>
+    private void RendererPlanRightClicked(object? sender, MapPlanGesture gesture)
     {
         if (DataContext is RaidCockpitViewModel cockpit)
         {
-            cockpit.PlaceArmedMarkAt(point);
+            cockpit.PlaceMarkAt(gesture.Point, RaidCockpitViewModel.MarkKindFor(gesture.IsSecondary));
         }
     }
 

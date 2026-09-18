@@ -175,7 +175,8 @@
                own DataContext is overridden to Renderer below, and a binding on the same element
                would resolve against that override instead of this page's view model. -->
           <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-            <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked"
+            <map:MapSceneRendererView DataContext="{Binding Renderer}"
+                                       PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
           <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}" Margin="16"
@@ -318,30 +319,6 @@
                 </StackPanel>
               </StackPanel>
             </Border>
-            <TextBlock Classes="v2-label" Text="Click the map to place it"
-                       IsVisible="{Binding IsPlacingMark}" />
-            <StackPanel Orientation="Horizontal" Spacing="8"
-                        AutomationProperties.AccessibilityView="Control"
-                        AutomationProperties.Name="Raid map controls">
-              <ToggleButton Classes="v2-target v2-icon-btn" Command="{Binding PlacePingCommand}"
-                            IsChecked="{Binding IsPlacingPing, Mode=OneWay}"
-                            AutomationProperties.AutomationId="v2-raid-place-ping"
-                            AutomationProperties.Name="Ping" ToolTip.Tip="Ping a spot">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Target}" />
-              </ToggleButton>
-              <ToggleButton Classes="v2-target v2-icon-btn" Command="{Binding PlaceWaypointCommand}"
-                            IsChecked="{Binding IsPlacingWaypoint, Mode=OneWay}"
-                            AutomationProperties.AutomationId="v2-raid-place-waypoint"
-                            AutomationProperties.Name="Waypoint" ToolTip.Tip="Add a waypoint">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pin}" />
-              </ToggleButton>
-              <Button Classes="v2-target v2-icon-btn" Command="{Binding CancelPlacingCommand}"
-                      IsVisible="{Binding IsPlacingMark}"
-                      AutomationProperties.AutomationId="v2-raid-cancel-placing"
-                      AutomationProperties.Name="Cancel" ToolTip.Tip="Cancel">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Close}" />
-              </Button>
-            </StackPanel>
           </StackPanel>
         </Grid>
       </Border>
@@ -628,7 +605,7 @@
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Marks" />
               <TextBlock Classes="v2-label" IsVisible="{Binding !HasMarks}"
-                         Text="No marks yet. Arm Ping or Waypoint, then click the map." TextWrapping="Wrap" />
+                         Text="No marks yet. Right-click the map to ping, shift+right-click for a waypoint, right-click a mark to remove it." TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Marks}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>

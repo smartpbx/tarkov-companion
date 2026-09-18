@@ -246,7 +246,6 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private long _revision;
     private CancellationTokenSource? _rebuildCancellation;
     private HighValueLootLayerFilterState _lootFilter = HighValueLootLayerFilterState.Default;
-    private RaidMarkKind? _armedMarkKind;
     private string _unavailableReason = "Loading the map…";
     private string? _cachedAssetVariantKey;
     private string? _modelFloorId;
@@ -337,9 +336,6 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         RebuildMapPicker();
         RebuildArtworkVariants();
 
-        PlaceWaypointCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Waypoint));
-        PlacePingCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Ping));
-        CancelPlacingCommand = new DelegateCommand(() => ArmMark(null));
 
         // [V2 rough package 22] Every one of these is V1's own behaviour on V1's own view model.
         // The cockpit owns where the control sits, not what pressing it means.
@@ -652,18 +648,6 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public ICommand RemoveMarkCommand => _map.RemoveMarkCommand;
 
-    public ICommand PlaceWaypointCommand { get; }
-
-    public ICommand PlacePingCommand { get; }
-
-    public ICommand CancelPlacingCommand { get; }
-
-    public bool IsPlacingWaypoint => _armedMarkKind == RaidMarkKind.Waypoint;
-
-    public bool IsPlacingPing => _armedMarkKind == RaidMarkKind.Ping;
-
-    public bool IsPlacingMark => _armedMarkKind is not null;
-
     /// <summary>
     /// Package 29 (parity): V1's replay of a past raid, which Debrief's "Watch on map" opens. The map
     /// draws it already (the cockpit reads the same map view model); this is what steps and closes it.
@@ -720,24 +704,38 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public bool HasSpawnAreas => SpawnAreas.Count > 0;
 
     /// <summary>
-    /// The host calls this from a plan click while a mark tool is armed. It is a no-op
-    /// otherwise, so wiring it unconditionally to <c>MapSceneRendererView.PlanClicked</c> is
-    /// always safe.
+    /// Drops a mark where the gesture landed.
     /// </summary>
-    public void PlaceArmedMarkAt(MapScenePoint point)
+    /// <remarks>
+    /// [V2 rough package 46] Reported as the ping and waypoint buttons being too much work: a
+    /// right-click should drop a ping and shift+right-click a waypoint. So there is no armed
+    /// state any more — the gesture carries which mark it means, and the two round buttons that
+    /// used to arm one went with it, along with the sentence that explained them.
+    ///
+    /// The host only calls this for a gesture that hit bare map. Something under the pointer is
+    /// a removal instead, and the renderer raises exactly one of the two events per gesture, so
+    /// the press that removes a mark can never also place one on top of it.
+    /// </remarks>
+    public void PlaceMarkAt(MapScenePoint point, RaidMarkKind kind)
     {
-        if (_armedMarkKind is not { } kind || _map.RenderModel is not { } model)
+        if (_map.RenderModel is not { } model)
         {
             return;
         }
 
-        var kindToPlace = kind;
         // The floor the mark belongs on is whichever one the V2 renderer is showing, not
         // whatever the V1 map last had selected — the two floor selections are independent.
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
-        ArmMark(null);
-        _ = PlaceMarkAsync(kindToPlace, model.Location.Id, floorId, point.X, point.Y);
+        _ = PlaceMarkAsync(kind, model.Location.Id, floorId, point.X, point.Y);
     }
+
+    /// <summary>Which mark a plan gesture means: a waypoint when it is the secondary one, a ping otherwise.</summary>
+    /// <remarks>
+    /// One place, because the desktop's Shift and the tablet's long press have to agree, and
+    /// because "what does the modifier mean" is the kind of thing that drifts between two hosts.
+    /// </remarks>
+    public static RaidMarkKind MarkKindFor(bool isSecondary) =>
+        isSecondary ? RaidMarkKind.Waypoint : RaidMarkKind.Ping;
 
     /// <summary>
     /// The host calls this from a right-click that hit something on the plan. A ping or a
@@ -1059,19 +1057,6 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         await _marks.LoadAsync().ConfigureAwait(true);
         await RebuildAsync().ConfigureAwait(true);
-    }
-
-    private void ArmMark(RaidMarkKind? kind)
-    {
-        if (_armedMarkKind == kind)
-        {
-            return;
-        }
-
-        _armedMarkKind = kind;
-        OnPropertyChanged(nameof(IsPlacingWaypoint));
-        OnPropertyChanged(nameof(IsPlacingPing));
-        OnPropertyChanged(nameof(IsPlacingMark));
     }
 
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
