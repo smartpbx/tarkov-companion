@@ -397,11 +397,16 @@
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <StackPanel IsVisible="{Binding HasNoDevices}" Spacing="10" Margin="0,48,0,0" MaxWidth="420"
-                            HorizontalAlignment="Left">
-                  <Path Classes="v2-icon v2-icon-muted" HorizontalAlignment="Left" Data="{DynamicResource V2.Icon.Tablet}" />
-                  <TextBlock Classes="v2-heading-3" Text="No paired devices yet" />
-                  <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                <!-- V2 rough package 32: centred, because with nothing paired this is the whole
+                     content of the pane. Left-aligned under the header it left about three
+                     quarters of a 1920x1080 window as a void with a line of text in one corner. -->
+                <StackPanel IsVisible="{Binding HasNoDevices}" Spacing="10" Margin="0,72,0,72" MaxWidth="420"
+                            HorizontalAlignment="Center">
+                  <Viewbox Width="44" Height="44" HorizontalAlignment="Center">
+                    <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Tablet}" />
+                  </Viewbox>
+                  <TextBlock Classes="v2-heading-3" HorizontalAlignment="Center" Text="No paired devices yet" />
+                  <TextBlock Classes="v2-label" TextWrapping="Wrap" TextAlignment="Center"
                              Text="Pair a tablet to follow the raid on a second screen." />
                 </StackPanel>
               </StackPanel>

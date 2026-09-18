@@ -101,7 +101,7 @@
          its top-left corner — nine tenths of the window was an empty card, which reads as a page
          that failed to load rather than as space. -->
     <Border Grid.Column="1" Classes="v2-hideout-card" Margin="16,8,16,16"
-            HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="860">
+            HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="1240">
       <Panel>
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasSelection}" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
@@ -112,7 +112,10 @@
             <TextBlock Classes="v2-heading-2" Text="{Binding SelectedStationName}" AutomationProperties.HeadingLevel="2" />
             <TextBlock Classes="v2-label" Text="{Binding SelectedLevelLabel}" />
           </StackPanel>
-          <Border Grid.Row="1" Classes="v2-hideout-section" VerticalAlignment="Top" MaxWidth="760"
+          <!-- V2 rough package 32: the requirements flow in columns, so a card wide enough to be
+               worth its space is filled with them rather than with the whitespace beside a
+               single narrow list. -->
+          <Border Grid.Row="1" Classes="v2-hideout-section" VerticalAlignment="Top" MaxWidth="1200"
                   HorizontalAlignment="Left" MinWidth="480">
             <StackPanel Spacing="10">
               <TextBlock Classes="v2-heading-3" Text="Requirements" />
@@ -120,7 +123,7 @@
                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
               <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
                 <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                  <ItemsPanelTemplate><WrapPanel ItemWidth="380" ItemHeight="34" /></ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:HideoutRequirementRowViewModel">
