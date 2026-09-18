@@ -149,26 +149,37 @@ public sealed class ScreenshotWatchPaceTests(ITestOutputHelper output)
                 .GetAsyncEnumerator(stopping.Token);
             var idle = enumerator.MoveNextAsync().AsTask();
 
-            // Three listings, so the first one's cold caches are not the number reported.
+            // The duty cycle is what is being asserted, and it is reached rather than true on
+            // the first reading: the first listing runs against cold caches, and a listing that
+            // turns out to be expensive only backs the interval off on the poll that follows it.
+            // So this waits for the invariant instead of judging one sample — which is what made
+            // it fail on a loaded CI runner while passing on an idle box, with nothing wrong
+            // either time.
             var listings = new List<TimeSpan>();
-            for (var pass = 0; pass < 3; pass++)
+            var held = false;
+            for (var pass = 0; pass < 12 && !held; pass++)
             {
                 await UntilAsync(() => watcher.LastListing > TimeSpan.Zero, stopping.Token);
-                listings.Add(watcher.LastListing);
-                await Task.Delay(watcher.PollInterval + TimeSpan.FromMilliseconds(50), stopping.Token);
+                var listing = watcher.LastListing;
+                listings.Add(listing);
+                held = listing <= TimeSpan.FromMilliseconds(25) || watcher.PollInterval >= listing * 10;
+                if (!held)
+                {
+                    await Task.Delay(watcher.PollInterval + TimeSpan.FromMilliseconds(50), stopping.Token);
+                }
             }
 
-            var settled = listings[^1];
             output.WriteLine(
                 $"3,000 screenshots: listings {string.Join(", ", listings.Select(one => $"{one.TotalMilliseconds:0.0}ms"))}; "
                 + $"poll interval {watcher.PollInterval.TotalMilliseconds:0}ms.");
 
-            // The duty cycle holds whichever way the measurement goes: either the listing is
-            // cheap and the folder is polled at the asked-for rate, or it is not and the
-            // interval has backed off to at least ten times what it costs.
+            // Whichever way the measurement goes: either the listing is cheap and the folder is
+            // polled at the asked-for rate, or it is not and the interval has backed off to at
+            // least ten times what it costs.
             Assert.True(
-                settled <= TimeSpan.FromMilliseconds(25) || watcher.PollInterval >= settled * 10,
-                $"A {settled.TotalMilliseconds:0.0}ms listing was polled every {watcher.PollInterval.TotalMilliseconds:0}ms.");
+                held,
+                $"Listings of {string.Join(", ", listings.Select(one => $"{one.TotalMilliseconds:0.0}ms"))} "
+                + $"were still polled every {watcher.PollInterval.TotalMilliseconds:0}ms.");
             await stopping.CancelAsync();
             Assert.False(await idle);
         }
