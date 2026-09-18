@@ -1072,6 +1072,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000320"));
         renderer.SetViewportSize(1200, 800);
+        // Zoomed in first, because there is nothing to drag at the fit: a plan that already fits
+        // the card stays centred in it rather than sliding to one side (see Clamp).
+        ZoomTo(renderer, 3);
         var published = new List<MapSceneViewChange>();
         renderer.ViewChangeRequested += published.Add;
         var restX = renderer.CameraPostTranslateX;
@@ -1104,6 +1107,7 @@ public sealed class MapSceneRendererViewModelTests
     {
         var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000321"));
         renderer.SetViewportSize(1200, 800);
+        ZoomTo(renderer, 3);
         var published = new List<MapSceneViewChange>();
         renderer.ViewChangeRequested += published.Add;
         var restX = renderer.CameraPostTranslateX;
@@ -1121,6 +1125,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var renderer = Renderer(Scene(), () => Guid.Parse("20000000-0000-0000-0000-000000000322"));
         renderer.SetViewportSize(1200, 800);
+        // Far enough in that the plan is larger than the card: only then is there anywhere for
+        // the point under the pointer to stay, rather than the plan sitting centred in the card.
+        ZoomTo(renderer, 3);
         MapSceneViewChange? published = null;
         renderer.ViewChangeRequested += change => published = change;
         Assert.True(renderer.TryScenePointAt(900, 250, out var before));
@@ -1206,6 +1213,25 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Equal("1 off-plan", renderer.DenseSceneChip);
         Assert.Contains("outside reviewed bounds", renderer.DenseSceneNotice, StringComparison.Ordinal);
         Assert.True(renderer.DenseSceneChip.Length < renderer.DenseSceneNotice.Length / 4);
+    }
+
+    /// <summary>Presents the same scene with the camera at a given zoom, as the host would.</summary>
+    private static void ZoomTo(MapSceneRendererViewModel renderer, double zoom)
+    {
+        var camera = renderer.Scene.View.Camera;
+        var scene = renderer.Scene;
+        renderer.Present(new(
+            scene.Revision + 1,
+            scene.LocationId,
+            scene.VariantKey,
+            scene.TransformVersion,
+            scene.Bounds,
+            scene.FloorIds,
+            scene.Capabilities,
+            scene.View with { Camera = new(camera.CenterX, camera.CenterY, zoom, camera.BearingDegrees, camera.PitchDegrees) },
+            scene.Layers,
+            scene.Objects,
+            scene.Assets));
     }
 
     private static MapSceneRendererViewModel Renderer(

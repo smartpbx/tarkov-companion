@@ -588,6 +588,87 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         ApplySelection(null);
     }
 
+    /// <summary>
+    /// The furthest out the camera goes: the whole plan, fitted.
+    /// </summary>
+    /// <remarks>
+    /// One, not a constant fraction of one, because the projection has already fitted the plan
+    /// to the card before the camera's zoom is applied — so zoom 1 <em>is</em> the whole plan at
+    /// whatever size the card happens to be. Anything below it only adds empty surface around a
+    /// map that already fits.
+    /// </remarks>
+    public double MinimumZoom => 1;
+
+    /// <summary>
+    /// The furthest in the camera goes, from the artwork rather than from a constant.
+    /// </summary>
+    /// <remarks>
+    /// Past the point where one artwork pixel covers more than about two screen pixels there is
+    /// no more map to see, only a larger blur, so the limit is the drawn plan's own resolution
+    /// with one doubling of headroom. A sharp plan on a small card therefore goes much further in
+    /// than a coarse one on a wide card, which is the point. The floor keeps a plan whose artwork
+    /// has not resolved yet — or one already drawn near its own resolution — usefully zoomable.
+    /// </remarks>
+    public double MaximumZoom
+    {
+        get
+        {
+            var native = BackgroundImage?.Size.Width ?? 0;
+            var drawn = _projection.IsUsable ? _projection.MapWidth : 0;
+            var resolution = native > 0 && drawn > 0 ? native / drawn * 2 : 8;
+            return Math.Clamp(resolution, 4, 32);
+        }
+    }
+
+    /// <summary>
+    /// Keeps a camera on the plan that is actually drawn.
+    /// </summary>
+    /// <remarks>
+    /// The clamp is on what the viewport can see, not on where its centre is. Clamping the
+    /// centre to the plan's bounds — which is what this used to do — let the plan be dragged
+    /// until only its corner was left on screen, and it silently moved any centre that started
+    /// outside the bounds, which is the "it just moves right back" a player sees when a pan or a
+    /// follow puts the camera somewhere the clamp then rejects.
+    ///
+    /// An axis whose visible span is wider than the plan itself is centred rather than clamped
+    /// to an edge, so a plan smaller than the card sits in the middle of it instead of sticking
+    /// to one side.
+    /// </remarks>
+    private MapSceneCamera Clamp(MapSceneCamera camera)
+    {
+        var zoom = Math.Clamp(camera.Zoom, MinimumZoom, MaximumZoom);
+        var bounds = _scene.Bounds;
+        if (!_projection.IsUsable || !double.IsFinite(camera.CenterX) || !double.IsFinite(camera.CenterY))
+        {
+            return new(
+                bounds.MinimumX + (bounds.Width / 2),
+                bounds.MinimumY + (bounds.Height / 2),
+                zoom,
+                camera.BearingDegrees,
+                camera.PitchDegrees);
+        }
+
+        // The viewport, inverse-transformed back through the camera's rotation and zoom, as
+        // half-extents in plan units: exactly the span TryUnproject would report for the
+        // viewport's corners.
+        var radians = camera.BearingDegrees * Math.PI / 180;
+        var cosine = Math.Abs(Math.Cos(radians));
+        var sine = Math.Abs(Math.Sin(radians));
+        var halfX = ((cosine * CanvasWidth) + (sine * CanvasHeight)) / (2 * zoom * _projection.ScaleX);
+        var halfY = ((sine * CanvasWidth) + (cosine * CanvasHeight)) / (2 * zoom * _projection.ScaleY);
+        return new(
+            Centre(camera.CenterX, bounds.MinimumX, bounds.MaximumX, halfX),
+            Centre(camera.CenterY, bounds.MinimumY, bounds.MaximumY, halfY),
+            zoom,
+            camera.BearingDegrees,
+            camera.PitchDegrees);
+    }
+
+    private static double Centre(double value, double minimum, double maximum, double halfExtent) =>
+        halfExtent * 2 >= maximum - minimum
+            ? minimum + ((maximum - minimum) / 2)
+            : Math.Clamp(value, minimum + halfExtent, maximum - halfExtent);
+
     public void RequestZoom(double direction)
     {
         if (!double.IsFinite(direction) || direction == 0)
@@ -597,10 +678,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var factor = direction > 0 ? 1.25 : 0.8;
         var camera = _scene.View.Camera;
-        var zoom = Math.Clamp(camera.Zoom * factor, 0.25, 16);
         Request(new(
             MapSceneViewChangeKind.SetCamera,
-            Camera: new(camera.CenterX, camera.CenterY, zoom, camera.BearingDegrees, camera.PitchDegrees)));
+            Camera: Clamp(new(
+                camera.CenterX,
+                camera.CenterY,
+                camera.Zoom * factor,
+                camera.BearingDegrees,
+                camera.PitchDegrees))));
     }
 
     public void RequestPan(double viewportDeltaX, double viewportDeltaY)
@@ -619,15 +704,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var unrotatedY = (sine * viewportDeltaX) + (cosine * viewportDeltaY);
         var worldDeltaX = unrotatedX / (_projection.ScaleX * camera.Zoom);
         var worldDeltaY = unrotatedY / (_projection.ScaleY * camera.Zoom);
-        var bounds = _scene.Bounds;
         Request(new(
             MapSceneViewChangeKind.SetCamera,
-            Camera: new(
-                Math.Clamp(camera.CenterX - worldDeltaX, bounds.MinimumX, bounds.MaximumX),
-                Math.Clamp(camera.CenterY - worldDeltaY, bounds.MinimumY, bounds.MaximumY),
+            Camera: Clamp(new(
+                camera.CenterX - worldDeltaX,
+                camera.CenterY - worldDeltaY,
                 camera.Zoom,
                 camera.BearingDegrees,
-                camera.PitchDegrees)));
+                camera.PitchDegrees))));
     }
 
     /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
@@ -710,7 +794,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var camera = _scene.View.Camera;
-        var zoom = Math.Clamp(camera.Zoom * (direction > 0 ? 1.25 : 0.8), 0.25, 16);
+        var zoom = Math.Clamp(camera.Zoom * (direction > 0 ? 1.25 : 0.8), MinimumZoom, MaximumZoom);
         if (Math.Abs(zoom - camera.Zoom) < 1e-9)
         {
             return;
@@ -728,15 +812,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var change = (1 / camera.Zoom) - (1 / zoom);
         var centre = _projection.Project(camera.CenterX, camera.CenterY);
         var moved = _projection.Unproject(centre.X + (planX * change), centre.Y + (planY * change));
-        var bounds = _scene.Bounds;
         Request(new(
             MapSceneViewChangeKind.SetCamera,
-            Camera: new(
-                Math.Clamp(moved.X, bounds.MinimumX, bounds.MaximumX),
-                Math.Clamp(moved.Y, bounds.MinimumY, bounds.MaximumY),
-                zoom,
-                camera.BearingDegrees,
-                camera.PitchDegrees)));
+            Camera: Clamp(new(moved.X, moved.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
     }
 
     private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)
@@ -746,13 +824,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var sine = Math.Sin(radians);
         var unrotatedX = (cosine * viewportDeltaX) - (sine * viewportDeltaY);
         var unrotatedY = (sine * viewportDeltaX) + (cosine * viewportDeltaY);
-        var bounds = _scene.Bounds;
-        return new(
-            Math.Clamp(start.CenterX - (unrotatedX / (_projection.ScaleX * start.Zoom)), bounds.MinimumX, bounds.MaximumX),
-            Math.Clamp(start.CenterY - (unrotatedY / (_projection.ScaleY * start.Zoom)), bounds.MinimumY, bounds.MaximumY),
+        // The same clamp the commit will use, so the plan under the pointer during the drag is
+        // exactly where it is left when the pointer comes up: no snap back, in either direction.
+        return Clamp(new(
+            start.CenterX - (unrotatedX / (_projection.ScaleX * start.Zoom)),
+            start.CenterY - (unrotatedY / (_projection.ScaleY * start.Zoom)),
             start.Zoom,
             start.BearingDegrees,
-            start.PitchDegrees);
+            start.PitchDegrees));
     }
 
     private void SetPanOffset(double x, double y)
@@ -781,7 +860,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             Camera: new(
                 bounds.MinimumX + (bounds.Width / 2),
                 bounds.MinimumY + (bounds.Height / 2),
-                1,
+                MinimumZoom,
                 _scene.View.Camera.BearingDegrees,
                 0)));
     }
@@ -804,11 +883,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var camera = _scene.View.Camera;
         var zoom = minimumZoom is { } wanted && double.IsFinite(wanted) && wanted > camera.Zoom
-            ? Math.Clamp(wanted, 0.25, 16)
+            ? Math.Clamp(wanted, MinimumZoom, MaximumZoom)
             : camera.Zoom;
+        // Clamped like a pan, so following somebody standing near the edge of the map puts them
+        // as close to the middle as the plan allows rather than leaving the camera on a centre
+        // the next gesture would have to correct.
         Request(new(
             MapSceneViewChangeKind.SetCamera,
-            Camera: new(point.X, point.Y, zoom, camera.BearingDegrees, camera.PitchDegrees)));
+            Camera: Clamp(new(point.X, point.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
     }
 
     /// <summary>[V2 rough package 22] Turns the whole plan, V1's "270°" control.</summary>
@@ -1290,7 +1372,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 : _reviewedAssetResolver(asset);
         }
 
-        // The artwork is what says how wide this map really is; the scene's percent bounds do not.
+        // What says how wide this map really is: its own plan rectangle where the host gave one,
+        // and the decoded artwork where the bounds are only a square box (see AdoptPlanAspect).
         var reprojected = AdoptPlanAspect();
         ReviewedAssetLabel = asset is null
             ? string.Empty
@@ -1674,7 +1757,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// </remarks>
     private bool AdoptPlanAspect()
     {
-        var size = BackgroundImage?.Size;
+        // Only when the scene's own bounds cannot say. A host that gives the plan's real
+        // rectangle (the Raid cockpit does, from MapPlanProjection) has already described the
+        // map's shape in the units every object on it is placed in, and that rectangle is the
+        // one the artwork is stretched across; taking the shape from the decoded bitmap instead
+        // would move the artwork off the markers whenever the two disagreed. A square box is the
+        // synthetic case — the map gallery, a fixture scene — where the bitmap is all there is.
+        var bounds = _scene.Bounds;
+        var square = double.IsFinite(bounds.Width) && double.IsFinite(bounds.Height) &&
+            bounds.Width > 0 && bounds.Height > 0 && Math.Abs(bounds.Width - bounds.Height) < 1e-9;
+        var size = square ? BackgroundImage?.Size : null;
         var aspect = size is { Width: > 0, Height: > 0 } bitmap ? bitmap.Width / bitmap.Height : double.NaN;
         var unchanged = double.IsNaN(aspect) && double.IsNaN(_planAspect) ||
             double.IsFinite(aspect) && double.IsFinite(_planAspect) && Math.Abs(aspect - _planAspect) < 0.0001;
