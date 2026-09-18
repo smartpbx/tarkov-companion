@@ -6,7 +6,9 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.UnitTests.V2Shell;
@@ -393,6 +395,19 @@ public sealed class TeamWorkspaceViewModelTests
         new RuntimeStateStore(new(false, true, GameMode.Regular, "en", TimeSpan.FromHours(9), TimeSpan.FromMinutes(5))),
         new HttpClient(handler ?? new StubHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)))) { Timeout = Timeout.InfiniteTimeSpan },
         NullLogger<GroupSessionService>.Instance);
+
+    /// <summary>The squad view model only looks item names up; none of these tests has a party to name.</summary>
+    private sealed class StubItemRepository : IItemRepository
+    {
+        public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemDefinition?>(null);
+
+        public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ItemSearchHit>>([]);
+
+        public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemPriceSnapshot?>(null);
+    }
 
     private sealed class Clock : TimeProvider
     {
