@@ -75,6 +75,12 @@ public sealed record QuestSummaryReadModel(
 
     /// <summary>The wiki page for this task, where the last sync had one.</summary>
     public string? WikiUri { get; init; }
+
+    /// <summary>Whether the catalog says this quest is needed for Kappa; null where it does not say.</summary>
+    public bool? KappaRequired { get; init; }
+
+    /// <summary>The player level the catalog gates this quest behind, where it states one.</summary>
+    public int? MinimumPlayerLevel { get; init; }
 }
 
 

@@ -5,6 +5,7 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
   <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
     <Style Selector="Button.v2-plan-bundle">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -107,7 +108,7 @@
   <Grid ColumnDefinitions="340,*,Auto">
     <!-- Left column -->
     <Border Grid.Column="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
-      <Grid RowDefinitions="*,Auto">
+      <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
             <Grid ColumnDefinitions="*,Auto">
@@ -124,7 +125,76 @@
                          AutomationProperties.AutomationId="v2-plan-status"
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+              <TextBlock Classes="v2-label" Text="{Binding RequirementsRollup}" IsVisible="{Binding HasRequirementsRollup}"
+                         Foreground="{DynamicResource V2.Brush.Warning}"
+                         AutomationProperties.AutomationId="v2-plan-rollup" />
             </StackPanel>
+
+            <!-- Which quests to plan around: search, a state chip, and a trader. -->
+            <Border Classes="v2-intel-search" MinHeight="42" Padding="12,0,4,0">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                      Data="{DynamicResource V2.Icon.Search}" />
+                <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
+                         PlaceholderText="Search quests, objectives, maps"
+                         AutomationProperties.AutomationId="v2-plan-search"
+                         AutomationProperties.Name="Search quests" />
+                <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain" IsVisible="{Binding HasSearchText}"
+                        AutomationProperties.AutomationId="v2-plan-search-clear"
+                        AutomationProperties.Name="Clear search" ToolTip.Tip="Clear search"
+                        Command="{Binding ClearSearchCommand}">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                </Button>
+              </Grid>
+            </Border>
+            <ItemsControl ItemsSource="{Binding FilterChips}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanFilterChipViewModel">
+                  <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Traders}" SelectedItem="{Binding SelectedTrader}"
+                      AutomationProperties.AutomationId="v2-plan-trader"
+                      AutomationProperties.Name="Trader">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:PlanTraderOption">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <!-- The level is typed here because the game never writes its own player's down, and
+                 every level-gated quest is measured against it. Loyalty is set once a wipe. -->
+            <Expander Classes="v2-why" Header="Level and trader loyalty">
+              <StackPanel Spacing="8" Margin="0,4,0,0">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                  <TextBlock Classes="v2-body" Text="Your level" VerticalAlignment="Center" />
+                  <NumericUpDown Grid.Column="1" Width="112" FormatString="0" Increment="1" Minimum="1" Maximum="79"
+                                 Value="{Binding PlayerLevel, Mode=OneWay}" ValueChanged="LevelChanged"
+                                 AutomationProperties.AutomationId="v2-plan-level"
+                                 AutomationProperties.Name="Your level" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding TraderLoyalty}" IsVisible="{Binding HasTraderLoyalty}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlanTraderLoyaltyViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
+                        <TextBlock Classes="v2-label" Text="{Binding Name}" VerticalAlignment="Center" />
+                        <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="0" Maximum="4"
+                                       Value="{Binding Level, Mode=OneWay}" ValueChanged="TraderLevelChanged"
+                                       Tag="{Binding TraderId}"
+                                       AutomationProperties.Name="{Binding Name}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Expander>
 
             <Rectangle Height="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" Margin="0,4" />
             <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"
@@ -175,13 +245,6 @@
             </Button>
           </StackPanel>
         </ScrollViewer>
-        <Border Grid.Row="1" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0"
-                Padding="16,8">
-          <ToggleSwitch Classes="v2-plan-switch" AutomationProperties.AutomationId="v2-plan-show-all"
-                        AutomationProperties.Name="Show everything"
-                        OnContent="Show everything" OffContent="Show everything"
-                        IsChecked="{Binding ShowAll}" />
-        </Border>
       </Grid>
     </Border>
 
@@ -212,7 +275,7 @@
         <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
              would resolve IsVisible against SelectedGroup. -->
         <Panel IsVisible="{Binding HasSelectedGroup}">
-        <Grid RowDefinitions="Auto,*,Auto" DataContext="{Binding SelectedGroup}">
+        <Grid RowDefinitions="Auto,*,Auto,Auto" DataContext="{Binding SelectedGroup}">
           <StackPanel Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
             <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
                        TextTrimming="CharacterEllipsis" />
@@ -247,6 +310,12 @@
                               <Run Text="{Binding TraderLabel}" />
                             </TextBlock>
                             <WrapPanel ItemSpacing="8" LineSpacing="4">
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding IsOptional}">
+                                <TextBlock Classes="v2-label" Text="Optional" />
+                              </Border>
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasStatusLabel}">
+                                <TextBlock Classes="v2-label" Text="{Binding StatusLabel}" />
+                              </Border>
                               <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
                                 <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
                               </Border>
@@ -269,7 +338,24 @@
                             <Path Classes="v2-icon v2-icon-muted" StrokeThickness="3" Data="{DynamicResource V2.Icon.More}" />
                             <Button.Flyout>
                               <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                <MenuItem Header="Mark quest done" Command="{Binding MarkQuestDoneCommand}" />
+                                <MenuItem Header="Start quest" Command="{Binding StartQuestCommand}"
+                                          IsVisible="{Binding CanStartQuest}" />
+                                <MenuItem Header="Mark quest done" Command="{Binding MarkQuestDoneCommand}"
+                                          IsVisible="{Binding CanMarkQuestDone}" />
+                                <MenuItem Header="Mark quest failed" Command="{Binding FailQuestCommand}"
+                                          IsVisible="{Binding CanFailQuest}" />
+                                <MenuItem Header="Reset quest" Command="{Binding ResetQuestCommand}"
+                                          IsVisible="{Binding CanResetQuest}" />
+                                <MenuItem Header="{Binding PinQuestLabel}" Command="{Binding TogglePinQuestCommand}" />
+                                <Separator />
+                                <MenuItem Header="One more" Command="{Binding IncrementCountCommand}"
+                                          IsVisible="{Binding CanChangeCount}" />
+                                <MenuItem Header="One fewer" Command="{Binding DecrementCountCommand}"
+                                          IsVisible="{Binding CanChangeCount}" />
+                                <MenuItem Header="Reset objective" Command="{Binding ResetObjectiveCommand}"
+                                          IsVisible="{Binding CanResetObjective}" />
+                                <MenuItem Header="{Binding PinObjectiveLabel}" Command="{Binding TogglePinObjectiveCommand}" />
+                                <Separator />
                                 <MenuItem Header="Show on map" Command="{Binding ShowOnMapCommand}"
                                           IsVisible="{Binding CanShowOnMap}" />
                                 <MenuItem Header="Open wiki" Command="{Binding OpenWikiCommand}"
@@ -285,7 +371,39 @@
               </ScrollViewer>
             </Grid>
           </Border>
-          <StackPanel Grid.Row="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
+          <!-- What this map's objectives ask the player to have: keys and gear to bring, items to
+               hand in or find in raid, against what they hold. -->
+          <Border Grid.Row="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section"
+                  Margin="16,0,16,12" MaxHeight="260" IsVisible="{Binding HasRequirements}"
+                  AutomationProperties.AutomationId="v2-plan-requirements">
+            <Grid RowDefinitions="Auto,*">
+              <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                <TextBlock Classes="v2-heading-3" Text="Requirements" AutomationProperties.HeadingLevel="2" />
+                <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding RequirementsSummary}"
+                           Classes.v2-intel-good="{Binding RequirementsReady}" />
+              </Grid>
+              <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Requirements}" Margin="0,0,10,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PlanRequirementRowViewModel">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="0,4">
+                        <Panel Width="20" VerticalAlignment="Center">
+                          <Path Classes="v2-icon v2-intel-yes" IsVisible="{Binding IsSatisfied}" Data="{DynamicResource V2.Icon.Check}" />
+                          <Path Classes="v2-icon v2-icon-muted" IsVisible="{Binding !IsSatisfied}" Data="{DynamicResource V2.Icon.MinusCircle}" />
+                        </Panel>
+                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                          <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+          <StackPanel Grid.Row="3" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
             <Button Classes="v2-target v2-plan-primary" Command="{Binding OpenInRaidCommand}"
                     IsVisible="{Binding CanOpenInRaid}"
                     AutomationProperties.AutomationId="v2-plan-open-in-raid"

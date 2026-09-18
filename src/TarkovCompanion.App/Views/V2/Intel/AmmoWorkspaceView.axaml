@@ -1,0 +1,245 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.AmmoWorkspaceView"
+             x:DataType="vm:AmmoWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- V1's Ammo page as a workspace in the Intel layout: filter across the top, calibers on the
+       left, the ranked rounds as a ballistics table in the middle, and the chosen round's advice
+       and armor ratings in the context panel. The class chips answer "what beats class five",
+       which the V1 page could only answer by reading six chips per round. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Border Grid.Row="0" Classes="v2-intel-search">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                Data="{DynamicResource V2.Icon.Search}" />
+          <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
+                   PlaceholderText="Filter calibers"
+                   AutomationProperties.AutomationId="v2-ammo-search"
+                   AutomationProperties.Name="Filter calibers" />
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-ammo-reload"
+                  AutomationProperties.Name="Reload ammunition" ToolTip.Tip="Reload"
+                  Command="{Binding RefreshCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" ColumnSpacing="16">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="0.24*" MinWidth="300" MaxWidth="380" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Calibers. -->
+        <Border Grid.Column="0" Classes="v2-intel-pane" Padding="14"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-ammo-calibers">
+          <Grid RowDefinitions="Auto,*" RowSpacing="10">
+            <TextBlock Grid.Row="0" Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" Margin="2,0" />
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="4">
+                <TextBlock Classes="v2-label" IsVisible="{Binding !HasCalibers}" Margin="2,4"
+                           Text="No calibers to show." />
+                <ItemsControl ItemsSource="{Binding Calibers}" IsVisible="{Binding HasCalibers}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AmmoCaliberRowViewModel">
+                      <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Name}"
+                              Command="{Binding SelectCommand}">
+                        <StackPanel Spacing="2">
+                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="v2-label" Text="{Binding Summary}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+
+        <!-- The ballistics table. -->
+        <Border Grid.Column="1" Classes="v2-intel-pane" Padding="14"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-ammo-rounds">
+          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="Beats" />
+              <ItemsControl Grid.Column="1" ItemsSource="{Binding ArmorFilters}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:AmmoChipViewModel">
+                    <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+            <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+              <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="Order" />
+              <ItemsControl Grid.Column="1" ItemsSource="{Binding Sorts}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:AmmoChipViewModel">
+                    <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+            <TextBlock Grid.Row="2" Classes="v2-label" Margin="2,0" Text="{Binding RoundCountLabel}" />
+
+            <Border Grid.Row="3" Classes="v2-intel-headrow" IsVisible="{Binding HasRounds}">
+              <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
+                <TextBlock Grid.Column="0" Classes="v2-intel-head" Text="ROUND" />
+                <TextBlock Grid.Column="1" Classes="v2-intel-head v2-intel-num" Text="DAMAGE" />
+                <TextBlock Grid.Column="2" Classes="v2-intel-head v2-intel-num" Text="PEN" />
+                <TextBlock Grid.Column="3" Classes="v2-intel-head v2-intel-num" Text="ARMOR DMG" />
+                <TextBlock Grid.Column="4" Classes="v2-intel-head v2-intel-num" Text="FRAG" />
+                <TextBlock Grid.Column="5" Classes="v2-intel-head" Text="TIER" />
+                <TextBlock Grid.Column="6" Classes="v2-intel-head" Text="CLASS 1–6" Width="204" />
+              </Grid>
+            </Border>
+
+            <ScrollViewer Grid.Row="4" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                           IsVisible="{Binding ShowsNoRounds}" Text="{Binding NoRoundsLabel}"
+                           TextWrapping="Wrap" Margin="2,8" />
+                <ItemsControl ItemsSource="{Binding Rounds}" IsVisible="{Binding HasRounds}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:AmmoRoundRowViewModel">
+                      <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Name}"
+                              Command="{Binding SelectCommand}">
+                        <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
+                          <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding Rank}" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="1" Classes="v2-body v2-intel-num" Text="{Binding Damage}" />
+                          <TextBlock Grid.Column="2" Classes="v2-body v2-intel-num" FontWeight="SemiBold" Text="{Binding Penetration}" />
+                          <TextBlock Grid.Column="3" Classes="v2-body v2-intel-num" Text="{Binding ArmorDamage}" />
+                          <TextBlock Grid.Column="4" Classes="v2-body v2-intel-num" Text="{Binding Fragmentation}" />
+                          <TextBlock Grid.Column="5" Classes="v2-body" VerticalAlignment="Center" Text="{Binding Tier}" />
+                          <ItemsControl Grid.Column="6" ItemsSource="{Binding ArmorClasses}" VerticalAlignment="Center">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="pages:AmmoArmorRatingViewModel">
+                                <Border Classes="v2-intel-class"
+                                        Classes.good="{Binding IsStrong}"
+                                        Classes.fair="{Binding IsMarginal}"
+                                        Classes.poor="{Binding IsWeak}"
+                                        AutomationProperties.Name="{Binding Rating}"
+                                        ToolTip.Tip="{Binding Rating}">
+                                  <TextBlock Classes="v2-label" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                             Text="{Binding Number}" />
+                                </Border>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+
+    <!-- Context panel: the chosen round. -->
+    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.LandmarkType="Complementary"
+            AutomationProperties.AutomationId="v2-ammo-context">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <Border Classes="v2-intel-section" IsVisible="{Binding ShowsNoSelectedRound}">
+            <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                       TextWrapping="Wrap" Text="{Binding SelectedAdvice}" />
+          </Border>
+
+          <Border Classes="v2-intel-accent" IsVisible="{Binding HasSelectedRound}">
+            <Border Classes="v2-intel-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2" TextWrapping="Wrap"
+                           Text="{Binding SelectedName}" />
+                <TextBlock Classes="v2-label" Text="{Binding SelectedRank}" />
+                <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedAdvice}" />
+                <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                        AutomationProperties.AutomationId="v2-ammo-open-intel"
+                        AutomationProperties.Name="Open in Intel"
+                        Command="{Binding OpenInIntelCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Link}" />
+                    <TextBlock VerticalAlignment="Center" Text="Prices and needs" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedRound}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Against armor" />
+              <ItemsControl ItemsSource="{Binding SelectedArmorClasses}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:AmmoArmorRatingViewModel">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,3">
+                      <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding ArmorClass}" />
+                      <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
+                                 Classes.v2-intel-good="{Binding IsStrong}"
+                                 Classes.v2-intel-fair="{Binding IsMarginal}"
+                                 Classes.v2-intel-poor="{Binding IsWeak}"
+                                 Text="{Binding Rating}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedRound}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Round" />
+              <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="Tier" />
+                <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedTier}" />
+              </Grid>
+              <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedTraits}" />
+              <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                         IsVisible="{Binding SelectedExplanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                         Text="{Binding SelectedExplanation}" />
+              <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedProvenance}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

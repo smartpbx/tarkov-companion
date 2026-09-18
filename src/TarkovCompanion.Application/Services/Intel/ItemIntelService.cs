@@ -32,14 +32,26 @@ public sealed record V2IntelValueFacts(
 /// <summary>What #308's key intelligence would call obtainability/associations, kept to real facts only.</summary>
 /// <param name="MapId">The map the key's lock is on, when the catalog has one.</param>
 /// <param name="Locks">What it opens, named as the catalog names them.</param>
-public sealed record V2IntelKeyFacts(string? MapId, IReadOnlyList<string> Locks);
+/// <param name="MaximumUses">How many times it opens a door before it is spent, when the source says.</param>
+/// <param name="AcquisitionCostRoubles">What buying it costs, when a trader or the flea sells it.</param>
+/// <param name="MapName">The map's name where the synced maps table has one; the id otherwise.</param>
+public sealed record V2IntelKeyFacts(
+    string? MapId,
+    IReadOnlyList<string> Locks,
+    int? MaximumUses = null,
+    long? AcquisitionCostRoubles = null,
+    string? MapName = null);
 
+/// <param name="ArmorDamagePercent">How much of an armour's durability a hit takes, when the source states it.</param>
+/// <param name="FragmentationChance">The chance the round fragments on impact, when the source states it.</param>
 public sealed record V2IntelAmmoFacts(
     int Damage,
     int Penetration,
     string Tier,
     IReadOnlyDictionary<int, ArmorEffectiveness> ArmorClassRatings,
-    string PracticalAdvice);
+    string PracticalAdvice,
+    int? ArmorDamagePercent = null,
+    double? FragmentationChance = null);
 
 /// <summary>One trader's buy-back price, as the catalog names the trader.</summary>
 public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
@@ -90,7 +102,8 @@ public interface IItemIntelService
 public sealed class ItemIntelService(
     IItemRepository itemRepository,
     IQuestProgressService questProgress,
-    IItemFactCatalog factCatalog) : IItemIntelService
+    IItemFactCatalog factCatalog,
+    IMapDataService? maps = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -132,7 +145,9 @@ public sealed class ItemIntelService(
                 intelligence.Stats.Penetration,
                 intelligence.Tier,
                 intelligence.ArmorClassRatings,
-                intelligence.PracticalAdvice);
+                intelligence.PracticalAdvice,
+                intelligence.Stats.ArmorDamagePercent,
+                intelligence.Stats.FragmentationChance);
         return Base(V2IntelKind.Ammo, item, value) with { Ammo = ammo };
     }
 
@@ -143,8 +158,37 @@ public sealed class ItemIntelService(
     {
         var facts = await factCatalog.GetKeyFactsAsync(cancellationToken).ConfigureAwait(false);
         var match = facts.FirstOrDefault(fact => string.Equals(fact.ItemId, item.Id, StringComparison.Ordinal));
-        var key = match is null ? null : new V2IntelKeyFacts(match.MapId, match.Locks);
+        var key = match is null
+            ? null
+            : new V2IntelKeyFacts(
+                match.MapId,
+                match.Locks,
+                match.MaximumUses,
+                match.AcquisitionCostRoubles,
+                await NameOfMapAsync(match.MapId, cancellationToken).ConfigureAwait(false));
         return Base(V2IntelKind.Key, item, value) with { Key = key };
+    }
+
+    /// <summary>
+    /// The map's name, or the id when nothing names it. The key projection carries the game's own
+    /// map id, and printing that read as a hash rather than a place; the id stays the answer when
+    /// the maps table has nothing, so a key never loses its map to a failed lookup.
+    /// </summary>
+    private async Task<string?> NameOfMapAsync(string? mapId, CancellationToken cancellationToken)
+    {
+        if (mapId is null || maps is null)
+        {
+            return mapId;
+        }
+
+        try
+        {
+            return (await maps.GetAsync(mapId, cancellationToken).ConfigureAwait(false))?.Name ?? mapId;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return mapId;
+        }
     }
 
     private static V2ItemIntelResult Base(V2IntelKind kind, ItemDefinition item, V2IntelValueFacts value) => new(

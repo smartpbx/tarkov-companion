@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Windows.Input;
+using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
+using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.App.ViewModels.V2.Tablet;
 
@@ -133,6 +135,143 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
         DenyCommand = new AsyncDelegateCommand(DenyAsync);
         ClaimRelayCommand = new AsyncDelegateCommand(ClaimRelayAsync);
+        // [V2 rough package 24] Control of this desktop, from the concept's own three modes.
+        AllowControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: true));
+        DenyControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: false));
+        TakeBackControlCommand = new AsyncDelegateCommand(TakeBackControlAsync);
+        if (_relayMarksBridge is not null)
+        {
+            _relayMarksBridge.CanonicalStateChanged += OnCanonicalStateChanged;
+        }
+
+        RefreshControl(_authority.Snapshot.CanonicalState);
+    }
+
+    /// <summary>
+    /// Which paired device is asking to drive this desktop, and which one is driving it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24, #407] Control is the tablet concept's third mode
+    /// (docs/design/v2/v2-tablet-desktop-control-concept.png). The reducer has always held the
+    /// lease; what was missing was anywhere on the desktop to answer a request or to take control
+    /// back, so nothing could ever grant it. <see cref="TakeBackControlCommand"/> is the one
+    /// action that ends a lease, which is the rule the concept states.
+    /// </remarks>
+    public string? ControlRequestMessage
+    {
+        get;
+        private set
+        {
+            if (field != value)
+            {
+                field = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasControlRequest));
+            }
+        }
+    }
+
+    public bool HasControlRequest => !string.IsNullOrEmpty(ControlRequestMessage);
+
+    public string? ControlHolderMessage
+    {
+        get;
+        private set
+        {
+            if (field != value)
+            {
+                field = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(HasControlHolder));
+            }
+        }
+    }
+
+    public bool HasControlHolder => !string.IsNullOrEmpty(ControlHolderMessage);
+
+    public ICommand AllowControlCommand { get; }
+
+    public ICommand DenyControlCommand { get; }
+
+    public ICommand TakeBackControlCommand { get; }
+
+    private void OnCanonicalStateChanged(CanonicalCompanionState state)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            RefreshControl(state);
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => RefreshControl(state));
+    }
+
+    /// <summary>Restates what canonical device modes now say, in this desktop's own words.</summary>
+    internal void RefreshControl(CanonicalCompanionState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var modes = state.DeviceModes;
+        ControlRequestMessage = modes.PendingControl is { } pending
+            ? $"{NameOf(pending.DeviceId)} is asking to control this desktop."
+            : null;
+        ControlHolderMessage = modes.ControlLease is { } lease
+            ? $"{NameOf(lease.DeviceId)} is controlling this desktop."
+            : null;
+        RefreshDevices();
+    }
+
+    private string NameOf(CompanionDeviceId deviceId) =>
+        _authority.Snapshot.Devices.FirstOrDefault(device => device.DeviceId == deviceId)?.DisplayName
+            ?? "A paired device";
+
+    private async Task ResolveControlAsync(bool approved)
+    {
+        if (_relayMarksBridge is null ||
+            _authority.Snapshot.CanonicalState.DeviceModes.PendingControl is not { } pending)
+        {
+            return;
+        }
+
+        var state = _authority.Snapshot.CanonicalState;
+        var now = Utc();
+        await _relayMarksBridge.ApplyDesktopCommandAsync(
+            new ResolveControlCommand(
+                new CommandId(Guid.NewGuid()),
+                new AggregateRevision(state.DeviceModes.Cursor.Revision.Value + 1),
+                now,
+                now.AddMinutes(1),
+                pending.RequestCommandId,
+                approved,
+                approved ? new ControlLeaseId(Guid.NewGuid()) : null),
+            _lifetime.Token).ConfigureAwait(true);
+        RefreshControl(_authority.Snapshot.CanonicalState);
+    }
+
+    private async Task TakeBackControlAsync()
+    {
+        if (_relayMarksBridge is null || _authority.Snapshot.CanonicalState.DeviceModes.ControlLease is null)
+        {
+            return;
+        }
+
+        var state = _authority.Snapshot.CanonicalState;
+        var now = Utc();
+        await _relayMarksBridge.ApplyDesktopCommandAsync(
+            new PreemptControlCommand(
+                new CommandId(Guid.NewGuid()),
+                new AggregateRevision(state.DeviceModes.Cursor.Revision.Value + 1),
+                now,
+                now.AddMinutes(1),
+                "desktop-took-control-back"),
+            _lifetime.Token).ConfigureAwait(true);
+        RefreshControl(_authority.Snapshot.CanonicalState);
+    }
+
+    // Every protocol timestamp requires exact millisecond precision.
+    private DateTimeOffset Utc()
+    {
+        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
     public bool CanPair => _coordinator is not null && _relay is not null;
@@ -371,6 +510,11 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public void Dispose()
     {
+        if (_relayMarksBridge is not null)
+        {
+            _relayMarksBridge.CanonicalStateChanged -= OnCanonicalStateChanged;
+        }
+
         _ceremony?.Cancel();
         _ceremony?.Dispose();
         _lifetime.Cancel();

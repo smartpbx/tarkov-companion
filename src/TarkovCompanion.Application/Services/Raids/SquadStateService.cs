@@ -24,6 +24,9 @@ public interface IEftLogObserver
 
     /// <summary>A quest the game says has started, failed or been handed in.</summary>
     void Observe(QuestStatusObservation quest);
+
+    /// <summary>How long matchmaking took, ahead of the raid it belongs to.</summary>
+    void Observe(LoadTimeObservation loadTime);
 }
 
 /// <summary>Routes each kind of observation to the service that keeps it.</summary>
@@ -67,6 +70,13 @@ public sealed class EftLogObservers(
         _ = quests?.ApplyAsync(quest, CancellationToken.None);
         _ = raid?.RecordQuestAsync(quest, CancellationToken.None);
     }
+
+    /// <summary>
+    /// Held rather than applied immediately: matchmaking finishes before the raid it timed has
+    /// an id, so the coordinator keeps this until that raid starts.
+    /// </summary>
+    public void Observe(LoadTimeObservation loadTime) =>
+        _ = raid?.RecordLoadTimeAsync(loadTime, CancellationToken.None);
 }
 
 

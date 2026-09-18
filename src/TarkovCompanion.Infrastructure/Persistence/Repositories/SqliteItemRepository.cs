@@ -9,6 +9,18 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFactory) : IItemRepository
 {
+    /// <summary>
+    /// The least a candidate may score to be a hit.
+    /// </summary>
+    /// <remarks>
+    /// Measured against the 5,321-item catalog: real matches (an exact name, a whole-word
+    /// containment, a typo of a name) score 0.7 or more, while edit distance alone puts any name
+    /// that shares a few letters at 0.45 to 0.5 — "salewa" matched "Weather station safe key" at
+    /// 0.5, and a search for "graphics card" listed six crates and plates. 0.6 keeps a typo of a
+    /// short name ("salwa", 0.83) and drops that noise.
+    /// </remarks>
+    private const double MinimumScore = 0.6;
+
     internal const string ExactItemSql = """
         SELECT id, name, short_name, description, category_type, width, height, flea_eligible,
                icon_url, image_url, wiki_url, properties_type, properties_json, source_updated_utc
@@ -39,7 +51,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         var candidates = await LoadCandidatesAsync(connection, normalized, cancellationToken).ConfigureAwait(false);
         var selected = candidates.Values
-            .Where(candidate => candidate.Score >= 0.45)
+            .Where(candidate => candidate.Score >= MinimumScore)
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
             .Take(limit)
@@ -185,7 +197,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
                 var id = reader.GetString(0);
                 var name = reader.GetString(1);
                 var shortName = reader.GetString(2);
-                var matchedText = FuzzyMatcher.Similarity(normalizedQuery, shortName) >
+                var matchedText = FuzzyMatcher.ShortNameSimilarity(normalizedQuery, shortName) >
                     FuzzyMatcher.Similarity(normalizedQuery, name) ? shortName : name;
                 AddOrImprove(candidates, new(id, name, shortName, 0.9, matchedText));
             }
@@ -201,7 +213,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
                 var name = reader.GetString(1);
                 var shortName = reader.GetString(2);
                 var nameScore = FuzzyMatcher.Similarity(normalizedQuery, name);
-                var shortScore = FuzzyMatcher.Similarity(normalizedQuery, shortName);
+                var shortScore = FuzzyMatcher.ShortNameSimilarity(normalizedQuery, shortName);
                 AddOrImprove(candidates, new(
                     id,
                     name,

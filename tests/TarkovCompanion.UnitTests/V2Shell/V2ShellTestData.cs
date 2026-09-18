@@ -18,13 +18,11 @@ internal static class V2ShellTestData
     /// Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings (package 6, #292), and
     /// the Team and Group routes both host the real Team workspace
     /// (<c>V2RouteContent.Workspace</c>, package 9) instead of a passthrough to either V1 page.
-    /// All eight V1 pages remain reachable from V1 navigation; none is a V2 LegacyPage route any
-    /// more.
+    /// Ammo, Keys and Flea host native Intel workspaces, and Loadout and Events native Plan
+    /// workspaces, over the V1 pages' view models (package 28). All eight V1 pages remain reachable
+    /// from V1 navigation; none is a V2 LegacyPage route any more.
     /// </summary>
-    public static readonly string[] V1Destinations =
-    [
-        "Ammo", "Keys", "Flea", "Events", "Loadout",
-    ];
+    public static readonly string[] V1Destinations = [];
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>
     public static ApplicationRuntimeSnapshot Snapshot(bool demo = false, bool offline = false) =>

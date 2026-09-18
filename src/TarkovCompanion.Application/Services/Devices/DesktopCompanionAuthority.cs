@@ -214,6 +214,75 @@ public sealed class DesktopCompanionAuthority : IDisposable
         }
     }
 
+    /// <summary>
+    /// Applies one command the desktop itself issues: its own workspace changes, and approving,
+    /// denying or taking back control.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24] The reducer's desktop-only commands had no caller, so a tablet could
+    /// never see the desktop's map move and a desktop could never answer a control request. The
+    /// identity here is the canonical desktop's own, minted once per authority instance
+    /// (<see cref="DesktopSessionId"/>): nothing crosses a transport, so there is no session to
+    /// authenticate — the reducer still refuses any command whose context is not the canonical
+    /// desktop's.
+    ///
+    /// The deliveries it returns are the same ones an ordinary tablet command produces, so the
+    /// caller publishes them exactly the same way.
+    /// </remarks>
+    public async ValueTask<PairedCommandApplication> ApplyDesktopCommandAsync(
+        CompanionCommand command,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var state = _state;
+            var canonical = state.CanonicalState;
+            var context = AuthenticatedCommandContext.ForDesktop(
+                canonical.DesktopDeviceId,
+                DesktopSessionId,
+                DesktopKeyId(canonical.DesktopDeviceId),
+                canonical.DesktopInstanceId,
+                nowUtc);
+            var envelope = new ClientCommandEnvelope(
+                CompanionProtocolVersion.Current,
+                DesktopSessionId,
+                canonical.AuthorityEpoch,
+                nowUtc,
+                command);
+            var reduction = DesktopCanonicalStateMachine.Apply(canonical, envelope, context);
+            var next = state.With(canonicalState: reduction.State);
+            var deliveries = new List<AuthorityDelivery>();
+            if (reduction.Update is not null)
+            {
+                var broadcast = Broadcast(next, [reduction.Update], canonical.DesktopDeviceId, nowUtc);
+                next = broadcast.State;
+                deliveries.AddRange(broadcast.Deliveries);
+            }
+
+            await CommitAsync(next, cancellationToken).ConfigureAwait(false);
+            return new PairedCommandApplication(next, reduction.Acknowledgement, deliveries.AsReadOnly());
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// This authority instance's own session identity, for commands the desktop issues locally.
+    /// Never handed to a device and never authenticated; see <see cref="ApplyDesktopCommandAsync"/>.
+    /// </summary>
+    public DeviceSessionId DesktopSessionId { get; } = new(Guid.NewGuid());
+
+    // A device key id is a bounded base64url digest, not free text; the desktop is not a paired
+    // device and has no registered key, so its context names a digest of its own canonical id.
+    private static DeviceKeyId DesktopKeyId(CompanionDeviceId desktopDeviceId) => new(
+        System.Buffers.Text.Base64Url.EncodeToString(
+            System.Security.Cryptography.SHA256.HashData(desktopDeviceId.Value.ToByteArray())));
+
     public async ValueTask<DeliveryAcknowledgementApplication> AcknowledgeDeliveryAsync(
         AuthenticatedPairedFrame frame,
         ClientDeliveryAcknowledgement acknowledgement,
