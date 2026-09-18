@@ -65,9 +65,17 @@ public static class EftLogFiles
     /// </remarks>
     public static readonly string[] ChatOnlyPrefixes = ["notifications"];
 
-    /// <summary>The only two notification types a chat-only file is opened for.</summary>
+    /// <summary>
+    /// The only notifications a chat-only file is opened for.
+    /// </summary>
+    /// <remarks>
+    /// The quest announcement has two spellings depending on which file it is in, so this takes
+    /// the set the parser itself recognises rather than restating one of them. Getting that
+    /// wrong here would narrow the chat-only reader to nothing in exactly the way the parser's
+    /// own single-spelling check narrowed the full readers to nothing.
+    /// </remarks>
     public static readonly string[] NotificationMarkers =
-        [QuestNotificationParser.NotificationMarker, FleaSaleParser.NotificationMarker];
+        [.. QuestNotificationParser.NotificationMarkers, FleaSaleParser.NotificationMarker];
 
     /// <summary>
     /// How much of an already-written file is read from its end.

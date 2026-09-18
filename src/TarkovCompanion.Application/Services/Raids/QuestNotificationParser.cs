@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using TarkovCompanion.Core.Domain.Quests;
 
@@ -37,12 +38,46 @@ public static class QuestNotificationParser
     /// How the line announces itself, which is the cheap way to reject the other ninety-nine.
     /// </summary>
     /// <remarks>
-    /// This is the announcement, not the payload. The payload inside calls itself
-    /// "new_message", and an earlier version compared one against the other and therefore
-    /// recognised nothing at all. Verified against a live install: 380 of these lines across
-    /// eight log folders, every one of them with a "new_message" payload.
+    /// There are two spellings, and reading only one of them is why a player finished quests in
+    /// a raid and the board never moved.
+    ///
+    /// <c>push-notifications_000.log</c> announces these as <c>ChatMessageReceived</c>. That is
+    /// the spelling this parser was written against, and it is the file the companion
+    /// deliberately does not open in full, because its group blobs carry teammates' inventories
+    /// and looted dogtags.
+    ///
+    /// <c>backend_000.log</c> and <c>output_000.log</c> -- both of which the companion does read
+    /// -- announce the very same notification as <c>new_message</c>, which is also what the
+    /// payload inside calls itself. Measured on 1.1.5.1.47510: <c>ChatMessageReceived</c> occurs
+    /// zero times in backend, while fourteen <c>new_message</c> lines carry the quest events of
+    /// one raid. So every quest the game wrote was rejected on the first substring scan, in the
+    /// only files being looked at.
+    ///
+    /// Both are accepted, and nothing after this point is relaxed to compensate: the payload
+    /// must still be an array, its first element must still hold a message object, that message
+    /// must still carry one of the three numeric types, and its templateId's first word must
+    /// still be at least twenty characters.
     /// </remarks>
-    public const string NotificationMarker = "ChatMessageReceived";
+    public static readonly string[] NotificationMarkers = ["ChatMessageReceived", "new_message"];
+
+    /// <summary>Whether a line announces itself as one of these notifications, either way round.</summary>
+    public static bool Announces([NotNullWhen(true)] string? line)
+    {
+        if (string.IsNullOrEmpty(line))
+        {
+            return false;
+        }
+
+        foreach (var marker in NotificationMarkers)
+        {
+            if (line.Contains(marker, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// A quest id is a twenty-four character identifier.
@@ -62,7 +97,7 @@ public static class QuestNotificationParser
     /// </remarks>
     public static QuestStatusObservation? ParseLine(string? line, DateTimeOffset observedUtc)
     {
-        if (string.IsNullOrEmpty(line) || !line.Contains(NotificationMarker, StringComparison.Ordinal))
+        if (!Announces(line))
         {
             return null;
         }
