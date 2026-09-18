@@ -35,5 +35,32 @@ public sealed class StashScanEndToEndMeasurementTests(ITestOutputHelper output)
         var nearMatch = StashScanMeasurement.DescribeNearMatch(layout, new(), maximumDistance: 12, minimumGap: 4);
         output.WriteLine(nearMatch);
         Console.WriteLine(nearMatch);
+
+        // The floors these fixes reached. They ratchet: a change that loses one has to explain it.
+        var identityOnly = results[0];
+        var appToday = results[1];
+        var catalogue = results[2];
+        var inGame = results[3];
+        var inGameLowContrast = results[4];
+        Assert.All(results, result => Assert.Equal(3, result.LatticesExact));
+        Assert.All(results, result => Assert.Equal(result.TruthFootprintsVisible, result.FootprintsFound));
+        Assert.Equal(1, identityOnly.RegionsPlaced);
+        Assert.Equal(3, appToday.RegionsPlacedCorrectly);
+        Assert.Equal(0, appToday.ReconstructedOccurrences);
+        Assert.True(appToday.UnknownTiles >= layout.Placements.Count, "every item the recognizer cannot name stays on the grid as unknown");
+
+        // The shipped separator names a tile only on a bit-exact fingerprint, and a catalogue
+        // icon is never bit-exact with the game's own drawing of it.
+        Assert.Equal(0, catalogue.Identified);
+
+        foreach (var named in new[] { inGame, inGameLowContrast })
+        {
+            Assert.Equal(3, named.RegionsPlacedCorrectly);
+            Assert.Equal(0, named.ReconstructedWrong);
+            Assert.True(named.Recall >= 0.95, $"recall fell to {named.Recall:P1}");
+            Assert.True(named.DoubleCounted > 0, "the overlap rows are read twice, which is what the folded grid exists to absorb");
+            var truthCounts = layout.Placements.GroupBy(placement => placement.Item.ItemId).ToDictionary(group => group.Key, group => group.Count());
+            Assert.All(named.Reconstruction.OwnedCounts, pair => Assert.True(pair.Value <= truthCounts[pair.Key], $"{pair.Key} was counted {pair.Value} times against {truthCounts[pair.Key]} in the stash"));
+        }
     }
 }

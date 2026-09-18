@@ -91,7 +91,8 @@ public sealed class GridPixelReconstructionBuilder(
             return new(surface, null, []);
         }
 
-        var spec = (surface == InventoryGridSurface.Stash ? _stashLattice.Detect(image, cancellationToken) : null)
+        var stashSpec = surface == InventoryGridSurface.Stash ? _stashLattice.Detect(image, cancellationToken) : null;
+        var spec = stashSpec
             ?? _gridDetector.Detect(image, cancellationToken)
             ?? DetectInCenteredSafeArea(image, cancellationToken);
         if (spec is null || BuildLattice(spec, observedUtc) is not { } lattice)
@@ -100,8 +101,9 @@ public sealed class GridPixelReconstructionBuilder(
         }
 
         // [V2 rough package 40] A packed stash has no gaps for the general merge to split on, so
-        // the stash reads its footprints from the lines between cells instead.
-        var footprints = surface == InventoryGridSurface.Stash
+        // the stash panel reads its footprints from the lines between cells instead. Only the
+        // panel the stash detector itself found: any other grid keeps the general merge.
+        var footprints = stashSpec is not null
             ? _stashFootprints.Read(image, spec, cancellationToken)
                 .Select(footprint => new Footprint(footprint.Row, footprint.Column, footprint.Width, footprint.Height))
                 .ToList()

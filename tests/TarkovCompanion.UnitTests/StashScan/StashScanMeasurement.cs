@@ -42,6 +42,8 @@ internal sealed record StashScanMeasurementResult(
 {
     public IReadOnlyList<string> Lattices { get; init; } = [];
 
+    public StashReconstruction Reconstruction { get; init; } = StashReconstruction.Empty;
+
     public double Precision => ReconstructedOccurrences == 0 ? 0 : (double)ReconstructedCorrect / ReconstructedOccurrences;
 
     public double Recall => TruthOccurrences == 0 ? 0 : (double)ReconstructedCorrect / TruthOccurrences;
@@ -53,7 +55,7 @@ internal sealed record StashScanMeasurementResult(
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   frames {Frames} · lattice found {LatticesFound}/{Frames} · lattice exact {LatticesExact}/{Frames}");
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   per frame: footprints found {FootprintsFound}/{TruthFootprintsVisible} · spurious {SpuriousFootprints} · identified {Identified} · correct {IdentifiedCorrectly}");
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   stitched: regions placed {RegionsPlaced}/{Frames} · placed at the true row {RegionsPlacedCorrectly}/{Frames}");
-        text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   reconstruction: {ReconstructedCorrect} correct of {TruthOccurrences} true items · {ReconstructedWrong} wrong · {DoubleCounted} double-counted · {UnknownTiles} left unknown");
+        text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   reconstruction: {ReconstructedCorrect} correct of {TruthOccurrences} true items · {ReconstructedWrong} wrong · {UnknownTiles} left unknown · {DoubleCounted} would be double-counted by a per-screenshot list");
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   precision {Precision:P1} · recall {Recall:P1}");
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   guidance: {(IssueCodes.Count == 0 ? "none" : string.Join(", ", IssueCodes))}");
         text.AppendLine(CultureInfo.InvariantCulture, $"[stash-e2e]   lattices: {string.Join(" | ", Lattices)}");
@@ -247,9 +249,7 @@ internal static class StashScanMeasurement
         var truth = layout.Placements.ToDictionary(placement => (placement.Row, placement.Column));
         var placed = 0;
         var placedCorrectly = 0;
-        var seen = new Dictionary<(int Row, int Column), string?>();
-        var doubleCounted = 0;
-        var occurrences = 0;
+        var namedReads = 0;
         foreach (var region in stash.CapturedRegions)
         {
             if (region.OriginInContainer.Value is not { } origin)
@@ -264,35 +264,23 @@ internal static class StashScanMeasurement
                 placedCorrectly++;
             }
 
-            foreach (var cell in region.Grid.Cells)
-            {
-                var key = (origin.Row + cell.Anchor.Row, origin.Column + cell.Anchor.Column);
-                var id = cell.Item.Value?.CanonicalId.Value;
-                if (id is not null)
-                {
-                    occurrences++;
-                }
-
-                if (!seen.TryAdd(key, id) && seen[key] is null)
-                {
-                    seen[key] = id;
-                }
-            }
+            namedReads += region.Grid.Cells.Count(cell => cell.Item.Value?.CanonicalId.Value is not null);
         }
 
-        // What a consumer summing every region's cells reports, less what is really there once
-        // the overlap is folded: the double count a per-region list shows the player.
-        doubleCounted = occurrences - seen.Values.Count(id => id is not null);
+        // Scored on what the workspace and the owned counts actually use: the one folded grid.
+        var reconstruction = new StashReconstructionProjector().Project(stash);
         var correct = 0;
         var wrong = 0;
         var unknown = 0;
-        foreach (var (key, id) in seen)
+        foreach (var tile in reconstruction.Containers.SelectMany(container => container.Tiles))
         {
-            if (id is null)
+            if (!tile.IsKnown)
             {
                 unknown++;
             }
-            else if (truth.TryGetValue(key, out var placement) && string.Equals(placement.Item.ItemId, id, StringComparison.Ordinal))
+            else if (truth.TryGetValue((tile.Row, tile.Column), out var placement) &&
+                     string.Equals(placement.Item.ItemId, tile.ItemId, StringComparison.Ordinal) &&
+                     placement.Item.Width == tile.Width && placement.Item.Height == tile.Height)
             {
                 correct++;
             }
@@ -301,6 +289,10 @@ internal static class StashScanMeasurement
                 wrong++;
             }
         }
+
+        // What summing every screenshot's cells would have reported over the folded grid: the
+        // double count a per-screenshot list showed the player before package 40.
+        var doubleCounted = namedReads - reconstruction.KnownTiles;
 
         return new(
             scenario,
@@ -321,7 +313,10 @@ internal static class StashScanMeasurement
             doubleCounted,
             unknown,
             assembly.Report.Issues.Select(issue => issue.Code).Distinct(StringComparer.Ordinal).ToArray(),
-            assembly);
+            assembly)
+        {
+            Reconstruction = reconstruction,
+        };
     }
 
     /// <summary>
