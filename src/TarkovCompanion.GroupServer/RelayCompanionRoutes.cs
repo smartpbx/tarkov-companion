@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer.Security;
@@ -118,6 +119,7 @@ public sealed class RelayOwnerClaimGate
 public static class RelayCompanionRoutes
 {
     private const string SessionHeader = "X-Relay-Session";
+    private const int BodyReadBufferBytes = 64 * 1024;
     private const string CredentialHeader = "X-Relay-Credential";
 
     public static void MapRelayCompanionRoutes(
@@ -533,6 +535,23 @@ public static class RelayCompanionRoutes
         int? maximumBytes = null)
     {
         var limit = maximumBytes ?? ProtocolBounds.MaxPayloadBytes * 4;
+
+        // Kestrel's own global limit (Program.cs, 32 KiB) is smaller than anything this file
+        // accepts, so without this override every body over 32 KiB is refused with a 413 before
+        // the handler runs at all — a paired frame batch, a 1 MiB map surface, a 24 MiB rasterized
+        // plan alike. The same defect #414 fixed for /report. Raised to exactly the bound this
+        // call is about to enforce, never to a relay-wide maximum: an oversized body is then
+        // refused by our own check, with our own code, rather than by the transport.
+        var sizeFeature = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (sizeFeature is { IsReadOnly: false })
+        {
+            // One read buffer above the bound, not exactly it: the loop below stops on the first
+            // chunk that crosses `limit`, so leaving that chunk's worth of headroom is what makes
+            // an oversized body come back as this relay's own refusal rather than as a transport
+            // 413 raced against it. Nothing more than that is ever buffered.
+            sizeFeature.MaxRequestBodySize = limit + BodyReadBufferBytes;
+        }
+
         if (request.ContentLength > limit)
         {
             return null;
@@ -541,7 +560,7 @@ public static class RelayCompanionRoutes
         // Bounded while it is read, not after: a caller that declares no length (or lies about
         // it) must not be able to make this buffer an unbounded body in memory.
         using var bounded = new MemoryStream();
-        var buffer = new byte[64 * 1024];
+        var buffer = new byte[BodyReadBufferBytes];
         int read;
         while ((read = await request.Body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
         {
