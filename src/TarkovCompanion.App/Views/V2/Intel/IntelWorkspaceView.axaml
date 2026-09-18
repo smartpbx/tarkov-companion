@@ -212,8 +212,13 @@
                   </Button>
                 </Grid>
 
-                <Border Classes="v2-intel-stage" AutomationProperties.Name="{Binding IntelSlotsLabel}">
-                  <ItemsControl ItemsSource="{Binding IntelSlotCells}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24">
+                <!-- V2 rough package 30 (acceptance sweep): the footprint hugs its own cells.
+                     Stretched across the pane with a 200px floor it was a 1350x200 empty box
+                     holding a 128x64 grid — the concept's product photograph, minus the
+                     photograph. It reads as a chip until there is real item artwork. -->
+                <Border Classes="v2-intel-stage" HorizontalAlignment="Left"
+                        AutomationProperties.Name="{Binding IntelSlotsLabel}">
+                  <ItemsControl ItemsSource="{Binding IntelSlotCells}" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="18">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><UniformGrid Columns="{Binding IntelSlotColumns}" /></ItemsPanelTemplate>
                     </ItemsControl.ItemsPanel>
@@ -252,8 +257,12 @@
       </Grid>
     </Grid>
 
-    <!-- Context panel. -->
+    <!-- Context panel. V2 rough package 30 (acceptance sweep): it only draws once something is
+         selected. Every card inside it is bound to a selected item, so before one there is
+         nothing to say, and the fixed 460px column read as a dead stripe down the right of the
+         workspace on every landing — a quarter of the window at 1920 wide. -->
     <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            IsVisible="{Binding ShowsIntelContextPanel}"
             AutomationProperties.AccessibilityView="Control"
             AutomationProperties.LandmarkType="Complementary"
             AutomationProperties.AutomationId="v2-intel-context">

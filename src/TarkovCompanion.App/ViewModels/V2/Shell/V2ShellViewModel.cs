@@ -1005,7 +1005,28 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         await Legacy.Items.SearchCommand.ExecuteAsync().ConfigureAwait(true);
         Announce(Legacy.Items.SearchStatus, V2Announcement.Polite);
         RebuildSuggestions();
+        SelectFirstIntelResult();
         FocusRequested?.Invoke(this, new(SearchFocusTarget, V2FocusReason.Invoker));
+    }
+
+    /// <summary>
+    /// V2 rough package 30 (acceptance sweep): a finished search shows its best match, the way
+    /// docs/design/v2/v2-intel-workspace-concept.png does.
+    /// </summary>
+    /// <remarks>
+    /// The router is moved directly rather than through <c>Act</c>, so the item's own focus
+    /// request is not raised: the player is typing, and the caller returns focus to the search
+    /// box on the line after this one. It only ever acts when nothing is selected, so a search
+    /// run from an item's page leaves that item showing.
+    /// </remarks>
+    private void SelectFirstIntelResult()
+    {
+        if (!ShowsIntelWorkspace || HasIntelSelection || IntelResults.Count == 0)
+        {
+            return;
+        }
+
+        _ = Router.OpenIntel(IntelResults[0].ItemId, invoker: null);
     }
 
     public void FocusSearch()

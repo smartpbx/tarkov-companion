@@ -79,12 +79,14 @@
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <!-- The item's footprint, drawn as the stash cells it occupies. -->
+    <!-- V2 rough package 30 (acceptance sweep): no MinHeight. The footprint hugs its own cells;
+         stretched across the pane with a 200px floor it was a 1350x200 empty box holding a
+         128x64 grid — the concept's product photograph, minus the photograph. -->
     <Style Selector="Border.v2-intel-stage">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="MinHeight" Value="200" />
     </Style>
     <Style Selector="Border.v2-intel-cell">
       <Setter Property="Width" Value="64" />

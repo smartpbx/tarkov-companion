@@ -40,7 +40,11 @@ and has neither a step that could publish nor a token that could.
    process to exit cleanly. Success is decided only after the required local-data and database
    observations are recorded.
 7. Runs `scripts/windows-page-gallery.ps1`: one launch per destination and map view, each with
-   `TARKOV_COMPANION_UI_WARNING_LOG` pointed at its own file (see the gate table below).
+   `TARKOV_COMPANION_UI_WARNING_LOG` pointed at its own file (see the gate table below). It also
+   photographs every address in `V2RouteRegistry.Default` for Variant A at 1920x1080 and at
+   3840x1080, reaching each one through the persisted preview address the way a deep link does.
+   These run before step 9 seeds any data, so they are the first-run state. A width the runner's
+   desktop cannot offer is recorded as skipped rather than photographed cropped.
 8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
    showing a populated catalog is evidence that the desktop launches since then produced it.
 9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker
@@ -54,9 +58,13 @@ and has neither a step that could publish nor a token that could.
    waits for that scan's committed row before sending the next, because the application writes
    history behind a queue and answers the scan before the row lands. A SQLite failure other
    than an initializing database is raised at once rather than retried until a timeout.
-11. Uploads, as the `windows-verification` artifact, only an allowlisted sanitized summary and
-   bounded sanitized failure excerpts, kept for seven days. Raw startup logs, SQLite databases,
-   screenshots, runner usernames, and absolute paths are never artifact evidence.
+11. Uploads two artifacts, each kept for seven days. `windows-verification` carries only an
+   allowlisted sanitized summary and bounded sanitized failure excerpts. `v2-route-gallery`
+   carries the Variant A route captures from step 7, so a UI change can be looked at without a
+   Windows machine; the Events capture is excluded because that page prints the local
+   configuration directory, which carries the runner account name. Raw startup logs, SQLite
+   databases, runner usernames, absolute paths, and the V1 page and map-view captures are never
+   artifact evidence.
 12. Fails the job on any unverified step. Only a run that passed uploads the package and, outside
    a pull request, the release payload; `publish` then runs only for `main` or a `v*` tag, and
    updates the rolling `dev` pre-release or cuts the tagged release.
@@ -72,6 +80,8 @@ secret audits; `windows-verify` waits for it.
 | Shutdown | exit code 0, inside the deadline, with no hung process left behind |
 | First-run sync | every json.tarkov.dev endpoint records `current` with no error |
 | Page gallery | each launch reaches a responsive window with visible variation |
+| V2 routes | every Variant A address reaches its own page heading at both widths, and the controls a player presses have bounding rectangles inside the window |
+| Dead area | on the routes that declare a bound, the flat colour running in from the right edge stays under it; every other route is measured and reported so the next bound comes from numbers |
 | Interface faults | no launch's toolkit wrote a `[Binding]`, `[Property]`, `[Visual]`, `[Layout]` or `[Control]` line, or a could-not-find/resolve/convert line from any other toolkit area, to its warning log; null-source bindings count |
 | Warning capture | each launch's warning log received the application's own startup line before capture, so "no faults" was said by a listener that was running |
 | Developer smoke | every fixture scan completes from the demo fixture and commits exactly one `scan` row, observed through a read-only SQLite reader |
