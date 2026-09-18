@@ -56,7 +56,7 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
-    public void Canonical_floor_stack_state_gets_an_honest_flat_fallback()
+    public void Canonical_floor_stack_state_with_no_artwork_says_so_and_draws_one_floor()
     {
         var renderer = Renderer(Scene(
             supportsFloorStack: true,
@@ -69,9 +69,11 @@ public sealed class MapSceneRendererViewModelTests
         Assert.True(renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D).IsSelected);
         Assert.Empty(renderer.FloorLayers);
         Assert.False(renderer.HasFloorStack);
-        Assert.True(renderer.ShowsModeFallback);
-        Assert.Contains("floor-filtered 2D plan", renderer.ModeFallbackNotice, StringComparison.OrdinalIgnoreCase);
+        // One line, not a paragraph beside it: the stack's own status is the honest answer and
+        // the generic mode fallback would only say the same thing again, longer.
+        Assert.False(renderer.ShowsModeFallback);
         Assert.Contains("no floor artwork", renderer.StackStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("showing one floor", renderer.StackStatus, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
