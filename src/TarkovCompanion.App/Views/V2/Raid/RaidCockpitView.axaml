@@ -204,8 +204,15 @@
                 </WrapPanel>
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
                            IsVisible="{Binding HasStackStatus}" />
-                <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
-                           IsVisible="{Binding HasFloorVariant}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
+                          Command="{Binding UseFloorVariantCommand}"
+                          AutomationProperties.AutomationId="v2-raid-floor-variant"
+                          AutomationProperties.Name="Use the artwork with floors"
+                          ToolTip.Tip="{Binding FloorVariantHint}" />
+                  <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
+                             VerticalAlignment="Center" MaxWidth="420" />
+                </StackPanel>
               </StackPanel>
             </Border>
             <TextBlock Classes="v2-label" Text="Click the map to place it"

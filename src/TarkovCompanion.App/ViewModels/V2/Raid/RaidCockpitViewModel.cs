@@ -236,6 +236,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         ToggleArtworkCommand = new DelegateCommand(() => _ = _map.ToggleArtworkAsync());
         ToggleHideControlsCommand = new DelegateCommand(() => _ = _map.ToggleHideControlsWhenIdleAsync());
         FrameAreaCommand = new DelegateCommand(FrameArea);
+        UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
 
         _map.PropertyChanged += MapPropertyChanged;
         _map.PlayerFollowRequested += PlayerFollowRequested;
@@ -305,6 +306,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     /// <summary>Put the area the raid is happening in on screen.</summary>
     public ICommand FrameAreaCommand { get; }
+
+    /// <summary>Switch to the artwork of this map that actually has the floors on it (V1's "Floors…").</summary>
+    public ICommand UseFloorVariantCommand { get; }
 
     public bool FollowsPlayer => _map.FollowsPlayer;
 
