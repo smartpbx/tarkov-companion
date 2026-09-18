@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Reflection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer;
@@ -500,6 +501,15 @@ app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpRes
     if (!TryReadKey(request, out var key))
     {
         return TypedResults.Unauthorized();
+    }
+
+    // Kestrel's own limit above is smaller than what this endpoint accepts, so without this
+    // override every report over 32 KiB was refused with a 413 before this code ever ran,
+    // whether or not it fit within ProblemReports.MaximumBytes.
+    var sizeFeature = request.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (sizeFeature is { IsReadOnly: false })
+    {
+        sizeFeature.MaxRequestBodySize = ProblemReports.MaximumBytes;
     }
 
     using var reader = new StreamReader(request.Body);

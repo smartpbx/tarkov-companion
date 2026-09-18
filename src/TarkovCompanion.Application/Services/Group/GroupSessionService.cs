@@ -866,6 +866,14 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// person with the problem can get the report out — and a relay they cannot reach is one
     /// of the problems they might be reporting.
     /// </remarks>
+    /// <summary>How large a report body the relay will accept.</summary>
+    /// <remarks>
+    /// Must match ProblemReports.MaximumBytes on the relay. Kestrel's own limit there is
+    /// smaller still, at 32 KiB, and the relay has to raise it per-endpoint to actually accept
+    /// this much; sending past this figure only ever asks for a 413 the endpoint never sees.
+    /// </remarks>
+    private const int MaximumReportBytes = 64 * 1024;
+
     public async Task<string> ReportProblemAsync(string report, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(report);
@@ -885,12 +893,21 @@ public sealed class GroupSessionService : IAsyncDisposable
                 HttpMethod.Post,
                 new Uri(new Uri(settings.ServerUri!), "report"))
             {
-                Content = new StringContent(report, Encoding.UTF8, "text/markdown"),
+                Content = new StringContent(TrimToFit(report, MaximumReportBytes), Encoding.UTF8, "text/markdown"),
             };
             request.Headers.Add("X-Group-Key", settings.Key!.Trim());
             using var response = await _httpClient.SendAsync(request, sending.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                // A 413 is Kestrel refusing the request before the endpoint ever ran, so its
+                // body is whatever the framework happened to write, not a useful detail. Said
+                // plainly instead: "the relay refused it (413)" answered nothing about what
+                // had gone wrong.
+                if (response.StatusCode == HttpStatusCode.RequestEntityTooLarge)
+                {
+                    return "Could not send: the report was too large for the relay. Use Copy diagnostics instead.";
+                }
+
                 var detail = await response.Content.ReadAsStringAsync(sending.Token).ConfigureAwait(false);
                 return $"The relay refused it ({(int)response.StatusCode}). {detail}";
             }
@@ -906,6 +923,29 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             return $"Could not reach the relay: {Explain(exception)}. Use Copy diagnostics instead.";
         }
+    }
+
+    /// <summary>
+    /// Cuts a report down to a byte budget rather than let the relay refuse the whole thing.
+    /// </summary>
+    /// <remarks>
+    /// The ordinary desktop report is a closed, bounded projection nowhere near this size, but
+    /// the transport still accepts a raw string from whatever else builds one, and a report
+    /// that arrives untrimmed is worth less than a shorter one that actually arrives. Cut from
+    /// the end rather than refuse outright, so what already fits -- typically the summary at
+    /// the top -- still reaches the relay, and say plainly that it happened.
+    /// </remarks>
+    private static string TrimToFit(string report, int maximumBytes)
+    {
+        var bytes = Encoding.UTF8.GetBytes(report);
+        if (bytes.Length <= maximumBytes)
+        {
+            return report;
+        }
+
+        const string notice = "\n\n(trimmed to fit the relay's size limit)";
+        var budget = Math.Max(0, maximumBytes - Encoding.UTF8.GetByteCount(notice));
+        return Encoding.UTF8.GetString(bytes, 0, budget) + notice;
     }
 
     private sealed record ReportOutcomeDto(string Reference, string Detail);
