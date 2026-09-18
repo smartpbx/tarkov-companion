@@ -50,34 +50,44 @@ public static class MapPlanProjection
     public static MapPlanRect? For(MapRenderModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
+        return TilePlanRect(model) ?? Reviewed(model);
+    }
+
+    /// <summary>
+    /// The rectangle the reviewed map itself covers — the shape the map really is.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Not the same rectangle as <see cref="For"/> whenever the artwork is
+    /// a tile grid, and that difference is the aspect-ratio bug. A tile grid snaps outwards to
+    /// whole tiles, so the picture covers up to one whole tile more ground than the map does on
+    /// each of its four sides, and at the coarse levels the loader can pick a tile is a large
+    /// fraction of the map. The snapped rectangle is always squarer than the map, measured
+    /// against the 2026-09-18 catalog: Customs is 1.967 wide-to-tall and its grid is 1.700,
+    /// Shoreline is 1.510 and its grid is 1.333, The Lab is 1.372 and its grid is 1.333. Fitting
+    /// the grid into the card therefore drew Customs as though it were a third squarer than it
+    /// is, and left a blank band of unreviewed tiles above and below it.
+    ///
+    /// A renderer that fits this rectangle rather than the grid's draws the map at its own shape
+    /// and at the size the card can actually give it. It keeps #413's contract as long as the
+    /// artwork it draws covers this same rectangle — which is why the cockpit composes the tile
+    /// mosaic cropped to it rather than to the grid.
+    ///
+    /// Which bounds are reviewed depends on the artwork: a drawing covers the variant's own SVG
+    /// bounds where it publishes them (Reserve is the one that does), and tiles are planned from
+    /// the variant's world bounds, so a tile map's reviewed rectangle is those.
+    /// </remarks>
+    public static MapPlanRect? Reviewed(MapRenderModel model)
+    {
+        ArgumentNullException.ThrowIfNull(model);
         var variant = model.Variant;
         if (variant.Transform is not { IsValid: true })
         {
             return null;
         }
 
-        // The level the loader actually fetched, not the pyramid's minimum. These must be the
-        // same number or every marker lands in a different coordinate space from the artwork.
-        if (model.Background?.Kind == MapBackgroundKind.TileTemplate &&
-            (model.Background.TileZoom ?? variant.MinimumZoom) is { } zoom)
-        {
-            var plan = MapTilePlanner.Plan(variant, zoom, MapTilePlanner.MaximumTilesPerView);
-            if (plan.IsValid)
-            {
-                // The tile grid snaps outwards to whole tiles, so it covers a little more ground
-                // than the reviewed bounds do. That larger rectangle is what is on screen.
-                var scale = Math.Pow(2, zoom);
-                return Validated(new(
-                    plan.OriginPixelX / scale,
-                    plan.OriginPixelY / scale,
-                    (plan.OriginPixelX + plan.Width) / scale,
-                    (plan.OriginPixelY + plan.Height) / scale));
-            }
-        }
-
-        // The drawing covers the variant's own SVG bounds where it publishes them, and its
-        // reviewed world bounds otherwise — the same choice V1's canvas mapper has always made.
-        var bounds = variant.SvgBounds ?? variant.Bounds;
+        var bounds = model.Background?.Kind == MapBackgroundKind.TileTemplate
+            ? variant.Bounds
+            : variant.SvgBounds ?? variant.Bounds;
         if (bounds?.IsValid != true)
         {
             return null;
@@ -104,6 +114,35 @@ public static class MapPlanProjection
             projected.Min(point => point.Y),
             projected.Max(point => point.X),
             projected.Max(point => point.Y)));
+    }
+
+    /// <summary>The tile grid's own outward-snapped rectangle, or null when this is not a tile map.</summary>
+    private static MapPlanRect? TilePlanRect(MapRenderModel model)
+    {
+        var variant = model.Variant;
+        // The level the loader actually fetched, not the pyramid's minimum. These must be the
+        // same number or every marker lands in a different coordinate space from the artwork.
+        if (variant.Transform is not { IsValid: true } ||
+            model.Background?.Kind != MapBackgroundKind.TileTemplate ||
+            (model.Background.TileZoom ?? variant.MinimumZoom) is not { } zoom)
+        {
+            return null;
+        }
+
+        var plan = MapTilePlanner.Plan(variant, zoom, MapTilePlanner.MaximumTilesPerView);
+        if (!plan.IsValid)
+        {
+            return null;
+        }
+
+        // The tile grid snaps outwards to whole tiles, so it covers a little more ground than the
+        // reviewed bounds do. That larger rectangle is what the whole mosaic covers.
+        var scale = Math.Pow(2, zoom);
+        return Validated(new(
+            plan.OriginPixelX / scale,
+            plan.OriginPixelY / scale,
+            (plan.OriginPixelX + plan.Width) / scale,
+            (plan.OriginPixelY + plan.Height) / scale));
     }
 
     private static MapPlanRect? Validated(MapPlanRect rect) => rect.IsValid ? rect : null;

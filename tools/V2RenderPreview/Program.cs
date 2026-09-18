@@ -437,6 +437,21 @@ internal static class Program
                 Console.WriteLine("Artwork: " + string.Join(
                     ", ",
                     raid.ArtworkVariants.Select(item => item.Key + (item.IsSelected ? "*" : string.Empty))));
+
+                // [V2 rough package 46] The two numbers the aspect-ratio bug lives between: the
+                // rectangle the plan is actually drawn into, and the artwork's own pixels. A
+                // render that looks plausible can still be stretched by a per-cent nobody sees.
+                if (raid.Renderer is { } aspectRenderer)
+                {
+                    var art = aspectRenderer.BackgroundImage?.Size;
+                    var drawn = aspectRenderer.MapHeight > 0 ? aspectRenderer.MapWidth / aspectRenderer.MapHeight : double.NaN;
+                    var intrinsic = art is { Width: > 0, Height: > 0 } size ? size.Width / size.Height : double.NaN;
+                    Console.WriteLine(
+                        $"Plan aspect: card {aspectRenderer.CanvasWidth:F1}x{aspectRenderer.CanvasHeight:F1}, " +
+                        $"drawn {aspectRenderer.MapWidth:F1}x{aspectRenderer.MapHeight:F1} = {drawn:F5}, " +
+                        $"artwork {art?.Width ?? 0:F0}x{art?.Height ?? 0:F0} = {intrinsic:F5}, " +
+                        $"error {(double.IsFinite(drawn) && double.IsFinite(intrinsic) ? (drawn / intrinsic) - 1 : double.NaN):P3}");
+                }
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and

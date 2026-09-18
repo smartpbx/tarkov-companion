@@ -849,8 +849,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </summary>
     /// <remarks>
     /// V1 has already planned the grid, fetched the reviewed tiles for the level it chose and
-    /// decoded them; this only stitches them onto one surface the size of the grid, so the V2
-    /// renderer keeps its one-background-image contract without a second tile pipeline beside
+    /// decoded them; this only stitches them onto one surface covering the reviewed map, so the
+    /// V2 renderer keeps its one-background-image contract without a second tile pipeline beside
     /// V1's. A tile that never arrived is left undrawn — blank in its own square, with every
     /// other tile still in the right place.
     ///
@@ -864,15 +864,32 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var tiles = _map.Tiles.Where(tile => tile.HasArtwork).ToArray();
         if (tiles.Length == 0 ||
-            MapPlanProjection.For(model) is not { IsValid: true } ||
+            MapPlanProjection.For(model) is not { IsValid: true } grid ||
+            MapPlanProjection.Reviewed(model) is not { IsValid: true } reviewed ||
             _map.CanvasWidth <= 0 || _map.CanvasHeight <= 0)
         {
             return null;
         }
 
-        var scale = Math.Min(1, MaximumComposedTileExtent / Math.Max(_map.CanvasWidth, _map.CanvasHeight));
-        var width = (int)Math.Round(_map.CanvasWidth * scale);
-        var height = (int)Math.Round(_map.CanvasHeight * scale);
+        // [V2 rough package 46] The crop that gives the map its own shape back. V1's canvas is
+        // the whole tile grid, and the grid is snapped outwards to whole tiles, so it carries a
+        // margin of up to one tile on each side that is not the map. Composing the picture over
+        // the reviewed rectangle instead of the grid makes the picture's pixels exactly the
+        // shape of the map, which is the rectangle everything on it now projects into.
+        var pixelsPerUnitX = _map.CanvasWidth / grid.Width;
+        var pixelsPerUnitY = _map.CanvasHeight / grid.Height;
+        var cropLeft = (reviewed.MinimumX - grid.MinimumX) * pixelsPerUnitX;
+        var cropTop = (reviewed.MinimumY - grid.MinimumY) * pixelsPerUnitY;
+        var cropWidth = reviewed.Width * pixelsPerUnitX;
+        var cropHeight = reviewed.Height * pixelsPerUnitY;
+        if (!double.IsFinite(cropLeft) || !double.IsFinite(cropTop) || cropWidth <= 0 || cropHeight <= 0)
+        {
+            return null;
+        }
+
+        var scale = Math.Min(1, MaximumComposedTileExtent / Math.Max(cropWidth, cropHeight));
+        var width = (int)Math.Round(cropWidth * scale);
+        var height = (int)Math.Round(cropHeight * scale);
         if (width <= 0 || height <= 0)
         {
             return null;
@@ -888,7 +905,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 CultureInfo.InvariantCulture,
                 $"{tile.LocalPath}|{tile.Left}|{tile.Top}|{tile.Size}")).Order(StringComparer.Ordinal));
         var sha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            string.Create(CultureInfo.InvariantCulture, $"{width}x{height}\n{identity}")))).ToLowerInvariant();
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{width}x{height}@{cropLeft:F3},{cropTop:F3}\n{identity}")))).ToLowerInvariant();
         if (string.Equals(sha, _backgroundSha, StringComparison.Ordinal) && _backgroundImage is { } unchanged)
         {
             return new(unchanged, sha);
@@ -904,7 +923,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     context.DrawImage(
                         tile.Image,
                         new Rect(0, 0, tile.Image.Size.Width, tile.Image.Size.Height),
-                        new Rect(tile.Left * scale, tile.Top * scale, tile.Size * scale, tile.Size * scale));
+                        new Rect(
+                            (tile.Left - cropLeft) * scale,
+                            (tile.Top - cropTop) * scale,
+                            tile.Size * scale,
+                            tile.Size * scale));
                 }
             }
 
@@ -1970,11 +1993,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>
     private double Bearing() => (_map.RotationDegrees % 360 + 360) % 360;
 
-    /// <summary>The rectangle this model's artwork covers, as scene bounds.</summary>
-    /// <remarks>Internal for direct coverage: this one line decides whether every marker on the
-    /// map lands on the artwork or beside it (see the marker-landing tests).</remarks>
+    /// <summary>The rectangle the reviewed map covers, as scene bounds.</summary>
+    /// <remarks>
+    /// Internal for direct coverage: this one line decides whether every marker on the map lands
+    /// on the artwork or beside it (see the marker-landing tests).
+    ///
+    /// [V2 rough package 46] The reviewed map's rectangle, not the tile grid's. The grid snaps
+    /// outwards to whole tiles and is always squarer than the map it carries, so fitting it drew
+    /// Customs at 1.70 wide-to-tall when Customs is 1.97, with a blank band of tiles above and
+    /// below. <see cref="ComposeTileArtwork"/> crops the mosaic to exactly this rectangle, so the
+    /// artwork and the objects still share one rectangle — #413's contract — and that rectangle
+    /// is now the map's own shape.
+    /// </remarks>
     internal static MapSceneBounds PlanBoundsFor(MapRenderModel model) =>
-        MapPlanProjection.For(model) is { IsValid: true } rect
+        (MapPlanProjection.Reviewed(model) ?? MapPlanProjection.For(model)) is { IsValid: true } rect
             ? new(rect.MinimumX, rect.MinimumY, rect.MaximumX, rect.MaximumY)
             : UnplaceablePlanBounds;
 
