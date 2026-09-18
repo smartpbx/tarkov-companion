@@ -90,6 +90,35 @@
     <Style Selector="TextBlock.v2-map-offer-unknown">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <!-- V2 rough package 22: a person on the plan. A filled dot for where they were, a soft
+         wedge for which way they were looking, and nothing else: this is a screenshot's
+         last-known position, so it must not read like one of the boxed reference markers. -->
+    <Style Selector="Ellipse.v2-map-person-dot">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="StrokeThickness" Value="2.5" />
+    </Style>
+    <Style Selector="Ellipse.v2-map-person-dot.teammate">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Path.v2-map-person-cone">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Success}" />
+      <Setter Property="Opacity" Value="0.42" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-marker.team-observed Path.v2-map-person-cone">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- V2 rough package 22: a place name written on the plan, not a label on a control. A
+         halo-free single line at a size that stays readable when the camera zooms, quieter than
+         anything a player is meant to act on. -->
+    <Style Selector="TextBlock.v2-map-place-name">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.85" />
+    </Style>
     <Style Selector="Path.v2-map-marker-icon">
       <Setter Property="Width" Value="18" />
       <Setter Property="Height" Value="18" />
@@ -280,8 +309,34 @@
 
             <map:MapSceneGeometryLayer Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                                        IsHitTestVisible="False" Objects="{Binding GeometryObjects}"
+                                       Zoom="{Binding CameraZoom}"
                                        Stroke="{DynamicResource V2.Brush.Action}"
+                                       LocalStroke="{DynamicResource V2.Brush.Success}"
+                                       TeamStroke="{DynamicResource V2.Brush.Info}"
                                        Fill="{DynamicResource V2.Brush.Info}" />
+
+            <!-- V2 rough package 22: place names, written on the plan like V1's "Place names"
+                 layer. Text rather than markers, never hit-testable: a street name is not a
+                 thing you click. -->
+            <ItemsControl ItemsSource="{Binding LabelObjects}" IsHitTestVisible="False"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererLabelViewModel">
+                  <TextBlock Classes="v2-map-place-name" Width="{Binding Width}"
+                             TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                             RenderTransformOrigin="50%,50%" Text="{Binding Text}">
+                    <TextBlock.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding InverseZoom}" ScaleY="{Binding InverseZoom}" />
+                        <RotateTransform Angle="{Binding UprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </TextBlock.RenderTransform>
+                  </TextBlock>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
             <ItemsControl ItemsSource="{Binding PointMarkers}"
                           Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
@@ -318,11 +373,28 @@
                          truth and offer state. V2 rough package 21: the drawn chip is a nested
                          32px Border so the button around it can be a 44px hit area without
                          growing the visible box. -->
-                    <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                    <!-- V2 rough package 22: somebody standing somewhere is drawn as V1 drew
+                         them — a dot with a cone for which way they are facing — not as a chip
+                         with a glyph in it. The cone is outside the chip so it is not clipped by
+                         it, and it turns with the recorded heading rather than with the marker. -->
+                    <Panel>
+                    <Panel IsVisible="{Binding IsPersonIcon}" Width="44" Height="44" IsHitTestVisible="False">
+                      <Path Classes="v2-map-person-cone" Data="{Binding ConeGeometry}"
+                            RenderTransformOrigin="50%,50%">
+                        <Path.RenderTransform>
+                          <RotateTransform Angle="{Binding ConeDegrees}" />
+                        </Path.RenderTransform>
+                      </Path>
+                      <Ellipse Classes="v2-map-person-dot" Classes.teammate="{Binding IsTeammateIcon}"
+                               Width="14" Height="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Panel>
+                    <Border Classes="v2-map-marker-chip" IsHitTestVisible="False"
+                            IsVisible="{Binding !IsPersonIcon}">
                       <Grid Width="26" Height="26">
                         <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
                                    IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
-                        <Panel IsVisible="{Binding ShowsMarkerIcon}">
+                        <Panel IsVisible="{Binding ShowsGlyphIcon}">
                           <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.Exit}" />
                           <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.Transit}" />
                           <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsObjectiveIcon}" Data="{DynamicResource V2.Icon.Objective}" />
@@ -338,6 +410,7 @@
                         </Panel>
                       </Grid>
                     </Border>
+                    </Panel>
                   </ToggleButton>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
