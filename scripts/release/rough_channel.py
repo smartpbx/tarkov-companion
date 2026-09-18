@@ -89,9 +89,29 @@ def installers(directory: Path) -> list[Path]:
     return sorted(path for path in directory.glob("*-Setup.exe") if path.is_file())
 
 
-def stage(velopack: Path, output: Path) -> list[Path]:
+def check_version(assets: list[dict], expected: str) -> None:
+    """Every full package in the feed is the build that was asked for, and is named after it.
+
+    The version is decided once per build (scripts/build-version.sh). The feed is where an
+    installed desktop reads it, so a feed offering any other number would be the installer,
+    the package and the application disagreeing in the one place a client acts on.
+    """
+    if not expected:
+        raise ChannelError("no expected version was given, so the feed's version cannot be checked")
+    for asset in assets:
+        if asset.get("Type") != "Full":
+            continue
+        if asset["Version"] != expected:
+            raise ChannelError(f"the feed offers {asset['FileName']} as {asset['Version']}, and this build is {expected}")
+        if f"-{expected}-" not in asset["FileName"]:
+            raise ChannelError(f"{asset['FileName']} is not named after version {expected}")
+
+
+def stage(velopack: Path, output: Path, expected_version: str | None = None) -> list[Path]:
     """Copies the feed, its packages and the installer, and writes the sums and the copy order."""
     assets = read_feed(velopack)
+    if expected_version is not None:
+        check_version(assets, expected_version)
     check_packages(velopack, assets)
     setups = installers(velopack)
     if len(setups) != 1:
@@ -146,12 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     stage_parser = commands.add_parser("stage", help="build the folder to publish from the packaging tool's output")
     stage_parser.add_argument("--velopack", type=Path, required=True)
     stage_parser.add_argument("--output", type=Path, required=True)
+    stage_parser.add_argument("--expect-version", help="refuse a feed whose full package is any other version")
     verify_parser = commands.add_parser("verify", help="check a staged folder before copying it to the relay")
     verify_parser.add_argument("directory", type=Path)
     arguments = parser.parse_args(argv)
     try:
         if arguments.command == "stage":
-            for path in stage(arguments.velopack, arguments.output):
+            for path in stage(arguments.velopack, arguments.output, arguments.expect_version):
                 print(f"staged {path.name}")
         else:
             for asset in verify(arguments.directory):

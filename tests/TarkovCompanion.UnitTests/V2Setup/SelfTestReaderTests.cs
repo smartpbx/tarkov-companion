@@ -150,20 +150,55 @@ public sealed class SelfTestReaderTests : IDisposable
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "already-there.png"), "x");
         var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
-        const string Name = "2026-09-18[20-58]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
+        // Named for this minute, not for the evening the test was written. The name used to be
+        // the constant "2026-09-18[20-58]...", and the parser believes a file's write time only
+        // when it is within an hour of the clock in its name. So this passed for the two hours
+        // around 20:58 UTC on that one day and has failed at every moment since, on every
+        // branch, in the job main requires. A test about "now" has to be written in terms of now.
+        var name = ScreenshotNamedFor(DateTimeOffset.UtcNow);
 
         var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
         await Task.Delay(120);
-        File.WriteAllText(Path.Combine(folder, Name), "x");
+        File.WriteAllText(Path.Combine(folder, name), "x");
         var reading = await watching;
 
-        Assert.Equal(Name, reading.FileName);
+        Assert.Equal(name, reading.FileName);
         Assert.True(reading.Parsed);
         Assert.Equal(140.2, reading.X ?? 0, 1);
         Assert.Equal(-77.9, reading.Z ?? 0, 1);
         Assert.NotNull(reading.EndToEnd);
         Assert.Equal("the file's own write time", reading.Clock);
     }
+
+    /// <summary>
+    /// The other side of the same rule, which is what the constant name was testing by accident.
+    /// </summary>
+    /// <remarks>
+    /// A write time hours away from the name's own clock is a sync client rewriting it, so the
+    /// name wins. Stated here on purpose, with a name three hours old, rather than left to
+    /// happen to the test above whenever the wall clock moves on.
+    /// </remarks>
+    [Fact]
+    public async Task AScreenshotWhoseNameIsHoursFromItsWriteTimeIsTimedByItsName()
+    {
+        var folder = Path.Combine(_root, "stale-shots");
+        Directory.CreateDirectory(folder);
+        var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
+        var name = ScreenshotNamedFor(DateTimeOffset.UtcNow.AddHours(-3));
+
+        var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
+        await Task.Delay(120);
+        File.WriteAllText(Path.Combine(folder, name), "x");
+        var reading = await watching;
+
+        Assert.True(reading.Parsed);
+        Assert.Equal("the clock in the name", reading.Clock);
+    }
+
+    /// <summary>A screenshot name as the game writes it, stamped with the given minute. The watch is given a zero offset, so the name is UTC.</summary>
+    private static string ScreenshotNamedFor(DateTimeOffset moment) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"{moment.UtcDateTime:yyyy-MM-dd}[{moment.UtcDateTime:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png");
 
     [Fact]
     public async Task AScreenshotWhoseNameYieldsNoPositionIsReportedRatherThanIgnored()
