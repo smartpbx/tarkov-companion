@@ -12,6 +12,16 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="Padding" Value="22,18" />
     </Style>
+    <Style Selector="ProgressBar.v2-setup-progress">
+      <Setter Property="MinHeight" Value="8" />
+      <Setter Property="Height" Value="8" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="MinWidth" Value="320" />
+      <Setter Property="MaxWidth" Value="480" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
   </UserControl.Styles>
   <!-- V2 rough package 17 (home): compact section tabs like the shell's own, the home overview
        first, then one settings section at a time. -->
@@ -90,21 +100,44 @@
       </StackPanel>
     </Border>
 
+    <!-- V2 rough package 36 (self-updating builds): the channel, what is installed, what is
+         available, one press to update, and where the data is. A build run from a folder says
+         so and points at the installer instead of offering buttons that cannot act. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsUpdatesSelected}">
       <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-label" Text="{Binding Settings.InstalledBuild}" />
-        <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" />
+        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
+          <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" Text="{Binding UpdateChannelLabel}" />
+          <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.UpdateChannelName}"
+                     AutomationProperties.AutomationId="v2-setup-update-channel" />
+          <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" Text="{Binding InstalledBuildLabel}" />
+          <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.InstalledBuild}"
+                     AutomationProperties.AutomationId="v2-setup-installed-build" />
+          <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" Text="{Binding AvailableBuildLabel}" />
+          <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.AvailableBuild}"
+                     AutomationProperties.AutomationId="v2-setup-available-build" />
+        </Grid>
+        <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateStatus}" TextWrapping="Wrap" />
+        <ProgressBar Classes="v2-setup-progress" Minimum="0" Maximum="100"
+                     IsVisible="{Binding Settings.IsDownloadingUpdate}"
+                     Value="{Binding Settings.UpdatePercent}"
+                     AutomationProperties.AutomationId="v2-setup-update-progress"
+                     AutomationProperties.Name="{Binding Settings.UpdateStatus}" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
                   IsEnabled="{Binding Settings.CanCheckForUpdate}"
                   Content="{Binding CheckUpdateLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
-          <Button Classes="v2-target" IsVisible="{Binding Settings.CanDownloadUpdate}"
-                  AutomationProperties.AutomationId="v2-setup-download-update"
-                  Content="{Binding DownloadUpdateLabel}" Command="{Binding Settings.DownloadUpdateCommand}" />
-          <Button Classes="v2-target primary" IsVisible="{Binding Settings.CanRestartForUpdate}"
-                  AutomationProperties.AutomationId="v2-setup-restart-update"
-                  Content="{Binding RestartUpdateLabel}" Command="{Binding Settings.RestartForUpdateCommand}" />
+          <Button Classes="v2-target primary" IsVisible="{Binding Settings.CanUpdateNow}"
+                  IsEnabled="{Binding Settings.IsUpdateIdle}"
+                  AutomationProperties.AutomationId="v2-setup-update-now"
+                  Content="{Binding UpdateNowLabel}" Command="{Binding Settings.UpdateNowCommand}" />
+          <Button Classes="v2-target primary" IsVisible="{Binding Settings.IsRunFromFolder}"
+                  AutomationProperties.AutomationId="v2-setup-get-installer"
+                  Content="{Binding GetInstallerLabel}" Click="OnGetInstaller" />
         </WrapPanel>
+        <SelectableTextBlock Classes="v2-label" IsVisible="{Binding Settings.IsRunFromFolder}"
+                             Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.UpdateDataFolder}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-setup-update-data-folder" />
       </StackPanel>
     </Border>
 

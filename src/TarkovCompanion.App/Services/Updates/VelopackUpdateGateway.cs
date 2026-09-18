@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Velopack;
+using Velopack.Locators;
 using Velopack.Sources;
 
 namespace TarkovCompanion.App.Services.Updates;
@@ -8,7 +9,14 @@ namespace TarkovCompanion.App.Services.Updates;
 /// <param name="Status">A sentence for the player.</param>
 /// <param name="CanDownload">Whether a newer build is waiting to be fetched.</param>
 /// <param name="CanApply">Whether a build is fetched and waiting for a restart.</param>
-public sealed record UpdateProgress(string Status, bool CanDownload = false, bool CanApply = false);
+/// <param name="Available">The newer build's version, when there is one.</param>
+/// <param name="Failed">Whether the feed could not be asked, so "nothing newer" is not known.</param>
+public sealed record UpdateProgress(
+    string Status,
+    bool CanDownload = false,
+    bool CanApply = false,
+    string? Available = null,
+    bool Failed = false);
 
 /// <summary>
 /// Installs and updates the application in place.
@@ -25,20 +33,58 @@ public sealed record UpdateProgress(string Status, bool CanDownload = false, boo
 /// it owns the restart, so the running process is gone before its files are touched. That is
 /// the whole reason for taking a dependency rather than writing a fifth script.
 ///
+/// It follows the rough channel on the relay (<see cref="UpdateChannel.Rough"/>). For a week the
+/// installed updater pointed at nothing, because the only feed was the signed private ring and
+/// that is switched off until its environments and signing identity exist. Meanwhile every test
+/// build was a zip extracted by hand into a fresh, empty data folder. The rough channel is the
+/// shorter road: an unsigned feed whose packages are checked against the SHA256 it lists
+/// (<see cref="HashVerifiedUpdateSource"/>). The signed ring replaces it, not the reverse.
+///
 /// Everything degrades to doing nothing. A build run from a folder rather than installed
 /// reports that and offers no buttons, which is what a developer running from a publish
 /// directory should see.
 /// </remarks>
 public sealed class VelopackUpdateGateway
 {
-    private readonly ILogger<VelopackUpdateGateway>? _logger;
+    private static readonly TimeSpan FeedTimeout = TimeSpan.FromMinutes(30);
+
+    private readonly ILogger? _logger;
     private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
 
     public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null)
+        : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger)
     {
+    }
+
+    private VelopackUpdateGateway(
+        UpdateChannel channel,
+        IUpdateSource? source,
+        IVelopackLocator? locator,
+        ILogger? logger)
+    {
+        Channel = channel;
         _logger = logger;
-        _manager = new Lazy<UpdateManager?>(CreateManager);
+        _manager = new Lazy<UpdateManager?>(() => CreateManager(source, locator));
+    }
+
+    /// <summary>
+    /// A gateway over a given feed and a given idea of what is installed.
+    /// </summary>
+    /// <remarks>
+    /// A factory rather than a second public constructor so the container, which picks a
+    /// constructor by what it can resolve, only ever sees one.
+    /// </remarks>
+    public static VelopackUpdateGateway Create(
+        UpdateChannel channel,
+        IUpdateSource source,
+        IVelopackLocator locator,
+        ILogger? logger = null)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(locator);
+        return new VelopackUpdateGateway(channel, source, locator, logger);
     }
 
     /// <summary>
@@ -55,15 +101,16 @@ public sealed class VelopackUpdateGateway
     /// An application that cannot update itself is a small loss. An application that will not
     /// start is a total one, so this never throws.
     /// </remarks>
-    private UpdateManager? CreateManager()
+    private UpdateManager? CreateManager(IUpdateSource? source, IVelopackLocator? locator)
     {
         try
         {
-            // This manager exists only to report whether Velopack installed the running copy.
-            // It is deliberately pointed at a local directory and CheckAsync never asks it for
-            // updates. Issue #294 will compose SignedReleaseFeedConsumer and hand its verified
-            // SimpleFileSource to Velopack together with the data/model activation transaction.
-            return new UpdateManager(new SimpleFileSource(new DirectoryInfo(AppContext.BaseDirectory)));
+            // One client for the life of the process, never disposed: it is created at most
+            // once, and only by a build that was installed.
+            source ??= new HashVerifiedUpdateSource(
+                Channel.OpenTransport(new HttpClient { Timeout = FeedTimeout }),
+                _logger);
+            return new UpdateManager(source, options: null, locator);
         }
         catch (Exception exception)
         {
@@ -74,6 +121,9 @@ public sealed class VelopackUpdateGateway
         }
     }
 
+    /// <summary>Which feed this build follows.</summary>
+    public UpdateChannel Channel { get; }
+
     /// <summary>Whether this copy was installed, as opposed to run out of a folder.</summary>
     public bool IsInstalled => _manager.Value?.IsInstalled == true;
 
@@ -83,40 +133,68 @@ public sealed class VelopackUpdateGateway
         ? $"Version {version}"
         : "Running from a folder, not installed";
 
-    public Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
+    public async Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_manager.Value is not { IsInstalled: true })
+        if (_manager.Value is not { IsInstalled: true } manager)
         {
-            return Task.FromResult(new UpdateProgress("Run from a folder, so it cannot update itself"));
+            return new UpdateProgress("Run from a folder, so it cannot update itself");
         }
 
-        // The old path called GithubSource with no token and accepted the public repository's
-        // mutable release metadata. The authenticated consumer is intentionally not composed
-        // here: #294 owns that user-facing transaction and #270 owns its persisted state.
-        _pending = null;
-        return Task.FromResult(new UpdateProgress("Private signed updates are not configured in this build"));
+        try
+        {
+            _pending = await manager.CheckForUpdatesAsync().ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _pending = null;
+            _logger?.LogWarning(exception, "Could not check {Feed} for a newer build", Channel.Feed);
+            return new($"Could not check · {exception.Message}", Failed: true);
+        }
+
+        if (_pending is not { } update)
+        {
+            return new("Up to date");
+        }
+
+        var available = update.TargetFullRelease.Version.ToString();
+        _logger?.LogInformation("{Installed}; {Available} is available", InstalledBuild, available);
+        return new($"{available} is available", CanDownload: true, Available: available);
     }
 
-    public async Task<UpdateProgress> DownloadAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Fetches the waiting build and checks it against the feed. The running build is untouched.
+    /// </summary>
+    /// <param name="progress">Told 0 to 100 as the download goes.</param>
+    public async Task<UpdateProgress> DownloadAsync(CancellationToken cancellationToken, Action<int>? progress = null)
     {
         if (_pending is not { } update || _manager.Value is not { } manager)
         {
             return new("Check for updates first.");
         }
 
+        var available = update.TargetFullRelease.Version.ToString();
         try
         {
-            await manager.DownloadUpdatesAsync(update).ConfigureAwait(true);
+            await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
+            return new($"{available} is ready · it installs when this restarts", CanApply: true, Available: available);
+        }
+        catch (UpdateHashMismatchException exception)
+        {
+            // Logged with both hashes where it was refused. Said here without them: two
+            // sixty-four character strings are not something anybody reads on a settings page.
+            _logger?.LogError(exception, "Refused {Available}: the download did not match the feed", available);
             return new(
-                $"{update.TargetFullRelease.Version} is ready · it installs when this closes",
-                CanApply: true);
+                "Refused · the download did not match the feed, so nothing was installed",
+                CanDownload: true,
+                Available: available);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger?.LogWarning(exception, "Could not download");
-            return new($"Could not download · {exception.Message}", CanDownload: true);
+            return new($"Could not download · {exception.Message}", CanDownload: true, Available: available);
         }
     }
 
