@@ -123,7 +123,7 @@ ssh proxmox 'pct exec 115 -- install -d -m 0755 /srv/tarkov-updates/rough'
 ```
 
 **Each build.** Take the run id of a green Windows verification run on `main`; its version is
-`1.0.<run number>`. From a machine with `gh`, this repository and SSH to the Proxmox host:
+`2.0.<run number>`. From a machine with `gh`, this repository and SSH to the Proxmox host:
 
 ```bash
 RUN=<run id>

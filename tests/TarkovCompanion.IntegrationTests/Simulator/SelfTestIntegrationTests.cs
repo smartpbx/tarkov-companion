@@ -66,6 +66,12 @@ public sealed class SelfTestIntegrationTests
             await using var stream = File.OpenRead(outputPath);
             using var json = await JsonDocument.ParseAsync(stream);
             Assert.True(json.RootElement.GetProperty("success").GetBoolean());
+            // Read the way Windows verification reads it: build.version, by those names. That
+            // step compares it with the version the package, feed and installer were given.
+            var build = json.RootElement.GetProperty("build");
+            Assert.Equal(AppBuildIdentity.Current.Version, build.GetProperty("version").GetString());
+            Assert.Matches(@"^\d+\.\d+\.\d+(-dev)?$", build.GetProperty("version").GetString()!);
+            Assert.NotEqual(1, build.GetProperty("generation").GetInt32());
         }
         finally
         {

@@ -9,4 +9,13 @@
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
     <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
+  <!-- The version of a build nobody stamped. CI and scripts/package-windows.sh pass
+       -p:Version from scripts/build-version.sh, which reads the same PRODUCT_VERSION file, so
+       this only ever names a local development build. Without it the SDK's default applies,
+       and every assembly quietly says 1.0.0: the wrong product generation, claimed by a build
+       that was never given a number at all. -->
+  <PropertyGroup Condition="'$(Version)' == ''">
+    <TarkovProductVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)PRODUCT_VERSION').Trim())</TarkovProductVersion>
+    <Version>$(TarkovProductVersion).0-dev</Version>
+  </PropertyGroup>
 </Project>

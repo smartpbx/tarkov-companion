@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.Updates;
 
 namespace TarkovCompanion.UnitTests.Updates;
@@ -166,7 +167,10 @@ public sealed class RoughChannelUpdateTests
         var gateway = new VelopackUpdateGateway();
 
         Assert.False(gateway.IsInstalled);
-        Assert.Equal("Running from a folder, not installed", gateway.InstalledBuild);
+        // It still has a version, and says it: "which build is this" has an answer either way.
+        Assert.Equal(
+            $"Version {AppBuildIdentity.Current.Version} · running from a folder, not installed",
+            gateway.InstalledBuild);
         var result = await gateway.CheckAsync(CancellationToken.None);
         Assert.False(result.CanDownload);
         Assert.False(result.CanApply);

@@ -15,6 +15,11 @@ public sealed record SelfTestEnvironment(
     string Provider,
     bool NetworkContacted);
 
+/// <param name="Build">
+/// Which build ran the test. Windows verification compares this with the version it gave the
+/// package, the feed and the installer, so a binary that reports another number fails there
+/// instead of on somebody's machine.
+/// </param>
 public sealed record SelfTestReport(
     int SchemaVersion,
     DateTimeOffset GeneratedUtc,
@@ -22,7 +27,8 @@ public sealed record SelfTestReport(
     IReadOnlyList<SelfTestCheck> Checks,
     SelfTestEnvironment Environment,
     IReadOnlyDictionary<string, string?> Paths,
-    IReadOnlyDictionary<string, bool> Safety);
+    IReadOnlyDictionary<string, bool> Safety,
+    AppBuildIdentity Build);
 
 public static class SelfTestRunner
 {
@@ -184,7 +190,8 @@ public static class SelfTestRunner
                 ["sendsGameInput"] = false,
                 ["capturesNetworkTraffic"] = false,
                 ["diagnosticChannelEnabled"] = diagnosticEnabled,
-            });
+            },
+            AppBuildIdentity.Current);
 
         await using var output = File.Create(fullOutputPath);
         await JsonSerializer.SerializeAsync(output, report, SerializerOptions, cancellationToken).ConfigureAwait(false);

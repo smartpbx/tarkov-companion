@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.App.Services.Diagnostics;
 using Velopack;
 using Velopack.Locators;
 using Velopack.Sources;
@@ -136,11 +137,17 @@ public sealed class VelopackUpdateGateway
     /// <summary>Whether this copy was installed, as opposed to run out of a folder.</summary>
     public bool IsInstalled => _manager.Value?.IsInstalled == true;
 
-    /// <summary>The running version, or a plain statement that there is not one.</summary>
+    /// <summary>The running version, and whether an installer put it there.</summary>
+    /// <remarks>
+    /// A build run from a folder still has a version, and used to keep it to itself: the page
+    /// said only that it was not installed, which is no help to somebody asked which build
+    /// they are looking at. An installed build shows the installer's number, because that is
+    /// the one the updater compares against the feed.
+    /// </remarks>
     public string InstalledBuild => _manager.Value is { IsInstalled: true } manager
         && manager.CurrentVersion is { } version
         ? $"Version {version}"
-        : "Running from a folder, not installed";
+        : $"Version {AppBuildIdentity.Current.Version} · running from a folder, not installed";
 
     public async Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
     {
