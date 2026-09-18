@@ -106,13 +106,13 @@
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsUpdatesSelected}">
       <StackPanel Classes="v2-stack">
         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
-          <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" Text="{Binding UpdateChannelLabel}" />
+          <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding UpdateChannelLabel}" />
           <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.UpdateChannelName}"
                      AutomationProperties.AutomationId="v2-setup-update-channel" />
-          <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" Text="{Binding InstalledBuildLabel}" />
+          <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding InstalledBuildLabel}" />
           <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.InstalledBuild}"
                      AutomationProperties.AutomationId="v2-setup-installed-build" />
-          <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" Text="{Binding AvailableBuildLabel}" />
+          <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AvailableBuildLabel}" />
           <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-body" Text="{Binding Settings.AvailableBuild}"
                      AutomationProperties.AutomationId="v2-setup-available-build" />
         </Grid>

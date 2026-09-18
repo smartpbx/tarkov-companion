@@ -135,6 +135,17 @@ internal static class Program
                 Pump(20);
             }
 
+            // V2 rough package 36: Setup opens on its overview, so a render of any other section
+            // (--route setup --setup-section Updates) presses that section's own tab.
+            if (shell?.SetupWorkspace is { } setup && StringOption(args, "--setup-section") is { } sectionName)
+            {
+                var tab = setup.Sections.FirstOrDefault(section =>
+                        section.Section.ToString().Equals(sectionName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"Setup has no section named '{sectionName}'.");
+                tab.SelectCommand.Execute(null);
+                Pump(20);
+            }
+
             if (shell is not null && search is not null)
             {
                 shell.SearchText = search;

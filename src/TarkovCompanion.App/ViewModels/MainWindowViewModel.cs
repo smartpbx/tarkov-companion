@@ -1886,6 +1886,7 @@ public sealed class SettingsPageViewModel : PageViewModel
                 // says "Running from a folder, not installed". Said twice it was a fact
                 // repeated; said once with what to do about it, it is an answer.
                 _updateStatus = "Only an installed build updates itself. Run the installer once and this keeps itself current.";
+                _availableBuild = "Not checked · a folder build does not update";
             }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
