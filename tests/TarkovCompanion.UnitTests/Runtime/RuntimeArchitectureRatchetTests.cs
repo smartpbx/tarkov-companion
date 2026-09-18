@@ -169,7 +169,7 @@ public sealed partial class RuntimeArchitectureRatchetTests
     {
         AssertShape<RaidHistoryEntry>("EndedUtc", "Id", "MapId", "Mode", "Notes", "Outcome", "ProfileId", "StartedUtc");
         AssertShape<RaidEvidence>(
-            "Confidence", "EventId", "Kind", "MapId", "ObservedUtc", "ResumesSession", "Side", "SideBasis",
+            "Confidence", "EventId", "Kind", "LoadSeconds", "MapId", "ObservedUtc", "ResumesSession", "Side", "SideBasis",
             "StartsNewRaid", "SuggestedState", "Summary");
         AssertShape<ActiveExtract>("Confidence", "ExtractId", "Name", "Source");
         AssertShape<ScanExecutionResult>(

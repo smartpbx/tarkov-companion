@@ -42,11 +42,12 @@ public sealed record RaidEvidence(
     /// Whether this evidence is the game announcing that a raid is beginning.
     /// </summary>
     /// <remarks>
-    /// Only the game's own confirmation sets this. It exists because a raid can no longer be
-    /// recognised by the state changing: loading markers are ignored while a raid is running,
-    /// which stopped them flapping, but it also meant a second raid beginning before the first
-    /// was seen to end would be treated as a continuation of it and keep the old raid's map,
-    /// start time and trail.
+    /// Set by the game's own confirmation, and by a screenshot whose gap from the last one is
+    /// too wide to be the same raid. It exists because a raid can no longer be recognised by
+    /// the state changing: loading markers are ignored while a raid is running, which stopped
+    /// them flapping, but it also meant a second raid beginning before the first was seen to
+    /// end would be treated as a continuation of it and keep the old raid's map, start time
+    /// and trail.
     /// </remarks>
     public bool StartsNewRaid { get; init; }
 
@@ -81,6 +82,12 @@ public sealed record RaidEvidence(
     /// travels with the value rather than being reconstructed by whoever displays it.
     /// </remarks>
     public string? SideBasis { get; init; }
+
+    /// <summary>
+    /// Seconds matchmaking and loading took before this raid began, where the game said so.
+    /// </summary>
+    /// <remarks>Set only on the evidence that begins a raid, from the game's <c>MatchingCompleted</c> line.</remarks>
+    public double? LoadSeconds { get; init; }
 }
 
 /// <summary>One bar of the game's own display, and how long it has ever been.</summary>

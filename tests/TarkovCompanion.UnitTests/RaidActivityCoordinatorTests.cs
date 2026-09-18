@@ -98,6 +98,63 @@ public sealed class RaidActivityCoordinatorTests
         Assert.All(history.Calls.Skip(1), call => Assert.NotEqual("start", call));
     }
 
+    /// <summary>
+    /// The game writes the matchmaking line before the raid it timed has an id, so it is held
+    /// and carried on the state event that begins that raid.
+    /// </summary>
+    [Fact]
+    public async Task ALoadTimeObservedBeforeARaidStartsIsCarriedOnItsOpeningState()
+    {
+        var history = new RecordingRaidHistory();
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            history,
+            new StubProfileService(),
+            Store());
+
+        await coordinator.RecordLoadTimeAsync(new(25.02, DateTimeOffset.UnixEpoch), CancellationToken.None);
+        await coordinator.ApplyEvidenceAsync(InRaid(), CancellationToken.None);
+
+        Assert.Equal(["start", "state"], history.Calls);
+        Assert.Contains("\"LoadSeconds\":25.02", history.Payloads[^1]);
+    }
+
+    /// <summary>A match whose raid never began must not label a raid that starts hours later.</summary>
+    [Fact]
+    public async Task AStaleLoadTimeIsDiscardedRatherThanCarriedToALaterRaid()
+    {
+        var history = new RecordingRaidHistory();
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            history,
+            new StubProfileService(),
+            Store());
+
+        await coordinator.RecordLoadTimeAsync(new(25.02, DateTimeOffset.UnixEpoch), CancellationToken.None);
+        await coordinator.ApplyEvidenceAsync(
+            InRaid() with { ObservedUtc = DateTimeOffset.UnixEpoch.AddHours(3) },
+            CancellationToken.None);
+
+        Assert.Equal(["start", "state"], history.Calls);
+        Assert.DoesNotContain("LoadSeconds\":25", history.Payloads[^1]);
+    }
+
+    /// <summary>A load time with no raid ever following it is never written.</summary>
+    [Fact]
+    public async Task ALoadTimeWithNoRaidFollowingItIsNeverRecorded()
+    {
+        var history = new RecordingRaidHistory();
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            history,
+            new StubProfileService(),
+            Store());
+
+        await coordinator.RecordLoadTimeAsync(new(25.02, DateTimeOffset.UnixEpoch), CancellationToken.None);
+
+        Assert.Empty(history.Calls);
+    }
+
     /// <summary>A refused durable transition leaves the raid exactly as it was.</summary>
     /// <remarks>
     /// Evidence used to be applied to the live raid state before the outbox was asked to accept
@@ -340,6 +397,8 @@ public sealed class RaidActivityCoordinatorTests
     {
         public List<string> Calls { get; } = [];
 
+        public List<string> Payloads { get; } = [];
+
         public Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken)
         {
             Calls.Add("start");
@@ -354,6 +413,7 @@ public sealed class RaidActivityCoordinatorTests
             CancellationToken cancellationToken)
         {
             Calls.Add(type);
+            Payloads.Add(payloadJson);
             return Task.CompletedTask;
         }
 
