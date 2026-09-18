@@ -5,6 +5,8 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.ViewModels.V2.Plan;
 
 namespace TarkovCompanion.RaidPerfHarness;
 
@@ -437,6 +439,103 @@ internal static class Scenarios
             ["timeline"] = timeline,
             ["heap-growth-mb-per-raid-minute"] = Math.Round(Slope(timeline), 4),
         };
+    }
+
+    /// <summary>
+    /// What typing in the Plan workspace's quest search costs: one keystroke, and a whole query
+    /// typed at speed, over whatever quest catalog the run was seeded with.
+    /// </summary>
+    /// <remarks>
+    /// The filter is set to "All" first, because that is the case the cost is in: the search reads
+    /// every quest the filter keeps, and a board with four active quests hides the problem.
+    ///
+    /// Two models of typing, because they cost differently. "Slow" sets one character and lets the
+    /// dispatcher settle before the next, which is the cost of one keystroke. "Burst" sets every
+    /// character with no turn of the dispatcher in between, which is what a typist does and what a
+    /// coalescing filter is for: the keystrokes are handled first and the filter runs once, at the
+    /// end. The number a player feels is burst's typing-ms — how long the box itself made them wait.
+    /// </remarks>
+    public static Dictionary<string, object> PlanSearch(HarnessHost host, string query)
+    {
+        var plan = host.Services.GetRequiredService<PlanWorkspaceViewModel>();
+        HarnessHost.DrainUntilComplete(plan.LoadAsync());
+        plan.Filter = PlanQuestFilter.All;
+        Dispatcher.UIThread.RunJobs();
+        var result = new Dictionary<string, object>
+        {
+            ["query"] = query,
+            ["filter"] = plan.Filter.ToString(),
+            ["quests-on-board"] = plan.Groups.SelectMany(group => group.Objectives).Select(row => row.TaskName).Distinct().Count(),
+            ["objectives-on-board"] = plan.Groups.Sum(group => group.Objectives.Count),
+            ["groups-on-board"] = plan.Groups.Count,
+        };
+
+        // Slow typing: the cost of one keystroke, start to settled, sampled over the whole query
+        // twice (the first pass pays for the JIT and for the first filtered result set).
+        var setter = new Samples();
+        var settle = new Samples();
+        var bytes = new Samples();
+        for (var pass = 0; pass < 2; pass++)
+        {
+            plan.SearchText = string.Empty;
+            Dispatcher.UIThread.RunJobs();
+            for (var length = 1; length <= query.Length; length++)
+            {
+                var allocated = GC.GetTotalAllocatedBytes(false);
+                var watch = Stopwatch.StartNew();
+                plan.SearchText = query[..length];
+                var typed = watch.Elapsed.TotalMilliseconds;
+                Dispatcher.UIThread.RunJobs();
+                if (pass == 0)
+                {
+                    continue;
+                }
+
+                setter.Add(typed);
+                settle.Add(watch.Elapsed.TotalMilliseconds);
+                bytes.Add(GC.GetTotalAllocatedBytes(false) - allocated);
+            }
+        }
+
+        result["keystroke-setter-ms"] = setter.Summary("-ms");
+        result["keystroke-settled-ms"] = settle.Summary("-ms");
+        result["keystroke-allocated-kb"] = Math.Round(bytes.Mean / 1024, 1);
+
+        // A burst: every character, then one settle.
+        plan.SearchText = string.Empty;
+        Dispatcher.UIThread.RunJobs();
+        var burstAllocated = GC.GetTotalAllocatedBytes(false);
+        var burst = Stopwatch.StartNew();
+        for (var length = 1; length <= query.Length; length++)
+        {
+            plan.SearchText = query[..length];
+        }
+
+        var typing = burst.Elapsed.TotalMilliseconds;
+        Dispatcher.UIThread.RunJobs();
+        result["burst-typing-ms"] = Math.Round(typing, 3);
+        result["burst-settled-ms"] = Math.Round(burst.Elapsed.TotalMilliseconds, 3);
+        result["burst-allocated-kb"] = Math.Round((GC.GetTotalAllocatedBytes(false) - burstAllocated) / 1024.0, 1);
+        result["burst-results"] = plan.Groups.Sum(group => group.Objectives.Count);
+
+        // What one more keystroke rebuilt, over a query whose result set it does not change.
+        plan.SearchText = query[..^1];
+        Dispatcher.UIThread.RunJobs();
+        var listBefore = plan.Groups;
+        var groupsBefore = plan.Groups.ToArray();
+        var rowsBefore = groupsBefore.SelectMany(group => group.Objectives).ToArray();
+        plan.SearchText = query;
+        Dispatcher.UIThread.RunJobs();
+        var rowsAfter = plan.Groups.SelectMany(group => group.Objectives).ToArray();
+        result["last-keystroke"] = new Dictionary<string, object>
+        {
+            ["rows-before"] = rowsBefore.Length,
+            ["rows-after"] = rowsAfter.Length,
+            ["rows-kept"] = rowsAfter.Count(row => rowsBefore.Any(other => ReferenceEquals(row, other))),
+            ["groups-kept"] = plan.Groups.Count(group => groupsBefore.Any(other => ReferenceEquals(group, other))),
+            ["group-list-kept"] = ReferenceEquals(plan.Groups, listBefore),
+        };
+        return result;
     }
 
     private static Dictionary<string, object> Describe(EventProbe probe) => new()
