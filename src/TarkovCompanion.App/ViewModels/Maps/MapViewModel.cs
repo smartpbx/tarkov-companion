@@ -4740,7 +4740,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(locations);
         var elsewhere = !isHere;
-        var age = member.PositionAge;
+        // The age including the trip here, not the age the sender measured before it started.
+        var age = member.PositionAgeNow;
         // Supplied by the caller, which is the only thing that knows whether this map has
         // floors at all: saying "floor unknown" about Factory's single storey would be noise,
         // and saying nothing about Reserve's five would be the omission this fixes.
@@ -4920,7 +4921,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             var bearing = member.HeadingDegrees is { } heading
                 ? ((heading - rotation) % 360 + 360) % 360
                 : 0;
-            var age = member.PositionAge ?? TimeSpan.MaxValue;
+            var age = member.PositionAgeNow ?? TimeSpan.MaxValue;
             markers.Add(new(
                 member.Name,
                 point.X,

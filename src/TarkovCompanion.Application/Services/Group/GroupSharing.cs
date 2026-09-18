@@ -205,6 +205,23 @@ public sealed record GroupMemberView(
     public bool HasGoneQuiet => Since is { } since && since > GroupPublishing.QuietAfter;
 
     /// <summary>
+    /// How old this position is here and now, rather than when it was sent.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PositionAge"/> is the sender's own measurement, taken at the moment they
+    /// published. Everything after that — the wait for the relay to be asked, the exchange
+    /// itself — happened to the number without changing it, so a marker read younger than it
+    /// was by however long the trip took. Adding the relay's own <see cref="Since"/> is the
+    /// closest thing to the truth either end can work out, because each half is a duration one
+    /// clock measured against itself.
+    ///
+    /// It is what the interface shows. A number that is a few seconds optimistic is exactly
+    /// the kind of wrong that reads as right.
+    /// </remarks>
+    public TimeSpan? PositionAgeNow =>
+        PositionAge is { } age ? age + (Since ?? TimeSpan.Zero) : null;
+
+    /// <summary>
     /// Whether this member's height was published, as opposed to assumed.
     /// </summary>
     /// <remarks>
@@ -353,6 +370,16 @@ public sealed record GroupSnapshot(
     /// A stale marker that says it is stale beats a marker that vanishes and returns.
     /// </remarks>
     public DateTimeOffset? StaleSince { get; init; }
+
+    /// <summary>
+    /// How long squadmate positions have actually been taking to arrive.
+    /// </summary>
+    /// <remarks>
+    /// Measured, not asserted. The whole point of publishing on change rather than on a tick is
+    /// a number, and a number nobody can read is a claim. It is empty until a squadmate takes a
+    /// screenshot while this companion is watching.
+    /// </remarks>
+    public GroupPositionLatencySnapshot PositionLatency { get; init; } = GroupPositionLatencySnapshot.None;
 
     public static GroupSnapshot Off { get; } = new(
         false,

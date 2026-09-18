@@ -412,9 +412,26 @@ public sealed class RaidObservationService : IAsyncDisposable
             using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             try
             {
-                await foreach (var path in _screenshotWatcher.WatchAsync(currentRoot, source.Token)
+                await foreach (var sighting in _screenshotWatcher.WatchAsync(currentRoot, source.Token)
                                    .ConfigureAwait(false))
                 {
+                    var path = sighting.Path;
+                    if (sighting.IsSettled)
+                    {
+                        // Read whether or not the name carried coordinates: a screenshot of an
+                        // item or an extract list is worth reading wherever it was taken. Menu
+                        // and hideout shots simply have no position, which is ordinary and not
+                        // worth a warning every time the player photographs their stash. This is
+                        // what makes the game's own screenshot key do the whole job: one press
+                        // gives the position when there is one, and whatever the picture shows
+                        // either way, with no second shortcut and no window needing focus.
+                        //
+                        // Only the pixels wait here. The position left on the sighting below,
+                        // one to two seconds earlier.
+                        await QueueScreenshotScanAsync(path, sourceGeneration, source.Token).ConfigureAwait(false);
+                        continue;
+                    }
+
                     // The position is in the filename and costs a regex; the picture costs a
                     // decode and an OCR pass. Reading the picture first meant the marker waited
                     // seconds for a number that was already in hand, and because this loop is
@@ -429,7 +446,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                     if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                     {
                         _logger.LogInformation(
-                            "Read a filename position from a settled screenshot at {Taken:O}; exact coordinates are not logged.",
+                            "Read a filename position on sight at {Taken:O}; exact coordinates are not logged.",
                             position.Timestamp);
                         await _coordinator.ApplyPositionAsync(position, source.Token).ConfigureAwait(false);
                     }
@@ -455,15 +472,6 @@ public sealed class RaidObservationService : IAsyncDisposable
                                 MaskScreenshotName(Path.GetFileName(path)));
                         }
                     }
-
-                    // Read whether or not the name carried coordinates: a screenshot of an item or
-                    // an extract list is worth reading wherever it was taken. Menu and hideout
-                    // shots simply have no position, which is ordinary and not worth a warning
-                    // every time the player photographs their stash. This is what makes the game's
-                    // own screenshot key do the whole job: one press gives the position when there
-                    // is one, and whatever the picture shows either way, with no second shortcut
-                    // and no window needing focus.
-                    await QueueScreenshotScanAsync(path, sourceGeneration, source.Token).ConfigureAwait(false);
                 }
 
                 if (!cancellationToken.IsCancellationRequested)

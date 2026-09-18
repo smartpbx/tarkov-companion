@@ -147,6 +147,27 @@
             <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
           </Border>
 
+          <!-- Package 29 (parity): the replay of a past raid, opened from Debrief. Without this a
+               replay could be started and never stepped or closed, and while one is open the map
+               does not follow live screenshots. -->
+          <Border Classes="v2-raid-viewgroup v2-raid-float" HorizontalAlignment="Center" VerticalAlignment="Top"
+                  Margin="12,64,12,12" IsVisible="{Binding Replay.IsOpen}"
+                  AutomationProperties.AutomationId="v2-raid-replay"
+                  AutomationProperties.Name="Replay of a past raid">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Replay.Title}" />
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Replay.Position}" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="Back" Command="{Binding Replay.BackCommand}"
+                      AutomationProperties.AutomationId="v2-raid-replay-back" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding Replay.PlayLabel}"
+                      Command="{Binding Replay.PlayCommand}" AutomationProperties.AutomationId="v2-raid-replay-play" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="Forward" Command="{Binding Replay.ForwardCommand}"
+                      AutomationProperties.AutomationId="v2-raid-replay-forward" />
+              <Button Classes="v2-target v2-raid-viewcontrol" Content="Close" Command="{Binding Replay.CloseCommand}"
+                      AutomationProperties.AutomationId="v2-raid-replay-close" />
+            </StackPanel>
+          </Border>
+
           <!-- Bottom-left: the renderer's own presentation/floor pill owns the top-left corner
                and its zoom group the top-right. -->
           <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Spacing="8">

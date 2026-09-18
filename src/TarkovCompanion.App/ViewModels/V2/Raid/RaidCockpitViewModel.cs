@@ -475,6 +475,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool IsPlacingMark => _armedMarkKind is not null;
 
+    /// <summary>
+    /// Package 29 (parity): V1's replay of a past raid, which Debrief's "Watch on map" opens. The map
+    /// draws it already (the cockpit reads the same map view model); this is what steps and closes it.
+    /// </summary>
+    public RaidReplayViewModel Replay => _raid.Replay;
+
     public string TimeLeft => _raid.TimeLeft;
 
     public string TimeLeftDetail => _raid.TimeLeftDetail;
@@ -1708,7 +1714,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             if (member.Position is { } memberPosition && TryPlan(model, memberPosition, out var at))
             {
                 var id = new MapSceneObjectId($"squad:{member.Name}");
-                var age = member.PositionAge ?? TimeSpan.MaxValue;
+                var age = member.PositionAgeNow ?? TimeSpan.MaxValue;
                 squadObjects.Add(new(
                     id,
                     SquadLayerId,
