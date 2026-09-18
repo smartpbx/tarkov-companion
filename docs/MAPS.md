@@ -25,6 +25,26 @@ For tarkov.dev interactive variants, the four published transform values are app
 
 If a map has no transform, or validation fails, the application returns a clear status and no marker. It never estimates, clamps, or borrows coordinates from another map. `fixtures/maps/training-ground.json` is a code-authored test map and is not distributable third-party artwork.
 
+## The plan rectangle: one projection for the artwork and everything on it
+
+`MapPlanProjection.For(renderModel)` (Application) answers where the artwork on screen is, as a
+rectangle in the same Leaflet map units `MapCatalogTransform.TryProject` puts a world position
+into. It is the one place that knows a map drawn from PNG tiles covers the tile grid's own
+outward-snapped rectangle while a map drawn from the reviewed SVG covers `svgBounds ?? bounds`.
+
+Both renderers project through it. V1's `MapCanvasCoordinateMapper.Create` maps that rectangle
+onto its canvas; the V2 Raid cockpit hands it to the scene as `MapSceneSnapshot.Bounds`, so every
+coordinate in the scene — extracts, place names, quest objectives, spawn areas, the player's
+position, their trail, squadmates, loot spawns — is already in the rectangle's units and lands
+where the artwork puts it. The renderer's own `MapSceneProjection` then fits that rectangle into
+the card (contain, centred) and scales objects by the same two axis scales, so the artwork and the
+markers cannot drift apart.
+
+Before this the cockpit declared a fixed 0-100 box as the plan's bounds and filled it with Leaflet
+coordinates. On any real map the two described different rectangles, which put Customs' extracts
+against the plan's edges, counted the mismatch as "off-plan" objects, and let a follow or a pan
+put the camera on a point outside the plan that every later gesture was then clamped away from.
+
 ## V2 shared scene
 
 V2 map renderers consume one platform-independent scene snapshot rather than translating the
@@ -124,6 +144,25 @@ objects on their own scene layer, exactly like any other object the assembler pl
 The historical-traffic layer is registered (`HistoricalTrafficRuntimeService`) but not yet
 evaluated: nothing in this pass supplies the installed `TrafficModelPublication` its scope
 (game version, wipe, cohort) needs, so the cockpit shows a static "no installed model" notice
-rather than inventing one. The V2 renderer also does not yet decode the reviewed map asset into a
-picture — only its hashed identity and licence are carried into the scene — so the cockpit shows
-every layer's objects on an empty plan until that rasterization work lands.
+rather than inventing one.
+
+The cockpit hands the renderer one decoded background image per scene, whichever artwork V1 is
+showing. For a drawn map that is the rasterized reviewed SVG for the selected floor. For a map
+drawn from PNG tiles it is V1's own loaded tile grid — the same plan, the same reviewed assets,
+the same level choice — composed onto one surface the size of the grid, scaled down when the grid
+is larger than 4096 pixels on its long edge. A tile that never arrived is left undrawn, so it is
+blank in its own square and every other tile is still in the right place, which is what V1's
+"160 of 170 tiles · the rest are blank" status line has always meant.
+
+### Camera
+
+The camera is a centre, a zoom and a bearing over the plan rectangle. Zoom 1 is the fit, because
+the projection has already fitted the rectangle to the card, so a map opens (and "Fit" returns)
+with the whole plan on screen at whatever size the card is, and a wider card shows the same plan
+larger rather than at a different zoom. Zoom limits come from the plan: out stops at the fit, in
+stops at about twice the drawn artwork's own resolution.
+
+Panning clamps what the viewport can see against that same rectangle, not the camera's centre
+against it: the plan stops with its edge on the card's edge, and an axis whose visible span is
+wider than the plan is centred rather than pinned to one side. The clamp during a drag is the
+clamp the drag commits, so releasing the pointer never moves the plan somewhere else.

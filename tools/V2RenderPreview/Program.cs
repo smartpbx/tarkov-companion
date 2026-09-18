@@ -348,9 +348,10 @@ internal static class Program
             {
                 for (var z = -1200.0; z <= 1200; z += 10)
                 {
-                    if (model.TryMapPosition(new(x, 0, z), out var point) && point.X is > 4 and < 96 && point.Y is > 4 and < 96)
+                    if (TryPlanPercent(model, x, z, out var planX, out var planY) &&
+                        planX is > 4 and < 96 && planY is > 4 and < 96)
                     {
-                        candidates.Add((x, z, point.X, point.Y));
+                        candidates.Add((x, z, planX, planY));
                     }
                 }
             }
@@ -430,6 +431,35 @@ internal static class Program
         return (raid, group);
     }
 
+    /// <summary>
+    /// [V2 rough package 23] Where a world position sits on the plan, as a percentage of it.
+    /// </summary>
+    /// <remarks>
+    /// The demos below want to put a marker "a third of the way across"; the transform answers in
+    /// Leaflet map units, whose range is different on every map (Customs runs 54-114 across, not
+    /// 0-100). Probing against 0-100 therefore picked whatever slice of the real map happened to
+    /// overlap that square, which put the render's player and squad off the artwork's corner.
+    /// </remarks>
+    private static bool TryPlanPercent(
+        TarkovCompanion.Application.Services.Maps.MapRenderModel model,
+        double x,
+        double z,
+        out double planX,
+        out double planY)
+    {
+        planX = 0;
+        planY = 0;
+        if (TarkovCompanion.Application.Services.Maps.MapPlanProjection.For(model) is not { IsValid: true } rect ||
+            !model.TryMapPosition(new(x, 0, z), out var point))
+        {
+            return false;
+        }
+
+        planX = (point.X - rect.MinimumX) / rect.Width * 100;
+        planY = (point.Y - rect.MinimumY) / rect.Height * 100;
+        return double.IsFinite(planX) && double.IsFinite(planY);
+    }
+
     private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup(
         TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
     {
@@ -445,9 +475,10 @@ internal static class Program
             {
                 for (var z = -1200.0; z <= 1200; z += 15)
                 {
-                    if (model.TryMapPosition(new(x, 0, z), out var point) && point.X is > 5 and < 95 && point.Y is > 5 and < 95)
+                    if (TryPlanPercent(model, x, z, out var planX, out var planY) &&
+                        planX is > 5 and < 95 && planY is > 5 and < 95)
                     {
-                        candidates.Add((x, z, point.X, point.Y));
+                        candidates.Add((x, z, planX, planY));
                     }
                 }
             }
