@@ -2134,6 +2134,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public Task SelectFloorAsync(MapFloorDefinition floor)
     {
         AutoSelectsFloor = false;
+        // A floor chosen by hand is no longer a floor the screenshot chose, and the readout
+        // beside the picker has to stop claiming otherwise.
+        FloorSource = string.Empty;
         return SelectFloorAsync(floor, automatic: false);
     }
 
@@ -2394,7 +2397,36 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _autoSelectsFloor, value);
     }
 
-    public void ToggleAutoFloor() => AutoSelectsFloor = !AutoSelectsFloor;
+    public void ToggleAutoFloor()
+    {
+        AutoSelectsFloor = !AutoSelectsFloor;
+        // Restated immediately rather than at the next screenshot, so pressing the toggle says
+        // what it did instead of leaving the previous answer on screen until somebody plays.
+        FollowFloor(_playerPosition);
+    }
+
+    /// <summary>
+    /// Where the floor on screen came from: your own screenshot, or your own choice.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Automatic floor selection has always been silent, so a map sitting
+    /// on the wrong floor looked the same whether the feature had chosen it, had nothing to go
+    /// on, or had been turned off. Empty while there is nothing to say — a one-floor map, or
+    /// following turned off, where the toggle beside it is already the answer.
+    /// </remarks>
+    public string FloorSource
+    {
+        get => _floorSource;
+        private set
+        {
+            Set(ref _floorSource, value);
+            OnPropertyChanged(nameof(HasFloorSource));
+        }
+    }
+
+    public bool HasFloorSource => _floorSource.Length > 0;
+
+    private string _floorSource = string.Empty;
 
     public void ChangeZoom(double wheelDelta)
     {
@@ -4988,8 +5020,21 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void FollowFloor(ScreenshotPosition? position)
     {
-        if (!AutoSelectsFloor || position is null || _isLoadingVariant ||
-            SelectedVariant is not { } variant || variant.Floors.Count <= 1 ||
+        if (!AutoSelectsFloor || SelectedVariant is not { } variant || variant.Floors.Count <= 1)
+        {
+            // Nothing to say: a map with one floor has no choice to make, and a player who has
+            // turned following off is looking straight at the toggle that says so.
+            FloorSource = string.Empty;
+            return;
+        }
+
+        if (position is null)
+        {
+            FloorSource = "No screenshot yet — pick the floor yourself";
+            return;
+        }
+
+        if (_isLoadingVariant ||
             string.Equals(_flooredPositionFilename, position.Filename, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -4997,7 +5042,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _flooredPositionFilename = position.Filename;
         var target = _presentationService.SelectFloor(variant, position.Position);
-        if (target is null || SelectedFloor is null ||
+        if (target is null)
+        {
+            // The height in the screenshot is on no floor's band — outside the building, or a
+            // floor upstream published no extents for. Saying so is the honest answer and beats
+            // dragging somebody to a default floor they are not on.
+            FloorSource = "Your height matches no floor here — pick the floor yourself";
+            return;
+        }
+
+        FloorSource = $"Floor from your screenshot · {target.Name}";
+        if (SelectedFloor is null ||
             string.Equals(target.Id, SelectedFloor.Id, StringComparison.OrdinalIgnoreCase))
         {
             return;

@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using Avalonia;
 using Avalonia.Media;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.App.ViewModels;
@@ -2107,6 +2108,9 @@ public sealed class MapSceneRendererFloorLayerViewModel
     public double Opacity { get; }
 
     public bool IsSelected { get; }
+
+    /// <summary>The read floor is outlined; the plates around it are not.</summary>
+    public Thickness BorderThickness => IsSelected ? new Thickness(2) : new Thickness(0);
 
     public double Left { get; }
 
