@@ -251,6 +251,10 @@ app.MapGet("/health", () => Results.Ok(new
     startedUtc,
     rooms = rooms.RoomCount,
     members = rooms.MemberCount,
+    // [V2 rough package 34] How many paired-tablet map reads are being held right now. A held
+    // read is what makes the second screen as live as the desk, and the only way to see that the
+    // bound is being reached is from outside.
+    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
 }));
 
 // The second screen.

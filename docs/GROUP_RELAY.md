@@ -392,8 +392,22 @@ reviewed asset served to anybody who asked would be a redistribution its licence
 Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
 at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
 the scene and never learns which map it is. The artwork is uploaded only when its content hash
-changes, while the scene is republished about once a second during a raid, and a tablet that sees
-a scene older than twenty seconds says the desktop is offline.
+changes, and a tablet that sees a scene older than twenty seconds says the desktop is offline.
+
+**The read is held, not polled.** `GET /v2/companion/relay/map?since=<revision>&wait=<seconds>`
+waits until the desktop publishes something newer than the revision the tablet already has, or
+until the wait runs out — the same shape the group exchange uses, the same twenty-second cap, the
+same global bound of 256 held requests past which a caller is answered immediately rather than
+refused, and the same rule that a caller naming neither parameter is answered exactly as before.
+The revision travels in the `X-Relay-Map-Revision` response header rather than in the body,
+because the body is the desktop's own bytes and the relay never parses them. `/health` reports
+`heldTabletReads`.
+
+Both compatibility directions work untouched: an older tablet page names neither parameter and is
+answered at once; an older relay ignores both and sends no revision header, and a newer page falls
+back to its timer when the header is absent. The desktop publishes when its scene actually changes
+— coalesced over a 40 ms floor, and a tick that changes nothing never starts the clock — rather
+than on the fixed one-second throttle it used before.
 
 **Follow, Control and Independent** need no route of their own. They are the same revisioned
 commands over the same sealed frames: `SetInteractionModeCommand` for Follow and Independent,
