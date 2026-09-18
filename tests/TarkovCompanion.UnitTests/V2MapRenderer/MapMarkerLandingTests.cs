@@ -454,12 +454,13 @@ public sealed class MapMarkerLandingTests
         WorldPosition world)
     {
         var transform = model.Variant.Transform!;
-        // What the drawing covers is the SVG's bounds, and what the tile pyramid covers is the
-        // reviewed bounds snapped outwards to whole tiles at the zoom that was loaded. Both are
-        // worked out here from the variant alone.
+        // [Package 46] The rectangle on screen is the reviewed map's, whichever artwork draws it:
+        // the drawing covers the SVG's bounds, and the tile mosaic is composed cropped to the
+        // reviewed bounds rather than to the grid snapped outwards to whole tiles. Before that
+        // crop these were two different rectangles, and the tiled one was up to a third squarer
+        // than the map. Worked out here from the variant alone.
         var tiled = model.Background?.Kind == MapBackgroundKind.TileTemplate;
         var bounds = tiled ? model.Variant.Bounds! : model.Variant.SvgBounds ?? model.Variant.Bounds!;
-        var scale = tiled ? Math.Pow(2, model.Background!.TileZoom ?? model.Variant.MinimumZoom!.Value) : 1;
         var corners = new[]
         {
             new WorldPosition(bounds.First.X, 0, bounds.First.Y),
@@ -476,13 +477,6 @@ public sealed class MapMarkerLandingTests
         var maximumX = projected.Max(point => point.X);
         var minimumY = projected.Min(point => point.Y);
         var maximumY = projected.Max(point => point.Y);
-        if (tiled)
-        {
-            double Snap(double value, bool up) => (up ? Math.Floor(value * scale / model.Variant.TileSize) + 1 : Math.Floor(value * scale / model.Variant.TileSize))
-                * model.Variant.TileSize / scale;
-            (minimumX, maximumX, minimumY, maximumY) = (Snap(minimumX, false), Snap(maximumX, true), Snap(minimumY, false), Snap(maximumY, true));
-        }
-
         Assert.True(transform.TryProject(world, out var here));
         return (
             renderer.MapLeft + ((here.X - minimumX) / (maximumX - minimumX) * renderer.MapWidth),
