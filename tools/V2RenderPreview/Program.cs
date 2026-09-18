@@ -87,6 +87,38 @@ internal static class Program
                     .Where(id => id is not null && (id.Contains("cluster", StringComparison.Ordinal) || id is "v2-map-zoom-in" or "v2-map-loot-preset"))
                     .Distinct();
                 Console.WriteLine("Automation ids: " + string.Join(", ", ids));
+                // The Windows gallery toggles layer switches through UI Automation, and Toggle
+                // on a disabled control throws rather than doing nothing. Printing each switch's
+                // state lets a Linux run see that before the 30-minute Windows run does.
+                var switches = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(gallery)
+                    .OfType<Avalonia.Controls.Primitives.ToggleButton>()
+                    .Select(toggle => (Id: Avalonia.Automation.AutomationProperties.GetAutomationId(toggle), toggle.IsEffectivelyEnabled))
+                    .Where(toggle => toggle.Id?.StartsWith("v2-map-layer-", StringComparison.Ordinal) == true)
+                    .Select(toggle => $"{toggle.Id} {(toggle.IsEffectivelyEnabled ? "enabled" : "DISABLED")}");
+                Console.WriteLine("Layer switches: " + string.Join(", ", switches));
+
+                // --map-renderer-toggle-layer <automation id> presses one switch the way the
+                // gallery's toggle step does, and reports what the switch is called afterwards.
+                if (StringOption(args, "--map-renderer-toggle-layer") is { } toggleId)
+                {
+                    Avalonia.Controls.Primitives.ToggleButton? Find() =>
+                        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(gallery)
+                            .OfType<Avalonia.Controls.Primitives.ToggleButton>()
+                            .FirstOrDefault(toggle => Avalonia.Automation.AutomationProperties.GetAutomationId(toggle) == toggleId);
+                    var target = Find() ?? throw new InvalidOperationException($"No switch is named '{toggleId}'.");
+                    if (!target.IsEffectivelyEnabled)
+                    {
+                        throw new InvalidOperationException($"'{toggleId}' is disabled; UI Automation's Toggle would throw on it.");
+                    }
+
+                    target.Command?.Execute(target.CommandParameter);
+                    Pump(20);
+                    var after = Find();
+                    Console.WriteLine(
+                        $"After toggle: name '{(after is null ? null : Avalonia.Automation.AutomationProperties.GetName(after))}', " +
+                        $"{(after?.IsEffectivelyEnabled == true ? "enabled" : "disabled")}");
+                }
+
                 SaveFrame(gallery, outputPath, width, height);
                 rendered = true;
                 return 0;

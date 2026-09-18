@@ -810,12 +810,14 @@
               <ItemsControl ItemsSource="{Binding Layers}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:MapSceneRendererLayerViewModel">
-                    <!-- V2 rough package 39: the switch carries the count, and a layer with
-                         nothing on it is disabled rather than switching the map to empty. -->
+                    <!-- V2 rough package 39: the switch carries the count, and an empty layer that
+                         is off cannot be switched on to an empty map. One that is on can always
+                         be switched off (CanToggle), or the control is stuck and UI Automation's
+                         Toggle throws on it. -->
                     <ToggleButton Classes="v2-map-choice" HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Left"
                                   IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                  IsEnabled="{Binding !HasNothingToShow}"
+                                  IsEnabled="{Binding CanToggle}"
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding ToggleLabel}"
                                   AutomationProperties.HelpText="{Binding StateLabel}"

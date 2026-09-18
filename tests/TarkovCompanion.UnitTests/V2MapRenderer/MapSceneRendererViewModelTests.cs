@@ -55,6 +55,33 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Same(scene, renderer.Scene);
     }
 
+    [Theory]
+    [InlineData(true, 0, true)]
+    [InlineData(false, 0, false)]
+    [InlineData(true, 3, true)]
+    [InlineData(false, 3, true)]
+    public void An_empty_layer_cannot_be_switched_on_but_one_that_is_showing_can_always_be_switched_off(
+        bool isVisible,
+        int count,
+        bool canToggle)
+    {
+        // The Windows gallery's offline loot scenario applies the loot preset with no loot-spawn
+        // data: High-value loot is on and empty. Disabled outright, it could not be turned off,
+        // and UI Automation's Toggle threw on it, which the gallery reported as "no window".
+        bool? requested = null;
+        var layer = new MapSceneRendererLayerViewModel(
+            new MapSceneLayer(new MapSceneLayerId("high-value-loot-spawns"), "High-value loot", 10, isVisible),
+            isVisible,
+            MapSceneRendererPresentation.English(CultureInfo.InvariantCulture, TimeZoneInfo.Utc),
+            visible => requested = visible,
+            count);
+
+        Assert.Equal(canToggle, layer.CanToggle);
+        layer.ToggleCommand.Execute(null);
+
+        Assert.Equal(canToggle ? !isVisible : null, requested);
+    }
+
     [Fact]
     public void Canonical_floor_stack_state_with_no_artwork_says_so_and_draws_one_floor()
     {

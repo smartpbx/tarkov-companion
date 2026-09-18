@@ -2284,7 +2284,7 @@ public sealed class MapSceneRendererLayerViewModel
         // disables the switch too; this is the guard that does not depend on it doing so.
         ToggleCommand = new DelegateCommand(() =>
         {
-            if (Count > 0)
+            if (CanToggle)
             {
                 setVisible(!IsVisible);
             }
@@ -2302,6 +2302,17 @@ public sealed class MapSceneRendererLayerViewModel
 
     /// <summary>True when the layer would draw nothing, so the switch says so and stays off.</summary>
     public bool HasNothingToShow => Count == 0;
+
+    /// <summary>Whether the switch does anything: every layer but an empty one that is already off.</summary>
+    /// <remarks>
+    /// The rule is "do not switch the map to empty", which is about turning a layer on. Applied
+    /// to the switch as a whole it also locked on a layer that was already showing: with the
+    /// loot preset applied and loot-spawn data unavailable, High-value loot was on, empty and
+    /// impossible to turn off. That is a stuck control for a player, and for UI Automation it is
+    /// an exception, because Toggle on a disabled control throws rather than doing nothing,
+    /// which failed the Windows gallery's offline loot scenario with "no window".
+    /// </remarks>
+    public bool CanToggle => IsVisible || Count > 0;
 
     public bool IsVisible { get; }
     public string ToggleLabel { get; }
