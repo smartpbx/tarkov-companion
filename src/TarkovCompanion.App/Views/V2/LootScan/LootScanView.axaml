@@ -358,12 +358,15 @@
                         </StackPanel>
                         <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SizeLabel}" />
                       </Grid>
+                      <!-- Package 37: a refusal says why where it can be read, not inside the expander. -->
+                      <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" IsVisible="{Binding IsReview}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-body" Text="{Binding PlacementLabel}" IsVisible="{Binding HasPlacement}" />
                       <TextBlock Classes="v2-body" Text="{Binding DropSummary}" IsVisible="{Binding HasSwap}" TextWrapping="Wrap" />
                       <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
                         <StackPanel Spacing="1">
                           <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.BestValue}" />
                           <TextBlock Classes="v2-body loot-strong" Text="{Binding ValueLabel}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding PriceBasisLabel}" IsVisible="{Binding HasCatalogValueOnly}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="1">
                           <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.SpaceEfficiency}" />

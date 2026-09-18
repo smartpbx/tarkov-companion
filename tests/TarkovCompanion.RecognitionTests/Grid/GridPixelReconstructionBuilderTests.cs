@@ -65,7 +65,7 @@ public sealed class GridPixelReconstructionBuilderTests
         const int originX = 100;
         const int originY = 80;
         var occupied = new HashSet<(int Row, int Column)> { (1, 1), (1, 2), (2, 1), (2, 2) };
-        var image = SyntheticGrid.Build(1920, 1080, originX, originY, columns: 6, rows: 5, pitch, occupied);
+        var image = SyntheticGrid.Build(1920, 1080, originX, originY, columns: 6, rows: 5, pitch, occupied, items: [(1, 1, 2, 2)]);
 
         var trueQuery = ComputeMeasuredFingerprint(image, row: 1, column: 1, widthCells: 2, heightCells: 2);
         var decoyFingerprint = trueQuery ^ ulong.MaxValue;
@@ -173,7 +173,8 @@ public sealed class GridPixelReconstructionBuilderTests
         var pitch = (int)Math.Round((double)spec.Bounds.Width / spec.Columns, MidpointRounding.AwayFromZero);
         var x = spec.Bounds.X + (column * pitch);
         var y = spec.Bounds.Y + (row * pitch);
-        return SyntheticGrid.ComputeFingerprint(image, x, y, pitch * widthCells, pitch * heightCells);
+        // The builder fingerprints a footprint together with its closing border line.
+        return SyntheticGrid.ComputeFingerprint(image, x, y, (pitch * widthCells) + 1, (pitch * heightCells) + 1);
     }
 
     private static IconContentEvidence FakeEvidence(string canonicalId, ulong fingerprint) => new(

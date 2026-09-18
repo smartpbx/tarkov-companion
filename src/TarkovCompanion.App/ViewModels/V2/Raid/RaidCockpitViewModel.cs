@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -35,6 +36,45 @@ public sealed class RaidMapPickerItemViewModel(string mapId, string name, Func<s
     public string Name { get; } = name;
 
     public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(mapId));
+}
+
+/// <summary>
+/// One piece of artwork this location publishes, for the chooser over the map.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 39] A row is one piece of artwork, not one catalog variant: a map that
+/// publishes both a tile photograph and a drawing offers both as separate rows of the same
+/// variant, because that is the choice a player actually has. Only artwork that can draw is
+/// offered — upstream lists 2D and 3D variants for most maps with no asset path at all, and a
+/// row that cannot draw is a row that leads to a blank plan. Both kinds of choice are remembered
+/// per map by V1's own selection service.
+/// </remarks>
+public sealed class RaidArtworkVariantViewModel(
+    string key,
+    bool prefersDrawing,
+    string name,
+    string detail,
+    bool isSelected,
+    Func<string, bool, Task> select)
+{
+    public string Key { get; } = key;
+
+    /// <summary>Whether this row is the variant's drawing rather than its photograph.</summary>
+    public bool PrefersDrawing { get; } = prefersDrawing;
+
+    public string Name { get; } = name;
+
+    /// <summary>What it is, in a word or two: "Interactive", "Drawing · 4 floors".</summary>
+    public string Detail { get; } = detail;
+
+    public bool HasDetail => Detail.Length > 0;
+
+    public bool IsSelected { get; } = isSelected;
+
+    public string AutomationId =>
+        $"v2-raid-artwork-{MapRendererToken.From(Key)}-{(PrefersDrawing ? "drawing" : "photo")}";
+
+    public ICommand SelectCommand { get; } = new DelegateCommand(() => _ = select(key, prefersDrawing));
 }
 
 /// <summary>One local mark, for the marks list beside the map.</summary>
@@ -212,10 +252,32 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private MapSceneBounds _planBounds = UnplaceablePlanBounds;
     private CachedMapAsset? _cachedAsset;
     private string? _backgroundSha;
+    private DateTimeOffset _backgroundComposedUtc;
     private Bitmap? _backgroundImage;
     private QuestObjectiveScene _questScene = QuestObjectiveScene.Empty;
     private string? _selectedObjectiveId;
     private string _objectiveSignature = string.Empty;
+    // [V2 rough package 39] One decoded picture per floor, for the stacked view. Held across
+    // rebuilds because a rebuild happens on every raid tick and re-decoding four floors' worth
+    // of rasterized plan each time would be the most expensive thing this cockpit does. Cleared
+    // when the variant changes, because that is different artwork.
+    private readonly Dictionary<string, FloorArtwork> _floorArtwork = new(StringComparer.OrdinalIgnoreCase);
+    private string? _floorArtworkVariantKey;
+    /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
+    private string _stackRefusal = string.Empty;
+    private readonly DeferredDispatch _rebuildRequest;
+    private bool _disposed;
+
+    // What the last rebuild was built from. The runtime store publishes for every slice it holds
+    // (supervisor, outbox, lifecycle, scan, observation), ten to eighteen times for one screenshot,
+    // and only these two are things the plan draws.
+    private RaidSnapshot? _seenRaid;
+    private GroupSnapshot? _seenGroup;
+
+    // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
+    // one thing on the plan that changes with the clock alone, so it is the one thing the clock
+    // has to be allowed to rebuild for.
+    private DateTimeOffset? _positionStaleAtUtc;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -249,8 +311,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
+        var synchronizationContext = SynchronizationContext.Current;
+        _rebuildRequest = new(
+            synchronizationContext?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
+                ? synchronizationContext
+                : null,
+            () =>
+            {
+                if (!_disposed)
+                {
+                    _ = RebuildAsync();
+                }
+            });
 
         RebuildMapPicker();
+        RebuildArtworkVariants();
 
         PlaceWaypointCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Waypoint));
         PlacePingCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Ping));
@@ -360,15 +435,44 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool CanStack => _map.CanStack;
 
-    public bool HasFloorStack => _map.HasFloorStack;
+    /// <summary>Whether the map on screen is actually drawing its floors as a stack.</summary>
+    /// <remarks>
+    /// [V2 rough package 39] The renderer's answer, not V1's: V1's own stack is geometry for
+    /// V1's canvas, and this cockpit draws through <see cref="MapSceneRendererViewModel"/>.
+    /// </remarks>
+    public bool HasFloorStack => Renderer?.HasFloorStack ?? false;
 
-    public string StackStatus => _map.StackStatus;
+    /// <summary>What the stack did, in one line — the renderer's, while it has one.</summary>
+    public string StackStatus => _stackRefusal.Length > 0
+        ? _stackRefusal
+        : Renderer is { HasStackStatus: true } renderer
+            ? renderer.StackStatus
+            : _map.StackStatus;
 
     public bool HasStackStatus => StackStatus.Length > 0;
+
+    /// <summary>Where the floor on screen came from: your screenshot, or your own choice.</summary>
+    public string FloorSource => _map.FloorSource;
+
+    public bool HasFloorSource => _map.HasFloorSource;
 
     public bool HasArtworkChoice => _map.HasArtworkChoice;
 
     public bool PrefersDrawing => _map.PrefersDrawing;
+
+    /// <summary>Every reviewed piece of artwork this map publishes, for the chooser.</summary>
+    public IReadOnlyList<RaidArtworkVariantViewModel> ArtworkVariants { get; private set; } = [];
+
+    /// <summary>Only worth a chooser when there is actually something to choose between.</summary>
+    public bool HasArtworkVariants => ArtworkVariants.Count > 1;
+
+    /// <summary>
+    /// Who made the artwork on screen, and which map and game version it is — ADR 0015's asset
+    /// attribution, for whichever variant is showing.
+    /// </summary>
+    public string ArtworkAttribution => Renderer?.ReviewedAssetLabel ?? string.Empty;
+
+    public bool HasArtworkAttribution => ArtworkAttribution.Length > 0;
 
     public bool HideControlsWhenIdle => _map.HideControlsWhenIdle;
 
@@ -579,6 +683,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _map.PropertyChanged -= MapPropertyChanged;
         _map.PlayerFollowRequested -= PlayerFollowRequested;
         _raid.PropertyChanged -= RaidPropertyChanged;
@@ -594,15 +699,136 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _rebuildCancellation?.Cancel();
         _rebuildCancellation?.Dispose();
         _backgroundImage?.Dispose();
+        foreach (var plate in _floorArtwork.Values)
+        {
+            plate.Image.Dispose();
+        }
+
+        _floorArtwork.Clear();
     }
 
     /// <summary>The V2 renderer's asset seam: the artwork for the reviewed background asset it
     /// is about to draw, decoded ahead of time in <see cref="RebuildCoreAsync"/> since this is
     /// called synchronously from the renderer's own present/rebuild pass.</summary>
     private IImage? ResolveBackgroundImage(MapSceneAsset asset) =>
-        _backgroundSha is { } sha && string.Equals(asset.ContentSha256, sha, StringComparison.OrdinalIgnoreCase)
-            ? _backgroundImage
-            : null;
+        // [V2 rough package 39] A stacked floor's plate is answered by floor rather than by
+        // content hash: two floors of one multi-floor drawing are rasterized from the same
+        // upstream file and can carry the same hash, and the stack needs them told apart.
+        asset.Kind == MapSceneAssetKind.Floor2D && asset.FloorId is { } floorId
+            ? _floorArtwork.TryGetValue(floorId, out var plate) ? plate.Image : null
+            : _backgroundSha is { } sha && string.Equals(asset.ContentSha256, sha, StringComparison.OrdinalIgnoreCase)
+                ? _backgroundImage
+                : null;
+
+    /// <summary>One floor's artwork for the stack: the scene asset, and the decoded picture.</summary>
+    private sealed record FloorArtwork(MapSceneAsset Asset, Bitmap Image);
+
+    private void ReleaseFloorArtwork()
+    {
+        if (_floorArtwork.Count == 0)
+        {
+            return;
+        }
+
+        var previous = _floorArtwork.Values.Select(plate => plate.Image).ToArray();
+        _floorArtwork.Clear();
+        _floorArtworkVariantKey = null;
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                foreach (var image in previous)
+                {
+                    image.Dispose();
+                }
+            },
+            DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// Every floor's artwork, as scene assets the renderer can stack.
+    /// </summary>
+    /// <remarks>
+    /// Only for a map being drawn from a multi-floor drawing. A map drawn from tiles publishes
+    /// no per-floor SVG layer at all, so there is nothing to stack and the renderer says so
+    /// rather than drawing one plate and calling it a stack — the same refusal V1's own stack
+    /// reaches, for the same reason.
+    ///
+    /// A floor whose picture will not load is left out. A gap in the stack is honest; a blank
+    /// plate at the right height is a floor that looks empty.
+    /// </remarks>
+    private async Task<IReadOnlyList<MapSceneAsset>> LoadFloorStackAssetsAsync(
+        MapRenderModel model,
+        CancellationToken cancellationToken)
+    {
+        var variant = model.Variant;
+        // The plates have to be the drawing. A tile grid and a drawing cover different
+        // rectangles of the same ground (see MapPlanProjection), so stacking SVG floors under a
+        // tile-drawn map's projection would put every marker beside the artwork rather than on
+        // it. Saying which press fixes it beats a stack that quietly produced nothing.
+        _stackRefusal = !_map.IsStacked || model.Floors.Count <= 1
+            ? string.Empty
+            : variant.SvgPath is null
+                ? "Stacked floors need a drawn map; this one is a photograph"
+                : model.Background?.Kind == MapBackgroundKind.TileTemplate
+                    ? "Stacked floors need the drawing — choose it above"
+                    : string.Empty;
+        if (_stackRefusal.Length > 0 || !_map.IsStacked || model.Floors.Count <= 1)
+        {
+            ReleaseFloorArtwork();
+            return [];
+        }
+
+        if (!string.Equals(_floorArtworkVariantKey, variant.Key, StringComparison.Ordinal))
+        {
+            ReleaseFloorArtwork();
+            _floorArtworkVariantKey = variant.Key;
+        }
+
+        var assets = new List<MapSceneAsset>(model.Floors.Count);
+        foreach (var floor in model.Floors)
+        {
+            if (_floorArtwork.TryGetValue(floor.Id, out var held))
+            {
+                assets.Add(held.Asset);
+                continue;
+            }
+
+            CachedMapAsset? cached;
+            try
+            {
+                cached = (await _assetCache.GetSvgAsync(variant, floor, cancellationToken).ConfigureAwait(true)).Asset;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One floor's artwork is not worth the stack; the rest still draws.
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (cached is not { Availability: not MapAssetAvailability.Unavailable } ||
+                await LoadBackgroundImageAsync(cached.RenderPath, cancellationToken).ConfigureAwait(true) is not { } image)
+            {
+                continue;
+            }
+
+            var asset = new MapSceneAsset(
+                new($"asset:{model.Location.Id}:{variant.Key}:floor:{floor.Id}"),
+                MapSceneAssetKind.Floor2D,
+                cached.SourceUri,
+                cached.LicenseUri,
+                cached.ContentSha256,
+                string.IsNullOrWhiteSpace(cached.Author) ? "Tarkov.dev community mapping" : cached.Author,
+                variant.Key,
+                "current",
+                MapSceneAssetReviewStatus.Reviewed,
+                cached.RetrievedUtc,
+                floorId: floor.Id);
+            _floorArtwork[floor.Id] = new(asset, image);
+            assets.Add(asset);
+        }
+
+        return assets;
+    }
 
     /// <summary>
     /// Swaps in newly decoded artwork, disposing the previous bitmap once the current render
@@ -767,6 +993,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         [nameof(MapViewModel.AutoSelectsFloor)] = [nameof(AutoSelectsFloor)],
         [nameof(MapViewModel.IsStacked)] = [nameof(IsStacked), nameof(HasFloorStack)],
         [nameof(MapViewModel.StackStatus)] = [nameof(StackStatus), nameof(HasStackStatus)],
+        // [V2 rough package 39] Automatic floor selection now says what it did or why it could not.
+        [nameof(MapViewModel.FloorSource)] = [nameof(FloorSource), nameof(HasFloorSource)],
         [nameof(MapViewModel.HasArtworkChoice)] = [nameof(HasArtworkChoice)],
         [nameof(MapViewModel.PrefersDrawing)] = [nameof(PrefersDrawing)],
         [nameof(MapViewModel.HideControlsWhenIdle)] = [nameof(HideControlsWhenIdle)],
@@ -817,7 +1045,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
         {
             OnPropertyChanged(nameof(SelectedMap));
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
+        }
+        else if (e.PropertyName is nameof(MapViewModel.Variants)
+            or nameof(MapViewModel.SelectedVariant)
+            or nameof(MapViewModel.PrefersDrawing))
+        {
+            RebuildArtworkVariants();
         }
         else if (e.PropertyName is nameof(MapViewModel.Locations))
         {
@@ -835,11 +1069,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             OnPropertyChanged(nameof(HasPlayerMarker));
             OnPropertyChanged(nameof(HasPlayerTrail));
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
         }
         else if (MapRedraws.Contains(e.PropertyName))
         {
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
         }
     }
 
@@ -894,6 +1128,119 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         FollowPlayer();
     }
 
+    /// <summary>
+    /// Rebuilds the artwork chooser from the location's reviewed variants.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MapViewModel.Variants"/> is already filtered to variants with a runtime asset,
+    /// which is the rule that keeps a variant that cannot draw from being offered. A tile-only
+    /// variant is offered and does draw: the cockpit composes V1's loaded tile grid into one
+    /// picture (package 23), so "photo" is a real choice rather than a blank plan.
+    /// </remarks>
+    private void RebuildArtworkVariants()
+    {
+        ArtworkVariants = BuildArtworkVariants(
+            _map.Variants,
+            _map.SelectedVariant?.Key,
+            _map.PrefersDrawing,
+            SelectArtworkAsync);
+        OnPropertyChanged(nameof(ArtworkVariants));
+        OnPropertyChanged(nameof(HasArtworkVariants));
+        OnPropertyChanged(nameof(ArtworkAttribution));
+        OnPropertyChanged(nameof(HasArtworkAttribution));
+    }
+
+    /// <summary>Internal for direct coverage: the chooser's rows, without standing up a map.</summary>
+    internal static IReadOnlyList<RaidArtworkVariantViewModel> BuildArtworkVariants(
+        IReadOnlyList<MapVariant> variants,
+        string? selectedKey,
+        bool prefersDrawing,
+        Func<string, bool, Task> select) =>
+        [.. variants
+            // A variant that cannot draw is never offered. MapViewModel.Variants already filters
+            // to those with a runtime asset; this repeats the rule so the chooser is correct on
+            // its own terms rather than by someone else's filtering.
+            .Where(variant => variant.HasRuntimeAsset)
+            // The interactive one first: it is the variant that also carries a transform, so it
+            // is the one that can put you and your squad on the picture.
+            .OrderByDescending(variant => variant.IsInteractive)
+            .ThenBy(variant => variant.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .SelectMany(variant => ArtworkRows(variant, selectedKey, prefersDrawing, select))];
+
+    /// <summary>The rows one variant contributes: two when it publishes both kinds of picture.</summary>
+    private static IEnumerable<RaidArtworkVariantViewModel> ArtworkRows(
+        MapVariant variant,
+        string? selectedKey,
+        bool prefersDrawing,
+        Func<string, bool, Task> select)
+    {
+        var isSelectedVariant = string.Equals(variant.Key, selectedKey, StringComparison.OrdinalIgnoreCase);
+        if (variant.SvgPath is not null && variant.TilePath is not null)
+        {
+            // Both, so the choice is which picture rather than which variant — and it is the one
+            // choice nearly every map actually offers, because upstream publishes an asset path
+            // for the interactive variant alone.
+            yield return new(
+                variant.Key,
+                true,
+                "Drawing",
+                DescribeVariant(variant),
+                isSelectedVariant && prefersDrawing,
+                select);
+            yield return new(
+                variant.Key,
+                false,
+                "Photo",
+                DescribeVariant(variant),
+                isSelectedVariant && !prefersDrawing,
+                select);
+            yield break;
+        }
+
+        yield return new(
+            variant.Key,
+            variant.SvgPath is not null,
+            variant.DisplayName,
+            DescribeVariant(variant),
+            isSelectedVariant,
+            select);
+    }
+
+    /// <summary>What sort of picture a variant is, in the fewest words that tell them apart.</summary>
+    private static string DescribeVariant(MapVariant variant)
+    {
+        var kind = variant.SvgPath is not null && variant.TilePath is not null
+            ? variant.DisplayName
+            : variant.SvgPath is not null
+                ? "Drawing"
+                : "Photo";
+        return variant.Floors.Count > 1
+            ? string.Create(CultureInfo.CurrentCulture, $"{kind} · {variant.Floors.Count} floors")
+            : kind;
+    }
+
+    private async Task SelectArtworkAsync(string variantKey, bool prefersDrawing)
+    {
+        if (_map.Variants.FirstOrDefault(variant =>
+                string.Equals(variant.Key, variantKey, StringComparison.OrdinalIgnoreCase)) is not { } chosen)
+        {
+            return;
+        }
+
+        if (!string.Equals(_map.SelectedVariant?.Key, variantKey, StringComparison.OrdinalIgnoreCase))
+        {
+            // V1's own selection, so the answer is persisted per map exactly as the V1 page
+            // persists it and both shells reopen on the artwork you last chose.
+            await _map.SelectVariantAsync(chosen).ConfigureAwait(true);
+        }
+
+        // Then the picture, for a variant that publishes both. Also V1's, and also remembered.
+        if (_map.HasArtworkChoice && _map.PrefersDrawing != prefersDrawing)
+        {
+            await _map.ToggleArtworkAsync().ConfigureAwait(true);
+        }
+    }
+
     private void RebuildMapPicker()
     {
         MapPicker = [.. _map.Locations
@@ -911,6 +1258,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                // The raid clock ticks once a second, which is the only clock this page has. The
+                // plan changes with it exactly once per screenshot: when the marker turns from
+                // fresh to "from an older screenshot".
+                if (_positionStaleAtUtc is { } staleAt && _timeProvider.GetUtcNow() >= staleAt)
+                {
+                    _positionStaleAtUtc = null;
+                    _rebuildRequest.Request();
+                }
+
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
@@ -931,16 +1287,36 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
     }
 
+    /// <summary>
+    /// Rebuilds the plan when the raid or the group changed, and only then.
+    /// </summary>
+    /// <remarks>
+    /// This used to rebuild the whole scene on every publication of the runtime store, whatever
+    /// had changed in it. A single screenshot publishes the raid, the screenshot's name, the
+    /// outbox's queue, the supervisor's operations and more, each one a full rebuild and each one
+    /// recreating every marker on the plan. The store keeps the instance of a slice that an
+    /// update did not touch, so a reference comparison is enough to tell them apart.
+    /// </remarks>
     private void RuntimeStateChanged(object? sender, EventArgs e)
     {
+        var snapshot = _stateStore.Current;
+        var raid = snapshot.Raid;
+        var group = snapshot.Group;
+        if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
+        {
+            return;
+        }
+
+        _seenRaid = raid;
+        _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
-        _ = RebuildAsync();
+        _rebuildRequest.Request();
     }
 
     private void MarksChanged()
     {
         RefreshMarkRows();
-        _ = RebuildAsync();
+        _rebuildRequest.Request();
     }
 
     private void RefreshMarkRows()
@@ -1016,6 +1392,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
         RefreshMarkRows();
+        // Read once, before anything is built from it: a publication that lands while this runs
+        // then differs from what was seen and asks for one more pass, instead of being taken for
+        // something this pass already drew.
+        var runtime = _stateStore.Current;
+        _seenRaid = runtime.Raid;
+        _seenGroup = runtime.Group;
         var model = _map.RenderModel;
         if (model is null)
         {
@@ -1051,6 +1433,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
             _cachedAssetVariantKey = null;
             _cachedAsset = null;
+            // The asset is reviewed when its picture was made, not each time the scene is built.
+            // A new timestamp per rebuild made every scene's asset list differ from the last, so
+            // the renderer re-resolved the artwork on every raid tick.
+            if (!string.Equals(_backgroundSha, composed.ContentSha256, StringComparison.Ordinal))
+            {
+                _backgroundComposedUtc = nowUtc;
+            }
+
             _backgroundSha = composed.ContentSha256;
             ReplaceBackgroundImage(composed.Image);
             asset = new MapSceneAsset(
@@ -1063,7 +1453,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 variant.Key,
                 "current",
                 MapSceneAssetReviewStatus.Reviewed,
-                nowUtc);
+                _backgroundComposedUtc);
         }
         else
         {
@@ -1124,7 +1514,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 cached.RetrievedUtc);
         }
 
-        var raidSnapshot = _stateStore.Current.Raid;
+        var raidSnapshot = runtime.Raid;
         // [V2 rough package 22] Place names, spawn areas and locked doors too, not only extracts
         // and objectives. The assembler has always adapted all five; the cockpit asked for two of
         // them, which is why V2 had no street names and why its own "Spawn areas" card was always
@@ -1193,6 +1583,23 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 FitCamera(planBounds, Bearing()),
                 []);
 
+        // [V2 rough package 39] The stack: one asset per floor beside the background, and the
+        // scene mode that asks the renderer to draw them. The mode follows V1's own "Stack"
+        // toggle, which is also what the renderer's presentation control now pushes back here.
+        var floorAssets = await LoadFloorStackAssetsAsync(model, cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
+        // Not when this map cannot be stacked at all: a scene asking for a mode that will draw
+        // one plan anyway lights the "Floor stack" control over a flat map, which is the exact
+        // complaint V1's own stack collected ("the 3d view doesnt seem to work at all for me").
+        // The refusal beside the toggle says which press would fix it.
+        var mode = _map.IsStacked && model.Floors.Count > 1 && _stackRefusal.Length == 0
+            ? MapSceneMode.FloorStack2D
+            : MapSceneMode.Flat2D;
+        if (requestedView.Mode != mode)
+        {
+            requestedView = requestedView with { Mode = mode };
+        }
+
         var request = new MapSceneBuildRequest(
             Interlocked.Increment(ref _revision),
             model,
@@ -1202,7 +1609,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             legacyElements,
             additionalLayers,
             additionalObjects,
-            [asset]);
+            floorAssets.Count == 0 ? [asset] : [asset, .. floorAssets]);
         var result = _assembler.Build(request);
         cancellationToken.ThrowIfCancellationRequested();
         if (result.Scene is not { } scene)
@@ -1231,7 +1638,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // is never cropped away) and the map card's own surface fills around it.
                 fillsViewport: false,
                 floorNameResolver: FloorName,
-                styleResolver: StyleFor);
+                styleResolver: StyleFor,
+                floorElevationResolver: FloorElevation);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             renderer.PropertyChanged += RendererPropertyChanged;
@@ -1490,6 +1898,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         OnPropertyChanged(nameof(HasSpawnAreas));
         OnPropertyChanged(nameof(MapTitle));
         OnPropertyChanged(nameof(MapSummary));
+        // [V2 rough package 39] The stack's own readout belongs to the renderer, which has just
+        // rebuilt it; nothing on MapViewModel changes when a plate arrives or fails to.
+        OnPropertyChanged(nameof(HasFloorStack));
+        OnPropertyChanged(nameof(StackStatus));
+        OnPropertyChanged(nameof(HasStackStatus));
+        // The attribution belongs to the asset the renderer has just resolved.
+        OnPropertyChanged(nameof(ArtworkAttribution));
+        OnPropertyChanged(nameof(HasArtworkAttribution));
     }
 
     private void ViewChangeRequested(MapSceneViewChange change)
@@ -1508,6 +1924,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // [V2 rough package 22] A floor change has to reach V1 too: V1 owns the floor the
         // artwork is rasterized for, so a renderer-only change would filter the markers to the
         // new floor while leaving the old floor's picture underneath them.
+        // [V2 rough package 39] So does a presentation change. The renderer offers "Floor stack"
+        // whenever the map has floors; V1 owns whether the stack is on, and owns loading the
+        // per-floor artwork the next rebuild hands back.
+        if (change.Kind == MapSceneViewChangeKind.SetMode &&
+            result.Status == MapSceneViewChangeStatus.Applied &&
+            change.Mode is { } requestedMode &&
+            _map.CanStack)
+        {
+            var wantsStack = requestedMode == MapSceneMode.FloorStack2D;
+            if (_map.IsStacked != wantsStack)
+            {
+                _map.IsStacked = wantsStack;
+            }
+        }
+
         if (change.Kind == MapSceneViewChangeKind.SelectFloor &&
             result.Status == MapSceneViewChangeStatus.Applied &&
             _map.Floors.FirstOrDefault(floor => string.Equals(floor.Id, change.FloorId, StringComparison.OrdinalIgnoreCase)) is { } selected &&
@@ -1520,6 +1951,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// <summary>The catalog's own name for a floor the scene only knows as an id.</summary>
     private string FloorName(string floorId) => _map.Floors
         .FirstOrDefault(floor => string.Equals(floor.Id, floorId, StringComparison.OrdinalIgnoreCase))?.Name ?? floorId;
+
+    /// <summary>
+    /// [V2 rough package 39] How high a floor sits, from the catalog's own height bands, so the
+    /// stack and the floor ladder are both in the order somebody walks the building rather than
+    /// the order upstream happened to list them. <see cref="FloorStack.Elevation"/> is V1's rule
+    /// unchanged; only the lookup from a scene floor id is new.
+    /// </summary>
+    private double? FloorElevation(string floorId) => _map.Floors
+        .FirstOrDefault(floor => string.Equals(floor.Id, floorId, StringComparison.OrdinalIgnoreCase)) is { } definition
+            ? FloorStack.Elevation(definition)
+            : null;
 
     /// <summary>How this cockpit wants one object drawn; see <see cref="MapSceneObjectStyle"/>.</summary>
     private MapSceneObjectStyle? StyleFor(MapSceneObject item) =>
@@ -1635,18 +2077,28 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// Headings are turned by the artwork's own rotation for the same reason V1 turns them: the
     /// screenshot records a bearing in the world, and the map is drawn with the world turned.
     /// </remarks>
-    private LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc) => BuildLiveLayers(
-        new(
-            _map.PlayerPosition,
-            _map.PlayerTrailPositions,
-            _map.GroupMembers,
-            _map.IsOnOpenMap,
-            _map.GroupColorFor,
-            _map.ShowsGroupNames,
-            _map.VisitedRaids,
-            _map.ShowsVisited),
-        model,
-        nowUtc);
+    private LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc)
+    {
+        var player = _map.PlayerPosition;
+        var built = BuildLiveLayers(
+            new(
+                player,
+                _map.PlayerTrailPositions,
+                _map.GroupMembers,
+                _map.IsOnOpenMap,
+                _map.GroupColorFor,
+                _map.ShowsGroupNames,
+                _map.VisitedRaids,
+                _map.ShowsVisited),
+            model,
+            nowUtc);
+        // Only a marker that is still fresh has a moment to wait for. Recomputed by every rebuild,
+        // so a tick that lands a hair early just waits for the next.
+        _positionStaleAtUtc = player is { } position && nowUtc - position.Timestamp.ToUniversalTime() <= PositionFreshFor
+            ? position.Timestamp.ToUniversalTime() + PositionFreshFor
+            : null;
+        return built;
+    }
 
     internal static LiveSceneLayers BuildLiveLayers(LiveSceneInputs inputs, MapRenderModel model, DateTimeOffset nowUtc)
     {
@@ -1827,11 +2279,22 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     internal static double Bearing(double headingDegrees, double artworkRotationDegrees) =>
         double.IsFinite(headingDegrees) ? ((headingDegrees - artworkRotationDegrees) % 360 + 360) % 360 : 0;
 
-    private static string Describe(TimeSpan age) => age == TimeSpan.MaxValue
+    /// <summary>
+    /// How old a squadmate's position is, in steps of fifteen seconds under a minute.
+    /// </summary>
+    /// <remarks>
+    /// Written to the second, this text differed at every exchange for a teammate who had not
+    /// moved, and any difference in a scene object makes the plan recreate all of its markers
+    /// (about 40 MB and a third of a second on Customs). The exchange itself is five seconds
+    /// apart, so the seconds were never more than a guess.
+    /// </remarks>
+    internal static string Describe(TimeSpan age) => age == TimeSpan.MaxValue
         ? "Position unknown"
-        : age < TimeSpan.FromMinutes(1)
-            ? string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalSeconds}s ago")
-            : string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalMinutes}m ago");
+        : age < TimeSpan.FromSeconds(15)
+            ? "From a screenshot just now"
+            : age < TimeSpan.FromMinutes(1)
+                ? string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalSeconds / 15 * 15}s ago")
+                : string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalMinutes}m ago");
 
     private static bool TryPlan(MapRenderModel model, WorldPosition position, out MapScenePoint point)
     {

@@ -25,40 +25,82 @@ public sealed class MapSceneRendererViewModelTests
         var published = new List<MapSceneViewChange>();
         renderer.ViewChangeRequested += published.Add;
 
-        var floorStack = renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D);
         var interior = renderer.Modes.Single(item => item.Mode == MapSceneMode.Interior3D);
-        Assert.False(floorStack.IsAvailable);
         Assert.False(interior.IsAvailable);
-        Assert.Contains("floor", floorStack.UnavailableReason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("3D", interior.UnavailableReason, StringComparison.OrdinalIgnoreCase);
 
-        renderer.RequestMode(MapSceneMode.FloorStack2D);
+        renderer.RequestMode(MapSceneMode.Interior3D);
 
         Assert.Empty(published);
         Assert.True(renderer.HasRendererNotice);
         Assert.Contains("unavailable", renderer.RendererNotice, StringComparison.OrdinalIgnoreCase);
 
-        renderer.Layers.Single(layer => layer.Layer.Id == new MapSceneLayerId("loot"))
-            .ToggleCommand.Execute(null);
+        // [V2 rough package 39] A layer with nothing on it no longer switches the map to empty:
+        // "Loot" holds no objects in this scene, so its switch says so and does nothing.
+        var loot = renderer.Layers.Single(layer => layer.Layer.Id == new MapSceneLayerId("loot"));
+        Assert.True(loot.HasNothingToShow);
+        loot.ToggleCommand.Execute(null);
+        Assert.Empty(published);
+
+        var extracts = renderer.Layers.Single(layer => layer.Layer.Id == new MapSceneLayerId("extracts"));
+        Assert.Equal(1, extracts.Count);
+        Assert.Contains("1", extracts.Label, StringComparison.Ordinal);
+        extracts.ToggleCommand.Execute(null);
 
         var change = Assert.Single(published);
         Assert.Equal(scene.Revision, change.ExpectedRevision);
         Assert.Equal(MapSceneViewChangeKind.SetLayerVisibility, change.Kind);
-        Assert.Equal("loot", change.LayerId?.Value);
-        Assert.True(change.IsVisible.GetValueOrDefault());
+        Assert.Equal("extracts", change.LayerId?.Value);
+        Assert.False(change.IsVisible.GetValueOrDefault());
         Assert.Same(scene, renderer.Scene);
     }
 
+    [Theory]
+    [InlineData(true, 0, true)]
+    [InlineData(false, 0, false)]
+    [InlineData(true, 3, true)]
+    [InlineData(false, 3, true)]
+    public void An_empty_layer_cannot_be_switched_on_but_one_that_is_showing_can_always_be_switched_off(
+        bool isVisible,
+        int count,
+        bool canToggle)
+    {
+        // The Windows gallery's offline loot scenario applies the loot preset with no loot-spawn
+        // data: High-value loot is on and empty. Disabled outright, it could not be turned off,
+        // and UI Automation's Toggle threw on it, which the gallery reported as "no window".
+        bool? requested = null;
+        var layer = new MapSceneRendererLayerViewModel(
+            new MapSceneLayer(new MapSceneLayerId("high-value-loot-spawns"), "High-value loot", 10, isVisible),
+            isVisible,
+            MapSceneRendererPresentation.English(CultureInfo.InvariantCulture, TimeZoneInfo.Utc),
+            visible => requested = visible,
+            count);
+
+        Assert.Equal(canToggle, layer.CanToggle);
+        layer.ToggleCommand.Execute(null);
+
+        Assert.Equal(canToggle ? !isVisible : null, requested);
+    }
+
     [Fact]
-    public void Canonical_floor_stack_state_gets_an_honest_flat_fallback()
+    public void Canonical_floor_stack_state_with_no_artwork_says_so_and_draws_one_floor()
     {
         var renderer = Renderer(Scene(
             supportsFloorStack: true,
             mode: MapSceneMode.FloorStack2D));
 
-        Assert.True(renderer.ShowsModeFallback);
-        Assert.Contains("floor-filtered 2D plan", renderer.ModeFallbackNotice, StringComparison.OrdinalIgnoreCase);
-        Assert.True(renderer.Modes.Single(item => item.Mode == MapSceneMode.Flat2D).IsSelected);
-        Assert.False(renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D).IsAvailable);
+        // [V2 rough package 39] The mode is offered whenever the map has floors, and the
+        // renderer draws it — but only from per-floor artwork the scene actually declares. This
+        // scene declares none, so it still falls back to one plan and still says so.
+        Assert.True(renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D).IsAvailable);
+        Assert.True(renderer.Modes.Single(item => item.Mode == MapSceneMode.FloorStack2D).IsSelected);
+        Assert.Empty(renderer.FloorLayers);
+        Assert.False(renderer.HasFloorStack);
+        // One line, not a paragraph beside it: the stack's own status is the honest answer and
+        // the generic mode fallback would only say the same thing again, longer.
+        Assert.False(renderer.ShowsModeFallback);
+        Assert.Contains("no floor artwork", renderer.StackStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("showing one floor", renderer.StackStatus, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

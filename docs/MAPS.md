@@ -166,3 +166,54 @@ Panning clamps what the viewport can see against that same rectangle, not the ca
 against it: the plan stops with its edge on the card's edge, and an axis whose visible span is
 wider than the plan is centred rather than pinned to one side. The clamp during a drag is the
 clamp the drag commits, so releasing the pointer never moves the plan somewhere else.
+
+### Stacked floors
+
+`MapSceneMode.FloorStack2D` is drawn, not reported unavailable. A scene that wants it declares one
+`MapSceneAssetKind.Floor2D` asset per floor, each naming its floor through `MapSceneAsset.FloorId`,
+and the renderer draws them as plates around the floor being read: that floor solid and outlined at
+offset zero, the rest quieted above and below it, each carrying its own floor name. The plates are
+ordered by the catalog's own height bands (`FloorStack.Elevation`, through the renderer's
+`floorElevationResolver` seam) rather than by the order upstream listed them, and the floor picker
+is a ladder in the same order, top floor first, with a step-up/step-down pair beside it.
+
+Every plate draws into exactly the projection's plan rectangle — `MapLeft`/`MapTop`/`MapWidth`/
+`MapHeight`, identical on all of them — and only the vertical offset differs. That keeps the
+projection contract above: the rectangle the artwork draws into is the rectangle objects project
+into, on every floor, so a marker sits on its own floor's picture. Nothing is sheared or scaled; a
+plate squashed to look three-dimensional would no longer be that rectangle. A stacked map reserves
+canvas headroom above and below the plan (`MapSceneProjection`'s `headroomAbove`/`headroomBelow`)
+so the plates either side are not clipped at the card's edge, capped at 45% of the card.
+
+The plates have to be the drawing. A tile grid and a drawing cover different rectangles of the same
+ground, so the cockpit refuses to stack a tile-drawn map and says which press would fix it
+("Stacked floors need the drawing — choose it above"); a map with no drawing at all, like Labs,
+says so instead. A floor whose artwork will not load is left out and the status line says how many
+of how many arrived — a gap in the stack is honest, a blank plate at the right height is not.
+
+Automatic floor selection (`MapViewModel.FloorSource`) now states what it did: the floor it took
+from your last screenshot, that there is no screenshot yet, or that your height matches no floor
+here. Choosing a floor by hand clears it.
+
+### Artwork chooser and layer counts
+
+The Raid cockpit offers every piece of artwork this location publishes that can actually draw. A row
+is one picture rather than one catalog variant: the interactive variant carries both a drawing and a
+tile photograph on most maps, and upstream publishes no asset path at all for the 2D and 3D variants
+it lists, so those never reach the chooser. Both kinds of choice go through `MapViewModel`
+(`SelectVariantAsync`, `ToggleArtworkAsync`) and are remembered per map by its selection service.
+ADR 0015's asset attribution for whichever artwork is showing sits under the chooser, and shows on
+a map that has no choice too.
+
+Every layer switch carries the count of what it would draw ("Extracts 30", "Labels 24"), taken from
+the scene's own objects — and from the high-value-loot layer's currently visible set for that one.
+A layer holding nothing reads "Quest objectives · none" and is disabled, rather than switching the
+map to an empty plan.
+
+### Where the others started
+
+`SpawnProximity.Near` lists the player spawn areas within 300 m of the raid's first screenshot, and
+`SpawnReach.Describe` adds how long until somebody who started at one could be standing here. That
+is a band and never a figure: the ends are a flat-out sprint straight at you and a careful advance
+that is not straight at all, both rounded outwards onto a coarse ladder, so the band can only be
+wider than the arithmetic. Scav runs get nothing at all, which is `SpawnProximity`'s existing rule.

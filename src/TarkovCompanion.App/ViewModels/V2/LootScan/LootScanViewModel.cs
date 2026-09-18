@@ -30,11 +30,19 @@ public sealed class LootScanViewModel : BindableViewModel
         Result = result ?? throw new ArgumentNullException(nameof(result));
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
+        // Decided calls keep the planner's order. What could only be valued follows, dearest
+        // square first, and what could not be read at all comes last: during a raid the top of
+        // the list has to be the part worth acting on.
         Decisions = result.Decisions
             .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text)
             {
                 SelectAction = Select,
             })
+            .Select((decision, index) => (Decision: decision, Index: index))
+            .OrderBy(entry => entry.Decision.IsReview)
+            .ThenByDescending(entry => entry.Decision.IsReview ? entry.Decision.CatalogValuePerSquareRoubles ?? -1 : 0)
+            .ThenBy(entry => entry.Index)
+            .Select(entry => entry.Decision)
             .ToArray();
         Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
         PreviousPageCommand = new DelegateCommand(PreviousPage);
@@ -321,11 +329,29 @@ public sealed class LootScanViewModel : BindableViewModel
             : new LootScanGridViewModel(grid?.Geometry.Rows.Value, grid?.Geometry.Columns.Value, tiles, occupied: null, _text, _culture);
     }
 
-    private LootScanGridTileViewModel LootTile(GridCellAddress anchor, RecognizedItem? item, LootScanDecisionViewModel? decision) =>
-        new(anchor, item?.WidthCells.Value ?? 1, item?.HeightCells.Value ?? 1,
+    /// <remarks>
+    /// A cell whose item was refused still has a measured footprint, and drawing it 1x1 left a
+    /// hole where the rest of it was. The size comes from the named item, else from a candidate
+    /// (every candidate was shortlisted at the measured size), else from the cell's own bounds.
+    /// </remarks>
+    private LootScanGridTileViewModel LootTile(GridCellAddress anchor, RecognizedItem? item, LootScanDecisionViewModel? decision)
+    {
+        var field = decision?.ItemField;
+        var candidate = field?.Candidates.FirstOrDefault()?.Value;
+        var geometry = Result.VisibleLootGrid?.Geometry;
+        var width = item?.WidthCells.Value ?? candidate?.WidthCells.Value ??
+            CellsAcross(field?.Bounds?.Width, geometry?.CellWidthPixels.Value);
+        var height = item?.HeightCells.Value ?? candidate?.HeightCells.Value ??
+            CellsAcross(field?.Bounds?.Height, geometry?.CellHeightPixels.Value);
+        return new(anchor, width, height,
             decision?.Name ?? item?.DisplayName.Value ?? _text.UnknownItem,
             decision?.ShortValueLabel ?? string.Empty,
             LootScanTileKind.Loot, decision);
+    }
+
+    private static int CellsAcross(int? pixels, int? cellPixels) => pixels is > 0 && cellPixels is > 0
+        ? Math.Max(1, (int)Math.Round(pixels.Value / (double)cellPixels.Value, MidpointRounding.AwayFromZero))
+        : 1;
 
     private LootScanGridViewModel? BuildCarriedGrid()
     {
@@ -473,6 +499,13 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     {
         get
         {
+            // A refusal says it is one. This used to fall through to "Value only", which read as
+            // a reason to take an item nobody had identified.
+            if (_decision.Verdict == LootScanVerdict.Review)
+            {
+                return RefusalHeadline;
+            }
+
             // The planner's own reasons are full sentences meant for the evidence disclosure; a
             // row gets the short form of what actually decided it.
             var code = _decision.Reasons.FirstOrDefault()?.Code;
@@ -510,13 +543,75 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         }
     }
 
+    internal EvidencedValue<RecognizedItem> ItemField => _decision.Item;
+
+    /// <summary>Why this cell has no take, swap or leave, in a few words.</summary>
+    private string RefusalHeadline
+    {
+        get
+        {
+            if (_decision.Item.Value is null)
+            {
+                var names = _decision.Item.Candidates.Select(candidate => candidate.DisplayName).Distinct(StringComparer.Ordinal).ToArray();
+                return names.Length switch
+                {
+                    0 => _text.RefusedNoMatch,
+                    1 => Message(_text.RefusedOneLookalikeTemplate, ("first", names[0])),
+                    2 => Message(_text.RefusedTwoLookalikesTemplate, ("first", names[0]), ("second", names[1])),
+                    _ => Message(
+                        _text.RefusedManyLookalikesTemplate,
+                        ("first", names[0]),
+                        ("second", names[1]),
+                        ("count", (names.Length - 2).ToString(_culture))),
+                };
+            }
+
+            if (_decision.Item.Value.Quantity.Value is null || _decision.Item.Value.Condition.Value is null)
+            {
+                return _text.RefusedAttributesUnread;
+            }
+
+            return CatalogValueRoubles is null ? _text.RefusedNoPrice : _text.RefusedValuedOnly;
+        }
+    }
+
+    /// <summary>
+    /// What the catalog says the item sells for, when the engine could not settle a net value:
+    /// the better of the 24-hour flea average (before the fee) and the best trader.
+    /// </summary>
+    internal long? CatalogValueRoubles
+    {
+        get
+        {
+            var inputs = _decision.Economics?.Inputs;
+            var flea = inputs?.FleaGrossRoubles.Value;
+            var trader = inputs?.TraderRoubles.Value;
+            return flea is null && trader is null ? null : Math.Max(flea ?? 0, trader ?? 0);
+        }
+    }
+
+    /// <summary>The value shown is the catalog's figure, not a net the engine settled.</summary>
+    public bool HasCatalogValueOnly =>
+        _decision.Economics?.BestNetValueRoubles is null && CatalogValueRoubles is not null;
+
+    private bool CatalogValueIsFlea =>
+        (_decision.Economics?.Inputs.FleaGrossRoubles.Value ?? 0) >= (_decision.Economics?.Inputs.TraderRoubles.Value ?? 0) &&
+        _decision.Economics?.Inputs.FleaGrossRoubles.Value is not null;
+
+    internal long? CatalogValuePerSquareRoubles =>
+        CatalogValueRoubles is { } value &&
+        _decision.Item.Value is { WidthCells.Value: { } width, HeightCells.Value: { } height } &&
+        width * height > 0
+            ? value / (width * height)
+            : null;
+
     /// <summary>"₽68k": the whole item's value, short enough for a grid tile.</summary>
-    public string ShortValueLabel => _decision.Economics?.BestNetValueRoubles is { } value
+    public string ShortValueLabel => (_decision.Economics?.BestNetValueRoubles ?? CatalogValueRoubles) is { } value
         ? CompactRoubles(value, _culture)
         : string.Empty;
 
     /// <summary>"₽68k / sq", or empty when the value per square is unknown.</summary>
-    public string ShortValuePerSquareLabel => _decision.Economics?.ValuePerSquareRoubles is { } value
+    public string ShortValuePerSquareLabel => (_decision.Economics?.ValuePerSquareRoubles ?? CatalogValuePerSquareRoubles) is { } value
         ? Message(_text.ShortPerSquareTemplate, ("value", CompactRoubles(value, _culture)))
         : string.Empty;
 
@@ -579,7 +674,37 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
 
     public bool IsReview => _decision.Verdict == LootScanVerdict.Review;
 
-    public string WhyLabel => string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
+    /// <remarks>
+    /// A decided call keeps the planner's sentences. A refusal gets one plain sentence instead:
+    /// the engine's own are written for the evidence disclosure and name contract fields.
+    /// </remarks>
+    public string WhyLabel
+    {
+        get
+        {
+            if (_decision.Verdict != LootScanVerdict.Review)
+            {
+                return string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
+            }
+
+            if (_decision.Item.Value is null)
+            {
+                return _decision.Item.Candidates.Count == 0 ? _text.WhyNoMatch : _text.WhyLookalikes;
+            }
+
+            if (_decision.Item.Value.Quantity.Value is null || _decision.Item.Value.Condition.Value is null)
+            {
+                return _text.WhyAttributesUnread;
+            }
+
+            return _decision.Reasons.FirstOrDefault()?.Code switch
+            {
+                "recommendation.incomplete" or "economics.incomplete" or "recommendation.missing" =>
+                    CatalogValueRoubles is null ? _text.WhyNoPrice : _text.WhyValuedOnly,
+                _ => string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation)),
+            };
+        }
+    }
 
     public string SizeLabel
     {
@@ -635,19 +760,24 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
 
     public string ValueLabel => _decision.Economics?.BestNetValueRoubles is { } value
         ? Message(_text.NetValueTemplate, ("value", Roubles(value)))
-        : _text.ValueNeedsReview;
+        : CatalogValueRoubles is { } catalog
+            ? Roubles(catalog)
+            : _text.ValueNeedsReview;
 
     public string ValuePerSquareLabel => _decision.Economics?.ValuePerSquareRoubles is { } value
         ? Message(
             _text.ValuePerSquareTemplate,
             ("value", Roubles(value)),
             ("band", _decision.Economics.ValueBand?.ToString().ToLowerInvariant() ?? _text.UnknownValueBand))
-        : _text.ValuePerSquareUnavailable;
+        : CatalogValuePerSquareRoubles is { } catalog
+            ? Message(_text.CatalogValuePerSquareTemplate, ("value", Roubles(catalog)))
+            : _text.ValuePerSquareUnavailable;
 
     public string PriceBasisLabel => _decision.Economics?.SelectedPriceBasis switch
     {
         "flea-net" => _text.FleaNetBasis,
         "trader" => _text.TraderBasis,
+        _ when CatalogValueRoubles is not null => CatalogValueIsFlea ? _text.FleaAverageBasis : _text.TraderBasis,
         _ => _text.PriceSourceNeedsReview,
     };
 
@@ -966,6 +1096,20 @@ public sealed record LootScanPresentationText
     public string ReasonPinned { get; init; } = "Pinned";
     public string ReasonScarce { get; init; } = "Hard to find";
     public string ReasonValueOnly { get; init; } = "Value only";
+    public string RefusedNoMatch { get; init; } = "Not recognised";
+    public string RefusedOneLookalikeTemplate { get; init; } = "Maybe {first}";
+    public string RefusedTwoLookalikesTemplate { get; init; } = "{first} or {second}";
+    public string RefusedManyLookalikesTemplate { get; init; } = "{first}, {second} or {count} more";
+    public string RefusedAttributesUnread { get; init; } = "Count or condition not read";
+    public string RefusedNoPrice { get; init; } = "No price";
+    public string RefusedValuedOnly { get; init; } = "Valued, not decided";
+    public string WhyNoMatch { get; init; } = "No icon in the catalog matches this cell closely enough to name it.";
+    public string WhyLookalikes { get; init; } = "These icons are too alike to tell apart from the picture, so none is chosen.";
+    public string WhyAttributesUnread { get; init; } = "Its stack count or remaining uses can't be read from the screenshot, so it isn't valued.";
+    public string WhyNoPrice { get; init; } = "The catalog has no flea or trader price for it.";
+    public string WhyValuedOnly { get; init; } = "Priced from the catalog. No take or leave call yet: the flea fee, your needs and your free space aren't known.";
+    public string FleaAverageBasis { get; init; } = "24-hour flea average, before the fee";
+    public string CatalogValuePerSquareTemplate { get; init; } = "{value} per square";
     public string ReasonFits { get; init; } = "Fits the free space";
     public string ReasonSwapFits { get; init; } = "Fits after a swap";
     public string ReasonNoRoom { get; init; } = "No room for it";
