@@ -1563,7 +1563,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             if (member.Position is { } memberPosition && TryPlan(model, memberPosition, out var at))
             {
                 var id = new MapSceneObjectId($"squad:{member.Name}");
-                var age = member.PositionAge ?? TimeSpan.MaxValue;
+                var age = member.PositionAgeNow ?? TimeSpan.MaxValue;
                 squadObjects.Add(new(
                     id,
                     SquadLayerId,

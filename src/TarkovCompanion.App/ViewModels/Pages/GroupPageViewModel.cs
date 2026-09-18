@@ -261,7 +261,7 @@ public sealed class GroupPageViewModel : PageViewModel
         member.Position is { } position
             ? string.Create(
                 CultureInfo.CurrentCulture,
-                $"{position.X:F0}, {position.Z:F0} · from a screenshot {Age(member.PositionAge)}")
+                $"{position.X:F0}, {position.Z:F0} · from a screenshot {Age(member.PositionAgeNow)}")
             : "No screenshot position shared.",
         member.Loadout.Count > 0 || member.Quests.Count > 0
             ? string.Join(" · ", member.Loadout.Concat(member.Quests))

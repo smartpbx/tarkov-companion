@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -106,6 +107,19 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// <summary>The room revision the relay last answered with, or null from one that holds nothing.</summary>
     private long? _roomRevision;
 
+    /// <summary>
+    /// Whether the relay was observed to actually hold the last exchange it was asked to.
+    /// </summary>
+    /// <remarks>
+    /// Not the same question as whether it answered with a revision. A relay behind something
+    /// that buffers, or one already holding as many exchanges as it will, answers at once and
+    /// unchanged — and a client that took the revision as permission to ask again immediately
+    /// would be a busy loop against somebody else's server, caused by an upgrade at this end.
+    /// So it is measured: an answer that carried nothing new and came back well inside the hold
+    /// was not a hold, and this client goes back to its own tick.
+    /// </remarks>
+    private bool _relayHolds;
+
     /// <summary>When the last exchange started, for the rate bound.</summary>
     private DateTimeOffset _lastExchangeUtc = DateTimeOffset.MinValue;
 
@@ -197,8 +211,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            // The rate bound, and the only place this loop waits when the relay is healthy.
-            // Everything else it waits for, it waits for inside the exchange.
+            // The rate bound, and the only wait this loop takes that nothing can cut short.
             var gap = MinimumExchangeGap - (DateTimeOffset.UtcNow - _lastExchangeUtc);
             if (gap > TimeSpan.Zero)
             {
@@ -212,22 +225,28 @@ public sealed class GroupSessionService : IAsyncDisposable
                 }
             }
 
-            var interrupted = false;
-            var backOff = true;
             var generation = Interlocked.Read(ref _localChanges);
-            using var exchange = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            Volatile.Write(ref _holding, exchange);
+            // One source for the exchange and the tick that may follow it, so a position that
+            // arrives during either goes up now. A backoff that could not be cut short would
+            // put the five-second wait back for exactly the case this exists for.
+            using var cycle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            Volatile.Write(ref _holding, cycle);
+            var onATick = true;
             try
             {
                 // Read after the interrupt is armed, so a change landing in between is still
                 // caught: either it cancels this source, or it is seen here.
                 var hold = Interlocked.Read(ref _localChanges) == generation ? HoldFor : TimeSpan.Zero;
-                exchange.CancelAfter(ExchangeTimeout + hold);
-                _lastExchangeUtc = DateTimeOffset.UtcNow;
-                await PublishOnceAsync(hold, exchange.Token).ConfigureAwait(false);
-                // A relay that answers with a revision is one that can hold the next exchange,
-                // so the tick below is no longer this loop's business.
-                backOff = _roomRevision is null;
+                using (var exchange = CancellationTokenSource.CreateLinkedTokenSource(cycle.Token))
+                {
+                    exchange.CancelAfter(ExchangeTimeout + hold);
+                    _lastExchangeUtc = DateTimeOffset.UtcNow;
+                    await PublishOnceAsync(hold, exchange.Token).ConfigureAwait(false);
+                }
+
+                // A relay that holds its answers is already doing the waiting, so this loop
+                // does none of its own.
+                onATick = !_relayHolds;
             }
             // The filter tests the loop's own token rather than the exception's type. A
             // per-request timeout throws TaskCanceledException, which *is* an
@@ -236,48 +255,46 @@ public sealed class GroupSessionService : IAsyncDisposable
             // that made adding a timeout worse than not having one.
             catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
-                // A hold this loop cut short on purpose is not a failure and must not be
-                // reported as one: the group is about to be told something newer.
                 if (exception is OperationCanceledException && Interlocked.Read(ref _localChanges) != generation)
                 {
-                    interrupted = true;
+                    // A hold this loop cut short on purpose is not a failure and must not be
+                    // reported as one: the group is about to be told something newer.
+                    Volatile.Write(ref _holding, null);
+                    continue;
                 }
-                else
-                {
-                    // Deliberately swallowed after reporting. The group is an extra; a server
-                    // that is down must not take the map with it.
-                    //
-                    // Reported to the log as well as to the interface, which it was not.
-                    // Sharing wrote no line of any kind, so when a member's state was being
-                    // refused there was nothing to read: the whole diagnosis had to come from
-                    // reading a config file on the machine and probing the server from
-                    // outside. Every other part of this application says what it did; this one
-                    // was silent.
-                    var detail = Explain(exception);
-                    _logger.LogWarning(exception, "Group publish failed: {Detail}", detail);
-                    PublishStale(detail);
-                    // A relay that is unwell keeps the slow tick below, which is the existing
-                    // backoff and the thing that stops a failure becoming a busy loop.
-                    _roomRevision = null;
-                }
-            }
-            finally
-            {
-                Volatile.Write(ref _holding, null);
-            }
 
-            if (interrupted || !backOff)
-            {
-                continue;
+                // Deliberately swallowed after reporting. The group is an extra; a server that
+                // is down must not take the map with it.
+                //
+                // Reported to the log as well as to the interface, which it was not. Sharing
+                // wrote no line of any kind, so when a member's state was being refused there
+                // was nothing to read: the whole diagnosis had to come from reading a config
+                // file on the machine and probing the server from outside. Every other part of
+                // this application says what it did; this one was silent.
+                var detail = Explain(exception);
+                _logger.LogWarning(exception, "Group publish failed: {Detail}", detail);
+                PublishStale(detail);
+                // A relay that is unwell goes back on the slow tick, which is the existing
+                // backoff and the thing that stops a failure becoming a busy loop.
+                _roomRevision = null;
+                _relayHolds = false;
             }
 
             try
             {
-                await Task.Delay(PublishInterval, cancellationToken).ConfigureAwait(false);
+                if (onATick)
+                {
+                    await Task.Delay(PublishInterval, cycle.Token).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException)
             {
-                return;
+                // Either the application is closing, which the loop condition catches, or a
+                // local change wants the next exchange now.
+            }
+            finally
+            {
+                Volatile.Write(ref _holding, null);
             }
         }
     }
@@ -513,6 +530,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // Nothing is being exchanged, so there is no revision and nothing to hold against:
             // the loop goes back to its tick rather than spinning on a relay it is not calling.
             _roomRevision = null;
+            _relayHolds = false;
             // Turning sharing off is a thing to say, not a thing to stop saying. Left to time
             // out, the player vanishes from everybody's map three minutes after they thought
             // they had gone.
@@ -530,6 +548,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // Half-edited settings are the same situation as switched off: nothing more will be
             // published under the old identity, so it should not be left standing.
             _roomRevision = null;
+            _relayHolds = false;
             await WithdrawRegisteredAsync().ConfigureAwait(false);
             Publish(GroupSnapshot.Off with
             {
@@ -550,6 +569,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             // at says nothing about this one, and the deliveries timed against it were not
             // this group's.
             _roomRevision = null;
+            _relayHolds = false;
             _latency.Reset();
         }
 
@@ -581,12 +601,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         };
         request.Headers.Add("X-Group-Key", settings.Key!.Trim());
 
+        var asked = _roomRevision;
+        var sent = Stopwatch.GetTimestamp();
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             // A 401 and a 403 are both answers: the key is unusable here and no amount of
             // waiting fixes it, so the group really is off. Everything else is the relay having
             // a bad moment, and the squad that was on the map a second ago should stay on it.
+            _roomRevision = null;
+            _relayHolds = false;
             if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 _lastGood = null;
@@ -609,6 +633,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         // that does not is an older build, and this client keeps to its own tick against it —
         // which is the whole of the compatibility story from this end.
         _roomRevision = room?.Revision;
+        _relayHolds = _roomRevision is { } answered
+            && (asked is not { } requested
+                || answered > requested
+                || Stopwatch.GetElapsedTime(sent) >= hold / 2);
         var seen = (room?.Members ?? [])
             .Select(member => (IReadOnlyList<ObservedKit>)(member.Observed ?? [])
                 .Select(kit => new ObservedKit(kit.Name, kit.Loadout ?? [])
