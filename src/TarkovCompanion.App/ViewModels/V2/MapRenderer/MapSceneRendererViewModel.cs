@@ -56,6 +56,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 {
     public const int MaximumPointMarkers = 280;
     public const int MaximumGeometryObjects = 300;
+
+    /// <summary>[V2 rough package 22] Place names drawn at once; past this the map is ink.</summary>
+    public const int MaximumPlaceNames = 400;
     public const int ListPageSize = 50;
     public const int MaximumListItems = ListPageSize;
     /// <summary>
@@ -74,6 +77,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly MapSceneRendererPresentation _presentation;
     private readonly Func<Guid> _nextChangeId;
     private readonly Func<MapSceneAsset, IImage?>? _reviewedAssetResolver;
+    private readonly Func<string, string>? _floorNameResolver;
+    private readonly Func<MapSceneObject, MapSceneObjectStyle?>? _styleResolver;
     private MapSceneSnapshot _scene;
     private MapSceneObjectId? _selectedObjectId;
     private string _rendererNotice = string.Empty;
@@ -116,7 +121,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         IReadOnlyList<string>? highValueLootCategories = null,
         IReadOnlyList<MapSceneLayerId>? highValueLootPresetPreservedLayers = null,
         bool showsDetailsPanel = true,
-        bool fillsViewport = false)
+        bool fillsViewport = false,
+        // [V2 rough package 22] Two host seams the Raid cockpit needs and nothing else does:
+        // a human name for a floor id the scene only knows as a token, and a per-object style
+        // (a squadmate's own colour, a fainter line for a path walked last week) that is a
+        // presentation choice and so has no place in the scene contract. Both default to "no
+        // opinion", which is what every other host wants.
+        Func<string, string>? floorNameResolver = null,
+        Func<MapSceneObject, MapSceneObjectStyle?>? styleResolver = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
@@ -124,6 +136,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         _fillsViewport = fillsViewport;
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
         _reviewedAssetResolver = reviewedAssetResolver;
+        _floorNameResolver = floorNameResolver;
+        _styleResolver = styleResolver;
         _lootPresetPreservedLayers = CreateLootPresetPreserveSet(scene, highValueLootPresetPreservedLayers);
         _projection = CreateProjection();
 
@@ -176,6 +190,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> ClusterMarkers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererGeometryViewModel> GeometryObjects { get; private set; } = [];
+
+    /// <summary>
+    /// [V2 rough package 22] Place names, drawn as text rather than as markers.
+    /// </summary>
+    /// <remarks>
+    /// A label is a word written on the map, not a thing at a point: giving it a 44px marker
+    /// button would make "Dorms" clickable furniture, and on Streets the hundred of them would
+    /// exhaust <see cref="MaximumPointMarkers"/> and cluster the extracts away behind them.
+    /// </remarks>
+    public IReadOnlyList<MapSceneRendererLabelViewModel> LabelObjects { get; private set; } = [];
+
+    public bool HasLabelObjects => LabelObjects.Count > 0;
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
     public MapSceneRendererObjectViewModel? SelectedObject { get; private set; }
     public HighValueLootEntryViewModel? SelectedLootEntry { get; private set; }
@@ -405,6 +431,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             foreach (var marker in SpatialObjects)
             {
                 marker.UpdateCamera(_scene.View.Camera);
+            }
+
+            foreach (var label in LabelObjects)
+            {
+                label.UpdateCamera(_scene.View.Camera);
             }
         }
 
@@ -741,14 +772,63 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private void FitPlan()
     {
         var bounds = _scene.Bounds;
+        // [V2 rough package 22] The bearing survives a fit. Turning the map is how somebody reads
+        // it while playing, and V1's Fit never undid it; resetting it here meant every fit (and
+        // the automatic one on a new map) silently put the map back the way round they had
+        // rejected.
         Request(new(
             MapSceneViewChangeKind.SetCamera,
             Camera: new(
                 bounds.MinimumX + (bounds.Width / 2),
                 bounds.MinimumY + (bounds.Height / 2),
                 1,
-                0,
+                _scene.View.Camera.BearingDegrees,
                 0)));
+    }
+
+    /// <summary>
+    /// [V2 rough package 22] Puts a plan point in the middle of the viewport, optionally zooming
+    /// in to it. This is what "Follow" does when a screenshot places the player.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="minimumZoom"/> only ever zooms in, never out, for the same reason V1's
+    /// CentreOnPlayer does: somebody who has deliberately zoomed further in to read a building
+    /// should not be pulled back out by the next screenshot.
+    /// </remarks>
+    public void FocusOn(MapScenePoint point, double? minimumZoom = null)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+        {
+            return;
+        }
+
+        var camera = _scene.View.Camera;
+        var zoom = minimumZoom is { } wanted && double.IsFinite(wanted) && wanted > camera.Zoom
+            ? Math.Clamp(wanted, 0.25, 16)
+            : camera.Zoom;
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: new(point.X, point.Y, zoom, camera.BearingDegrees, camera.PitchDegrees)));
+    }
+
+    /// <summary>[V2 rough package 22] Turns the whole plan, V1's "270°" control.</summary>
+    public void SetBearing(double degrees)
+    {
+        if (!double.IsFinite(degrees))
+        {
+            return;
+        }
+
+        var bearing = (degrees % 360 + 360) % 360;
+        var camera = _scene.View.Camera;
+        if (Math.Abs(bearing - camera.BearingDegrees) < 0.001)
+        {
+            return;
+        }
+
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: new(camera.CenterX, camera.CenterY, camera.Zoom, bearing, camera.PitchDegrees)));
     }
 
     private void MoveSelection(int direction)
@@ -1001,7 +1081,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         .Select(floor => new MapSceneRendererFloorViewModel(
             floor,
             string.Equals(floor, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase),
-            () => SelectFloor(floor)))
+            () => SelectFloor(floor),
+            _floorNameResolver?.Invoke(floor)))
         .ToArray();
 
     private void BuildLayers() => Layers = _scene.Layers
@@ -1022,7 +1103,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .Where(item => item.Geometry.Kind != MapSceneGeometryKind.Point &&
                     item.Geometry.Points.All(_scene.Bounds.Contains))
                 .Take(MaximumGeometryObjects)
-                .Select(item => new MapSceneRendererGeometryViewModel(item, _projection))
+                .Select(item => new MapSceneRendererGeometryViewModel(item, _projection, _styleResolver?.Invoke(item)))
+                .ToArray()
+            : [];
+        LabelObjects = _projection.IsUsable
+            ? visibleObjects
+                .Where(item => item.Kind == MapSceneObjectKind.Label &&
+                    item.Geometry.Kind == MapSceneGeometryKind.Point &&
+                    _scene.Bounds.Contains(item.Geometry.Points[0]))
+                .Take(MaximumPlaceNames)
+                .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera))
                 .ToArray()
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
@@ -1046,6 +1136,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var points = visibleObjects
+            .Where(item => item.Kind != MapSceneObjectKind.Label)
             .Where(item => item.Geometry.Kind == MapSceneGeometryKind.Point && _scene.Bounds.Contains(item.Geometry.Points[0]))
             .ToArray();
         if (points.Length <= MaximumPointMarkers)
@@ -1057,7 +1148,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     _scene.View.Camera,
                     _presentation,
                     item.Id == _selectedObjectId,
-                    () => SelectObject(item.Id)))
+                    () => SelectObject(item.Id),
+                    _styleResolver?.Invoke(item)))
                 .ToArray();
         }
 
@@ -1084,7 +1176,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 _scene.View.Camera,
                 _presentation,
                 item.Id == _selectedObjectId,
-                () => SelectObject(item.Id));
+                () => SelectObject(item.Id),
+                _styleResolver?.Invoke(item));
         }
 
         return MapSceneRendererObjectViewModel.ForCluster(
@@ -1169,7 +1262,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 _scene.View.Camera,
                 _presentation,
                 true,
-                () => SelectObject(item.Id));
+                () => SelectObject(item.Id),
+                _styleResolver?.Invoke(item));
     }
 
     private (int Column, int Row) ClusterCell(MapScenePoint point)
@@ -1505,6 +1599,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(PointMarkers));
             OnPropertyChanged(nameof(ClusterMarkers));
             OnPropertyChanged(nameof(GeometryObjects));
+            OnPropertyChanged(nameof(LabelObjects));
+            OnPropertyChanged(nameof(HasLabelObjects));
             OnPropertyChanged(nameof(SelectedObject));
             OnPropertyChanged(nameof(SelectedLootEntry));
             OnPropertyChanged(nameof(HasSelection));
@@ -1553,6 +1649,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         foreach (var propertyName in new[]
                  {
                      nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(GeometryObjects),
+                     nameof(LabelObjects), nameof(HasLabelObjects),
                      nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
                      nameof(MapWidth), nameof(MapHeight), nameof(MessageWidth), nameof(EmptyMessageWidth), nameof(StatusLeft),
@@ -1648,16 +1745,20 @@ public sealed class MapSceneRendererModeViewModel
 
 public sealed class MapSceneRendererFloorViewModel
 {
-    public MapSceneRendererFloorViewModel(string id, bool isSelected, Action select)
+    private readonly string? _name;
+
+    public MapSceneRendererFloorViewModel(string id, bool isSelected, Action select, string? name = null)
     {
         Id = id;
         IsSelected = isSelected;
+        _name = string.IsNullOrWhiteSpace(name) ? null : name;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
 
     public string Id { get; }
-    /// <summary>A human floor name for the compact selector, e.g. "ground" → "Ground".</summary>
-    public string Name => MapRendererToken.Humanize(Id);
+    /// <summary>The catalog's own floor name where the host knows one ("2nd floor"), and
+    /// otherwise the id made readable, e.g. "ground" → "Ground".</summary>
+    public string Name => _name ?? MapRendererToken.Humanize(Id);
     public bool IsSelected { get; }
     public string AutomationId => $"v2-map-floor-{MapRendererToken.From(Id)}";
     public ICommand SelectCommand { get; }
@@ -1692,6 +1793,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     private bool _isSelected;
     private double _markerInverseZoom;
     private double _markerUprightDegrees;
+    private double _coneDegrees;
 
     private MapSceneRendererObjectViewModel(
         MapSceneObject? sceneObject,
@@ -1717,7 +1819,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         string factionGlyph,
         string offerGlyph,
         bool isCluster,
-        Action select)
+        Action select,
+        double? headingDegrees = null,
+        double cameraBearingDegrees = 0,
+        MapSceneObjectStyle? style = null)
     {
         SceneObject = sceneObject;
         Key = key;
@@ -1742,8 +1847,25 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         FactionGlyph = factionGlyph;
         OfferGlyph = offerGlyph;
         IsCluster = isCluster;
+        HeadingDegrees = headingDegrees;
+        _coneDegrees = ConeFor(headingDegrees, cameraBearingDegrees);
+        Style = style;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
+
+    /// <summary>
+    /// Where the cone has to point on screen for a marker that is kept upright.
+    /// </summary>
+    /// <remarks>
+    /// The plan itself is drawn turned by the camera's bearing, and the marker is turned back by
+    /// the same amount so its icon stays the right way up. A facing recorded in plan degrees
+    /// therefore has to be turned by the bearing here, or the cone points where the player was
+    /// looking before the map was rotated.
+    /// </remarks>
+    internal static double ConeFor(double? headingDegrees, double cameraBearingDegrees) =>
+        headingDegrees is { } heading && double.IsFinite(heading)
+            ? ((heading - cameraBearingDegrees) % 360 + 360) % 360
+            : 0;
 
     public MapSceneObject? SceneObject { get; }
     public MapSceneObjectId? ObjectId => SceneObject?.Id;
@@ -1776,6 +1898,24 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public double AnchorTop { get; }
     public double MarkerInverseZoom => _markerInverseZoom;
     public double MarkerUprightDegrees => _markerUprightDegrees;
+
+    /// <summary>The recorded facing in plan degrees, when this marker is somebody rather than a place.</summary>
+    public double? HeadingDegrees { get; }
+
+    public bool HasHeading => HeadingDegrees is not null;
+
+    /// <summary>Where to point the facing cone on screen; see <see cref="ConeFor"/>.</summary>
+    public double ConeDegrees => _coneDegrees;
+
+    /// <summary>The V1 player/squadmate cone, drawn inside the 44px marker box.</summary>
+    public string ConeGeometry => "M 22,22 L 8,2 A 18,18 0 0 1 36,2 Z";
+
+    /// <summary>A host-chosen style for this marker (a squadmate's own colour), where there is one.</summary>
+    public MapSceneObjectStyle? Style { get; }
+
+    public string? ColorHint => Style?.Color;
+
+    public bool HasColorHint => ColorHint is not null;
     public string MarkerGlyph { get; }
 
     /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
@@ -1798,7 +1938,12 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool IsLockIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Lock;
     public bool IsRouteIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Route;
     public bool IsRiskIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Risk;
+    public bool IsPlayerIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Player;
+    public bool IsTeammateIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Teammate;
     public bool IsGenericIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Generic;
+    /// <summary>A person marker is a dot with a facing cone, not one of the drawn glyphs.</summary>
+    public bool IsPersonIcon => IsPlayerIcon || IsTeammateIcon;
+    public bool ShowsGlyphIcon => ShowsMarkerIcon && !IsPersonIcon;
     public string TruthGlyph { get; }
     public bool HasTruthGlyph => !string.IsNullOrWhiteSpace(TruthGlyph);
     public string FactionGlyph { get; }
@@ -1814,6 +1959,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     {
         SetProperty(ref _markerInverseZoom, 1 / camera.Zoom, nameof(MarkerInverseZoom));
         SetProperty(ref _markerUprightDegrees, camera.BearingDegrees, nameof(MarkerUprightDegrees));
+        SetProperty(ref _coneDegrees, ConeFor(HeadingDegrees, camera.BearingDegrees), nameof(ConeDegrees));
     }
 
     public static MapSceneRendererObjectViewModel ForObject(
@@ -1822,7 +1968,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         MapSceneCamera camera,
         MapSceneRendererPresentation presentation,
         bool isSelected,
-        Action select)
+        Action select,
+        MapSceneObjectStyle? style = null)
     {
         var formatter = new MapSceneRendererSemanticText(presentation);
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
@@ -1850,7 +1997,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             FactionGlyphFor(sceneObject),
             OfferGlyphFor(sceneObject),
             false,
-            select);
+            select,
+            sceneObject.HeadingDegrees,
+            camera.BearingDegrees,
+            style);
     }
 
     public static MapSceneRendererObjectViewModel ForCluster(
@@ -1927,6 +2077,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             MapSceneObjectKind.Lock => "⌑",
             MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
             MapSceneObjectKind.Route => "↝",
+            MapSceneObjectKind.LastKnownPosition => "◉",
+            MapSceneObjectKind.TeammateLastKnown => "◍",
             MapSceneObjectKind.Risk => "△",
             _ => "●",
         },
@@ -1981,22 +2133,104 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         MapSceneObjectKind.SpawnArea => MapSceneMarkerIcon.Spawn,
         MapSceneObjectKind.Route => MapSceneMarkerIcon.Route,
         MapSceneObjectKind.Risk => MapSceneMarkerIcon.Risk,
+        MapSceneObjectKind.LastKnownPosition => MapSceneMarkerIcon.Player,
+        MapSceneObjectKind.TeammateLastKnown => MapSceneMarkerIcon.Teammate,
         _ => MapSceneMarkerIcon.Generic,
     };
 }
 
 public sealed class MapSceneRendererGeometryViewModel
 {
-    public MapSceneRendererGeometryViewModel(MapSceneObject sceneObject, MapSceneProjection projection)
+    public MapSceneRendererGeometryViewModel(
+        MapSceneObject sceneObject,
+        MapSceneProjection projection,
+        MapSceneObjectStyle? style = null)
     {
         SceneObject = sceneObject ?? throw new ArgumentNullException(nameof(sceneObject));
         Points = sceneObject.Geometry.Points.Select(projection.Project).ToArray();
+        Style = style;
     }
 
     public MapSceneObject SceneObject { get; }
     public IReadOnlyList<MapSceneProjectedPoint> Points { get; }
     public MapSceneGeometryKind Kind => SceneObject.Geometry.Kind;
     public MapSceneTruthKind Truth => SceneObject.Truth;
+
+    /// <summary>A host-chosen style for this line, where there is one.</summary>
+    public MapSceneObjectStyle? Style { get; }
+
+    public string? ColorHint => Style?.Color;
+
+    public double? ThicknessHint => Style?.LineThickness;
+
+    public double OpacityHint => Style?.Opacity ?? 1;
+}
+
+/// <summary>
+/// [V2 rough package 22] What a host wants one scene object to look like.
+/// </summary>
+/// <remarks>
+/// Colour, weight and opacity are presentation, and the scene contract deliberately carries
+/// neither — two devices drawing the same scene are free to draw it their own way. A host that
+/// does have an opinion (the Raid cockpit gives each squadmate their own colour and draws last
+/// week's paths faintly) says so here instead of smuggling it into a label or an object kind.
+/// </remarks>
+public readonly record struct MapSceneObjectStyle(
+    string? Color = null,
+    double? LineThickness = null,
+    double? Opacity = null);
+
+/// <summary>
+/// [V2 rough package 22] One place name written on the plan, V1's <c>MapPlaceNameViewModel</c>.
+/// </summary>
+/// <remarks>
+/// Text, not a marker: see <see cref="MapSceneRendererViewModel.LabelObjects"/>. It is laid out
+/// centred on its point and, like a marker, is scaled back by the camera zoom and turned back by
+/// the camera bearing so a rotated map still reads left to right.
+/// </remarks>
+public sealed class MapSceneRendererLabelViewModel : BindableViewModel
+{
+    /// <summary>Half the box a name is centred in, in unzoomed canvas pixels.</summary>
+    private const double HalfWidth = 110;
+    private const double HalfHeight = 9;
+
+    private double _inverseZoom;
+    private double _uprightDegrees;
+
+    public MapSceneRendererLabelViewModel(
+        MapSceneObject sceneObject,
+        MapSceneProjection projection,
+        MapSceneCamera camera)
+    {
+        ArgumentNullException.ThrowIfNull(sceneObject);
+        ArgumentNullException.ThrowIfNull(projection);
+        SceneObject = sceneObject;
+        var anchor = projection.Project(sceneObject.Geometry.Points[0]);
+        AnchorLeft = anchor.X - HalfWidth;
+        AnchorTop = anchor.Y - HalfHeight;
+        _inverseZoom = 1 / camera.Zoom;
+        _uprightDegrees = camera.BearingDegrees;
+    }
+
+    public MapSceneObject SceneObject { get; }
+
+    public string Text => SceneObject.Label;
+
+    public double Width => HalfWidth * 2;
+
+    public double AnchorLeft { get; }
+
+    public double AnchorTop { get; }
+
+    public double InverseZoom => _inverseZoom;
+
+    public double UprightDegrees => _uprightDegrees;
+
+    public void UpdateCamera(MapSceneCamera camera)
+    {
+        SetProperty(ref _inverseZoom, 1 / camera.Zoom, nameof(InverseZoom));
+        SetProperty(ref _uprightDegrees, camera.BearingDegrees, nameof(UprightDegrees));
+    }
 }
 
 public sealed class MapSceneRendererListItemViewModel : BindableViewModel
@@ -2127,6 +2361,8 @@ public enum MapSceneMarkerIcon
     Route,
     Risk,
     Cluster,
+    Player,
+    Teammate,
 }
 
 public readonly record struct MapSceneProjectedPoint(double X, double Y);

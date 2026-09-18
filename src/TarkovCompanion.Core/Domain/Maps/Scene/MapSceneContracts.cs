@@ -341,7 +341,8 @@ public sealed record MapSceneObject
         DataProvenance provenance,
         MapSceneEstimateMetadata? estimate = null,
         MapFeatureFaction faction = MapFeatureFaction.Unknown,
-        MapSceneOfferState offerState = MapSceneOfferState.Unknown)
+        MapSceneOfferState offerState = MapSceneOfferState.Unknown,
+        double? headingDegrees = null)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -382,6 +383,13 @@ public sealed record MapSceneObject
             throw new ArgumentException("Only an extract or transit can carry an offered state.", nameof(offerState));
         }
 
+        // A recorded facing, in the same plan degrees the geometry is in. Optional because most
+        // objects are places rather than somebody standing somewhere: an extract has no facing.
+        if (headingDegrees is { } heading && (!double.IsFinite(heading) || heading is < 0 or >= 360))
+        {
+            throw new ArgumentOutOfRangeException(nameof(headingDegrees), "A scene heading is a plan bearing in [0, 360).");
+        }
+
         Id = id;
         LayerId = layerId;
         Kind = kind;
@@ -397,6 +405,7 @@ public sealed record MapSceneObject
         Estimate = estimate;
         Faction = faction;
         OfferState = offerState;
+        HeadingDegrees = headingDegrees;
     }
 
     public MapSceneObjectId Id { get; }
@@ -422,6 +431,9 @@ public sealed record MapSceneObject
     public MapFeatureFaction Faction { get; }
 
     public MapSceneOfferState OfferState { get; }
+
+    /// <summary>Which way whoever this marks was facing, in plan degrees, when it is known.</summary>
+    public double? HeadingDegrees { get; }
 
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 }

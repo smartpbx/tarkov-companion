@@ -5,6 +5,7 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Raid"
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:mapVm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
+             xmlns:mapvm="using:TarkovCompanion.App.ViewModels.Maps"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a card row. -->
@@ -71,6 +72,35 @@
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="Margin" Value="0" />
     </Style>
+    <!-- V2 rough package 22: V1's view controls, as one floating group over the map's own
+         bottom-left corner rather than as V1's column of chrome down the side. Compact text
+         toggles: "Follow", "270°", "Names" are read at a glance mid-raid and an icon for each
+         would be a guessing game. -->
+    <Style Selector="Border.v2-raid-viewgroup">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+      <Setter Property="Padding" Value="8,6" />
+      <Setter Property="Opacity" Value="0.97" />
+    </Style>
+    <Style Selector="ToggleButton.v2-raid-viewcontrol, Button.v2-raid-viewcontrol">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <!-- The floating groups fade out a few seconds after the pointer leaves the map when
+         "Auto-hide" is on (#388). Purely visual: they stay hit-testable and stay in the
+         automation tree, so a keyboard or a screen reader never loses them. -->
+    <Style Selector="Border.v2-raid-float">
+      <Setter Property="Transitions">
+        <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.35" /></Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="Border.v2-raid-float.v2-raid-idle">
+      <Setter Property="Opacity" Value="0.12" />
+    </Style>
     <Style Selector="Border.v2-raid-panel">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -93,7 +123,8 @@
       <ColumnDefinition Width="*" MinWidth="420" MaxWidth="760" />
     </Grid.ColumnDefinitions>
     <Grid Grid.Column="0" RowDefinitions="*,Auto" RowSpacing="12" Margin="16,4,16,16">
-      <Border Grid.Row="0" Classes="v2-raid-mapcard">
+      <Border Grid.Row="0" x:Name="MapCard" Classes="v2-raid-mapcard"
+              PointerEntered="MapPointerActive" PointerMoved="MapPointerActive" PointerExited="MapPointerLeft">
         <Grid>
           <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself: that element's
                own DataContext is overridden to Renderer below, and a binding on the same element
@@ -111,6 +142,79 @@
           <!-- Bottom-left: the renderer's own presentation/floor pill owns the top-left corner
                and its zoom group the top-right. -->
           <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Spacing="8">
+            <!-- V2 rough package 22: the V1 map's view controls. Everything here changes how the
+                 map is drawn or what it follows; what is *on* the map stays in the layer
+                 switches along the bottom strip. -->
+            <Border x:Name="ViewControlsGroup" Classes="v2-raid-viewgroup v2-raid-float"
+                    IsVisible="{Binding HasRenderer}" MaxWidth="620"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.Name="Map view controls">
+              <StackPanel Spacing="6">
+                <WrapPanel ItemSpacing="6" LineSpacing="6">
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Follow"
+                                IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
+                                Command="{Binding ToggleFollowCommand}"
+                                AutomationProperties.AutomationId="v2-raid-follow"
+                                ToolTip.Tip="Move the map to you when you take a screenshot" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{Binding RotationLabel}"
+                                IsChecked="{Binding IsRotated, Mode=OneWay}"
+                                Command="{Binding RotateCommand}"
+                                AutomationProperties.AutomationId="v2-raid-rotate"
+                                AutomationProperties.Name="Turn the map a quarter"
+                                ToolTip.Tip="Turn the map a quarter turn, remembered per map" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{Binding VisitedLabel}"
+                                IsChecked="{Binding ShowsVisited, Mode=OneWay}"
+                                Command="{Binding ToggleVisitedCommand}"
+                                AutomationProperties.AutomationId="v2-raid-visited"
+                                AutomationProperties.Name="Show where you have been"
+                                ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Names"
+                                IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
+                                Command="{Binding ToggleGroupNamesCommand}"
+                                AutomationProperties.AutomationId="v2-raid-group-names"
+                                ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Floors"
+                                IsChecked="{Binding AutoSelectsFloor, Mode=OneWay}"
+                                Command="{Binding ToggleAutoFloorCommand}"
+                                AutomationProperties.AutomationId="v2-raid-auto-floor"
+                                AutomationProperties.Name="Follow the floor you are on"
+                                ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Stack"
+                                IsVisible="{Binding CanStack}"
+                                IsChecked="{Binding IsStacked, Mode=OneWay}"
+                                Command="{Binding ToggleStackCommand}"
+                                AutomationProperties.AutomationId="v2-raid-stack"
+                                ToolTip.Tip="Draw the floors one above another instead of one at a time" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Drawing"
+                                IsVisible="{Binding HasArtworkChoice}"
+                                IsChecked="{Binding PrefersDrawing, Mode=OneWay}"
+                                Command="{Binding ToggleArtworkCommand}"
+                                AutomationProperties.AutomationId="v2-raid-artwork"
+                                ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding FrameAreaText}"
+                          IsVisible="{Binding CanFrameArea}"
+                          Command="{Binding FrameAreaCommand}"
+                          AutomationProperties.AutomationId="v2-raid-frame-area"
+                          ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Auto-hide"
+                                IsChecked="{Binding HideControlsWhenIdle, Mode=OneWay}"
+                                Command="{Binding ToggleHideControlsCommand}"
+                                AutomationProperties.AutomationId="v2-raid-auto-hide"
+                                ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
+                </WrapPanel>
+                <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
+                           IsVisible="{Binding HasStackStatus}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
+                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
+                          Command="{Binding UseFloorVariantCommand}"
+                          AutomationProperties.AutomationId="v2-raid-floor-variant"
+                          AutomationProperties.Name="Use the artwork with floors"
+                          ToolTip.Tip="{Binding FloorVariantHint}" />
+                  <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
+                             VerticalAlignment="Center" MaxWidth="420" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
             <TextBlock Classes="v2-label" Text="Click the map to place it"
                        IsVisible="{Binding IsPlacingMark}" />
             <StackPanel Orientation="Horizontal" Spacing="8"
@@ -150,6 +254,12 @@
                          AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
             </StackPanel>
             <TextBlock Classes="v2-label" Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
+            <!-- V2 rough package 22: V1's status line, which is where the map says what it just
+                 did or could not do ("no transform, so positions cannot be placed"). -->
+            <TextBlock Classes="v2-label" Opacity="0.85" MaxWidth="300" TextTrimming="CharacterEllipsis"
+                       AutomationProperties.AutomationId="v2-raid-status"
+                       IsVisible="{Binding HasStatusLine}" Text="{Binding StatusLine}"
+                       ToolTip.Tip="{Binding StatusLine}" />
           </StackPanel>
           <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" />
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
@@ -322,6 +432,174 @@
                   <DataTemplate x:DataType="x:String">
                     <Border Classes="v2-raid-row" Padding="8,3">
                       <TextBlock Classes="v2-label" Text="{Binding}" />
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- V2 rough package 22: the panels the V1 map page carried down its side. Same view
+               models, same rows; they simply had no home in V2 until now. Each is hidden while
+               it has nothing to say rather than printing an empty heading. -->
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasSpawnPanel}"
+                  AutomationProperties.AutomationId="v2-raid-spawns">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Where the others started" />
+              <TextBlock Classes="v2-label" Text="{Binding SpawnPanelDetail}" TextWrapping="Wrap"
+                         IsVisible="{Binding HasSpawnPanelDetail}" />
+              <ItemsControl ItemsSource="{Binding SpawnPanel}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:SpawnPanelViewModel">
+                    <Border Classes="v2-raid-row">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding FromStart}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding FromPlayer}" VerticalAlignment="Center"
+                                   IsVisible="{Binding HasFromPlayer}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasExtractPanel}"
+                  AutomationProperties.AutomationId="v2-raid-extract-distances">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Ways out from here" />
+              <ItemsControl ItemsSource="{Binding ExtractPanel}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:ExtractPanelViewModel">
+                    <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsOffered}">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Side}" VerticalAlignment="Center"
+                                   IsVisible="{Binding HasSide}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasQuestPanel}"
+                  AutomationProperties.AutomationId="v2-raid-quests">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Tasks on this map" />
+              <ItemsControl ItemsSource="{Binding QuestPanel}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:QuestPanelViewModel">
+                    <Border Classes="v2-raid-row">
+                      <StackPanel Spacing="2">
+                        <TextBlock Classes="v2-body" Text="{Binding Task}" TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label" Text="{Binding Objectives}" TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label" Text="{Binding Bring}" TextWrapping="Wrap"
+                                   IsVisible="{Binding HasBring}" />
+                        <TextBlock Classes="v2-label" Text="{Binding HandIn}" TextWrapping="Wrap"
+                                   IsVisible="{Binding HasHandIn}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasLootPanel}"
+                  AutomationProperties.AutomationId="v2-raid-loot-nearby">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Loot near you" />
+              <ItemsControl ItemsSource="{Binding LootPanel}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:LootPanelViewModel">
+                    <Border Classes="v2-raid-row">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasGroupPanel}"
+                  AutomationProperties.AutomationId="v2-raid-squad">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Squad" />
+              <ItemsControl ItemsSource="{Binding GroupPanel}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:GroupMemberPanelViewModel">
+                    <Border Classes="v2-raid-row">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <!-- The swatch is what joins this row to the dot and the trail on the map. -->
+                        <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                                 Fill="{Binding SwatchColor}" />
+                        <StackPanel Grid.Column="1" Spacing="1">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="v2-label" Text="{Binding Position}" TextWrapping="Wrap" />
+                          <TextBlock Classes="v2-label" Text="{Binding Extra}" TextWrapping="Wrap"
+                                     IsVisible="{Binding HasExtra}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasMarkList}"
+                  AutomationProperties.AutomationId="v2-raid-group-marks">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                <TextBlock Classes="v2-heading-3" Text="Group waypoints" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-raid-viewcontrol" Content="Clear reached"
+                        IsVisible="{Binding HasReachedMarks}" Command="{Binding ClearReachedMarksCommand}"
+                        AutomationProperties.AutomationId="v2-raid-clear-reached" />
+                <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Clear all"
+                        Command="{Binding ClearMarksCommand}"
+                        AutomationProperties.AutomationId="v2-raid-clear-marks" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding MarkList}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="mapvm:MarkListItemViewModel">
+                    <Border Classes="v2-raid-row">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="v2-body" Text="{Binding Name}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Remove"
+                                Command="{Binding $parent[ItemsControl].((vm:RaidCockpitViewModel)DataContext).RemoveMarkCommand}"
+                                CommandParameter="{Binding}" />
+                      </Grid>
                     </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>

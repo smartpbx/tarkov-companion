@@ -24,3 +24,6 @@ Support/
 Data/
 portable.flag
 verification/
+
+# Local V2 render-preview output (tools/V2RenderPreview); generated, never reviewed from Git.
+renders/
