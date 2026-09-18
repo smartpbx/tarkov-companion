@@ -87,12 +87,21 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     private readonly Action<V2RouteId> _navigate;
     private V2SetupSection _selected = V2SetupSection.Overview;
 
-    public V2SetupWorkspaceViewModel(SettingsPageViewModel? settings, GroupPageViewModel? group, MainWindowViewModel? legacy, Action<V2RouteId> navigate)
+    public V2SetupWorkspaceViewModel(
+        SettingsPageViewModel? settings,
+        GroupPageViewModel? group,
+        MainWindowViewModel? legacy,
+        Action<V2RouteId> navigate,
+        // V2 rough package 41 (#292, #281): the self-test lives in Diagnostics, beside the
+        // Copy diagnostics it now feeds. Optional so the shells that build Setup without a
+        // composed application still build.
+        SetupSelfTestViewModel? selfTest = null)
     {
         _navigate = navigate ?? throw new ArgumentNullException(nameof(navigate));
         Settings = settings;
         Group = group;
         Legacy = legacy;
+        SelfTest = selfTest;
         OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Team));
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));
@@ -121,6 +130,26 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
 
     public MainWindowViewModel? Legacy { get; }
 
+    /// <summary>The self-test Diagnostics offers, or null in a shell built without one.</summary>
+    public SetupSelfTestViewModel? SelfTest { get; private set; }
+
+    public bool HasSelfTest => SelfTest is not null;
+
+    /// <summary>
+    /// Hands this page the self-test after construction.
+    /// </summary>
+    /// <remarks>
+    /// The shell builds Setup in its base constructor, before the derived one has the composed
+    /// self-test in hand — the same ordering that made Quests an assigned-after-construction
+    /// property on the V1 Settings page.
+    /// </remarks>
+    public void AttachSelfTest(SetupSelfTestViewModel selfTest)
+    {
+        SelfTest = selfTest ?? throw new ArgumentNullException(nameof(selfTest));
+        OnPropertyChanged(nameof(SelfTest));
+        OnPropertyChanged(nameof(HasSelfTest));
+    }
+
     public IReadOnlyList<V2SetupSectionTabViewModel> Sections { get; }
 
     /// <summary>The home dashboard (package 17); the shell feeds it readiness and the pages it summarises.</summary>
@@ -142,8 +171,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string SyncLabel => V2ShellText.Get("V2.Setup.Data.SyncLabel");
     public string OpenTeamLabel => V2ShellText.Get("V2.Setup.TeamDevices.OpenLabel");
     public string CheckUpdateLabel => V2ShellText.Get("V2.Setup.Updates.CheckLabel");
-    public string DownloadUpdateLabel => V2ShellText.Get("V2.Setup.Updates.DownloadLabel");
-    public string RestartUpdateLabel => V2ShellText.Get("V2.Setup.Updates.RestartLabel");
+    public string UpdateNowLabel => V2ShellText.Get("V2.Setup.Updates.UpdateNowLabel");
+    public string GetInstallerLabel => V2ShellText.Get("V2.Setup.Updates.InstallerLabel");
+    public string UpdateChannelLabel => V2ShellText.Get("V2.Setup.Updates.ChannelLabel");
+    public string InstalledBuildLabel => V2ShellText.Get("V2.Setup.Updates.InstalledLabel");
+    public string AvailableBuildLabel => V2ShellText.Get("V2.Setup.Updates.AvailableLabel");
     public string ScreenshotIntro => V2ShellText.Get("V2.Setup.Privacy.ScreenshotIntro");
     public string RetentionLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionLabel");
     public string RetentionValueLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionValueLabel");
@@ -176,6 +208,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string LargerLabel => V2ShellText.Get("V2.Setup.Appearance.LargerLabel");
     public string ResetLabel => V2ShellText.Get("V2.Setup.Appearance.ResetLabel");
     public string DisplaysInfo => V2ShellText.Get("V2.Setup.Displays.Info");
+    public string SelfTestHeading => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestHeading");
+    public string SelfTestIntro => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestIntro");
+    public string SelfTestRunLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestRun");
+    public string SelfTestStopLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestStop");
+    public string SelfTestCopyLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestCopy");
     public string CopyDiagnosticsLabel => V2ShellText.Get("V2.Setup.Diagnostics.CopyLabel");
     public string ReportProblemLabel => V2ShellText.Get("V2.Setup.Diagnostics.ReportLabel");
 

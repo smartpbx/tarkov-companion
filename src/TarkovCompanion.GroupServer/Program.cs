@@ -944,6 +944,10 @@ app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, U
         : TypedResults.BadRequest("This relay cannot be asked to update: it has no writable state directory.");
 });
 
+// V2 rough package 36 (self-updating builds): the desktop's rough update channel, as read-only
+// static files under /updates. No key, no state, nothing at startup; see UpdateFeedFiles.
+app.MapUpdateFeed(UpdateFeedFiles.Root());
+
 app.Run();
 
 // The only thing checked here is that a key is long enough to be a key. In open mode there is no
