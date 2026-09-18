@@ -144,11 +144,34 @@ public sealed class EftInstallDiscoveryTests
         Assert.IsType<InvalidOperationException>(warning.Error);
     }
 
+    /// <summary>
+    /// A leftover log folder from a reinstall to a different drive still exists, so
+    /// first-existing order alone cannot tell it from the one the game writes to now: only
+    /// which one holds the newer content can.
+    /// </summary>
+    [Fact]
+    public async Task A_leftover_log_root_does_not_win_over_the_one_actually_being_written_to()
+    {
+        var probe = new MutablePathProbe(
+            new(["install"], ["old-logs", "new-logs"], ["screenshots"]),
+            ["install", "old-logs", "new-logs", "screenshots"])
+        {
+            LogWrites = { ["old-logs"] = Now.AddDays(-30), ["new-logs"] = Now },
+        };
+        var locator = new WindowsEftPathLocator(probe, timeProvider: new ProfileClock(Now));
+
+        var state = await locator.RefreshAsync(CancellationToken.None);
+
+        Assert.Equal("new-logs", state.Paths.LogRoot);
+    }
+
     private sealed class MutablePathProbe(
         EftPathCandidates candidates,
         IEnumerable<string> existing) : IEftPathProbe
     {
         public HashSet<string> Existing { get; } = new(existing, StringComparer.OrdinalIgnoreCase);
+
+        public Dictionary<string, DateTimeOffset> LogWrites { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Exception? Failure { get; set; }
 
@@ -163,6 +186,9 @@ public sealed class EftInstallDiscoveryTests
         }
 
         public bool DirectoryExists(string path) => Existing.Contains(path);
+
+        public DateTimeOffset? NewestLogWrite(string path) =>
+            LogWrites.TryGetValue(path, out var written) ? written : null;
     }
 
     private sealed class ThrowingOverrideStore(Exception exception) : IEftPathOverrideStore
