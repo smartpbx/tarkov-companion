@@ -115,6 +115,81 @@ public sealed class V2IntelWorkspaceSelectionTests
         }
     }
 
+    /// <summary>
+    /// V2 rough package 30: every heading and every control the Windows sweep asserts is one the
+    /// application actually produces.
+    /// </summary>
+    /// <remarks>
+    /// Written after a Windows run failed on both: packages 28 and 25 replaced five hosted V1
+    /// pages with native workspaces while this branch was open, so assertions naming V1 buttons
+    /// had nothing to find, and one route's heading was "Item" against the shell's "Item details".
+    /// Neither could fail on Linux, and the sweep only runs on Windows, so the first sign of
+    /// either was a red merge. This is the same re-derivation, done by a test.
+    /// </remarks>
+    [Fact]
+    public void The_Windows_route_sweep_asserts_headings_and_controls_that_exist()
+    {
+        var gallery = File.ReadAllText(V2ShellTestData.RepositoryPath("scripts", "windows-page-gallery.ps1"))
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+        var registry = V2RouteRegistry.Default;
+        var variant = V2ShellVariants.A;
+        var ids = CollectAutomationIds();
+
+        foreach (var route in variant.Addresses)
+        {
+            var address = route.Value.Replace("{item}", "57347ca924597744596b4e71", StringComparison.Ordinal);
+            var entry = System.Text.RegularExpressions.Regex.Match(
+                gallery,
+                $"address = \"#/{System.Text.RegularExpressions.Regex.Escape(address)}\"; heading = \"([^\"]*)\"");
+            Assert.True(entry.Success, $"the sweep does not photograph '{route.Value}'.");
+
+            var definition = registry[route.Key];
+            var root = registry.RootOf(route.Key);
+            var destination = variant.DestinationLabelKey(root);
+            var expected = route.Key == root && destination is not null
+                ? V2ShellText.Get(destination)
+                : V2ShellText.Get(definition.HeadingKey);
+            Assert.Equal(expected, entry.Groups[1].Value);
+        }
+
+        // Only this sweep's own route table: the rest of the gallery belongs to other packages,
+        // and several of their ids are built at runtime from a check or a scene object rather
+        // than declared in any view.
+        var table = gallery[gallery.IndexOf("$V2AcceptanceRoutes = @(", StringComparison.Ordinal)..];
+        table = table[..table.IndexOf("foreach ($Route in $V2AcceptanceRoutes)", StringComparison.Ordinal)];
+        foreach (System.Text.RegularExpressions.Match named in System.Text.RegularExpressions.Regex.Matches(
+            table, "\"(v2-[a-z0-9-]+)\""))
+        {
+            Assert.True(
+                ids.Contains(named.Groups[1].Value),
+                $"the sweep names '{named.Groups[1].Value}', which no view sets. A package probably " +
+                "replaced the surface it was on; point the assertion at what holds it now.");
+        }
+    }
+
+    private static HashSet<string> CollectAutomationIds()
+    {
+        var views = Directory.GetFiles(
+            V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views"), "*.axaml", SearchOption.AllDirectories);
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var view in views)
+        {
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                File.ReadAllText(view), "AutomationProperties.AutomationId=\"(v2-[a-z0-9-]+)\""))
+            {
+                ids.Add(match.Groups[1].Value);
+            }
+        }
+
+        // Ids the map renderer builds from a scene object's own identity rather than declaring.
+        foreach (var generated in new[] { "v2-map-plan", "v2-map-renderer" })
+        {
+            ids.Add(generated);
+        }
+
+        return ids;
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow.AddSeconds(5);

@@ -1128,11 +1128,12 @@ $Shots.Add([pscustomobject]@{
 # tools/V2RenderPreview, which cannot photograph the packaged shell but does have a database.
 #
 # Bounds, not opinions. Three of them, one per defect this package repaired:
-#   * insideWindow  - the V1 pages the shell still hosts drew without V1's own page inset, so
-#                     "Reload", "Look up value", "Empty the kit" and "Create" were cut off by
-#                     the window frame at both widths. Ammo, Keys and Flea have since become
-#                     native workspaces (package 28); they keep the measurement against their
-#                     own controls, and Loadout and Events are the V1 pages that remain.
+#   * insideWindow  - the V1 pages the shell hosted drew without V1's own page inset, so
+#                     "Reload", "Look up value", "Empty the kit" and "Create" were cut off by the
+#                     window frame at both widths. All five have since become native V2
+#                     workspaces (packages 28 and 25), which carry their own inset and give their
+#                     controls automation ids, so the measurement follows the fault onto those
+#                     controls instead of naming a V1 button that no longer exists.
 #   * forbidden     - the Intel context panel was a fixed 460px column drawn empty until an item
 #                     was selected: a quarter of a 1920-wide window, every landing.
 #   * dead space    - a ceiling on how much of the body may be one flat colour, so the Intel
@@ -1145,11 +1146,6 @@ $V2AcceptanceWidths = @(
     [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080 },
     [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 }
 )
-
-$LegacyPageBounds = {
-    param([string] $ButtonName)
-    return , [pscustomobject]@{ name = $ButtonName; controlType = "Button"; insideWindow = $true }
-}
 
 $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
@@ -1176,7 +1172,7 @@ $V2AcceptanceRoutes = @(
     # A real tarkov.dev item id (Graphics card). With no data synced yet this is the honest
     # "nothing known about this item" state, which is exactly what a first run shows — and the
     # state in which the context column used to draw itself empty anyway.
-    [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/57347ca924597744596b4e71"; heading = "Item"
+    [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/57347ca924597744596b4e71"; heading = "Item details"
         expected = @("v2-shell-navigation-rail"); forbidden = @("v2-intel-context"); edge = 0.12 },
     [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
         expected = @("v2-shell-navigation-rail") },
@@ -1187,9 +1183,11 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "plan-keep"; address = "#/plan/keep"; heading = "Keep list"
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan-loadout"; address = "#/plan/loadout"; heading = "Loadout"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Empty the kit") },
+        expected = @("v2-shell-navigation-rail", "v2-loadout-search")
+        bounds = @([pscustomobject]@{ automationId = "v2-loadout-clear"; insideWindow = $true }) },
     [pscustomobject]@{ key = "plan-events"; address = "#/plan/events"; heading = "Events"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Create") },
+        expected = @("v2-shell-navigation-rail", "v2-events-new-name")
+        bounds = @([pscustomobject]@{ automationId = "v2-events-create"; insideWindow = $true }) },
     [pscustomobject]@{ key = "team"; address = "#/team"; heading = "Team"
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "team-group"; address = "#/team/group"; heading = "Group"

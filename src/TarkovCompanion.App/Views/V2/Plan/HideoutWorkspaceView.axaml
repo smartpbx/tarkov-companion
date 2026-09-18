@@ -99,9 +99,14 @@
     <!-- V2 rough package 30 (acceptance sweep): the detail card is the size of what it holds.
          Stretched to the pane it was a 1300x950 bordered box with one small Requirements block in
          its top-left corner — nine tenths of the window was an empty card, which reads as a page
-         that failed to load rather than as space. -->
+         that failed to load rather than as space.
+
+         The cap is two of the 600-wide sections below plus their spacing and this card's padding:
+         package 30's 860 and #421's two-column wrap landed in the same file from different
+         branches, and 860 silently allowed only one column. A cap that cannot fit what it holds
+         is the same fault in the other direction. -->
     <Border Grid.Column="1" Classes="v2-hideout-card" Margin="16,8,16,16"
-            HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="860">
+            HorizontalAlignment="Left" VerticalAlignment="Top" MaxWidth="1280">
       <Panel>
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasSelection}" Opacity="0.8"
                    HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
