@@ -653,9 +653,19 @@ public static class AppComposition
         // [V2 rough package 14] #273: pixel-to-grid recognition. The icon evidence cache (#355)
         // is machine-local, keyed by canonical item id and source URI - nothing here fetches or
         // populates it yet, so it starts empty until something feeds it (deferred to polish).
+        // [V2 rough package 37] Something feeds it now: IconEvidenceIndexer below. The catalog
+        // names 5,320 grid images and the cache's default ceiling is 4,096 entries.
         services.AddSingleton<IIconEvidenceCache>(_ => new FileIconEvidenceCache(
-            new FileIconEvidenceCacheOptions(Path.Combine(paths.Cache, "IconEvidence"))));
+            new FileIconEvidenceCacheOptions(Path.Combine(paths.Cache, "IconEvidence")) { MaximumEntries = 8192 }));
         services.AddSingleton<IconCandidateSeparator>();
+        // [V2 rough package 37] The reference icons are read once and kept, and each named item
+        // is handed to the decision engine with the catalog facts the companion holds for it.
+        services.AddSingleton<IconReferenceIndex>();
+        services.AddSingleton<IIconCatalog, SqliteIconCatalog>();
+        services.AddSingleton<IIconContentFetcher>(provider => new HttpIconContentFetcher(provider.GetRequiredService<HttpClient>()));
+        services.AddSingleton<IconEvidenceIndexer>();
+        services.AddSingleton<IInvalidatableProjection>(provider => provider.GetRequiredService<IconEvidenceIndexer>());
+        services.AddSingleton<LootScanRecommendationSource>();
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>

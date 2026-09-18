@@ -125,7 +125,9 @@ public sealed class MapSceneRendererParityTests
             Presentation,
             floorNameResolver: id => id == "first" ? "Ground floor" : id);
 
-        Assert.Equal(["Ground floor", "second"], renderer.Floors.Select(floor => floor.Name));
+        // [V2 rough package 39] Top floor first, the way a lift's buttons read. With no host
+        // opinion on how high each floor sits, the scene's own order is simply read downwards.
+        Assert.Equal(["second", "Ground floor"], renderer.Floors.Select(floor => floor.Name));
     }
 
     [Fact]

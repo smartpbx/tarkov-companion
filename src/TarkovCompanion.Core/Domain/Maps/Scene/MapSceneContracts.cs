@@ -212,6 +212,10 @@ public sealed record MapSceneGeometry
 
     public IReadOnlyList<MapScenePoint> Points { get; }
 
+    /// <summary>The same shape, point for point, which the record's own equality does not test.</summary>
+    public bool HasSamePointsAs(MapSceneGeometry other) =>
+        Kind == other.Kind && Points.SequenceEqual(other.Points);
+
     public MapSceneBounds Bounds
     {
         get
@@ -436,6 +440,38 @@ public sealed record MapSceneObject
     public double? HeadingDegrees { get; }
 
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
+
+    /// <summary>
+    /// Whether <paramref name="other"/> would be drawn and described exactly as this is.
+    /// </summary>
+    /// <remarks>
+    /// The record's own equality cannot answer this. <see cref="FloorIds"/> and the geometry's
+    /// points are arrays built fresh by every constructor call, and a record compares them by
+    /// reference, so two objects built twice from the same element were never equal, and the
+    /// renderer's "did the scene change" test reported a change on every rebuild. That made a
+    /// group exchange, a log line or a plain clock tick recreate every marker and label on the
+    /// plan. The time an object was observed is left out on purpose: the cockpit stamps
+    /// everything it builds with the moment it was built, which says nothing about the object.
+    /// </remarks>
+    public bool HasSameDisplayAs(MapSceneObject? other) =>
+        other is not null &&
+        (ReferenceEquals(this, other) ||
+            (Id == other.Id &&
+            LayerId == other.LayerId &&
+            Kind == other.Kind &&
+            Truth == other.Truth &&
+            Faction == other.Faction &&
+            OfferState == other.OfferState &&
+            HeadingDegrees == other.HeadingDegrees &&
+            string.Equals(Label, other.Label, StringComparison.Ordinal) &&
+            string.Equals(Detail, other.Detail, StringComparison.Ordinal) &&
+            Geometry.HasSamePointsAs(other.Geometry) &&
+            FloorIds.SequenceEqual(other.FloorIds, StringComparer.Ordinal) &&
+            Equals(Estimate, other.Estimate) &&
+            Provenance.Source == other.Provenance.Source &&
+            Provenance.SourceUpdatedUtc == other.Provenance.SourceUpdatedUtc &&
+            Provenance.Reference == other.Provenance.Reference &&
+            Equals(Provenance.Confidence, other.Provenance.Confidence)));
 }
 
 public sealed record MapSceneAsset
@@ -450,7 +486,8 @@ public sealed record MapSceneAsset
         string mapVersion,
         string gameVersion,
         MapSceneAssetReviewStatus reviewStatus,
-        DateTimeOffset reviewedUtc)
+        DateTimeOffset reviewedUtc,
+        string? floorId = null)
     {
         ArgumentNullException.ThrowIfNull(sourceUri);
         ArgumentNullException.ThrowIfNull(licenseUri);
@@ -486,6 +523,7 @@ public sealed record MapSceneAsset
         GameVersion = Required(gameVersion, nameof(gameVersion));
         ReviewStatus = reviewStatus;
         ReviewedUtc = reviewedUtc;
+        FloorId = string.IsNullOrWhiteSpace(floorId) ? null : floorId;
     }
 
     public MapSceneAssetId Id { get; }
@@ -507,6 +545,18 @@ public sealed record MapSceneAsset
     public MapSceneAssetReviewStatus ReviewStatus { get; }
 
     public DateTimeOffset ReviewedUtc { get; }
+
+    /// <summary>
+    /// The floor this artwork draws, for a scene whose floors are drawn as a stack.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Null for the one picture a flat map draws, which is every scene
+    /// that came before this. A stacked map declares one <see cref="MapSceneAssetKind.Floor2D"/>
+    /// asset per floor and names the floor on it, because a renderer holding several pictures of
+    /// one map has no other way to say which floor each belongs to — and a paired device
+    /// receiving the scene needs the same answer.
+    /// </remarks>
+    public string? FloorId { get; }
 
     public bool IsRenderable => ReviewStatus == MapSceneAssetReviewStatus.Reviewed;
 

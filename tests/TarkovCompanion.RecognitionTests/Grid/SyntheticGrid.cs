@@ -22,7 +22,8 @@ internal static class SyntheticGrid
         int columns,
         int rows,
         int pitch,
-        IReadOnlySet<(int Row, int Column)> occupied)
+        IReadOnlySet<(int Row, int Column)> occupied,
+        IReadOnlyList<(int Row, int Column, int Width, int Height)>? items = null)
     {
         var stride = width * 4;
         var buffer = new byte[stride * height];
@@ -43,14 +44,43 @@ internal static class SyntheticGrid
             }
         }
 
-        for (var column = 0; column <= columns; column++)
+        // The game draws a border round every item and every empty cell and nothing inside an
+        // item, so a multi-cell item is declared and its inner edges are left undrawn.
+        var owner = new int[rows, columns];
+        for (var index = 0; index < (items?.Count ?? 0); index++)
         {
-            DrawVerticalLine(buffer, stride, Math.Min(originX + (column * pitch), width - 1), originY, rows * pitch, height);
+            var item = items![index];
+            for (var row = item.Row; row < item.Row + item.Height; row++)
+            {
+                for (var column = item.Column; column < item.Column + item.Width; column++)
+                {
+                    owner[row, column] = index + 1;
+                }
+            }
+        }
+
+        for (var row = 0; row < rows; row++)
+        {
+            for (var column = 0; column <= columns; column++)
+            {
+                var inside = column > 0 && column < columns && owner[row, column] != 0 && owner[row, column] == owner[row, column - 1];
+                if (!inside)
+                {
+                    DrawVerticalLine(buffer, stride, Math.Min(originX + (column * pitch), width - 1), originY + (row * pitch), pitch + 1, height);
+                }
+            }
         }
 
         for (var row = 0; row <= rows; row++)
         {
-            DrawHorizontalLine(buffer, stride, Math.Min(originY + (row * pitch), height - 1), originX, columns * pitch, width);
+            for (var column = 0; column < columns; column++)
+            {
+                var inside = row > 0 && row < rows && owner[row, column] != 0 && owner[row, column] == owner[row - 1, column];
+                if (!inside)
+                {
+                    DrawHorizontalLine(buffer, stride, Math.Min(originY + (row * pitch), height - 1), originX + (column * pitch), pitch + 1, width);
+                }
+            }
         }
 
         return new CapturedImage(buffer, width, height, stride, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, "synthetic-grid");

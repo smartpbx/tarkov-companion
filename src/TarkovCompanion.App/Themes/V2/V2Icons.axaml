@@ -38,6 +38,9 @@
   <StreamGeometry x:Key="V2.Icon.Ping">M12,12 A2.5,2.5 0 1 1 12,11.9 Z M12,7 A5,5 0 0 1 12,17 A5,5 0 0 1 12,7 M12,3 A9,9 0 0 1 12,21 A9,9 0 0 1 12,3</StreamGeometry>
   <!-- V2 rough package 17 (Plan workspace): bundle chevron, done tick, hideout house, primary play, overflow. -->
   <StreamGeometry x:Key="V2.Icon.ChevronRight">M9,5 L16,12 L9,19</StreamGeometry>
+  <!-- V2 rough package 39: the floor ladder's step-up/step-down pair. -->
+  <StreamGeometry x:Key="V2.Icon.ChevronUp">M5,15 L12,8 L19,15</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.ChevronDown">M5,9 L12,16 L19,9</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Tick">M4.5,12.5 L9.5,17.5 L19.5,6.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.House">M3,11 L12,3.5 L21,11 M5.5,9 L5.5,20.5 L18.5,20.5 L18.5,9 M10,20.5 L10,14.5 L14,14.5 L14,20.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Play">M7,4.5 L19,12 L7,19.5 Z</StreamGeometry>

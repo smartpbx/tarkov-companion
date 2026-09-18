@@ -392,9 +392,15 @@ public sealed record QuestPanelViewModel(
 /// <param name="Name">What the map calls the spawn.</param>
 /// <param name="FromStart">How far it is from where this raid began.</param>
 /// <param name="FromPlayer">Where it lies from the player now, or nothing if they have not been seen.</param>
-public sealed record SpawnPanelViewModel(string Name, string FromStart, string FromPlayer)
+/// <param name="Reach">
+/// [V2 rough package 39] How long until somebody who started there could be standing here, as a
+/// band rather than a number — see <see cref="SpawnReach"/> for why it is never a number.
+/// </param>
+public sealed record SpawnPanelViewModel(string Name, string FromStart, string FromPlayer, string Reach = "")
 {
     public bool HasFromPlayer => FromPlayer.Length > 0;
+
+    public bool HasReach => Reach.Length > 0;
 }
 
 /// <summary>One place near the player where the game spawns loot.</summary>
@@ -2149,6 +2155,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public Task SelectFloorAsync(MapFloorDefinition floor)
     {
         AutoSelectsFloor = false;
+        // A floor chosen by hand is no longer a floor the screenshot chose, and the readout
+        // beside the picker has to stop claiming otherwise.
+        FloorSource = string.Empty;
         return SelectFloorAsync(floor, automatic: false);
     }
 
@@ -2409,7 +2418,36 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _autoSelectsFloor, value);
     }
 
-    public void ToggleAutoFloor() => AutoSelectsFloor = !AutoSelectsFloor;
+    public void ToggleAutoFloor()
+    {
+        AutoSelectsFloor = !AutoSelectsFloor;
+        // Restated immediately rather than at the next screenshot, so pressing the toggle says
+        // what it did instead of leaving the previous answer on screen until somebody plays.
+        FollowFloor(_playerPosition);
+    }
+
+    /// <summary>
+    /// Where the floor on screen came from: your own screenshot, or your own choice.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Automatic floor selection has always been silent, so a map sitting
+    /// on the wrong floor looked the same whether the feature had chosen it, had nothing to go
+    /// on, or had been turned off. Empty while there is nothing to say — a one-floor map, or
+    /// following turned off, where the toggle beside it is already the answer.
+    /// </remarks>
+    public string FloorSource
+    {
+        get => _floorSource;
+        private set
+        {
+            Set(ref _floorSource, value);
+            OnPropertyChanged(nameof(HasFloorSource));
+        }
+    }
+
+    public bool HasFloorSource => _floorSource.Length > 0;
+
+    private string _floorSource = string.Empty;
 
     public void ChangeZoom(double wheelDelta)
     {
@@ -4182,9 +4220,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         ArgumentNullException.ThrowIfNull(waypoints);
         ArgumentNullException.ThrowIfNull(pings);
+        // Rebuilt only when something a mark is drawn from moved. This ran on every snapshot,
+        // assigned GroupMarks and MarkList afresh each time, and so told the Raid workspace the
+        // group's marks had changed whenever anything at all was published.
+        var unchanged = _waypoints.SequenceEqual(waypoints) && _pings.SequenceEqual(pings);
         _waypoints = waypoints;
         _pings = pings;
+        var pending = _pending.Count;
         DropConfirmedPending();
+        if (unchanged && _pending.Count == pending)
+        {
+            return;
+        }
+
         UpdateGroupMarks();
     }
 
@@ -4579,11 +4627,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 SpawnProximity.Describe(spawn.MetresFromStart) + " from your start",
                 spawn.MetresFromPlayer is { } fromPlayer && spawn.Bearing is { } bearing
                     ? $"{SpawnProximity.Describe(fromPlayer)} {bearing} of you"
-                    : string.Empty))
+                    : string.Empty,
+                // Measured from where the player actually is when a screenshot has said so, and
+                // from where they started otherwise: the question is "how long until somebody
+                // from there could be here", and "here" moves.
+                SpawnReach.Describe(spawn.MetresFromPlayer ?? spawn.MetresFromStart)))
             .ToArray();
+        // [V2 rough package 39] Says what is in the list as well as what it is measured from:
+        // player spawns inside the radius, and nothing beyond it. Without the radius, a short
+        // list reads as missing data rather than as a quiet corner of the map.
         SpawnPanelDetail = near.Count == 0
             ? string.Empty
-            : $"Measured from your first screenshot of this raid, {anchor.Timestamp.ToLocalTime():t}.";
+            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {anchor.Timestamp.ToLocalTime():t}.";
     }
 
     /// <summary>
@@ -5024,8 +5079,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void FollowFloor(ScreenshotPosition? position)
     {
-        if (!AutoSelectsFloor || position is null || _isLoadingVariant ||
-            SelectedVariant is not { } variant || variant.Floors.Count <= 1 ||
+        if (!AutoSelectsFloor || SelectedVariant is not { } variant || variant.Floors.Count <= 1)
+        {
+            FloorSource = DescribeFloorSource(following: false, hasPosition: position is not null, matched: null);
+            return;
+        }
+
+        if (position is null)
+        {
+            FloorSource = DescribeFloorSource(following: true, hasPosition: false, matched: null);
+            return;
+        }
+
+        if (_isLoadingVariant ||
             string.Equals(_flooredPositionFilename, position.Filename, StringComparison.OrdinalIgnoreCase))
         {
             return;
@@ -5033,6 +5099,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _flooredPositionFilename = position.Filename;
         var target = _presentationService.SelectFloor(variant, position.Position);
+        FloorSource = DescribeFloorSource(following: true, hasPosition: true, matched: target);
         if (target is null || SelectedFloor is null ||
             string.Equals(target.Id, SelectedFloor.Id, StringComparison.OrdinalIgnoreCase))
         {
@@ -5041,6 +5108,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _ = SelectFloorAsync(target, automatic: true);
     }
+
+    /// <summary>
+    /// What automatic floor selection has to say, as a rule on its own so it can be checked
+    /// without standing up a map.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 39] Three states and nothing else: following is off or the map has one
+    /// floor, in which case the toggle beside this is already the whole answer and this says
+    /// nothing; following is on with nothing to go on; and following is on with a height that
+    /// either matched a floor or did not. The last of those used to be silent, which made a map
+    /// stuck on the wrong floor look exactly like a map whose following was broken.
+    /// </remarks>
+    public static string DescribeFloorSource(bool following, bool hasPosition, MapFloorDefinition? matched) =>
+        !following
+            ? string.Empty
+            : !hasPosition
+                ? "No screenshot yet — pick the floor yourself"
+                : matched is { } floor
+                    ? $"Floor from your screenshot · {floor.Name}"
+                    // Outside the building, or a floor upstream published no extents for. Saying
+                    // so beats dragging somebody to a default floor they are not standing on.
+                    : "Your height matches no floor here — pick the floor yourself";
 
     /// <summary>Names the building the player is in, or says nothing.</summary>
     private void UpdateArea()
@@ -5491,13 +5580,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        // Nothing here depends on anything but these two, and both are records the runtime
-        // store hands out by reference: an unchanged snapshot carries the same instances. So
-        // the common case — a snapshot that changed something else entirely — costs a pair of
-        // reference comparisons rather than LootProximity.Near over every loot position on the
-        // map, of which Woods has 815. ShowSide and ShowActiveExtracts have had this since
-        // they were written; this is the one that did not.
-        if (ReferenceEquals(_playerPosition, position) && ReferenceEquals(_playerTrailPositions, trail))
+        // Nothing here depends on anything but these two, so the common case — a snapshot that
+        // changed something else entirely — costs a comparison rather than LootProximity.Near
+        // over every loot position on the map, of which Woods has 815. ShowSide and
+        // ShowActiveExtracts have had this since they were written; this is the one that did not.
+        //
+        // The trail is compared point by point, not by instance. The store used to hand out
+        // the same trail object until it changed, and that is what this compared, but the store
+        // copies the list into a boxed immutable array whenever it publishes the raid, so the
+        // instance differed on every publication and this ran in full about once a second, each
+        // time replacing the marker and the trail and rebuilding the whole plan.
+        if (ReferenceEquals(_playerPosition, position) && SameTrail(_playerTrailPositions, trail))
         {
             return;
         }
@@ -5524,6 +5617,29 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    internal static bool SameTrail(IReadOnlyList<ScreenshotPosition> current, IReadOnlyList<ScreenshotPosition> incoming)
+    {
+        if (ReferenceEquals(current, incoming))
+        {
+            return true;
+        }
+
+        if (current.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (!ReferenceEquals(current[index], incoming[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

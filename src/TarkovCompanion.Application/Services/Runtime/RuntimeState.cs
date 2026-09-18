@@ -363,11 +363,13 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 {
                     var proposed = update(_current)
                         ?? throw new InvalidOperationException("A runtime state update cannot return null.");
-                    _current = Freeze(proposed with
-                    {
-                        LocalRevision = checked(_current.LocalRevision + 1),
-                        Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
-                    });
+                    _current = Freeze(
+                        proposed with
+                        {
+                            LocalRevision = checked(_current.LocalRevision + 1),
+                            Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
+                        },
+                        _current);
                     handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
                 }
 
@@ -392,11 +394,13 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 lock (_gate)
                 {
                     _subscriberFaults = checked(_subscriberFaults + failures);
-                    _current = Freeze(_current with
-                    {
-                        LocalRevision = checked(_current.LocalRevision + 1),
-                        Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
-                    });
+                    _current = Freeze(
+                        _current with
+                        {
+                            LocalRevision = checked(_current.LocalRevision + 1),
+                            Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
+                        },
+                        _current);
                 }
             }
             finally
@@ -406,7 +410,21 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
         }
     }
 
-    private static ApplicationRuntimeSnapshot Freeze(ApplicationRuntimeSnapshot snapshot)
+    /// <summary>
+    /// Copies every list in a snapshot so a publisher cannot change it after the fact.
+    /// </summary>
+    /// <remarks>
+    /// A slice that an update left alone is the very instance the previous, already frozen,
+    /// snapshot held, so it is kept rather than frozen again. Freezing it again produced an equal
+    /// but different object on every publication: the raid's trail is copied into a boxed
+    /// <see cref="ImmutableArray{T}"/> each time, so a consumer that compared the instance it
+    /// had last seen (the map's player marker does, and says so) was told the trail had changed
+    /// on every publication of anything at all. That rebuilt the plan about once a second while
+    /// nothing happened, and it copied every squad member and every trail each time too.
+    /// </remarks>
+    private static ApplicationRuntimeSnapshot Freeze(
+        ApplicationRuntimeSnapshot snapshot,
+        ApplicationRuntimeSnapshot? previous = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(snapshot.Data);
@@ -421,10 +439,15 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
         ArgumentNullException.ThrowIfNull(snapshot.Outbox);
         ArgumentNullException.ThrowIfNull(snapshot.Resources);
 
+        // Untouched means the previous snapshot's own object, which was frozen when it was made.
+        static bool Same<T>(T current, T? before) where T : class => before is not null && ReferenceEquals(current, before);
+
         return snapshot with
         {
-            Profile = snapshot.Profile is null ? null : FreezeProfile(snapshot.Profile),
-            Raid = snapshot.Raid with
+            Profile = snapshot.Profile is null || Same(snapshot.Profile, previous?.Profile)
+                ? snapshot.Profile
+                : FreezeProfile(snapshot.Profile),
+            Raid = Same(snapshot.Raid, previous?.Raid) ? snapshot.Raid : snapshot.Raid with
             {
                 ActiveExtracts = snapshot.Raid.ActiveExtracts.ToImmutableArray(),
                 PositionTrail = snapshot.Raid.PositionTrail.ToImmutableArray(),
@@ -434,16 +457,20 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                     ? null
                     : snapshot.Raid.Hud with { Bars = snapshot.Raid.Hud.Bars.ToImmutableArray() },
             },
-            Squad = snapshot.Squad with
+            Squad = Same(snapshot.Squad, previous?.Squad) ? snapshot.Squad : snapshot.Squad with
             {
                 Members = [.. snapshot.Squad.Members.Select(member => member with
                 {
                     Equipment = member.Equipment.ToImmutableArray(),
                 })],
             },
-            RecentScreenshotNames = snapshot.RecentScreenshotNames.ToImmutableArray(),
-            FleaSales = snapshot.FleaSales with { Sales = snapshot.FleaSales.Sales.ToImmutableArray() },
-            Group = snapshot.Group with
+            RecentScreenshotNames = Same(snapshot.RecentScreenshotNames, previous?.RecentScreenshotNames)
+                ? snapshot.RecentScreenshotNames
+                : snapshot.RecentScreenshotNames.ToImmutableArray(),
+            FleaSales = Same(snapshot.FleaSales, previous?.FleaSales)
+                ? snapshot.FleaSales
+                : snapshot.FleaSales with { Sales = snapshot.FleaSales.Sales.ToImmutableArray() },
+            Group = Same(snapshot.Group, previous?.Group) ? snapshot.Group : snapshot.Group with
             {
                 Members = [.. snapshot.Group.Members.Select(member => member with
                 {
@@ -458,7 +485,7 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 Pings = snapshot.Group.Pings.ToImmutableArray(),
                 MyLoadout = snapshot.Group.MyLoadout.ToImmutableArray(),
             },
-            Lifecycle = snapshot.Lifecycle with
+            Lifecycle = Same(snapshot.Lifecycle, previous?.Lifecycle) ? snapshot.Lifecycle : snapshot.Lifecycle with
             {
                 Features = snapshot.Lifecycle.Features.IsDefault
                     ? []
@@ -467,11 +494,11 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                         Dependencies = feature.Dependencies.IsDefault ? [] : [.. feature.Dependencies],
                     })],
             },
-            Supervisor = snapshot.Supervisor with
+            Supervisor = Same(snapshot.Supervisor, previous?.Supervisor) ? snapshot.Supervisor : snapshot.Supervisor with
             {
                 Operations = snapshot.Supervisor.Operations.IsDefault ? [] : [.. snapshot.Supervisor.Operations],
             },
-            Outbox = snapshot.Outbox with
+            Outbox = Same(snapshot.Outbox, previous?.Outbox) ? snapshot.Outbox : snapshot.Outbox with
             {
                 DeadLetters = snapshot.Outbox.DeadLetters.IsDefault ? [] : [.. snapshot.Outbox.DeadLetters],
             },

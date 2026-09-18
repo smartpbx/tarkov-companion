@@ -108,6 +108,9 @@ public sealed class LootScanDecisionService
         }
 
         var unresolvedByAnchor = request.VisibleLoot.UnresolvedCells
+            // A cell the reconstructor excluded (an overlap, a footprint off the grid) is not
+            // among the recognized cells, so it stays here and is shown as review, never dropped.
+            .Where(item => BlocksLootDecision(item) || !visibleCells.ContainsKey(item.Anchor))
             .GroupBy(item => item.Anchor)
             .ToDictionary(group => group.Key, group => group.First());
         if (request.VisibleLoot.Recognition is { } visible)
@@ -178,6 +181,33 @@ public sealed class LootScanDecisionService
             VisibleLootGrid = request.VisibleLoot.Recognition,
             CarriedGrid = request.CarriedInventory.Recognition,
         };
+    }
+
+    /// <summary>
+    /// Whether what a cell is missing is something a loot decision needs.
+    /// </summary>
+    /// <remarks>
+    /// The reconstructor lists a cell as unresolved when any attribute is unread, and a loot
+    /// screen does not print whether an item is found-in-raid, so every cell the recognizer ever
+    /// named arrived here unresolved and left as "review". The recommendation engine already
+    /// asks for found-in-raid only when a need requires it and raises its own evidence issue
+    /// then, so that one absence is left to it. Identity, footprint, rotation, count and
+    /// condition still send a cell to review, because value and fit depend on them.
+    /// </remarks>
+    private static bool BlocksLootDecision(GridCellObservation unresolved)
+    {
+        static bool Read<T>(EvidencedValue<T> field) =>
+            field.Status.Completeness == ResultCompleteness.Complete && field.Value is not null;
+
+        return unresolved.Item.Value is not { } item ||
+            unresolved.Item.Status.Completeness != ResultCompleteness.Complete ||
+            !Read(item.CanonicalId) ||
+            !Read(item.DisplayName) ||
+            !Read(item.WidthCells) ||
+            !Read(item.HeightCells) ||
+            !Read(item.Rotated) ||
+            !Read(item.Quantity) ||
+            !Read(item.Condition);
     }
 
     private LootScanDecision EvaluateResolved(
