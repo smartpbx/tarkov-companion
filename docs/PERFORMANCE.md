@@ -38,6 +38,7 @@ numbers mean little. See `render-preview-seed-database` in the notes for where a
 | `pan` | Drags and zooms the plan with real pointer events and draws a frame after each. Once quiet, and once with the raid's own events landing at ten times their rate. |
 | `raid` | A raid, sampled once a raid-minute: CPU, managed heap after a full collection, allocation, scene rebuilds, and what each kind of event cost. `--raid-minutes 40 --group 1` or `--group 6`. |
 | `bisect` | Idle allocation with and without frame capture, and on another page. |
+| `plansearch` | Typing in the Plan workspace's quest search, with the filter set to All so the whole board is read: one keystroke (setter and settled), the whole query typed at speed, and how many row and group view models a keystroke kept. Needs no map, so it runs on its own in about a minute. `--plan-query "graphics card"`. |
 
 `--accelerate N` delivers the raid's events N times as fast, which answers "what accumulates" in a
 fraction of the time and does not answer "how busy", because the application's own one-second timers
@@ -81,6 +82,29 @@ The trail was already capped at 240 points (`RaidStateService`), the group's per
 (`GroupSessionService`) and the recent screenshot names at three; the `raid` scenario reports the
 managed heap after a full collection once a raid-minute and its slope, which is how growth is checked.
 
+### Typing in the quest search (package 45)
+
+Over a synced catalog — 503 quests, 1,758 objectives, 17 map groups, filter All — `plansearch` on the
+same harness build, before and after:
+
+| | Before | After |
+| --- | --- | --- |
+| One keystroke, in the setter (mean) | 12-16 ms | 0.005 ms |
+| One keystroke, settled (mean / p50) | 29-51 ms / 30-43 ms | 16-17 ms / 8 ms |
+| One keystroke, allocated | 1,592-1,868 KB | 411-413 KB |
+| Typing "graphics card" (13 characters), blocked | 140-144 ms | 0.02 ms |
+| Typing "graphics card", settled | 170-175 ms | 33.5 ms |
+| Typing "graphics card", allocated | 18.3 MB | 0.26 MB |
+| Filter ran on the keystroke's own stack | yes | no |
+| Rows kept by a keystroke that changes nothing | 0 of 9 | 9 of 9 |
+
+Three faults, all of them "the whole board, per character": the searchable text of every quest was
+joined inside the filter; every group and row view model was constructed again, with its commands; and
+the Home overview listened for any property at all on the workspace, so it re-projected every
+objective on the board twice per keystroke. What is left in "settled" is the work a changed result set
+really does ask for — new rows for what is now shown, and the item-name reads for the newly selected
+map.
+
 ## The budgets
 
 `RaidPerformanceBudgetTests` fails if any of these regress. Byte budgets are about twice the measured
@@ -95,6 +119,15 @@ small one.
 | Presenting a scene where one marker moved | 453,062 B | 453,080 B | 900,000 B |
 | First present of a 250 + 120 + line scene | 1.25 MB, 3-6 ms | | 2.5 MB, 100 ms |
 | Composition and first window view models | 460-560 ms | | 6,000 ms |
+
+`PlanSearchBudgetTests` holds what one keystroke in the quest search costs, per quest on the board,
+because the fault it exists for was reading every quest again for every character.
+
+| | Measured | Before the fix | Budget |
+| --- | --- | --- | --- |
+| One keystroke, result set unchanged | 13,822 B — 26 B per quest | about 3.7 KB per quest | 64 B per quest |
+| One keystroke, result set narrowed | 17,912 B — 34 B per quest | about 3.7 KB per quest | 64 B per quest |
+| Joining every quest's searchable text | 415 KB, 0.5 ms, once per board read | once per keystroke | 1 MB, 50 ms |
 
 The last two are the part of "cold start" and "first map draw" that a process with no rendering
 platform can measure. The window, the artwork and the frame are in the harness's `cold` and `map`
