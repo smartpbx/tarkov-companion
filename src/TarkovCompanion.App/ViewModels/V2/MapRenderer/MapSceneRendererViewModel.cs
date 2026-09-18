@@ -364,10 +364,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public string ModeFallbackNotice => _scene.View.Mode switch
     {
         MapSceneMode.Flat2D => string.Empty,
-        // [V2 rough package 39] The renderer draws this mode now, so it is not a fallback. It
-        // stays one while the artwork for the other floors has not arrived, which is what
-        // StackStatus is saying beside it.
-        MapSceneMode.FloorStack2D when HasFloorStack => string.Empty,
+        // [V2 rough package 39] The renderer draws this mode now, so it is not a fallback — and
+        // when its artwork has not arrived, StackStatus says so in one line right beside this.
+        // Two paragraphs about one missing picture is one too many.
+        MapSceneMode.FloorStack2D => string.Empty,
         _ => Format("Map.Mode.Fallback", DescribeMode(_scene.View.Mode)),
     };
     public string ThreeDimensionalFallback => ModeFallbackNotice;

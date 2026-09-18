@@ -1466,7 +1466,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // toggle, which is also what the renderer's presentation control now pushes back here.
         var floorAssets = await LoadFloorStackAssetsAsync(model, cancellationToken).ConfigureAwait(true);
         cancellationToken.ThrowIfCancellationRequested();
-        var mode = _map.IsStacked && model.Floors.Count > 1
+        // Not when this map cannot be stacked at all: a scene asking for a mode that will draw
+        // one plan anyway lights the "Floor stack" control over a flat map, which is the exact
+        // complaint V1's own stack collected ("the 3d view doesnt seem to work at all for me").
+        // The refusal beside the toggle says which press would fix it.
+        var mode = _map.IsStacked && model.Floors.Count > 1 && _stackRefusal.Length == 0
             ? MapSceneMode.FloorStack2D
             : MapSceneMode.Flat2D;
         if (requestedView.Mode != mode)
