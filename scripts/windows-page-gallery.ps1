@@ -1132,10 +1132,12 @@ $Shots.Add([pscustomobject]@{
 #                     the window frame at both widths.
 #   * forbidden     - the Intel context panel was a fixed 460px column drawn empty until an item
 #                     was selected: a quarter of a 1920-wide window, every landing.
-#   * dead space    - a ceiling on how much of the body may be one flat colour, so neither of
-#                     those can quietly come back. The numbers are the measured ones plus
-#                     headroom, not aspirations; the map workspaces carry the loose ultrawide
-#                     bound they pass today (see the PR's route table) rather than none at all.
+#   * dead space    - a ceiling on how much of the body may be one flat colour, so the Intel
+#                     stripe cannot quietly come back. Only the routes where the number means
+#                     something carry a bound: with no game data yet, a hosted V1 page honestly
+#                     has an empty body, and bounding that would fail for being truthful. The
+#                     rest are measured and reported, so the next person choosing a bound has
+#                     numbers rather than an impression.
 $V2AcceptanceWidths = @(
     [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080 },
     [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 }
@@ -1148,42 +1150,45 @@ $LegacyPageBounds = {
 
 $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
-        expected = @("v2-shell-navigation-rail", "v2-map-plan"); edge = 0.30; band = 0.70 },
+        expected = @("v2-shell-navigation-rail", "v2-map-plan") },
     [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.55 },
+        expected = @("v2-shell-navigation-rail") },
+    # The two bounded ones. Both were measured on this branch at under 2% of the body, against
+    # roughly a quarter of it before the context column learned to collapse.
     [pscustomobject]@{ key = "intel"; address = "#/intel"; heading = "Intel"
         expected = @("v2-shell-navigation-rail", "v2-intel-results")
-        forbidden = @("v2-intel-context"); edge = 0.10; band = 0.60 },
+        forbidden = @("v2-intel-context"); edge = 0.12 },
     [pscustomobject]@{ key = "intel-ammo"; address = "#/intel/ammo"; heading = "Ammo"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload") },
     [pscustomobject]@{ key = "intel-keys"; address = "#/intel/keys"; heading = "Keys"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Reload") },
     [pscustomobject]@{ key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Look up value"); edge = 0.40 },
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Look up value") },
     # A real tarkov.dev item id (Graphics card). With no data synced yet this is the honest
-    # "nothing known about this item" state, which is exactly what a first run shows.
+    # "nothing known about this item" state, which is exactly what a first run shows — and the
+    # state in which the context column used to draw itself empty anyway.
     [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/57347ca924597744596b4e71"; heading = "Item"
-        expected = @("v2-shell-navigation-rail"); edge = 0.40 },
+        expected = @("v2-shell-navigation-rail"); forbidden = @("v2-intel-context"); edge = 0.12 },
     [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.60 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan"; address = "#/plan"; heading = "Plan"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.70 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan-hideout"; address = "#/plan/hideout"; heading = "Hideout"
-        expected = @("v2-shell-navigation-rail", "v2-hideout-status"); edge = 0.50 },
+        expected = @("v2-shell-navigation-rail", "v2-hideout-status") },
     [pscustomobject]@{ key = "plan-loadout"; address = "#/plan/loadout"; heading = "Loadout"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Empty the kit"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Empty the kit") },
     [pscustomobject]@{ key = "plan-events"; address = "#/plan/events"; heading = "Events"
-        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Create"); edge = 0.40 },
+        expected = @("v2-shell-navigation-rail"); bounds = (& $LegacyPageBounds "Create") },
     [pscustomobject]@{ key = "team"; address = "#/team"; heading = "Team"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30; band = 0.70 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "team-group"; address = "#/team/group"; heading = "Group"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
-        expected = @("v2-shell-navigation-rail"); edge = 0.30 },
+        expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
-        expected = @("v2-shell-navigation-rail"); edge = 0.20 }
+        expected = @("v2-shell-navigation-rail") }
 )
 
 foreach ($Route in $V2AcceptanceRoutes) {
@@ -1213,9 +1218,9 @@ foreach ($Route in $V2AcceptanceRoutes) {
             interaction = [pscustomobject]@{ steps = @([pscustomobject]$Step) }
             measureDeadSpace = $true
         }
-        # The ultrawide bounds are the ones this package measured at 3840 and are looser than the
-        # 1920 ones by design: a plan that can only be as tall as the window leaves slate beside
-        # it there, which is a deferred layout problem, not a regression to catch tonight.
+        # The ultrawide bound is the 1920 one with headroom: the same page has more window to
+        # fill at 3840 and nothing new to fill it with, which is the deferred layout problem the
+        # PR's route table describes rather than a regression to catch tonight.
         $EdgeBound = [double](Get-InteractionProperty -Object $Route -Name "edge" -Default -1)
         if ($EdgeBound -ge 0) {
             $Shot["maximumEdgeDeadFraction"] = if ($Size.width -ge 3840) { [Math]::Min(1.0, $EdgeBound + 0.15) } else { $EdgeBound }

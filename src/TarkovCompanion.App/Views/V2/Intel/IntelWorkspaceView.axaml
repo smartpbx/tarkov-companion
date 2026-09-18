@@ -398,7 +398,7 @@
          nothing to say, and the fixed 460px column read as a dead stripe down the right of the
          workspace on every landing — a quarter of the window at 1920 wide. -->
     <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
-            IsVisible="{Binding HasIntelSelection}"
+            IsVisible="{Binding ShowsIntelContextPanel}"
             AutomationProperties.AccessibilityView="Control"
             AutomationProperties.LandmarkType="Complementary"
             AutomationProperties.AutomationId="v2-intel-context">

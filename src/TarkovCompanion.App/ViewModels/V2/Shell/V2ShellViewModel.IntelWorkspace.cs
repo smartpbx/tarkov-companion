@@ -135,6 +135,17 @@ public sealed partial class V2ShellViewModel
     public bool IntelHasResult => _intelResult is { Kind: not V2IntelKind.Unknown };
     public bool ShowsIntelDetailStatus => HasIntelSelection && !IntelHasResult;
 
+    /// <summary>
+    /// Whether the context column has anything to put in it: a resolved item, or one on its way.
+    /// </summary>
+    /// <remarks>
+    /// V2 rough package 30 (acceptance sweep): every card in that column is bound to a resolved
+    /// item, so before one arrives the column is 460px of nothing down the right of the window.
+    /// Selection alone is not enough — a deep link to an item this install's catalog has never
+    /// heard of stays selected and unresolved, and that is the state the sweep photographed.
+    /// </remarks>
+    public bool ShowsIntelContextPanel => IntelHasResult || (HasIntelSelection && IntelIsLoading);
+
     public string IntelName => _intelResult is { Kind: not V2IntelKind.Unknown } result ? result.Name : string.Empty;
 
     public string IntelSubtitle => _intelResult is { Kind: not V2IntelKind.Unknown } result
@@ -324,6 +335,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelResults), nameof(HasIntelResults), nameof(HasIntelSearchResults), nameof(ShowsIntelSuggestionList),
             nameof(ShowsIntelNoKindMatch), nameof(IntelResultCountLabel), nameof(IntelSearchStatus), nameof(HasIntelSearchStatus),
             nameof(HasIntelSelection), nameof(ShowsIntelNoSelection), nameof(IntelHasResult), nameof(ShowsIntelDetailStatus),
+            nameof(ShowsIntelContextPanel),
             nameof(IntelName), nameof(IntelSubtitle), nameof(IntelItemDescription), nameof(HasIntelItemDescription),
             nameof(IntelSlotCells), nameof(IntelSlotColumns), nameof(IntelSlotsLabel),
             nameof(IntelKeepCount), nameof(IntelIsNeeded), nameof(IntelVerdictHeadline), nameof(IntelNeedLines),

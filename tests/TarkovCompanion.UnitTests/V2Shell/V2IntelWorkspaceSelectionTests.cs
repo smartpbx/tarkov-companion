@@ -53,6 +53,22 @@ public sealed class V2IntelWorkspaceSelectionTests
 
         Assert.Empty(shell.IntelResults);
         Assert.False(shell.HasIntelSelection);
+        Assert.False(shell.ShowsIntelContextPanel);
+    }
+
+    [Fact]
+    public async Task An_item_this_install_has_never_heard_of_draws_no_context_column()
+    {
+        await using var services = CreateServices();
+        var shell = await StartShellAsync(services);
+
+        // A deep link from another install, or from before a wipe of the local catalog.
+        shell.Router.NavigateToAddress("#/intel/item/000000000000000000000000");
+        await WaitUntilAsync(() => !shell.IntelIsLoading);
+
+        Assert.True(shell.HasIntelSelection);
+        Assert.False(shell.IntelHasResult);
+        Assert.False(shell.ShowsIntelContextPanel);
     }
 
     [Fact]
@@ -70,6 +86,17 @@ public sealed class V2IntelWorkspaceSelectionTests
         await shell.SearchAsync();
 
         Assert.Equal(chosen, shell.IntelItem);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition());
     }
 
     private static async Task<V2ShellViewModel> StartShellAsync(ServiceProvider services)

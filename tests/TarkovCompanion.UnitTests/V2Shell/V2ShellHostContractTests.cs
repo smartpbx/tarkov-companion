@@ -288,7 +288,7 @@ public sealed class V2ShellHostContractTests
             StringComparison.Ordinal);
 
         // The context column only exists once there is something to put in it.
-        Assert.Contains("IsVisible=\"{Binding HasIntelSelection}\"", intel, StringComparison.Ordinal);
+        Assert.Contains("IsVisible=\"{Binding ShowsIntelContextPanel}\"", intel, StringComparison.Ordinal);
 
         // The item footprint and the hideout detail are the size of what they hold.
         Assert.Contains("<Border Classes=\"v2-intel-stage\" HorizontalAlignment=\"Left\"", intel, StringComparison.Ordinal);
