@@ -137,7 +137,8 @@ public sealed class V2IntelWorkspaceSelectionTests
 
         foreach (var route in variant.Addresses)
         {
-            var address = route.Value.Replace("{item}", "57347ca924597744596b4e71", StringComparison.Ordinal);
+            // The sweep addresses the item route with an id nothing can resolve, on purpose.
+            var address = route.Value.Replace("{item}", "000000000000000000000000", StringComparison.Ordinal);
             var entry = System.Text.RegularExpressions.Regex.Match(
                 gallery,
                 $"address = \"#/{System.Text.RegularExpressions.Regex.Escape(address)}\"; heading = \"([^\"]*)\"");

@@ -1193,11 +1193,14 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"
         expected = @("v2-shell-navigation-rail", "v2-flea-search")
         bounds = @([pscustomobject]@{ automationId = "v2-flea-search-go"; insideWindow = $true }) },
-    # A real tarkov.dev item id (Graphics card). With no data synced yet this is the honest
-    # "nothing known about this item" state, which is exactly what a first run shows — and the
-    # state in which the context column used to draw itself empty anyway.
-    [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/57347ca924597744596b4e71"; heading = "Item details"
-        expected = @("v2-shell-navigation-rail"); forbidden = @("v2-intel-context"); edge = 0.12 },
+    # Deliberately an id no catalog has: twenty-four zeros is a well-formed item address and will
+    # never be an item. This route is in the sweep to prove one thing — that an item the local
+    # catalog cannot resolve draws no context column — and a real id photographs that only on a
+    # machine that happens to have no data, which is the sort of accident that made this capture
+    # the last failing one. An id that never resolves photographs the same state everywhere.
+    [pscustomobject]@{ key = "intel-item"; address = "#/intel/item/000000000000000000000000"; heading = "Item details"
+        expected = @("v2-shell-navigation-rail", "v2-shell-intel-heading")
+        forbidden = @("v2-intel-context"); edge = 0.12 },
     [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "plan"; address = "#/plan"; heading = "Plan"
