@@ -93,8 +93,8 @@ Require-Text $Workflow 'Installed package metadata does not match the expected G
 
 # One version, decided once by scripts/build-version.sh and read everywhere else.
 #
-# The workflow used to spell "1.0." in front of the run number in seven places, so the number
-# never moved and an installed V2 build called itself 1.0.x. The checks below keep a version
+# The workflow used to spell "1.0" nine times, six of them in front of the run number, so the
+# number never moved and an installed V2 build called itself 1.0.x. The checks below keep a version
 # from being typed into the workflow again, and keep each identity assertion comparing against
 # the decided version. The last one matters most: the launch probe skips its version check when
 # it is handed an empty string, so a misspelt variable would pass by comparing nothing.

@@ -9,8 +9,8 @@ public sealed class AppBuildIdentityTests
     /// The running build's version starts with whatever PRODUCT_VERSION says, and with nothing else.
     /// </summary>
     /// <remarks>
-    /// The point of the test is the file, not the number. "1.0." was typed in front of the run
-    /// number in eight places and never moved, so an installed V2 build called itself 1.0.1121.
+    /// The point of the test is the file, not the number. "1.0" was typed out twelve times across
+    /// the workflow and the packaging script and never moved, so an installed V2 build called itself 1.0.1121.
     /// This build was compiled with no version passed in, so what it reports came from
     /// Directory.Build.props reading that one file. If the two ever disagree, a second copy of
     /// the number has appeared somewhere.

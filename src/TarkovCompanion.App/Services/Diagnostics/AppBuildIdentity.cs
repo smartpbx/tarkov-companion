@@ -11,7 +11,7 @@ namespace TarkovCompanion.App.Services.Diagnostics;
 /// the <c>PRODUCT_VERSION</c> file: the first part is the product generation (2 is the V2
 /// workspace), the last is the CI run that built it, and a build nobody stamped says
 /// <c>-dev</c>. An installed V2 build spent a week introducing itself as 1.0.1121 because that
-/// first part was typed out in eight places and never once revisited.
+/// first part was typed out twelve times across two build scripts and never once revisited.
 ///
 /// The self-test reports this, and Windows verification compares it with the version the
 /// package, the feed and the installer were given, so the four cannot disagree unnoticed.

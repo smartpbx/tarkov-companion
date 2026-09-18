@@ -203,7 +203,7 @@ leaves the stale one standing.
 
 ## Health
 
-    GET /health   ->   {"status":"ok","protocol":1,"version":"1.0.548", ...}
+    GET /health   ->   {"status":"ok","protocol":1,"version":"2.0.1140", ...}
 
 No key required. `protocol` is the number described above; `version` and `commit` say which
 build is answering. The current response also includes start time and aggregate room/member

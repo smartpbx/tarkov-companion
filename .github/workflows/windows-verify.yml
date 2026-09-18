@@ -60,9 +60,9 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
       # The version of this build, decided once by scripts/build-version.sh and read by every
-      # step below from TARKOV_BUILD_VERSION. "1.0." used to be typed out in front of the run
-      # number in seven places in this file, so it never moved and V2 shipped calling itself
-      # 1.0.x. No step spells a version any more, and the static check refuses one that does.
+      # step below from TARKOV_BUILD_VERSION. "1.0" used to be typed out nine times in
+      # this file, six in front of the run number and three in the zip's name, so it never
+      # moved and V2 shipped calling itself 1.0.x. No step spells a version any more, and the static check refuses one that does.
       - name: Decide the build version
         shell: bash
         run: |

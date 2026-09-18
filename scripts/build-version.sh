@@ -10,9 +10,9 @@ set -euo pipefail
 # (2 is the V2 workspace) and a minor nothing has earned yet. The last part is the CI run that
 # built it, which is the only part that has ever named a particular build.
 #
-# This exists because the "1.0." in front of the run number was typed out in seven places in
-# one workflow and an eighth in the packaging script, so it never moved, and an installed V2
-# build introduced itself as 1.0.1121. Everything that needs the version now reads it from
+# This exists because "1.0" was typed out twelve times, nine in the Windows workflow and three
+# in the packaging script, so it never moved, and an installed V2 build introduced itself as
+# 1.0.1121. Everything that needs the version now reads it from
 # here: the workflow, the package and its zip name, the relay's identity, the installer and
 # its feed, and the verification that checks they all agree. Directory.Build.props reads the
 # same file, so a local build that nobody stamped says 2.0.0-dev rather than the SDK's 1.0.0.
