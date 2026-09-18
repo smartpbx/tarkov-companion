@@ -11,6 +11,7 @@ using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
@@ -464,6 +465,26 @@ internal static class Program
                     Pump(40);
                 }
 
+                Pump(20);
+            }
+
+            // [V2 rough package 41] Setup's self-test, run before the frame. --selftest-demo
+            // substitutes fixtures at the readings seam so all three verdicts are on screen;
+            // --selftest-live runs the composed readings, which on a machine with no game
+            // installed is what "could not be tested" actually looks like.
+            if (shell?.SetupWorkspace is { } setupWorkspace &&
+                (args.Contains("--selftest-demo") || args.Contains("--selftest-live")))
+            {
+                setupWorkspace.Select(V2SetupSection.Diagnostics);
+                if (args.Contains("--selftest-demo"))
+                {
+                    setupWorkspace.AttachSelfTest(new SetupSelfTestViewModel(
+                        () => new SelfTestDemoReadings(),
+                        new SelfTestJournal()));
+                }
+
+                Pump(2);
+                DrainUntilComplete(setupWorkspace.SelfTest!.RunAsync());
                 Pump(20);
             }
 

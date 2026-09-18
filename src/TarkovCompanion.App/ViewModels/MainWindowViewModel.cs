@@ -6,6 +6,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Shell;
@@ -1797,6 +1798,7 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _scanProvider = "Unavailable";
     private ApplicationRuntimeSnapshot? _snapshot;
     private string _diagnosticsStatus = "Nothing copied yet.";
+    private readonly SelfTestJournal? _selfTest;
 
     /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
     public string DiagnosticsStatus
@@ -1838,10 +1840,20 @@ public sealed class SettingsPageViewModel : PageViewModel
 
         try
         {
+            var summary = _selfTest?.Last;
             var report = SupportBundle.Describe(
                 snapshot,
                 snapshot.RecentScreenshotNames,
-                CrashLog.FilePath);
+                CrashLog.FilePath,
+                summary?.ToSupportFacts(CultureInfo.CurrentCulture));
+            // The clipboard stays on this machine, so it also carries the self-test's own
+            // words — the folders, endpoints and reasons that are most of the answer, and the
+            // part SupportBundle may not send anywhere.
+            if (summary is not null)
+            {
+                report = report + Environment.NewLine + summary.ToText(CultureInfo.CurrentCulture);
+            }
+
             await toClipboard(report).ConfigureAwait(true);
             DiagnosticsStatus = string.Create(
                 CultureInfo.CurrentCulture,
@@ -1880,7 +1892,10 @@ public sealed class SettingsPageViewModel : PageViewModel
         // Optional so a composition without stored settings still builds a Settings page,
         // which is what the tests that construct this by hand rely on.
         IEftPathOverrideStore? gameFolders = null,
-        RaidObservationService? observation = null)
+        RaidObservationService? observation = null,
+        // V2 rough package 41 (#292, #281): the last self-test, so a problem report carries
+        // which capability failed rather than only the state it failed in.
+        SelfTestJournal? selfTest = null)
         : base("Settings & diagnostics", "Runtime configuration and a manual data refresh", "Not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
@@ -1892,6 +1907,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         _updates = updates;
         _gameFolders = gameFolders;
         _observation = observation;
+        _selfTest = selfTest;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
         ReportProblemCommand = new AsyncDelegateCommand(ReportProblemAsync);
@@ -2095,7 +2111,11 @@ public sealed class SettingsPageViewModel : PageViewModel
         DiagnosticsStatus = "Sending…";
         try
         {
-            var report = SupportBundle.Describe(snapshot, snapshot.RecentScreenshotNames, CrashLog.FilePath);
+            var report = SupportBundle.Describe(
+                snapshot,
+                snapshot.RecentScreenshotNames,
+                CrashLog.FilePath,
+                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture));
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -2637,7 +2657,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         MapViewModel map,
         QuestsPageViewModel quests,
         TimeProvider timeProvider,
-        ILogger<MainWindowViewModel> logger)
+        ILogger<MainWindowViewModel> logger,
+        // V2 rough package 41 (#292, #281): optional so every hand-built test graph still builds.
+        SelfTestJournal? selfTest = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2670,7 +2692,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             recycleBin,
             updates,
             gameFolders,
-            observation)
+            observation,
+            selfTest)
         {
             // The quest exchange and the TarkovTracker import are rendered on Settings now,
             // bound through this, so they stop costing 180 px above the quest board.

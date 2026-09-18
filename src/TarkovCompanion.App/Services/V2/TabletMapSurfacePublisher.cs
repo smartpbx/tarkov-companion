@@ -92,6 +92,18 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         }
     }
 
+    /// <summary>
+    /// When this desktop last put a scene on the relay, and which scene it was.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 41] Read by Setup's self-test, which has to answer "is the desktop
+    /// publishing anything" without publishing to find out. Null until the first publish, which
+    /// is itself the answer when a tablet is paired and its map is empty.
+    /// </remarks>
+    public DateTimeOffset? LastPublishedUtc { get; private set; }
+
+    public TabletMapSurface? LastSurface { get; private set; }
+
     /// <summary>Publishes now, regardless of the rebuild throttle. The test seam, and the first publish.</summary>
     public async Task PublishNowAsync(CancellationToken cancellationToken = default)
     {
@@ -133,6 +145,12 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 artwork?.Bytes,
                 cancellationToken).ConfigureAwait(false);
             _publishedContent = content;
+            // Package 41's self-test asks when this desktop last put a scene on the relay, and
+            // which one, so these follow the publish that actually happened. A tick that
+            // deduplicated above published nothing, and leaving them where they were is the
+            // honest answer to that question.
+            LastPublishedUtc = _clock.GetUtcNow();
+            LastSurface = surface;
         }
         finally
         {

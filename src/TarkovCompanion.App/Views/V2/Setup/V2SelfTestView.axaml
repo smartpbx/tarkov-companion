@@ -1,0 +1,147 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SelfTestView"
+             x:DataType="vm:SetupSelfTestViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <UserControl.Styles>
+    <!-- One row per capability. The verdict is a word in its own colour, never a bare tick:
+         a tick is exactly what this panel exists to replace. -->
+    <Style Selector="Border.v2-selftest-row">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,10" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict">
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="Padding" Value="10,2" />
+      <Setter Property="MinWidth" Value="132" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- The strip above the detail: the same verdicts, small enough that all seven fit. -->
+    <Style Selector="Border.v2-selftest-chip">
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="Padding" Value="12,4" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.pass">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.pass TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.fail">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.fail TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.unknown">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-selftest-verdict.unknown TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- The provenance under each fact. Quieter than the fact, and always present. -->
+    <Style Selector="TextBlock.v2-selftest-source">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.v2-selftest-fact">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.v2-selftest-ask">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="12,8" />
+    </Style>
+  </UserControl.Styles>
+  <StackPanel Classes="v2-stack" Spacing="10">
+    <WrapPanel Classes="v2-toolbar">
+      <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-selftest-run"
+              IsEnabled="{Binding !IsRunning}"
+              Content="{Binding RunLabel}"
+              Command="{Binding RunCommand}" />
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-selftest-stop"
+              IsVisible="{Binding IsRunning}" Content="{Binding StopLabel}" Command="{Binding StopCommand}" />
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-selftest-copy"
+              IsEnabled="{Binding CanCopy}" Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
+    </WrapPanel>
+    <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding Status}"
+               AutomationProperties.AutomationId="v2-selftest-status"
+               AutomationProperties.LiveSetting="Polite" />
+    <TextBlock Classes="v2-label" IsVisible="{Binding CopyStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+               Text="{Binding CopyStatus}" />
+    <Border Classes="v2-selftest-ask" IsVisible="{Binding AsksForScreenshot}">
+      <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding ScreenshotPrompt}"
+                 AutomationProperties.AutomationId="v2-selftest-screenshot-prompt" />
+    </Border>
+    <ItemsControl ItemsSource="{Binding Strip}" AutomationProperties.AutomationId="v2-selftest-strip">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="6" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SelfTestRowViewModel">
+          <Border Classes="v2-selftest-verdict v2-selftest-chip"
+                  Classes.pass="{Binding IsPass}" Classes.fail="{Binding IsFail}"
+                  Classes.unknown="{Binding IsUnknown}">
+            <StackPanel Spacing="0">
+              <TextBlock Text="{Binding Title}" />
+              <TextBlock Classes="v2-selftest-source" HorizontalAlignment="Center" Text="{Binding Status}" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <ItemsControl ItemsSource="{Binding Rows}" AutomationProperties.AutomationId="v2-selftest-rows">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SelfTestRowViewModel">
+          <Border Classes="v2-selftest-row" AutomationProperties.AutomationId="{Binding AutomationId}">
+            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto">
+              <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+              <Border Grid.Row="0" Grid.Column="1" Grid.RowSpan="2" Classes="v2-selftest-verdict"
+                      Classes.pass="{Binding IsPass}" Classes.fail="{Binding IsFail}"
+                      Classes.unknown="{Binding IsUnknown}">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{Binding Status}" />
+                  <TextBlock Classes="v2-selftest-source" HorizontalAlignment="Center" Text="{Binding Took}" />
+                </StackPanel>
+              </Border>
+              <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-selftest-fact" Margin="0,2,12,0"
+                         Text="{Binding Headline}" />
+              <ItemsControl Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0"
+                            ItemsSource="{Binding Facts}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SelfTestFactViewModel">
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="v2-selftest-fact" Text="{Binding Text}" />
+                      <TextBlock Classes="v2-selftest-source" Text="{Binding Source}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

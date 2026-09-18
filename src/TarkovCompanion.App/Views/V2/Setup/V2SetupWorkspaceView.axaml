@@ -282,8 +282,16 @@
       <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" />
     </Border>
 
+    <!-- V2 rough package 41 (#292, #281): the self-test comes first in Diagnostics, because
+         "is it working" is the question this section is opened to answer. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDiagnosticsSelected}">
       <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasSelfTest}" Text="{Binding SelfTestHeading}"
+                   AutomationProperties.HeadingLevel="2" />
+        <TextBlock Classes="v2-body" IsVisible="{Binding HasSelfTest}" TextWrapping="Wrap" Text="{Binding SelfTestIntro}" />
+        <Panel IsVisible="{Binding HasSelfTest}">
+          <setup:V2SelfTestView DataContext="{Binding SelfTest}" />
+        </Panel>
         <StackPanel Classes="v2-field">
           <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
           <TextBlock Classes="v2-body" Text="{Binding Settings.CompanionLogPath}" TextWrapping="Wrap" />
