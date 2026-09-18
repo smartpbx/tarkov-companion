@@ -12,6 +12,7 @@ using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
@@ -1252,6 +1253,25 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IReadOnlyList<MapSceneObject> Objects,
         IReadOnlyDictionary<MapSceneObjectId, MapSceneObjectStyle> Styles);
 
+    /// <summary>
+    /// [V2 rough package 22] Everything the live layers are built from, read off the V1 map view
+    /// model.
+    /// </summary>
+    /// <remarks>
+    /// Passed in rather than read from <see cref="_map"/> inside the builder so the mapping from
+    /// observed evidence to scene objects can be covered directly, without standing up a whole
+    /// map page, a catalog and a runtime store to place one screenshot.
+    /// </remarks>
+    internal sealed record LiveSceneInputs(
+        ScreenshotPosition? Player,
+        IReadOnlyList<ScreenshotPosition> PlayerTrail,
+        IReadOnlyList<GroupMemberView> Squad,
+        Func<string?, bool> IsOnThisMap,
+        Func<string, string> ColorFor,
+        bool ShowsGroupNames,
+        IReadOnlyList<RaidTrail> Visited,
+        bool ShowsVisited);
+
     /// <summary>Colours, chosen here because they are presentation and the scene carries none.</summary>
     private const string PlayerColor = "#FF34D3E8";
     private const string VisitedColor = "#8056B8C6";
@@ -1273,8 +1293,22 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// Headings are turned by the artwork's own rotation for the same reason V1 turns them: the
     /// screenshot records a bearing in the world, and the map is drawn with the world turned.
     /// </remarks>
-    internal LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc)
+    private LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc) => BuildLiveLayers(
+        new(
+            _map.PlayerPosition,
+            _map.PlayerTrailPositions,
+            _map.GroupMembers,
+            _map.IsOnOpenMap,
+            _map.GroupColorFor,
+            _map.ShowsGroupNames,
+            _map.VisitedRaids,
+            _map.ShowsVisited),
+        model,
+        nowUtc);
+
+    internal static LiveSceneLayers BuildLiveLayers(LiveSceneInputs inputs, MapRenderModel model, DateTimeOffset nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(inputs);
         ArgumentNullException.ThrowIfNull(model);
         var layers = new List<MapSceneLayer>(3);
         var objects = new List<MapSceneObject>();
@@ -1283,7 +1317,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         // --- you ------------------------------------------------------------------------
         var playerObjects = new List<MapSceneObject>(2);
-        if (_map.PlayerPosition is { } position && TryPlan(model, position.Position, out var here))
+        if (inputs.Player is { } position && TryPlan(model, position.Position, out var here))
         {
             var heading = Bearing(position.HeadingDegrees, artworkRotation);
             var stale = nowUtc - position.Timestamp.ToUniversalTime() > PositionFreshFor;
@@ -1303,7 +1337,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             styles[new(PlayerObjectId)] = new(PlayerColor, Opacity: stale ? 0.65 : 1);
         }
 
-        var trail = PlanPoints(model, _map.PlayerTrailPositions.Select(step => step.Position));
+        var trail = PlanPoints(model, inputs.PlayerTrail.Select(step => step.Position));
         if (trail.Count > 1)
         {
             playerObjects.Add(new(
@@ -1327,14 +1361,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         // --- squad ----------------------------------------------------------------------
         var squadObjects = new List<MapSceneObject>();
-        foreach (var member in _map.GroupMembers)
+        foreach (var member in inputs.Squad)
         {
-            if (!_map.IsOnOpenMap(member.MapId))
+            if (!inputs.IsOnThisMap(member.MapId))
             {
                 continue;
             }
 
-            var color = _map.GroupColorFor(member.Name);
+            var color = inputs.ColorFor(member.Name);
             if (member.Position is { } memberPosition && TryPlan(model, memberPosition, out var at))
             {
                 var id = new MapSceneObjectId($"squad:{member.Name}");
@@ -1357,7 +1391,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // V1's "Names": the squadmate's name written beside their marker. Here that is a
                 // label object, so it goes through the same place-name text the plan already
                 // draws rather than growing a second way to write on the map.
-                if (_map.ShowsGroupNames)
+                if (inputs.ShowsGroupNames)
                 {
                     var nameId = new MapSceneObjectId($"squad-name:{member.Name}");
                     squadObjects.Add(new(
@@ -1406,7 +1440,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // things they opened the map to read. MapViewModel loads it on demand, so when the
         // toggle is off there is nothing here to draw anyway.
         var visitedObjects = new List<MapSceneObject>();
-        var visited = _map.VisitedRaids;
+        var visited = inputs.Visited;
         for (var index = 0; index < visited.Count; index++)
         {
             var points = PlanPoints(model, visited[index].Positions.Select(step => step.Position));
@@ -1437,7 +1471,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         if (visitedObjects.Count > 0)
         {
-            layers.Add(new(VisitedLayerId, "Visited", 20, _map.ShowsVisited));
+            layers.Add(new(VisitedLayerId, "Visited", 20, inputs.ShowsVisited));
             objects.AddRange(visitedObjects);
         }
 

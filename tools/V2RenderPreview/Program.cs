@@ -223,6 +223,23 @@ internal static class Program
                 }
             }
 
+            // [V2 rough package 22] A render-only raid: a player position with a heading, the
+            // trail behind it, and a squad standing around. Everything downstream of it is the
+            // real path — the runtime store, MainWindowViewModel.Apply, MapViewModel.ShowPlayer,
+            // the cockpit's scene build — so a render proves the wiring, not a fixture.
+            if (shell is not null && args.Contains("--raid-demo"))
+            {
+                var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                var demo = RaidDemo(viewModel.Map.RenderModel);
+                for (var i = 0; i < 8; i++)
+                {
+                    store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
+                    Pump(2);
+                }
+
+                Pump(20);
+            }
+
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
             // workspaces can be seen populated. Both go through the real services (the loot
             // planner, the snapshot store), so nothing here invents presentation state.
@@ -298,6 +315,105 @@ internal static class Program
         }
 
         Console.WriteLine($"Seeded {picked.Length} active quest(s) of {board.Tasks.Count}.");
+    }
+
+    /// <summary>
+    /// [V2 rough package 22] A raid in progress on the shown map: where the player is, which way
+    /// they are facing, where they have walked, and two squadmates with their own paths.
+    /// </summary>
+    /// <remarks>
+    /// The positions are world positions found by probing the map's own transform, the same way
+    /// <see cref="TeamDemoGroup"/> does, so they land on the plan rather than off its edge on
+    /// whichever map is being rendered.
+    /// </remarks>
+    private static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
+        TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var mapId = model?.Location.Id ?? "customs";
+        var candidates = new List<(double X, double Z, double PlanX, double PlanY)>();
+        if (model is not null)
+        {
+            for (var x = -1200.0; x <= 1200; x += 10)
+            {
+                for (var z = -1200.0; z <= 1200; z += 10)
+                {
+                    if (model.TryMapPosition(new(x, 0, z), out var point) && point.X is > 4 and < 96 && point.Y is > 4 and < 96)
+                    {
+                        candidates.Add((x, z, point.X, point.Y));
+                    }
+                }
+            }
+        }
+
+        TarkovCompanion.Core.Domain.Maps.WorldPosition At(double planX, double planY)
+        {
+            if (candidates.Count == 0)
+            {
+                return new(0, 0, 0);
+            }
+
+            var best = candidates.MinBy(item => Math.Pow(item.PlanX - planX, 2) + Math.Pow(item.PlanY - planY, 2));
+            return new(best.X, 0, best.Z);
+        }
+
+        TarkovCompanion.Core.Domain.Maps.ScreenshotPosition Step(double planX, double planY, double heading, int secondsAgo) =>
+            new(now.AddSeconds(-secondsAgo), At(planX, planY), default, heading, null, null, $"demo-{secondsAgo}.png");
+
+        // A walk across the middle of the plan, oldest first, ending where the player is now.
+        var trail = new[]
+        {
+            Step(24, 68, 40, 330),
+            Step(31, 62, 44, 280),
+            Step(38, 58, 52, 230),
+            Step(45, 55, 61, 180),
+            Step(51, 49, 70, 130),
+            Step(57, 45, 66, 80),
+            Step(62, 40, 58, 30),
+        };
+        var raid = new TarkovCompanion.Core.Domain.Raids.RaidSnapshot(
+            Guid.NewGuid(),
+            TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid,
+            mapId,
+            now.AddMinutes(-14),
+            now,
+            new(0.9),
+            trail[^1],
+            [],
+            false)
+        {
+            Side = "PMC",
+            PositionTrail = trail,
+        };
+
+        TarkovCompanion.Application.Services.Group.GroupMemberView Mate(string name, double planX, double planY, double heading, int secondsAgo) =>
+            new(
+                name,
+                mapId,
+                TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid,
+                "PMC",
+                At(planX, planY),
+                heading,
+                TimeSpan.FromSeconds(secondsAgo),
+                [],
+                [])
+            {
+                Since = TimeSpan.FromSeconds(secondsAgo),
+                Trail = [Leg(planX - 9, planY + 7, 90), Leg(planX - 5, planY + 4, 45), Leg(planX, planY, secondsAgo)],
+            };
+
+        TarkovCompanion.Application.Services.Group.GroupTrailPointView Leg(double planX, double planY, int secondsAgo)
+        {
+            var at = At(planX, planY);
+            return new(at.X, at.Z, TimeSpan.FromSeconds(secondsAgo));
+        }
+
+        var group = new TarkovCompanion.Application.Services.Group.GroupSnapshot(
+            true,
+            [Mate("Geo", 72, 34, 300, 6), Mate("Riley", 44, 71, 120, 25)],
+            "Sharing as Clay · 2 others here",
+            now);
+        return (raid, group);
     }
 
     private static TarkovCompanion.Application.Services.Group.GroupSnapshot TeamDemoGroup(
