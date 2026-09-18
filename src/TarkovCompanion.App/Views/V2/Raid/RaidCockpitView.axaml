@@ -312,9 +312,13 @@
                   <!-- No AutomationProperties.AutomationId here: this switch shares its view model
                        (and so its AutomationId) with the renderer's own Layers list further down the
                        same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
+                  <!-- V2 rough package 39: the switch says how many things it would show, and
+                       a layer with nothing on it is disabled rather than switching the map to
+                       an empty plan and leaving the player to work out why. -->
                   <ToggleSwitch Classes="v2-layer-switch"
                                 IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                OnContent="{Binding Name}" OffContent="{Binding Name}"
+                                IsEnabled="{Binding !HasNothingToShow}"
+                                OnContent="{Binding Label}" OffContent="{Binding Label}"
                                 AutomationProperties.Name="{Binding ToggleLabel}"
                                 AutomationProperties.HelpText="{Binding StateLabel}"
                                 Command="{Binding ToggleCommand}" />

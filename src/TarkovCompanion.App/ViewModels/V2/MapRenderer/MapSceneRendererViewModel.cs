@@ -1211,7 +1211,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         .Select(mode => new MapSceneRendererModeViewModel(
             mode,
             DescribeMode(mode),
-            mode == MapSceneMode.Flat2D,
+            // [V2 rough package 39] The scene's own mode, now that more than one of them draws.
+            mode == _scene.View.Mode,
             CanRenderMode(mode),
             RendererUnavailableReason(mode),
             () => RequestMode(mode)))
