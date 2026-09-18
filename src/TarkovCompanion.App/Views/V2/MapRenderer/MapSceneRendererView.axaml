@@ -193,22 +193,51 @@
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <!-- A compact selector rather than a row of radio buttons with raw layer ids: only the
-             floor actually visible in the ComboBox needs an id, so the closed control shows the
-             human floor name instead. The label stays for assistive technology only. -->
-        <ComboBox MinWidth="130" ItemsSource="{Binding Floors}" IsVisible="{Binding HasFloorFilters}"
-                  SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
-                  SelectionChanged="FloorSelectionChanged"
-                  ToolTip.Tip="{Binding FloorLabel}"
-                  AutomationProperties.AutomationId="v2-map-floor-picker"
-                  AutomationProperties.Name="{Binding FloorLabel}">
-          <ComboBox.ItemTemplate>
-            <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
-              <TextBlock Text="{Binding Name}" />
-            </DataTemplate>
-          </ComboBox.ItemTemplate>
-        </ComboBox>
+        <!-- V2 rough package 39: a floor ladder, not a drop-down. A building is read top floor
+             first, and on Interchange or Labs the floor you want is one press away rather than
+             behind an opened list. The up/down pair steps the ladder without aiming at a name. -->
+        <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFloorFilters}"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.Name="{Binding FloorLabel}">
+          <ItemsControl ItemsSource="{Binding Floors}"
+                        AutomationProperties.AutomationId="v2-map-floor-picker"
+                        AutomationProperties.Name="{Binding FloorLabel}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="0" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
+                <ToggleButton Classes="v2-segment" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Name}"
+                              Content="{Binding Name}" Command="{Binding SelectCommand}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorUpCommand}"
+                  IsEnabled="{Binding CanGoUpAFloor}"
+                  AutomationProperties.AutomationId="v2-map-floor-up"
+                  AutomationProperties.Name="{Binding FloorUpLabel}" ToolTip.Tip="{Binding FloorUpLabel}">
+            <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
+          </Button>
+          <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorDownCommand}"
+                  IsEnabled="{Binding CanGoDownAFloor}"
+                  AutomationProperties.AutomationId="v2-map-floor-down"
+                  AutomationProperties.Name="{Binding FloorDownLabel}" ToolTip.Tip="{Binding FloorDownLabel}">
+            <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
+          </Button>
+        </StackPanel>
         </WrapPanel>
+        <!-- Which floor of how many, and what the stack did, on their own line: a five-floor
+             ladder already fills the pill's width and these were being clipped beside it. -->
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorFilters}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-map-floor-position"
+                   Text="{Binding FloorPositionLabel}" />
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-map-stack-status"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.Name="{Binding StackStatus}"
+                   Text="{Binding StackStatus}" />
         <TextBlock Classes="v2-body" IsVisible="{Binding ShowsModeFallback}"
                    AutomationProperties.AutomationId="v2-map-mode-fallback"
                    AutomationProperties.AccessibilityView="Control"
@@ -303,9 +332,51 @@
             <Border Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
                     Width="{Binding MapWidth}" Height="{Binding MapHeight}"
                     Background="{DynamicResource V2.Brush.SurfaceRaised}"
-                    BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1">
-              <Image Source="{Binding BackgroundImage}" IsVisible="{Binding HasBackgroundImage}" Stretch="Fill" />
+                    BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1"
+                    IsVisible="{Binding !HasFloorStack}">
+              <Image Source="{Binding BackgroundImage}" IsVisible="{Binding ShowsFlatBackground}" Stretch="Fill" />
             </Border>
+
+            <!-- V2 rough package 39: the floors drawn one above another. Every plate is the same
+                 rectangle as the flat plan above — MapLeft/MapTop/MapWidth/MapHeight — and only
+                 the vertical offset differs, which is zero on the floor being read. That is what
+                 keeps #413's contract: the rectangle the artwork draws into is the rectangle the
+                 markers project into, on every floor. Nothing is sheared or scaled. -->
+            <ItemsControl ItemsSource="{Binding FloorLayers}" IsVisible="{Binding HasFloorStack}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
+                          AutomationProperties.AccessibilityView="Control"
+                          AutomationProperties.Name="Floor stack">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererFloorLayerViewModel">
+                  <!-- Positioned by a transform, not Canvas.Left: the generated ContentPresenter
+                       stays at the Canvas origin, which is why every other layer here does the
+                       same. The name sits outside the plate's own opacity, so a quieted floor is
+                       still one you can read the name of — which is how a section drawing of a
+                       building works. -->
+                  <Panel Width="{Binding Width}" Height="{Binding Height}"
+                         AutomationProperties.AutomationId="{Binding AutomationId}"
+                         AutomationProperties.Name="{Binding Name}"
+                         ToolTip.Tip="{Binding Name}">
+                    <Panel.RenderTransform>
+                      <TranslateTransform X="{Binding TranslateX}" Y="{Binding TranslateY}" />
+                    </Panel.RenderTransform>
+                    <Border Opacity="{Binding Opacity}"
+                            Background="{DynamicResource V2.Brush.SurfaceRaised}"
+                            BorderBrush="{DynamicResource V2.Brush.Action}"
+                            BorderThickness="{Binding BorderThickness}">
+                      <Image Source="{Binding Image}" Stretch="Fill" />
+                    </Border>
+                    <!-- On the right: the floating presentation pill owns the plan's top-left
+                         corner, and a plate labelled underneath it is a plate with no label. -->
+                    <Border Classes="v2-map-chip" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="6" IsHitTestVisible="False" Opacity="{Binding NameOpacity}">
+                      <TextBlock Classes="v2-label" Text="{Binding Name}" TextWrapping="NoWrap" />
+                    </Border>
+                  </Panel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
 
             <map:MapSceneGeometryLayer Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                                        IsHitTestVisible="False" Objects="{Binding GeometryObjects}"
@@ -739,13 +810,18 @@
               <ItemsControl ItemsSource="{Binding Layers}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:MapSceneRendererLayerViewModel">
+                    <!-- V2 rough package 39: the switch carries the count, and an empty layer that
+                         is off cannot be switched on to an empty map. One that is on can always
+                         be switched off (CanToggle), or the control is stuck and UI Automation's
+                         Toggle throws on it. -->
                     <ToggleButton Classes="v2-map-choice" HorizontalAlignment="Stretch"
                                   HorizontalContentAlignment="Left"
                                   IsChecked="{Binding IsVisible, Mode=OneWay}"
+                                  IsEnabled="{Binding CanToggle}"
                                   AutomationProperties.AutomationId="{Binding AutomationId}"
                                   AutomationProperties.Name="{Binding ToggleLabel}"
                                   AutomationProperties.HelpText="{Binding StateLabel}"
-                                  Content="{Binding Name}" Command="{Binding ToggleCommand}" />
+                                  Content="{Binding Label}" Command="{Binding ToggleCommand}" />
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

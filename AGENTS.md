@@ -120,6 +120,7 @@ project lives only in somebody's head or only in an issue.
 | What is left to do? | GitHub issues, then `docs/BACKLOG.md` for what has no issue |
 | How do I work on it? | `CONTRIBUTING.md` — branches, worktrees, the verification gate |
 | How do I run the tests? | `docs/TESTING.md`, and never on the workstation |
+| How fast is it over a raid, and what is guarded? | `docs/PERFORMANCE.md` |
 
 Then by subject, when the task touches one:
 

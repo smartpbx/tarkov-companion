@@ -275,27 +275,50 @@ ranking score below the ambiguity threshold; its raw distance is labeled as not 
 `GridPixelReconstructionBuilder` (Infrastructure/Recognition/Grid) is the V2 counterpart that
 turns a captured frame into a `GridReconstructionRequest` for `InventoryGridReconstructor`, run
 from `CaptureRecognitionPipeline.AnalyzeAsync` while pixels are still available and carried
-pixel-free on `CaptureAnalysis.Grid` from there on. It reuses `ContainerGridDetector` and
-`ContainerGridSegmenter` unchanged for lattice and occupancy - both already measure pitch and
-phase from the frame itself - then merges adjacent occupied cells into rectangular multi-cell
-footprints (a component only trusted as one item when it exactly fills its own bounding box) and
-matches each footprint's crop against the local icon evidence cache (#355) via
-`IconCandidateSeparator`, filtered first by the footprint's own measured width/height. A stack
-badge is read through the shared OCR API for quantity only; item name text is never read for
-identity. On an ultrawide frame where a whole-frame line-coverage pass fails, it retries once
-inside a centered ~16:9 crop, since a game panel does not always stretch to fill the frame.
+pixel-free on `CaptureAnalysis.Grid` from there on. A stack badge is read through the shared OCR
+API for quantity only; item name text is never read for identity.
 
-The icon evidence cache starts empty: nothing in this repository fetches or populates it yet, so
-until something does, every occupied cell reports `ItemUnresolved` regardless of how well its
-geometry was measured (the domain's own contract only attaches footprint width/height to a
-resolved-or-candidate item; see `InventoryGridReconstructor.MarkEvidenceUncertainty`). Wired into
-`LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second, carried-inventory
-panel needs its own region split this pass does not attempt) and `StashScanCaptureHandoff` (see
-`docs/STASH_SCAN.md`). A benchmark test
-(`tests/TarkovCompanion.RecognitionTests/Grid/GridRecognitionCorpusBenchmarkTests.cs`) runs this
-pipeline over a local, never-committed screenshot corpus and prints grid/occupancy/candidate/timing
-counts; it turns on real precision/recall and item top-1/top-3 when an optional
-`<screenshot>.expected.json` ground-truth sidecar is present.
+Package 37 measured the whole path, screenshot to decision, and rewrote the three steps the
+numbers showed were broken. How each one works now:
+
+- **The lattice.** `ContainerGridDetector` looks for thin ridges that run unbroken for about a
+  cell, wherever in the frame they are. It used to want contrast across 18% of the whole frame,
+  which a ten-wide stash satisfies and a loot container cannot. A line hidden from top to bottom
+  by wide items is assumed (up to two in a row), runs are scored by pixels of long line so the
+  ribs of a rail do not outvote real rows, and the two axes are held to one pitch because cells
+  are square.
+- **Footprints.** `GridBorderProbe` reads the border drawn between neighbouring cells. No line
+  between two cells means one item; a line means two. Joining every occupied cell that touched
+  another read two bandages side by side as one 2x1 item.
+- **Identity.** The 64-bit difference hash only shortlists (32 nearest of the same shape).
+  `IconPixelDescriptor`, a 16-pixel-a-cell colour picture compared by normalised correlation,
+  decides: at least 0.90 and 0.04 clear of the next item, or the cell is refused with its
+  lookalikes attached. A named item carries that score as its evidence confidence. Rotated items
+  are refused for now. `IconReferenceIndex` keeps the reference list in memory between scans.
+
+`IconEvidenceIndexer` fills the icon evidence cache (#355) from the catalog's grid images after
+each sync, on this machine only, as ADR 0007 allows. Until it has run, every cell is refused.
+
+**Measured, and what the measurement is.** There are still no container or stash screenshots to
+measure against, so `LootScanEndToEndMeasurementTests` composes frames out of json.tarkov.dev's
+own grid images with the truth known by construction (four variants: 1080p, dimmed with noise,
+resampled to 1440p, and 3840x1080) and drives them through a real capture session, the builder,
+the handoff and the decision service. Every figure from it is a ceiling: the art is the very
+bytes the index was built from and nothing is hovered, ticked found-in-raid or half covered.
+It needs the local icon corpus (`TARKOV_ICON_CORPUS`, by default
+`/root/orca/recognition-corpus/icons`: the `*-grid-image.webp` files and an `items.json`) and
+skips without it. On 72 frames and 1,022 items it finds the grid in 69, gets 990 footprints
+right, names 645 items and names none wrongly; before package 37 the same path named none.
+
+Wired into `LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second,
+carried-inventory panel needs its own region split nothing attempts yet) and
+`StashScanCaptureHandoff` (see `docs/STASH_SCAN.md`). `LootScanRecommendationSource` hands each
+named item to the decision engine with the catalog facts the companion holds (trader price,
+24-hour flea average, squares) and leaves absent what it does not hold (the flea fee, the
+player's needs, the raid phase), so today a scan is valued and not yet decided. The older
+benchmark (`GridRecognitionCorpusBenchmarkTests`) still runs the builder over a local,
+never-committed screenshot corpus and scores it against optional
+`<screenshot>.expected.json` sidecars, which is where the first real screenshots should go.
 
 ## Fixtures and evidence
 

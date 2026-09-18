@@ -326,8 +326,24 @@ internal static class StashScanMeasurement
     public static ulong InGameFingerprint(SyntheticStashItem item, SyntheticStashFrameOptions options)
     {
         var image = SyntheticStashPainter.RenderFrame(SyntheticStashLayout.Of(8, new SyntheticStashPlacement(item, 1, 1)), 0, options);
-        return Fingerprint(image, options.PanelX + options.Pitch, options.PanelY + options.Pitch, item.Width * options.Pitch, item.Height * options.Pitch);
+        return TileFingerprint(image, options.PanelX + options.Pitch, options.PanelY + options.Pitch, item, options.Pitch);
     }
+
+    /// <summary>
+    /// One whole tile, from its own left and top border to its closing right and bottom one.
+    /// </summary>
+    /// <remarks>
+    /// Neighbouring cells share their border line, so a tile runs from one border to the next
+    /// inclusive and the game's own reference art is drawn that way: a 1x1 image is 64 pixels for
+    /// a 63-pixel pitch. The recognizer fingerprints that rectangle (the footprint plus its
+    /// closing border), and this fixture states the same geometry for the game rather than
+    /// borrowing it from the recognizer, so a recognizer that drifts from it fails here. It used
+    /// to crop the pitch alone, which is what the reader did before the closing border was
+    /// added; against the border-aware reader no tile then matched its own reference and recall
+    /// fell to 17%.
+    /// </remarks>
+    public static ulong TileFingerprint(CapturedImage image, int x, int y, SyntheticStashItem item, int pitch) =>
+        Fingerprint(image, x, y, (item.Width * pitch) + 1, (item.Height * pitch) + 1);
 
     public static ulong Fingerprint(CapturedImage image, int x, int y, int width, int height)
     {
@@ -362,12 +378,12 @@ internal static class StashScanMeasurement
         foreach (var placement in layout.Placements.Where(placement => placement.Row + placement.Item.Height <= options.VisibleRows))
         {
             tiles++;
-            var hash = Fingerprint(
+            var hash = TileFingerprint(
                 image,
                 options.PanelX + (placement.Column * options.Pitch),
                 options.PanelY + (placement.Row * options.Pitch),
-                placement.Item.Width * options.Pitch,
-                placement.Item.Height * options.Pitch);
+                placement.Item,
+                options.Pitch);
             var ranked = SyntheticStashLayout.Catalog
                 .Where(item => item.Width == placement.Item.Width && item.Height == placement.Item.Height)
                 .Select(item => (item.ItemId, Distance: System.Numerics.BitOperations.PopCount(hash ^ catalogue[item.ItemId])))

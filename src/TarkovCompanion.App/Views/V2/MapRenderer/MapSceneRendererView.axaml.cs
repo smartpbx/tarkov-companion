@@ -315,12 +315,4 @@ public sealed partial class MapSceneRendererView : UserControl
 
         eventArgs.Handled = true;
     }
-
-    private void FloorSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
-    {
-        if (sender is ComboBox { SelectedItem: MapSceneRendererFloorViewModel floor })
-        {
-            floor.SelectCommand.Execute(null);
-        }
-    }
 }
