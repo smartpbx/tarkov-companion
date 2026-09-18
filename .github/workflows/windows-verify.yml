@@ -307,6 +307,19 @@ jobs:
           ( cd dist/velopack && sha256sum -- * > ../VELOPACK-SHA256SUMS.txt )
           cat dist/VELOPACK-SHA256SUMS.txt
 
+      # The rough channel: the folder an operator copies onto the relay so an installed rough
+      # build can update itself (docs/RELEASES.md, "The rough channel"). Staged on every run,
+      # pull requests included, because staging is also the check: it fails the job if the
+      # package the packaging tool wrote is not the package its own feed describes, which is
+      # the comparison every desktop makes before it installs.
+      - name: Stage the rough update channel
+        shell: powershell
+        run: |
+          python scripts/release/rough_channel.py stage `
+            --velopack dist/velopack --output dist/rough-channel
+          if ($LASTEXITCODE -ne 0) { throw "Staging the rough update channel failed." }
+          Get-Content -LiteralPath dist/rough-channel/SHA256SUMS.txt
+
       - name: Build the versioned data and model components
         shell: powershell
         run: |
@@ -591,6 +604,18 @@ jobs:
             dist/TarkovCompanion-v1.0.0-win-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: warn
+
+      # Unsigned, and said to be: this is the installer and feed for the rough test builds, not
+      # a release. Not uploaded for pull requests, so the only builds an operator can publish to
+      # the relay are ones that were merged. A week is enough to cut a rough build from it.
+      - name: Publish the rough update channel
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rough-channel
+          path: dist/rough-channel/*
+          if-no-files-found: error
+          retention-days: 7
 
       # Everything the publish job needs, handed over rather than published from here. This
       # job runs for pull requests, so it must not be the one holding the write token.

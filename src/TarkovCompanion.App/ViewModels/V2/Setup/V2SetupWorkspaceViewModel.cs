@@ -142,8 +142,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string SyncLabel => V2ShellText.Get("V2.Setup.Data.SyncLabel");
     public string OpenTeamLabel => V2ShellText.Get("V2.Setup.TeamDevices.OpenLabel");
     public string CheckUpdateLabel => V2ShellText.Get("V2.Setup.Updates.CheckLabel");
-    public string DownloadUpdateLabel => V2ShellText.Get("V2.Setup.Updates.DownloadLabel");
-    public string RestartUpdateLabel => V2ShellText.Get("V2.Setup.Updates.RestartLabel");
+    public string UpdateNowLabel => V2ShellText.Get("V2.Setup.Updates.UpdateNowLabel");
+    public string GetInstallerLabel => V2ShellText.Get("V2.Setup.Updates.InstallerLabel");
+    public string UpdateChannelLabel => V2ShellText.Get("V2.Setup.Updates.ChannelLabel");
+    public string InstalledBuildLabel => V2ShellText.Get("V2.Setup.Updates.InstalledLabel");
+    public string AvailableBuildLabel => V2ShellText.Get("V2.Setup.Updates.AvailableLabel");
     public string ScreenshotIntro => V2ShellText.Get("V2.Setup.Privacy.ScreenshotIntro");
     public string RetentionLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionLabel");
     public string RetentionValueLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionValueLabel");

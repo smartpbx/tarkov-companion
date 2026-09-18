@@ -18,6 +18,31 @@ public sealed partial class V2SetupWorkspaceView : UserControl
         AttachedToVisualTree += (_, _) => Wire();
     }
 
+    /// <summary>
+    /// Opens the installer's address in the browser, for a build that was run from a folder.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the view model for the same reason as the clipboard: the launcher
+    /// belongs to a window. The browser does the download, so the player sees what they are
+    /// fetching and from where; this application never runs an installer it fetched itself.
+    /// </remarks>
+    private async void OnGetInstaller(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (DataContext is V2SetupWorkspaceViewModel { Settings.InstallerLocation: { } installer }
+            && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+        {
+            try
+            {
+                await launcher.LaunchUriAsync(installer).ConfigureAwait(true);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+            {
+                // The address is on the page as text, so a browser that will not open is not the
+                // end of the road and is not worth a dialog.
+            }
+        }
+    }
+
     private void Wire()
     {
         if (DataContext is V2SetupWorkspaceViewModel { Settings: { } settings })

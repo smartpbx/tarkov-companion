@@ -76,8 +76,11 @@ public static class V2ShellText
         ["V2.Setup.Data.SyncLabel"] = "Sync now",
         ["V2.Setup.TeamDevices.OpenLabel"] = "Open Team",
         ["V2.Setup.Updates.CheckLabel"] = "Check for updates",
-        ["V2.Setup.Updates.DownloadLabel"] = "Download",
-        ["V2.Setup.Updates.RestartLabel"] = "Install and restart",
+        ["V2.Setup.Updates.UpdateNowLabel"] = "Update now",
+        ["V2.Setup.Updates.InstallerLabel"] = "Get the installer",
+        ["V2.Setup.Updates.ChannelLabel"] = "Channel",
+        ["V2.Setup.Updates.InstalledLabel"] = "Installed",
+        ["V2.Setup.Updates.AvailableLabel"] = "Available",
         ["V2.Setup.Privacy.ScreenshotIntro"] = "Deletes the game's own screenshots to the recycle bin. Off until you turn it on.",
         ["V2.Setup.Privacy.RetentionLabel"] = "Keep longer",
         // Package 29 (parity): what V1's Settings page carried that Setup had dropped. The old
