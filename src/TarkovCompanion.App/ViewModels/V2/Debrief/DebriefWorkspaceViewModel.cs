@@ -22,6 +22,13 @@ public sealed record DebriefRaidRowViewModel(
     public bool IsSelected { get; init; }
 }
 
+/// <summary>A raid's trail, handed to the shell to draw on the Raid map (V1's "Watch it").</summary>
+/// <remarks>
+/// Carries the raid's own map because a replay is only positions: V1 drew them on whatever map was
+/// showing, so the shell chooses the map first.
+/// </remarks>
+public sealed record DebriefReplayRequest(string? MapId, string Title, IReadOnlyList<ScreenshotPosition> Positions);
+
 /// <summary>
 /// V2 workspace over the existing raid-history backend: raid list, raid detail (map, duration,
 /// outcome, screenshot count), a correction for a wrong outcome or note, and export. Replaces the
@@ -52,6 +59,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         SaveCorrectionCommand = new AsyncDelegateCommand(SaveCorrectionAsync);
         ExportCsvCommand = new AsyncDelegateCommand(ExportCsvAsync);
         ExportJsonCommand = new AsyncDelegateCommand(ExportJsonAsync);
+        WatchOnMapCommand = new DelegateCommand(WatchOnMap);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -76,6 +84,38 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public string SelectedModeLabel => _selected?.Mode ?? string.Empty;
 
     public string SelectedDurationLabel => Duration(_selected);
+
+    /// <summary>Package 29 (parity): V1's "Ended" column, which the list's Duration column only implied.</summary>
+    public string SelectedEndedLabel => _selected?.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress";
+
+    /// <summary>
+    /// How far the raid went, as V1's History page said it ("at least 1.4 km"); empty until there are
+    /// two screenshots to measure between.
+    /// </summary>
+    /// <remarks>
+    /// A floor, not a measurement: straight lines between screenshots minutes apart. The wording
+    /// says so rather than the page implying the route.
+    /// </remarks>
+    public string SelectedDistanceLabel
+    {
+        get
+        {
+            if (_selectedPositions.Count < 2)
+            {
+                return string.Empty;
+            }
+
+            var metres = HistoryPageViewModel.PathMetres(_selectedPositions);
+            return metres >= 1000
+                ? string.Create(CultureInfo.CurrentCulture, $"At least {metres / 1000:F1} km")
+                : string.Create(CultureInfo.CurrentCulture, $"At least {metres:F0} m");
+        }
+    }
+
+    public bool HasDistance => SelectedDistanceLabel.Length > 0;
+
+    /// <summary>Whether the selected raid has screenshots to watch back — the same test V1 used to show "Watch it".</summary>
+    public bool CanWatch => _selectedPositions.Count > 0;
 
     public string SelectedOutcomeLabel => _selected?.Outcome ?? "Not recorded";
 
@@ -109,6 +149,28 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public ICommand ExportCsvCommand { get; }
 
     public ICommand ExportJsonCommand { get; }
+
+    /// <summary>Draws the selected raid's trail on the Raid map.</summary>
+    public ICommand WatchOnMapCommand { get; }
+
+    /// <summary>Raised when somebody asks to watch the selected raid; the shell owns the map and the router.</summary>
+    public event EventHandler<DebriefReplayRequest>? ReplayRequested;
+
+    private void WatchOnMap()
+    {
+        if (_selected is null || _selectedPositions.Count == 0)
+        {
+            Status = "That raid has no screenshots to watch.";
+            return;
+        }
+
+        ReplayRequested?.Invoke(
+            this,
+            new(_selected.MapId, $"{SelectedMapLabel} · {SelectedStartedLabel}", _selectedPositions));
+    }
+
+    /// <summary>Says why a replay could not be opened, in the same status line every other Debrief failure uses.</summary>
+    public void ReportReplayFailure(string reason) => Status = $"That raid could not be opened on the map: {reason}";
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
@@ -250,6 +312,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SelectedMapLabel));
         OnPropertyChanged(nameof(SelectedModeLabel));
         OnPropertyChanged(nameof(SelectedDurationLabel));
+        OnPropertyChanged(nameof(SelectedEndedLabel));
+        OnPropertyChanged(nameof(SelectedDistanceLabel));
+        OnPropertyChanged(nameof(HasDistance));
+        OnPropertyChanged(nameof(CanWatch));
         OnPropertyChanged(nameof(SelectedOutcomeLabel));
         OnPropertyChanged(nameof(SelectedNotesLabel));
         OnPropertyChanged(nameof(SelectedPathLabel));

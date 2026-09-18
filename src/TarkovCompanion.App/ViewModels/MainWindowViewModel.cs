@@ -1705,6 +1705,25 @@ public sealed class HistoryPageViewModel : PageViewModel
     /// apart say nothing about what happened between them, and pretending otherwise would be
     /// the same mistake the position trail already refuses to make by drawing itself dotted.
     /// </remarks>
+    /// <summary>The floor of how far a raid went: straight lines between consecutive screenshots.</summary>
+    /// <remarks>
+    /// Shared with the V2 Debrief workspace so both pages say the same distance for the same raid.
+    /// </remarks>
+    internal static double PathMetres(IReadOnlyList<ScreenshotPosition> positions)
+    {
+        var metres = 0d;
+        for (var index = 1; index < positions.Count; index++)
+        {
+            var from = positions[index - 1].Position;
+            var to = positions[index].Position;
+            var dx = to.X - from.X;
+            var dz = to.Z - from.Z;
+            metres += Math.Sqrt((dx * dx) + (dz * dz));
+        }
+
+        return metres;
+    }
+
     private static string DescribePath(IReadOnlyList<ScreenshotPosition> positions)
     {
         if (positions.Count == 0)
@@ -1717,15 +1736,7 @@ public sealed class HistoryPageViewModel : PageViewModel
             return "1 screenshot";
         }
 
-        var metres = 0d;
-        for (var index = 1; index < positions.Count; index++)
-        {
-            var from = positions[index - 1].Position;
-            var to = positions[index].Position;
-            var dx = to.X - from.X;
-            var dz = to.Z - from.Z;
-            metres += Math.Sqrt((dx * dx) + (dz * dz));
-        }
+        var metres = PathMetres(positions);
 
         // Branched before the call rather than inside it: a conditional between two
         // interpolations is two strings, and the culture-aware overload wants a handler.

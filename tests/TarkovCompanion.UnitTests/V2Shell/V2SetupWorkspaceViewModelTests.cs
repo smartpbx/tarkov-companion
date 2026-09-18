@@ -24,6 +24,7 @@ public sealed class V2SetupWorkspaceViewModelTests
     [InlineData(V2SetupSection.GameProfile)]
     [InlineData(V2SetupSection.Recognition)]
     [InlineData(V2SetupSection.Data)]
+    [InlineData(V2SetupSection.Progress)]
     [InlineData(V2SetupSection.TeamDevices)]
     [InlineData(V2SetupSection.Privacy)]
     [InlineData(V2SetupSection.Diagnostics)]
@@ -75,5 +76,41 @@ public sealed class V2SetupWorkspaceViewModelTests
         workspace.DecreaseScaleCommand.Execute(null);
         workspace.IncreaseScaleCommand.Execute(null);
         workspace.ResetScaleCommand.Execute(null);
+    }
+
+    [Fact]
+    public void ProgressIsASectionWhereV1KeptTheQuestExchangeAndTarkovTracker()
+    {
+        var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+
+        Assert.Contains(workspace.Sections, section => section.Section == V2SetupSection.Progress);
+        Assert.False(workspace.IsProgressSelected);
+
+        workspace.Select(V2SetupSection.Progress);
+
+        Assert.True(workspace.IsProgressSelected);
+        Assert.False(workspace.IsOverviewSelected);
+    }
+
+    [Fact]
+    public void EverySectionOfV1SettingsHasAHomeInSetup()
+    {
+        var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+
+        // A label that has no text in the table throws when read, so this also catches a control that
+        // was added to the view without its copy.
+        var labels = new[]
+        {
+            workspace.FolderPlaceholder, workspace.ScanHint, workspace.OfflineNote, workspace.RetentionValueLabel,
+            workspace.RecycleNote, workspace.ScaleHint, workspace.ScaleScope, workspace.LogLabel,
+            workspace.ExchangeTitle, workspace.ExchangeNote, workspace.ExchangePathPlaceholder, workspace.ExportLabel,
+            workspace.PreviewImportLabel, workspace.KeepLocalLabel, workspace.UseIncomingLabel, workspace.ApplyImportLabel,
+            workspace.UndoImportLabel, workspace.ImportHistoryTitle, workspace.TrackerTitle, workspace.TrackerNote,
+            workspace.TrackerTokenPlaceholder, workspace.TrackerConnectLabel, workspace.TrackerRefreshLabel,
+            workspace.TrackerDisconnectLabel,
+        };
+
+        Assert.All(labels, label => Assert.False(string.IsNullOrWhiteSpace(label)));
+        Assert.All(labels, label => Assert.True(label.Length <= 120, $"'{label}' is longer than a label may be."));
     }
 }

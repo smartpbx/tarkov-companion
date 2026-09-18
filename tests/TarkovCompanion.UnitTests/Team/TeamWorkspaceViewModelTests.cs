@@ -308,6 +308,72 @@ public sealed class TeamWorkspaceViewModelTests
         viewModel.PairTabletCommand.Execute(null);
     }
 
+    [Fact]
+    public void A_presence_row_says_where_the_member_was_and_what_they_shared()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        var geo = Member("Geo") with
+        {
+            Position = new(312, 0, -104),
+            PositionAge = TimeSpan.FromSeconds(40),
+            Loadout = ["Primary: AK-74N"],
+            Quests = ["Debut"],
+        };
+        var riley = Member("Riley");
+
+        viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [geo, riley], "Sharing", DateTimeOffset.UtcNow)));
+
+        var row = viewModel.Presence.Single(candidate => candidate.Name == "Geo");
+        Assert.Equal("312, -104 · from a screenshot 40s ago", row.Position);
+        Assert.Equal("Primary: AK-74N · Debut", row.Shared);
+        Assert.True(row.HasPosition && row.HasShared);
+
+        // V1 said "No screenshot position shared" in words; V2 leaves the line out instead.
+        var quiet = viewModel.Presence.Single(candidate => candidate.Name == "Riley");
+        Assert.False(quiet.HasPosition);
+        Assert.False(quiet.HasShared);
+    }
+
+    [Fact]
+    public void The_group_tells_a_player_what_their_own_game_never_wrote_down()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+
+        viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow)
+        {
+            MyLoadout = ["Primary: AK-74N", "Rig: Slick"],
+            MyLevel = 42,
+            MySide = "Usec",
+        }));
+
+        Assert.Equal("Primary: AK-74N · Rig: Slick", viewModel.MyLoadout);
+        Assert.Equal("Level 42 · Usec", viewModel.MyProfile);
+        Assert.True(viewModel.HasMyProfile);
+
+        // Nobody has said anything yet: the profile line is absent rather than a row of "not known".
+        viewModel.Apply(SnapshotWithGroup(new GroupSnapshot(true, [], "Sharing", DateTimeOffset.UtcNow)));
+        Assert.Equal("Nobody in your party is running this yet.", viewModel.MyLoadout);
+        Assert.False(viewModel.HasMyProfile);
+    }
+
+    [Fact]
+    public void The_in_game_party_is_absent_until_the_shell_attaches_the_squad_view_model()
+    {
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), new FakeGroupSettingsStore(GroupSharingSettings.Off));
+        Assert.False(viewModel.HasParty);
+        Assert.Null(viewModel.Party);
+
+        var changed = new List<string?>();
+        viewModel.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        var party = new SquadPageViewModel(new StubItemRepository());
+        viewModel.AttachParty(party);
+
+        Assert.Same(party, viewModel.Party);
+        Assert.True(viewModel.HasParty);
+        Assert.Contains(nameof(TeamWorkspaceViewModel.Party), changed);
+        Assert.Contains(nameof(TeamWorkspaceViewModel.HasParty), changed);
+    }
+
     private static GroupMemberView Member(string name) =>
         new(name, null, RaidLifecycleState.Unknown, null, null, null, null, [], []);
 
