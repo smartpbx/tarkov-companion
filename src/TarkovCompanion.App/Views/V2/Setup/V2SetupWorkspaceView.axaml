@@ -269,7 +269,11 @@
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding NotificationsIntro}" TextWrapping="Wrap" />
         <TextBlock Classes="v2-label" Text="{Binding NotificationsRaidNote}" TextWrapping="Wrap" />
-        <StackPanel Classes="v2-stack" IsVisible="{Binding HasNotifications}" DataContext="{Binding Notifications}"
+        <!-- The visibility is the workspace's question and the rows are the notification view
+             model's, so they cannot share an element: x:DataType here would re-type the binding
+             above it. -->
+        <Panel IsVisible="{Binding HasNotifications}">
+        <StackPanel Classes="v2-stack" DataContext="{Binding Notifications}"
                     x:DataType="vm:SetupNotificationsViewModel">
           <TextBlock Classes="v2-label" Text="{Binding TrayStatusLine}" TextWrapping="Wrap"
                      AutomationProperties.AutomationId="v2-setup-notifications-tray" />
@@ -315,6 +319,7 @@
             </Grid>
           </Border>
         </StackPanel>
+        </Panel>
       </StackPanel>
     </Border>
 
