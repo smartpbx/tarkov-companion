@@ -1624,6 +1624,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasPlayerMarker => PlayerMarkers.Count > 0;
 
+    // [V2 rough package 22] The V2 Raid cockpit draws the same evidence on its own renderer,
+    // whose coordinates are the plan's percent box rather than this page's zoomed canvas. It
+    // needs what was observed, not where this page happened to put it, so the raw positions are
+    // readable beside the projected view models rather than being reprojected back out of them.
+    internal ScreenshotPosition? PlayerPosition => _playerPosition;
+
+    internal IReadOnlyList<ScreenshotPosition> PlayerTrailPositions => _playerTrailPositions;
+
+    internal IReadOnlyList<GroupMemberView> GroupMembers => _groupMembers;
+
+    internal IReadOnlyList<RaidTrail> VisitedRaids => _visited;
+
+    /// <summary>Whether a map id names the map being looked at, allowing for the catalog's aliases.</summary>
+    internal bool IsOnOpenMap(string? mapId) => IsOnThisMap(mapId);
+
+    /// <summary>The colour this squadmate is drawn in, so a second renderer agrees with this one.</summary>
+    internal string GroupColorFor(string name) => ColorFor(name);
+
+    /// <summary>The plan rotation the map artwork already carries, which a world heading is relative to.</summary>
+    internal double ArtworkRotationDegrees => _renderModel?.Variant.Transform?.RotationDegrees ?? 0;
+
     /// <summary>
     /// Where the player has been this raid, projected onto the map.
     /// </summary>
