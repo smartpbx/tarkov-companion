@@ -1264,7 +1264,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     /// <summary>
     /// V2 rough package 17: a second, independent scene of the map this cockpit currently shows,
-    /// carrying only the given quest objective markers, for the Plan workspace's centre map.
+    /// carrying only the given quest objective scene objects, for the Plan workspace's centre map.
     /// </summary>
     /// <remarks>
     /// Its own renderer view model, not <see cref="Renderer"/>: the renderer keeps viewport and
@@ -1273,22 +1273,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// pipeline. Null while this cockpit has no scene of its own.
     /// </remarks>
     internal MapSceneRendererViewModel? CreateObjectivePreview(
-        IReadOnlyList<MapOverlayElement> objectives,
+        IReadOnlyList<MapSceneObject> objectives,
         MapSceneRendererViewModel? existing)
     {
         ArgumentNullException.ThrowIfNull(objectives);
-        if (PreviewModel() is not { } model)
-        {
-            return null;
-        }
-
-        var nowUtc = _timeProvider.GetUtcNow();
-        return BuildPreview(
-            model,
-            objectives.Select(element => new MapSceneLegacyElement(element, new DataProvenance("quest-catalog", nowUtc))).ToArray(),
-            [],
-            [],
-            existing);
+        return PreviewModel() is not { } model
+            ? null
+            : BuildPreview(model, [], [], objectives, existing);
     }
 
     /// <summary>The render model a preview may be built from: only while this cockpit's own scene shows it.</summary>

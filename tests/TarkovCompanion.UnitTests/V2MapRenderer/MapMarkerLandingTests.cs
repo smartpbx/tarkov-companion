@@ -206,6 +206,24 @@ public sealed class MapMarkerLandingTests
         Assert.Empty(scene.Entries.Single(entry => entry.ObjectiveId.StartsWith("5a3fb8f6", StringComparison.Ordinal)).FloorNames);
     }
 
+    [Fact]
+    public void The_selected_objective_is_drawn_above_the_ones_it_overlaps()
+    {
+        // Two objectives can stand on the same helicopter; picking one must not leave it underneath.
+        var zones = RealQuestZones.Load();
+        var model = zones.Model("lighthouse");
+        var scene = new QuestObjectiveSceneBuilder().Build(zones.Project("lighthouse", model), model.Floors, null, NowUtc);
+        var renderer = Render(model, [], 1920, 1080, 0, extraObjects: scene.Objects);
+        var first = scene.Entries.First(entry => entry.IsPlaced);
+        var id = scene.Objects.First(item => first.ObjectIds.Contains(item.Id) && item.Geometry.Kind == MapSceneGeometryKind.Point).Id;
+        var marker = renderer.SpatialObjects.Single(item => item.SceneObject!.Id == id);
+        Assert.Equal(0, marker.ZOrder);
+
+        renderer.SelectObject(id);
+
+        Assert.True(marker.ZOrder > renderer.SpatialObjects.Where(item => item != marker).Max(item => item.ZOrder));
+    }
+
     private static bool IsOf(MapSceneRendererObjectViewModel marker, QuestObjectiveEntry entry) =>
         marker.SceneObject is { } item && entry.ObjectIds.Contains(item.Id);
 

@@ -323,6 +323,98 @@
             </StackPanel>
           </Border>
 
+          <!-- [Package 35] The objectives as the plan draws them: numbered like their markers, a
+               selected one said in full, and the ones with no place on the map listed as having none. -->
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasQuestObjectives}"
+                  AutomationProperties.AutomationId="v2-raid-objectives">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <TextBlock Classes="v2-heading-3" Text="Objectives" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding QuestObjectiveSummary}"
+                           VerticalAlignment="Center" />
+              </Grid>
+
+              <ContentControl Content="{Binding SelectedObjective}" IsVisible="{Binding HasSelectedObjective}"
+                              AutomationProperties.AutomationId="v2-raid-objective-detail">
+                <ContentControl.ContentTemplate>
+                  <DataTemplate x:DataType="vm:RaidObjectiveDetailViewModel">
+                    <Border Classes="v2-raid-row v2-raid-offered">
+                      <StackPanel Spacing="5">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center">
+                            <TextBlock Classes="v2-label" Text="{Binding Number}" />
+                          </Border>
+                          <TextBlock Grid.Column="1" Classes="v2-heading-3" Text="{Binding Task}" TextWrapping="Wrap"
+                                     VerticalAlignment="Center" />
+                          <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Close"
+                                  Command="{Binding CloseCommand}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-close" />
+                        </Grid>
+                        <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
+                        <WrapPanel ItemSpacing="6" LineSpacing="4">
+                          <Border Classes="v2-raid-chip">
+                            <TextBlock Classes="v2-label" Text="{Binding Where}" />
+                          </Border>
+                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasFloor}">
+                            <TextBlock Classes="v2-label" Text="{Binding Floor}" />
+                          </Border>
+                          <Border Classes="v2-raid-chip">
+                            <TextBlock Classes="v2-label" Text="{Binding Status}" />
+                          </Border>
+                        </WrapPanel>
+                        <TextBlock Classes="v2-label" Text="{Binding NoLocationReason}" TextWrapping="Wrap"
+                                   IsVisible="{Binding HasNoLocationReason}" />
+                        <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                              <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Classes="v2-label" Text="{Binding FoundInRaid}" IsVisible="{Binding HasFoundInRaid}" />
+                        <TextBlock Classes="v2-label" Text="{Binding Remaining}" IsVisible="{Binding HasRemaining}" />
+                        <StackPanel Spacing="2" IsVisible="{Binding HasWiki}">
+                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding WikiLabel}"
+                                  HorizontalAlignment="Left" Command="{Binding OpenWikiCommand}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-wiki" />
+                          <TextBlock Classes="v2-label" Text="{Binding WikiAttribution}" TextWrapping="Wrap" />
+                        </StackPanel>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ContentControl.ContentTemplate>
+              </ContentControl>
+
+              <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding QuestObjectives}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:RaidObjectiveRowViewModel">
+                      <Button Classes="v2-raid-rowbutton" Command="{Binding SelectCommand}"
+                              AutomationProperties.AutomationId="v2-raid-objective-row"
+                              AutomationProperties.Name="{Binding Description}"
+                              ToolTip.Tip="{Binding Task}">
+                        <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}" Padding="8,5">
+                          <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="8">
+                            <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
+                                    HorizontalAlignment="Left">
+                              <TextBlock Classes="v2-label" Text="{Binding Number}" />
+                            </Border>
+                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Description}"
+                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                          </Grid>
+                        </Border>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+          </Border>
+
           <!-- V2 rough package 20: the accent edge is for a card with something in it. While the
                game-data refresh is failing this one is a single muted line, and it should not be
                the loudest thing in the panel. -->
@@ -522,97 +614,6 @@
                                    IsVisible="{Binding HasHandIn}" />
                       </StackPanel>
                     </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </Border>
-
-          <!-- [Package 35] The objectives as the plan draws them: numbered like their markers, a
-               selected one said in full, and the ones with no place on the map listed as having none. -->
-          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasQuestObjectives}"
-                  AutomationProperties.AutomationId="v2-raid-objectives">
-            <StackPanel Spacing="8">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                <TextBlock Classes="v2-heading-3" Text="Objectives on the plan" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding QuestObjectiveSummary}"
-                           VerticalAlignment="Center" />
-              </Grid>
-
-              <ContentControl Content="{Binding SelectedObjective}" IsVisible="{Binding HasSelectedObjective}"
-                              AutomationProperties.AutomationId="v2-raid-objective-detail">
-                <ContentControl.ContentTemplate>
-                  <DataTemplate x:DataType="vm:RaidObjectiveDetailViewModel">
-                    <Border Classes="v2-raid-row v2-raid-offered">
-                      <StackPanel Spacing="5">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-label" Text="{Binding Number}" />
-                          </Border>
-                          <TextBlock Grid.Column="1" Classes="v2-heading-3" Text="{Binding Task}" TextWrapping="Wrap"
-                                     VerticalAlignment="Center" />
-                          <Button Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Close"
-                                  Command="{Binding CloseCommand}"
-                                  AutomationProperties.AutomationId="v2-raid-objective-close" />
-                        </Grid>
-                        <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
-                        <WrapPanel ItemSpacing="6" LineSpacing="4">
-                          <Border Classes="v2-raid-chip">
-                            <TextBlock Classes="v2-label" Text="{Binding Where}" />
-                          </Border>
-                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasFloor}">
-                            <TextBlock Classes="v2-label" Text="{Binding Floor}" />
-                          </Border>
-                          <Border Classes="v2-raid-chip">
-                            <TextBlock Classes="v2-label" Text="{Binding Status}" />
-                          </Border>
-                        </WrapPanel>
-                        <TextBlock Classes="v2-label" Text="{Binding NoLocationReason}" TextWrapping="Wrap"
-                                   IsVisible="{Binding HasNoLocationReason}" />
-                        <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
-                          <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="x:String">
-                              <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
-                            </DataTemplate>
-                          </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Classes="v2-label" Text="{Binding FoundInRaid}" IsVisible="{Binding HasFoundInRaid}" />
-                        <TextBlock Classes="v2-label" Text="{Binding Remaining}" IsVisible="{Binding HasRemaining}" />
-                        <StackPanel Spacing="2" IsVisible="{Binding HasWiki}">
-                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding WikiLabel}"
-                                  HorizontalAlignment="Left" Command="{Binding OpenWikiCommand}"
-                                  AutomationProperties.AutomationId="v2-raid-objective-wiki" />
-                          <TextBlock Classes="v2-label" Text="{Binding WikiAttribution}" TextWrapping="Wrap" />
-                        </StackPanel>
-                      </StackPanel>
-                    </Border>
-                  </DataTemplate>
-                </ContentControl.ContentTemplate>
-              </ContentControl>
-
-              <ItemsControl ItemsSource="{Binding QuestObjectives}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:RaidObjectiveRowViewModel">
-                    <Button Classes="v2-raid-rowbutton" Command="{Binding SelectCommand}"
-                            AutomationProperties.AutomationId="v2-raid-objective-row"
-                            AutomationProperties.Name="{Binding Description}">
-                      <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-label" Text="{Binding Number}" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Spacing="1">
-                            <TextBlock Classes="v2-body" Text="{Binding Description}" TextWrapping="Wrap" />
-                            <TextBlock Classes="v2-label" Text="{Binding Task}" TextTrimming="CharacterEllipsis"
-                                       TextWrapping="NoWrap" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
-                        </Grid>
-                      </Border>
-                    </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

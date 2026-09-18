@@ -82,8 +82,13 @@ public sealed class RaidObjectiveDetailViewModel
         Floor = entry.FloorLabel;
         NoLocationReason = entry.NoLocationReason ?? string.Empty;
         Status = StatusOf(objective);
-        var bring = QuestItemRequirementFormatter.DescribeBring(objective.ItemTargets, nameOfItem);
-        var handIn = QuestItemRequirementFormatter.DescribeHandIn(objective.ItemTargets, objective.FoundInRaidRequired, nameOfItem);
+        // The catalog does not name every item a quest asks for (quest-only items are not in it),
+        // and an id is no help to anybody reading the card.
+        string Named(string itemId) => nameOfItem(itemId) is var name && !string.Equals(name, itemId, StringComparison.Ordinal)
+            ? name
+            : "item not in the catalog";
+        var bring = QuestItemRequirementFormatter.DescribeBring(objective.ItemTargets, Named);
+        var handIn = QuestItemRequirementFormatter.DescribeHandIn(objective.ItemTargets, objective.FoundInRaidRequired, Named);
         Items = new[] { bring, handIn }.Where(line => line.Length > 0).ToArray();
         FoundInRaid = objective.ItemTargets.Count == 0 || objective.FoundInRaidRequired is null
             ? string.Empty

@@ -49,6 +49,17 @@ public sealed class RaidObjectiveDetailViewModelTests
     }
 
     [Fact]
+    public void An_item_the_catalog_does_not_name_is_never_shown_as_its_id()
+    {
+        // The console objective asks for a quest item, which the items table does not hold.
+        var detail = DetailOf("interchange", "667a958e");
+
+        var items = Assert.Single(detail.Items);
+        Assert.Contains("item not in the catalog", items, StringComparison.Ordinal);
+        Assert.DoesNotContain(Zones.Objectives("interchange").Single(item => item.Id.StartsWith("667a958e", StringComparison.Ordinal)).ReadModel.ItemTargets[0].ItemId, items, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void An_objective_that_is_not_on_the_map_says_so_and_why()
     {
         var detail = DetailOf("customs", "5968eb9b");
