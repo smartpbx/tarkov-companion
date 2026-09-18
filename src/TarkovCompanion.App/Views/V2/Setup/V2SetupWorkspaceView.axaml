@@ -3,7 +3,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
-             xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup">
+             xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
+             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
   <UserControl.Styles>
     <!-- A settings section reads as a readable column, not a full-width slab. -->
     <Style Selector="Border.v2-card.v2-setup-section">
@@ -46,12 +47,14 @@
         <StackPanel Classes="v2-field">
           <TextBlock Classes="v2-label" Text="{Binding ScreenshotFolderLabel}" />
           <TextBox Classes="v2-field-input" Text="{Binding Settings.ScreenshotFolder}"
+                    PlaceholderText="{Binding FolderPlaceholder}"
                     AutomationProperties.AutomationId="v2-setup-screenshot-folder"
                     AutomationProperties.Name="{Binding ScreenshotFolderLabel}" />
         </StackPanel>
         <StackPanel Classes="v2-field">
           <TextBlock Classes="v2-label" Text="{Binding LogFolderLabel}" />
           <TextBox Classes="v2-field-input" Text="{Binding Settings.LogFolder}"
+                    PlaceholderText="{Binding FolderPlaceholder}"
                     AutomationProperties.AutomationId="v2-setup-log-folder"
                     AutomationProperties.Name="{Binding LogFolderLabel}" />
         </StackPanel>
@@ -67,6 +70,7 @@
         <TextBlock Classes="v2-label" IsVisible="{Binding Settings.RecognitionNeedsRuntime}"
                    Text="{Binding RecognitionRuntimeWarning}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.ScanProvider}" />
+        <TextBlock Classes="v2-label" Text="{Binding ScanHint}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
@@ -78,6 +82,101 @@
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-sync"
                 Content="{Binding SyncLabel}" Command="{Binding Settings.SyncCommand}" />
+        <TextBlock Classes="v2-label" Text="{Binding OfflineNote}" TextWrapping="Wrap"
+                   IsVisible="{Binding Settings.IsOffline}" />
+      </StackPanel>
+    </Border>
+
+    <!-- Package 29 (parity): the quest exchange and TarkovTracker import, which only V1's Settings
+         page could reach. Bound through Settings.Quests so the preview, the confirm and the undo
+         stay together, as they do in V1. -->
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsProgressSelected}">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding ExchangeTitle}" />
+        <TextBlock Classes="v2-label" Text="{Binding ExchangeNote}" TextWrapping="Wrap" />
+        <TextBox Classes="v2-field-input" Text="{Binding Settings.Quests.ExchangePath}"
+                 PlaceholderText="{Binding ExchangePathPlaceholder}"
+                 AutomationProperties.AutomationId="v2-setup-exchange-path"
+                 AutomationProperties.Name="{Binding ExchangePathPlaceholder}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-export-progress"
+                  Content="{Binding ExportLabel}" Command="{Binding Settings.Quests.ExportProgressCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-import"
+                  Content="{Binding PreviewImportLabel}" Command="{Binding Settings.Quests.PreviewImportCommand}" />
+          <Button Classes="v2-target" Content="{Binding KeepLocalLabel}"
+                  Command="{Binding Settings.Quests.KeepLocalConflictsCommand}" />
+          <Button Classes="v2-target" Content="{Binding UseIncomingLabel}"
+                  Command="{Binding Settings.Quests.UseIncomingConflictsCommand}" />
+          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-apply-import"
+                  Content="{Binding ApplyImportLabel}" Command="{Binding Settings.Quests.ApplyImportCommand}" />
+          <Button Classes="v2-target" Content="{Binding UndoImportLabel}"
+                  Command="{Binding Settings.Quests.UndoLastImportCommand}" />
+        </WrapPanel>
+        <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.ImportPreviewSummary}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding Settings.Quests.ExchangeStatus}" TextWrapping="Wrap" />
+        <ScrollViewer IsVisible="{Binding Settings.Quests.HasImportProposals}" MaxHeight="240"
+                      VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding Settings.Quests.ImportProposals}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="quests:QuestImportProposalViewModel">
+                <StackPanel Spacing="2" Margin="0,0,0,10">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <TextBlock Classes="v2-body" Text="{Binding Classification}" />
+                    <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Entity}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Resolution}" />
+                  </Grid>
+                  <TextBlock Classes="v2-label" Text="{Binding LocalValue}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+        <StackPanel Classes="v2-stack" IsVisible="{Binding Settings.Quests.HasImportHistory}">
+          <TextBlock Classes="v2-body" Text="{Binding ImportHistoryTitle}" />
+          <ItemsControl ItemsSource="{Binding Settings.Quests.ImportHistory}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="quests:QuestImportHistoryRowViewModel">
+                <StackPanel Spacing="2" Margin="0,0,0,10">
+                  <TextBlock Classes="v2-body" Text="{Binding Title}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                  <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="quests:QuestImportHistoryLineViewModel">
+                        <Grid ColumnDefinitions="200,*" ColumnSpacing="10">
+                          <TextBlock Classes="v2-label" Text="{Binding What}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Why}" TextWrapping="Wrap" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+
+        <TextBlock Classes="v2-body" Text="{Binding TrackerTitle}" Margin="0,8,0,0" />
+        <TextBlock Classes="v2-label" Text="{Binding TrackerNote}" TextWrapping="Wrap" />
+        <TextBox Classes="v2-field-input" PasswordChar="●"
+                 Text="{Binding Settings.Quests.TarkovTrackerToken}"
+                 IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
+                 PlaceholderText="{Binding TrackerTokenPlaceholder}"
+                 AutomationProperties.AutomationId="v2-setup-tracker-token"
+                 AutomationProperties.Name="{Binding TrackerTitle}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-connect"
+                  IsEnabled="{Binding Settings.Quests.CanConnectTarkovTracker}"
+                  Content="{Binding TrackerConnectLabel}" Command="{Binding Settings.Quests.ConnectTarkovTrackerCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-refresh"
+                  IsEnabled="{Binding Settings.Quests.CanRefreshTarkovTracker}"
+                  Content="{Binding TrackerRefreshLabel}" Command="{Binding Settings.Quests.RefreshTarkovTrackerCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-tracker-disconnect"
+                  IsEnabled="{Binding Settings.Quests.CanDisconnectTarkovTracker}"
+                  Content="{Binding TrackerDisconnectLabel}" Command="{Binding Settings.Quests.DisconnectTarkovTrackerCommand}" />
+        </WrapPanel>
+        <TextBlock Classes="v2-body" Text="{Binding Settings.Quests.TarkovTrackerStatus}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
@@ -111,7 +210,11 @@
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsPrivacySelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding ScreenshotIntro}" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" />
+        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.CanTidyScreenshots}">
+          <TextBlock Classes="v2-label" Text="{Binding RetentionValueLabel}" />
+          <TextBlock Classes="v2-body" Text="{Binding Settings.RetentionDisplay}" />
+        </StackPanel>
+        <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" TextWrapping="Wrap" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
                   IsEnabled="{Binding Settings.CanTidyScreenshots}"
@@ -120,7 +223,8 @@
                   IsEnabled="{Binding Settings.CanTidyScreenshots}"
                   Content="{Binding RetentionLabel}" Command="{Binding Settings.ChooseRetentionCommand}" />
         </WrapPanel>
-        <TextBlock Classes="v2-label" Text="{Binding DebugCaptureLabel}" />
+        <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
+                   IsVisible="{Binding Settings.CanTidyScreenshots}" />
       </StackPanel>
     </Border>
 
@@ -136,6 +240,8 @@
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-reset"
                   Content="{Binding ResetLabel}" Command="{Binding ResetScaleCommand}" />
         </WrapPanel>
+        <TextBlock Classes="v2-label" Text="{Binding ScaleHint}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding ScaleScope}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
@@ -145,7 +251,10 @@
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDiagnosticsSelected}">
       <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-label" Text="{Binding Settings.CompanionLogPath}" />
+        <StackPanel Classes="v2-field">
+          <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
+          <TextBlock Classes="v2-body" Text="{Binding Settings.CompanionLogPath}" TextWrapping="Wrap" />
+        </StackPanel>
         <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
@@ -153,6 +262,8 @@
           <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
                   Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
         </WrapPanel>
+        <!-- Where a report goes, said at the button that sends it, as V1 does. -->
+        <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
   </StackPanel>

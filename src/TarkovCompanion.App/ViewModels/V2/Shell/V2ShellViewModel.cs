@@ -288,6 +288,18 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
         // V2 rough package 17 (team): the Team context panel's links move through this router.
         _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        if (legacy is not null)
+        {
+            // Package 29 (parity): the in-game party is V1's Squad view model, which the legacy graph
+            // already keeps current on every runtime snapshot.
+            _team?.AttachParty(legacy.Squad);
+            // Package 29 (parity): "Watch on map" in Debrief, which V1's History page did by opening
+            // its replay bar on the Raid page. The same replay view model, now on the V2 Raid map.
+            if (_debrief is not null)
+            {
+                _debrief.ReplayRequested += (_, request) => _ = WatchRaidAsync(legacy, request);
+            }
+        }
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -748,6 +760,34 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // variant's data can render, rather than branching on the variant's declared style.
     public bool UsesRailNavigation => WidthClass >= V2WidthClass.Standard;
     public bool UsesRowNavigation => !UsesRailNavigation;
+    /// <summary>
+    /// Opens a past raid's trail on the Raid map: moves the map to the raid's own map, starts the
+    /// replay V1's History page started, and goes to the Raid workspace where it is drawn.
+    /// </summary>
+    /// <remarks>
+    /// The map is chosen first because a replay carries positions and no map of its own: V1 drew
+    /// them on whichever map happened to be showing, so a Customs raid watched from Streets was a
+    /// trail across the wrong plan. The replay bar lives on the Raid workspace, where it can be
+    /// stepped and closed; while it is open the map does not follow live screenshots.
+    /// </remarks>
+    private async Task WatchRaidAsync(MainWindowViewModel legacy, DebriefReplayRequest request)
+    {
+        try
+        {
+            if (request.MapId is { Length: > 0 } mapId)
+            {
+                await legacy.Map.FollowRaidAsync(mapId).ConfigureAwait(true);
+            }
+
+            legacy.Raid.Replay.Open(request.Title, request.Positions);
+            GoTo(V2Routes.Raid, V2ShellFocusTargets.Destination(V2Routes.Raid));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _debrief?.ReportReplayFailure(exception.Message);
+        }
+    }
+
     public bool ShowsHeaderSetup => Variant.SetupPlacement == V2SetupPlacement.HeaderLink;
     public bool ShowsSeparatedSetup => Variant.SetupPlacement == V2SetupPlacement.LabelledRailSection;
     public bool ShowsHeaderSearch => Variant.SearchPlacement == V2SearchPlacement.Header;

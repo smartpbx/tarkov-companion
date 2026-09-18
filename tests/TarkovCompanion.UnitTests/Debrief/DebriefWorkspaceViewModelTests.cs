@@ -183,12 +183,84 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal("In progress", viewModel.SelectedDurationLabel);
     }
 
+    [Fact]
+    public async Task The_selected_raid_says_when_it_ended_and_how_far_it_went()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedPositions(RaidId, [Position(Started, 0, 0), Position(Started.AddMinutes(2), 300, 400), Position(Started.AddMinutes(4), 300, 1400)]);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        // 500 m then 1000 m, which is V1's "at least" floor: straight lines between screenshots.
+        Assert.Equal("At least 1.5 km", viewModel.SelectedDistanceLabel);
+        Assert.True(viewModel.HasDistance);
+        Assert.NotEqual("In progress", viewModel.SelectedEndedLabel);
+    }
+
+    [Fact]
+    public async Task A_raid_still_in_progress_has_no_end_and_a_single_screenshot_has_no_distance()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, null, null, null));
+        service.SeedPositions(RaidId, [Position(Started, 0, 0)]);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("In progress", viewModel.SelectedEndedLabel);
+        Assert.False(viewModel.HasDistance);
+        Assert.Equal(string.Empty, viewModel.SelectedDistanceLabel);
+    }
+
+    [Fact]
+    public async Task Watching_a_raid_asks_the_shell_to_draw_its_trail_on_the_raids_own_map()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var trail = new[] { Position(Started, 0, 0), Position(Started.AddMinutes(1), 10, 10) };
+        service.SeedPositions(RaidId, trail);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        viewModel.UseMapNames(id => id == "customs" ? "Customs" : null);
+        DebriefReplayRequest? request = null;
+        viewModel.ReplayRequested += (_, asked) => request = asked;
+
+        await viewModel.LoadAsync();
+        Assert.True(viewModel.CanWatch);
+        viewModel.WatchOnMapCommand.Execute(null);
+
+        Assert.NotNull(request);
+        // The map travels with the trail: a replay is only positions, and V1 drew them on whichever
+        // map happened to be showing.
+        Assert.Equal("customs", request.MapId);
+        Assert.StartsWith("Customs · ", request.Title, StringComparison.Ordinal);
+        Assert.Equal(trail, request.Positions);
+    }
+
+    [Fact]
+    public async Task A_raid_with_no_screenshots_cannot_be_watched_and_says_so()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        var raised = false;
+        viewModel.ReplayRequested += (_, _) => raised = true;
+
+        await viewModel.LoadAsync();
+        viewModel.WatchOnMapCommand.Execute(null);
+
+        Assert.False(viewModel.CanWatch);
+        Assert.False(raised);
+        Assert.Equal("That raid has no screenshots to watch.", viewModel.Status);
+    }
+
     private static AppDataPaths TestPaths() => AppDataPaths.Resolve(
         Path.Combine(Path.GetTempPath(), $"tarkov-companion-debrief-tests-{Guid.NewGuid():N}"));
 
-    private static ScreenshotPosition Position(DateTimeOffset timestamp) => new(
+    private static ScreenshotPosition Position(DateTimeOffset timestamp, double x = 0, double z = 0) => new(
         timestamp,
-        new WorldPosition(0, 0, 0),
+        new WorldPosition(x, 0, z),
         new QuaternionOrientation(0, 0, 0, 1),
         0,
         null,
