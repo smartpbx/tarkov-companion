@@ -5,6 +5,7 @@ using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Inventory;
+using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
@@ -32,8 +33,10 @@ public sealed class LootScanCaptureHandoff(
     InventoryGridReconstructor gridReconstructor,
     LootScanDecisionService decisionService,
     TimeProvider? timeProvider = null,
-    ILogger<LootScanCaptureHandoff>? logger = null) : ICaptureResultHandoff
+    ILogger<LootScanCaptureHandoff>? logger = null,
+    LootScanRecommendationSource? recommendations = null) : ICaptureResultHandoff
 {
+    private readonly LootScanRecommendationSource? _recommendations = recommendations;
     private readonly IProfileRuntimeContextService _profileContext =
         profileContext ?? throw new ArgumentNullException(nameof(profileContext));
     private readonly InventoryGridReconstructor _gridReconstructor =
@@ -46,14 +49,14 @@ public sealed class LootScanCaptureHandoff(
     /// <summary>Raised after a Loot-intent capture is evaluated. Never raised for other intents.</summary>
     public event EventHandler<LootScanResult>? LootScanEvaluated;
 
-    public ValueTask<CaptureHandoffResult> AcceptAsync(
+    public async ValueTask<CaptureHandoffResult> AcceptAsync(
         CaptureHandoffRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.EffectiveIntent != ScanIntent.Loot)
         {
-            return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+            return CaptureHandoffResult.Accepted;
         }
 
         var snapshot = _profileContext.Current;
@@ -62,23 +65,43 @@ public sealed class LootScanCaptureHandoff(
             // Additive: a capture with nowhere to bind its profile scope is acknowledged, not
             // rejected. The player still needs to pick or create a profile; that is Setup's job.
             _logger.LogInformation("Skipped a loot scan because no active profile is selected yet.");
-            return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+            return CaptureHandoffResult.Accepted;
         }
 
         try
         {
-            LootScanEvaluated?.Invoke(this, Evaluate(request, profile, cancellationToken));
+            var result = await EvaluateAsync(
+                    new(
+                        request.CorrelationId.ToString(),
+                        request.SessionId,
+                        request.CorrelationId,
+                        request.Context,
+                        request.ArtifactId,
+                        request.DecodeRevision,
+                        request.Analysis.ResultId,
+                        request.Context.InitiatingDevice ?? "desktop",
+                        request.Analysis.Grid),
+                    profile,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            LootScanEvaluated?.Invoke(this, result);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger.LogWarning(exception, "Could not evaluate a loot scan for capture session {SessionId}.", request.SessionId);
         }
 
-        return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+        return CaptureHandoffResult.Accepted;
     }
 
-    private LootScanResult Evaluate(CaptureHandoffRequest request, ProfileRecord profile, CancellationToken cancellationToken)
+    /// <summary>
+    /// Evaluates one analysed frame. Public so the render preview can show the workspace over a
+    /// genuinely scanned frame without standing up a capture session.
+    /// </summary>
+    public async Task<LootScanResult> EvaluateAsync(LootScanFrame request, ProfileRecord profile, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(profile);
         var scope = new InventoryProfileScope(
             profile.Context.Identity.ProfileId,
             profile.Context.Identity.Generation,
@@ -89,7 +112,7 @@ public sealed class LootScanCaptureHandoff(
             inventory: null,
             raidContext: null);
         var visibleLoot = _gridReconstructor.Reconstruct(
-            request.Analysis.Grid is { Surface: InventoryGridSurface.VisibleLoot } visibleLootRequest
+            request.Grid is { Surface: InventoryGridSurface.VisibleLoot } visibleLootRequest
                 ? visibleLootRequest
                 : new(InventoryGridSurface.VisibleLoot, lattice: null, occupiedCells: []),
             cancellationToken);
@@ -98,9 +121,23 @@ public sealed class LootScanCaptureHandoff(
             cancellationToken);
         // The pipeline's content hash is the only thing that survives the pixel-free handoff
         // boundary; reusing it for both sides keeps this frame "current" without a redecode.
-        var contentHash = request.Analysis.ResultId;
+        var contentHash = request.ContentSha256;
+        var evaluatedUtc = _timeProvider.GetUtcNow();
+        IReadOnlyList<LootScanCandidateRecommendation> candidates = _recommendations is null
+            ? []
+            : await _recommendations.BuildAsync(
+                    visibleLoot,
+                    request.SessionId,
+                    request.ArtifactId,
+                    request.DecodeRevision,
+                    contentHash,
+                    scope,
+                    profile.Context.DataSnapshot.SnapshotId,
+                    evaluatedUtc,
+                    cancellationToken)
+                .ConfigureAwait(false);
         var lootScanRequest = new LootScanRequest(
-            request.CorrelationId.ToString(),
+            request.ScanId,
             request.SessionId,
             request.CorrelationId,
             request.Context,
@@ -108,13 +145,25 @@ public sealed class LootScanCaptureHandoff(
             request.DecodeRevision,
             contentHash,
             contentHash,
-            request.Context.InitiatingDevice ?? "desktop",
-            _timeProvider.GetUtcNow(),
+            request.InitiatingDevice,
+            evaluatedUtc,
             recommendationContext,
             visibleLoot,
             carriedInventory,
-            recommendations: [],
+            candidates,
             carriedPolicies: []);
         return _decisionService.Evaluate(lootScanRequest, cancellationToken);
     }
 }
+
+/// <summary>One analysed frame, as far as a loot evaluation needs to know it.</summary>
+public sealed record LootScanFrame(
+    string ScanId,
+    CaptureSessionId SessionId,
+    CaptureCorrelationId CorrelationId,
+    CaptureContextMetadata Context,
+    string ArtifactId,
+    int DecodeRevision,
+    string ContentSha256,
+    string InitiatingDevice,
+    GridReconstructionRequest? Grid);
