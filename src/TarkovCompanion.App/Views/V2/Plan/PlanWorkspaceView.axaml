@@ -104,9 +104,14 @@
        the numbered objectives list and the one primary action, Open in Raid. The concept's traffic,
        route, requirements, loadout readiness and route estimate have no data source yet, so they
        are not drawn. -->
-  <Grid ColumnDefinitions="340,*,Auto">
+  <!-- V2 rough package 32: the objectives panel is placed by MapPanelLayout, which takes whichever
+       arrangement draws more map. Beside at the concepts' proportions and on a wide window; under
+       the map at 1920x1080, where a 340px list and a 440px panel leave the map an almost square
+       card and a plan that is nearly twice as wide as it is tall spends half of it on nothing. -->
+  <Grid x:Name="PlanBody" ColumnDefinitions="340,*,Auto" RowDefinitions="*,Auto">
     <!-- Left column -->
-    <Border Grid.Column="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
+    <Border Grid.Column="0" Grid.Row="0" Grid.RowSpan="2"
+            BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,1,0">
       <Grid RowDefinitions="*,Auto">
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
@@ -186,7 +191,7 @@
     </Border>
 
     <!-- Centre: the selected map with its active objectives, numbered like the list. -->
-    <Border Grid.Column="1" Classes="v2-plan-mapcard" Margin="16,8,16,16">
+    <Border x:Name="PlanMapCard" Grid.Column="1" Grid.Row="0" Classes="v2-plan-mapcard" Margin="16,8,16,16">
       <Grid>
         <TextBlock Classes="v2-body" IsVisible="{Binding !HasGroups}" TextWrapping="Wrap" TextAlignment="Center"
                    HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Opacity="0.8"
@@ -204,8 +209,9 @@
       </Grid>
     </Border>
 
-    <!-- Right: the selected map's context panel, its objectives list, and Open in Raid. -->
-    <Border Grid.Column="2" Width="440" Classes="v2-plan-panel">
+    <!-- The selected map's context panel, its objectives list, and Open in Raid. Its column, row
+         and width are set by the code-behind; see PlanWorkspaceView.axaml.cs. -->
+    <Border x:Name="PlanPanel" Grid.Column="2" Grid.Row="0" Grid.RowSpan="2" Width="440" Classes="v2-plan-panel">
       <Panel>
         <TextBlock Classes="v2-label" Margin="16" IsVisible="{Binding !HasSelectedGroup}" TextWrapping="Wrap"
                    Text="Pick a map to see its objectives." />
@@ -213,7 +219,7 @@
              would resolve IsVisible against SelectedGroup. -->
         <Panel IsVisible="{Binding HasSelectedGroup}">
         <Grid RowDefinitions="Auto,*,Auto" DataContext="{Binding SelectedGroup}">
-          <StackPanel Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
+          <StackPanel x:Name="PlanPanelHeading" Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
             <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
                        TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="v2-label" Text="{Binding Summary}" />
@@ -224,6 +230,12 @@
               <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
               <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl ItemsSource="{Binding Objectives}" Margin="0,0,8,0">
+                  <!-- V2 rough package 32: one column in a 440px panel, several under a map card
+                       three times that wide. A plain stack would have drawn each objective as a
+                       single row the width of the window. -->
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemWidth="404" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:PlanObjectiveRowViewModel">
                       <Grid ColumnDefinitions="Auto,*,Auto">

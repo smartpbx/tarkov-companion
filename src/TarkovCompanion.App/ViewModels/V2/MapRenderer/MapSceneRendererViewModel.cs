@@ -248,6 +248,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double MapTop => _projection.MapTop;
     public double MapWidth => _projection.MapWidth;
     public double MapHeight => _projection.MapHeight;
+
+    /// <summary>
+    /// The plan's own shape, width over height, or NaN when nothing can say what it is yet.
+    /// </summary>
+    /// <remarks>
+    /// V2 rough package 32: a host laying itself out needs the shape the plan will be drawn at
+    /// before it has decided how much room to give it, and MapWidth/MapHeight cannot answer that
+    /// — they are the result of the room it was given. This is the same number the projection
+    /// fits with, so a host's arithmetic and the draw agree.
+    /// </remarks>
+    public double PlanAspect => _projection.PlanAspect;
     public double MessageWidth => Math.Max(1, Math.Min(460, CanvasWidth - 24));
     public double EmptyMessageWidth => Math.Max(1, Math.Min(380, CanvasWidth - 24));
     public double StatusLeft => Math.Max(12, (CanvasWidth - MessageWidth) / 2);
@@ -1735,6 +1746,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                      nameof(LabelObjects), nameof(HasLabelObjects),
                      nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
+                     // [V2 rough package 32] A host that lays itself out around the plan's shape
+                     // has to hear when the decoded artwork changes what that shape is.
+                     nameof(PlanAspect),
                      nameof(MapWidth), nameof(MapHeight), nameof(MessageWidth), nameof(EmptyMessageWidth), nameof(StatusLeft),
                      nameof(StatusTop), nameof(EmptyLeft), nameof(EmptyTop), nameof(CameraPreTranslateX),
                      nameof(CameraPreTranslateY), nameof(CameraPostTranslateX), nameof(CameraPostTranslateY),
@@ -2499,6 +2513,7 @@ public sealed class MapSceneProjection
             ? planAspect
             : finiteBounds ? boundsWidth / boundsHeight : double.NaN;
         IsUsable = finiteBounds && double.IsFinite(aspect) && aspect > 0;
+        PlanAspect = IsUsable ? aspect : double.NaN;
         if (!IsUsable)
         {
             ScaleX = 1;
@@ -2525,6 +2540,9 @@ public sealed class MapSceneProjection
     }
 
     public bool IsUsable { get; }
+
+    /// <summary>The shape this projection fits, width over height, or NaN when it has none.</summary>
+    public double PlanAspect { get; }
     public double ScaleX { get; }
     public double ScaleY { get; }
 
