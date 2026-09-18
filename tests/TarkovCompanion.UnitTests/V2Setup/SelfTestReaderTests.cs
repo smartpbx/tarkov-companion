@@ -150,14 +150,19 @@ public sealed class SelfTestReaderTests : IDisposable
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "already-there.png"), "x");
         var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
-        const string Name = "2026-09-18[20-58]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
+        // The name carries the time the shot was taken, and the watch reports the file's own write
+        // time as the clock only while the two agree to within the parser's hour of drift. Written
+        // from now rather than from the hour this test was: hardcoded, it passed for an hour on the
+        // day it was written and has failed on every run since.
+        var taken = DateTime.Now;
+        var name = $"{taken:yyyy-MM-dd}[{taken:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
 
         var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
         await Task.Delay(120);
-        File.WriteAllText(Path.Combine(folder, Name), "x");
+        File.WriteAllText(Path.Combine(folder, name), "x");
         var reading = await watching;
 
-        Assert.Equal(Name, reading.FileName);
+        Assert.Equal(name, reading.FileName);
         Assert.True(reading.Parsed);
         Assert.Equal(140.2, reading.X ?? 0, 1);
         Assert.Equal(-77.9, reading.Z ?? 0, 1);
