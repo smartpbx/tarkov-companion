@@ -686,28 +686,29 @@ function Measure-DeadSpace {
         $Body = [Math]::Max(1, $Bitmap.Width - $Left)
         $EdgeRuns = [System.Collections.Generic.List[double]]::new()
         $BandRuns = [System.Collections.Generic.List[double]]::new()
+        # The pixel read is written out rather than put behind a helper: this walks tens of
+        # thousands of samples per capture, and a scriptblock call for each one costs more than
+        # the whole measurement.
         for ($Y = $Top; $Y -lt $Bottom; $Y += 24) {
             $Row = $Y * $Stride
-            $Key = {
-                param($X)
-                $Offset = $Row + ($X * 4)
-                return ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
-            }
-
             $EdgeX = $Bitmap.Width - 1
-            $EdgeColour = & $Key $EdgeX
+            $Offset = $Row + ($EdgeX * 4)
+            $EdgeColour = ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
             $EdgeRun = 0
             for ($X = $EdgeX; $X -ge $Left; $X -= $Step) {
-                if ((& $Key $X) -ne $EdgeColour) { break }
+                $Offset = $Row + ($X * 4)
+                $Colour = ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
+                if ($Colour -ne $EdgeColour) { break }
                 $EdgeRun += $Step
             }
             $EdgeRuns.Add([Math]::Min($EdgeRun, $Body) / $Body)
 
             $Widest = 0
             $Run = 0
-            $Previous = $null
+            $Previous = -1
             for ($X = $Left; $X -lt $Bitmap.Width; $X += $Step) {
-                $Colour = & $Key $X
+                $Offset = $Row + ($X * 4)
+                $Colour = ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
                 if ($Colour -eq $Previous) { $Run += $Step } else { $Run = $Step; $Previous = $Colour }
                 if ($Run -gt $Widest) { $Widest = $Run }
             }
@@ -1221,13 +1222,14 @@ foreach ($Route in $V2AcceptanceRoutes) {
         # The ultrawide bound is the 1920 one with headroom: the same page has more window to
         # fill at 3840 and nothing new to fill it with, which is the deferred layout problem the
         # PR's route table describes rather than a regression to catch tonight.
-        $EdgeBound = [double](Get-InteractionProperty -Object $Route -Name "edge" -Default -1)
+        $Headroom = if ($Size.width -ge 3840) { 0.15 } else { 0.0 }
+        $EdgeBound = [double](Get-InteractionProperty -Object $Route -Name "edge" -Default (-1))
         if ($EdgeBound -ge 0) {
-            $Shot["maximumEdgeDeadFraction"] = if ($Size.width -ge 3840) { [Math]::Min(1.0, $EdgeBound + 0.15) } else { $EdgeBound }
+            $Shot["maximumEdgeDeadFraction"] = [Math]::Min(1.0, $EdgeBound + $Headroom)
         }
-        $BandBound = [double](Get-InteractionProperty -Object $Route -Name "band" -Default -1)
+        $BandBound = [double](Get-InteractionProperty -Object $Route -Name "band" -Default (-1))
         if ($BandBound -ge 0) {
-            $Shot["maximumFlatBandFraction"] = if ($Size.width -ge 3840) { [Math]::Min(1.0, $BandBound + 0.15) } else { $BandBound }
+            $Shot["maximumFlatBandFraction"] = [Math]::Min(1.0, $BandBound + $Headroom)
         }
 
         $Shots.Add([pscustomobject]$Shot)
@@ -1366,11 +1368,15 @@ foreach ($Shot in $Shots) {
         if ($Shot.width -gt 0 -and $Shot.height -gt 0 -and
             -not (Request-DesktopSize -Width ($Shot.width + 24) -Height ($Shot.height + 24))) {
             $Desktop = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            # Nothing ran, so nothing is claimed: the gate's six conditions are satisfied to keep
+            # the run green, interactionRequired drops to false so the report does not say an
+            # assertion passed, and skipped plus detail say what actually happened.
             $Result.skipped = $true
             $Result.presented = $true
             $Result.visuallyVaried = $true
             $Result.warningCaptureArmed = $true
             $Result.gracefulShutdown = $true
+            $Result.interactionRequired = $false
             $Result.interactionSmoke = $true
             $Result.interactionDetail = "Skipped: the desktop is only $($Desktop.Width)x$($Desktop.Height)."
             $Result.detail = "Skipped: a $($Shot.width)x$($Shot.height) window needs a desktop at least that large; this one is $($Desktop.Width)x$($Desktop.Height)."
@@ -1481,8 +1487,8 @@ foreach ($Shot in $Shots) {
         # V2 rough package 30 (acceptance sweep): a shot that declares a bound is measured
         # against it. Shots without one are measured anyway and only reported, so the next
         # person can see where the dead area actually is before choosing a bound for it.
-        $MaximumEdge = [double](Get-InteractionProperty -Object $Shot -Name "maximumEdgeDeadFraction" -Default -1)
-        $MaximumBand = [double](Get-InteractionProperty -Object $Shot -Name "maximumFlatBandFraction" -Default -1)
+        $MaximumEdge = [double](Get-InteractionProperty -Object $Shot -Name "maximumEdgeDeadFraction" -Default (-1))
+        $MaximumBand = [double](Get-InteractionProperty -Object $Shot -Name "maximumFlatBandFraction" -Default (-1))
         if ($MaximumEdge -ge 0 -or $MaximumBand -ge 0 -or [bool](Get-InteractionProperty -Object $Shot -Name "measureDeadSpace" -Default $false)) {
             $Dead = Measure-DeadSpace -Path $Screenshot
             $Result.edgeDeadFraction = $Dead.edgeDeadFraction
