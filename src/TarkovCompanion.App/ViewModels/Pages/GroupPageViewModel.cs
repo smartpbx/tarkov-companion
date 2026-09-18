@@ -230,7 +230,7 @@ public sealed class GroupPageViewModel : PageViewModel
     /// A scav timer already in the past is left out rather than shown as a negative wait. The
     /// answer then is "now", and the player can see that by looking at the game.
     /// </remarks>
-    private static string DescribeMe(GroupSnapshot group)
+    internal static string DescribeMe(GroupSnapshot group)
     {
         var parts = new List<string>(3);
         if (group.MyLevel is { } level)
@@ -268,7 +268,7 @@ public sealed class GroupPageViewModel : PageViewModel
             : "Nothing else shared.",
         member.RaidState == Core.Domain.Raids.RaidLifecycleState.InRaid);
 
-    private static string Age(TimeSpan? age) => age is not { } value
+    internal static string Age(TimeSpan? age) => age is not { } value
         ? "at an unknown time"
         : value < TimeSpan.FromMinutes(1)
             ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
