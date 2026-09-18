@@ -28,8 +28,11 @@ old screenshots to the recycle bin, and only when that is switched on.
 
 **How it updates.** The anonymous public-release updater has been removed. The signed private-feed
 consumer exists but is intentionally not composed until #294 supplies activation and #270 supplies
-durable consumer state, so the application currently reports that the private feed is not
-configured. Until then, signed desktop builds use the verified offline path in `RELEASES.md`.
+durable consumer state. Until then an installed build follows the unsigned rough channel the
+relay serves at `/updates/rough/` (what it proves and does not: `RELEASES.md`, "The rough
+channel"; how to publish to it: `deploy/group-server/README.md`), and signed desktop builds use
+the verified offline path in `RELEASES.md`. A build run from a portable zip does not update
+itself and keeps its data beside its executable.
 
 ## The group relay
 
@@ -68,6 +71,38 @@ and archive against its separately provisioned Sigstore trust root, replay floor
 history. A signed rollback is the only normal downgrade authority. If the replacement does not
 answer `/health` as its signed identity, the updater restores the previous tree and records the
 refusal. See `RELEASES.md` and `deploy/group-server/README.md` for the complete contract.
+
+## The self-test
+
+**Setup → Diagnostics → Run self-test.** It exercises seven capabilities against the installation
+it is running on and reports what each one found, one line at a time, with what the line was read
+from beside it: the game folders and when each last changed, what this build understood of the
+newest game session, a screenshot timed from the game writing it to a position coming out of its
+name, every game-data endpoint by name with its size, age and row count, the database's applied
+migrations and table counts, the relay's build and round trip and how far behind squadmate
+positions are, and which tablets are paired and whether a scene is being published.
+
+Three verdicts. **working** means it was measured and it did what it claims. **not working** means
+it was measured and it did not. **could not be tested** means it could not be measured here, with
+the reason said out loud — never a pass by default, which is the whole difference between this and
+the readiness checklist above it.
+
+It is safe to press at any time, including mid-raid. Every reading is read-only: discovery
+re-probes folders, the log and screenshot readers open files for reading with full sharing, game
+data and the database are `SELECT`s, and the relay is asked for `GET /health` and nothing else.
+Nothing starts a refresh, writes to the game's folders, or changes relay state. The run is bounded
+(75 seconds) and **Stop** cancels it.
+
+The one thing it asks for is a screenshot: a position only exists once the game's screenshot key
+is pressed, so the panel says so while it waits (45 seconds) rather than reporting a failure the
+player could have prevented.
+
+**Copy result** puts the whole thing on the clipboard, paths included — that is local diagnostic
+data, which `docs/SAFETY.md` permits, and the folder and endpoint names are usually most of the
+answer. **Copy diagnostics** and **Report a problem** carry the same run projected into
+`SupportBundle`'s closed schema: one line per capability giving its fixed identifier and its
+verdict, and no path, endpoint reason, device name, room member or coordinate. Copy diagnostics,
+being local, appends the full text as well.
 
 ## Problem reports
 

@@ -154,7 +154,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // V2 rough package 25 (#402): optional for the same reason as plan/hideout above.
         KeepListWorkspaceViewModel? keep = null,
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
-        TeamWorkspaceViewModel? team = null)
+        TeamWorkspaceViewModel? team = null,
+        // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
+        SetupSelfTestViewModel? selfTest = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -179,6 +181,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             options.DeveloperMode)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
+        if (selfTest is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachSelfTest(selfTest);
+        }
     }
 
     /// <summary>Builds the actual shell behavior in tests without composing a second V1 graph.</summary>

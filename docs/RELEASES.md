@@ -429,8 +429,9 @@ it. Never fetch it from the feed.
 
 ## The desktop
 
-The old anonymous `GithubSource` path is removed. An unconfigured `VelopackUpdateGateway` now
-fails closed and never asks the public repository for updates. `SignedReleaseFeedConsumer` and
+The old anonymous `GithubSource` path is removed. Until the signed ring is switched on,
+`VelopackUpdateGateway` follows [the rough channel](#the-rough-channel) instead, which is unsigned
+and says so; it never asks the public repository for updates. `SignedReleaseFeedConsumer` and
 `AuthenticatedGitHubReleaseFeed` provide the typed handoff for #294: a read-only token comes from
 the protected integration-secret store; redirects never receive it; the newest bounded decision,
 manifest and every selected binary/data/model artifact are verified before one plan is returned.
@@ -447,12 +448,72 @@ using the transaction's cached visibility decision for its bounded downloads.
 
 That consumer is deliberately **not composed into the UI yet**. #294 owns activation of all three
 components and hands only the verified local `SimpleFileSource` to Velopack; #270 owns the durable
-implementation of `IReleaseConsumerStateStore`. Until both are wired, in-app updates report that
-the private feed is not configured and signed desktop builds reach machines through the offline
-path below. The relay's stamps remain host files in root's own directories, not application data.
+implementation of `IReleaseConsumerStateStore`. Until both are wired, in-app updates come from the
+rough channel and signed desktop builds reach machines through the offline path below. The
+relay's stamps remain host files in root's own directories, not application data.
 
 The installer still installs per user under `%LOCALAPPDATA%\TarkovCompanionDesktop`, separate
 from data under `%LOCALAPPDATA%\TarkovCompanion`; see [WINDOWS.md](WINDOWS.md#release-and-installation).
+
+## The rough channel
+
+The signed ring above is the real answer and is switched off until its environments, private feed
+and signing identity exist. Meanwhile the rough V2 test builds were zips, downloaded and extracted
+by hand, each starting with an empty data folder, and the installed updater pointed at nothing.
+The rough channel is the shorter road that works today. It does not pretend to be the ring, and
+#280 stays the path that replaces it.
+
+**What it is.** `vpk pack` already writes an installer, a full package and a feed
+(`releases.win.json`) on every Windows verification run. `scripts/release/rough_channel.py stage`
+copies those three into one folder, and an operator copies that folder onto the relay, which
+serves it read-only at `https://tarkov.mannerow.net/updates/rough/`. An installed build reads the
+feed, offers the newer version in Setup › Updates, downloads it, checks it, and lets Velopack swap
+the files after the process has exited.
+
+| | |
+| --- | --- |
+| Feed | `https://tarkov.mannerow.net/updates/rough/releases.win.json` |
+| Installer, run once | `https://tarkov.mannerow.net/updates/rough/TarkovCompanionDesktop-win-Setup.exe` |
+| Version | `1.0.<Windows verification run number>`, so a later run is always a newer build |
+| Program | `%LOCALAPPDATA%\TarkovCompanionDesktop`, replaced by an update |
+| Data | `%LOCALAPPDATA%\TarkovCompanion`, never touched by an update |
+| Try another feed | set `TARKOV_UPDATE_FEED` to an `https://` folder or a local folder |
+
+**What the client checks.** The feed must list a SHA256 and a size for every package; a feed
+without one is refused whole, because the updater library would otherwise fall back to SHA1. The
+download stops if it runs past the listed size. The SHA256 of the bytes on disk is compared with
+the feed before anything is handed to the updater. A mismatch is refused, the file is deleted,
+both hashes are written to the application log, and Setup › Updates says the download did not
+match. Only a package that passed can be applied. Until the restart the running build is
+untouched, and Velopack puts the previous build back if the swap itself fails.
+
+**What that proves, and what it does not.**
+
+| | Rough channel | Signed ring (#280) |
+| --- | --- | --- |
+| The bytes installed are the bytes the feed described | yes: SHA256 checked before applying | yes |
+| The download was not corrupted or truncated | yes | yes |
+| Who published the build | **no**: there is no signature and no publisher identity | cosign signature bound to `publish.yml` on main |
+| The feed itself is genuine | only as far as TLS to the relay's hostname goes | signed ring decision, verified against a trust root |
+| An old build cannot be offered again | only because an older version is never installed; a feed can still be frozen | signed generations, floors, rollback only by signed decision |
+| A person approved the promotion | no | ring environments with reviewers |
+
+Put plainly: the hash sits beside the package, so it protects against a bad download and not
+against a bad publisher. Anybody who can write to `/srv/tarkov-updates` on the relay, or who
+controls the hostname or its Cloudflare tunnel, can publish a build that every installed rough
+client will offer. That is acceptable for a test channel with a handful of known users and is
+the reason it must not outlive the signed ring. The installer is also unsigned, so Windows
+SmartScreen warns on first run.
+
+**Publishing a build.** The `rough-channel` artifact exists on Windows verification runs on
+`main` (not on pull requests), for seven days. The steps, with the exact files, are in
+[`deploy/group-server/README.md`](../deploy/group-server/README.md#the-rough-update-channel).
+
+**The portable zip stays.** It is the fallback when the installer will not run. It keeps its
+data beside the executable, so its data does not follow it to the next zip; Setup › Updates says
+so and points at the installer. To carry a portable build's data into the installed one, close
+both and copy the contents of the zip's `Data` folder into `%LOCALAPPDATA%\TarkovCompanion`
+before the first installed run.
 
 ## Offline installation and recovery
 
@@ -613,6 +674,7 @@ publish run URL, the approving reviewer shown on that run, and the signed ring g
 | Offline verification and the PowerShell installer: every manifest artifact under ring and break-glass, private copies, ring decisions, hostile bundles, unreadable installed versions, and fail-closed timeout quarantine | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op, wrong-identity, non-installer tamper, child-timeout and detached-child cases, and refuses inconsistent rollback authority |
 | Desktop private-feed transport, filesystem staging and one binary/data/model verification transaction; live private-visibility checks, cancellation/process cleanup, real Sigstore verification, feed-and-ring-scoped replay including equal-generation authentication, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `CosignReleaseSignatureVerifierTests.cs`, `ReleaseStagingStoreTests.cs`, `SignedReleaseFeedConsumerTests.cs`, and `test-real-sigstore.sh` |
 | Control capture | `test_capture_controls.py` |
+| Rough channel: the feed parses and a feed without SHA256 is refused; a mismatch is refused with both hashes logged and nothing applied; a portable build reports itself; an installed build finds, stages and applies a newer version with the real updater library and no network; the relay serves only plain names inside the channel folder; staging refuses a package its feed does not describe | `tests/TarkovCompanion.UnitTests/Updates/`, `test_rough_channel.py` |
 | The verification command against real Sigstore material, and a real GHSA-fx35-mq7g-6g98-shaped legacy bundle | `scripts/release/test-real-sigstore.sh` |
 | Panel reports only the root-owned status | `tests/TarkovCompanion.UnitTests/RelayUpdateTests.cs` |
 
@@ -639,7 +701,9 @@ still to be observed and recorded.
   them across every workflow, but an owner must still configure GitHub's independent SHA-pinning
   rule before enablement.
 - **Break-glass offline installs** apply no ring policy, by design.
-- **Desktop in-app updates** are fail-closed until #294 composes the authenticated consumer and
-  #270 supplies its durable state implementation; they no longer fall back to the public feed.
+- **Desktop in-app updates follow the unsigned rough channel** until #294 composes the
+  authenticated consumer and #270 supplies its durable state implementation. Its trust is TLS to
+  the relay plus the SHA256 in the feed, with no publisher identity; see
+  [The rough channel](#the-rough-channel). They do not fall back to the public GitHub feed.
 - **The update service itself** runs as root with no systemd sandboxing beyond its own checks;
   narrowing it with `ProtectSystem=`/`ReadWritePaths=` is untested on CT 115 and not done here.

@@ -43,6 +43,24 @@ public sealed record TabletMapObject(
     double? HeadingDegrees,
     bool IsEstimate);
 
+/// <summary>
+/// One answer to a lookup the tablet asked the desktop to run.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 34] #417 sent the query to the desktop and left the answers there, which is
+/// half a feature: the person is holding the tablet. The desktop resolves them because it has the
+/// catalogue and the prices; the tablet only draws them.
+/// </remarks>
+public sealed record TabletSearchResult(
+    string Id,
+    string Name,
+    string ShortName,
+    long? FleaRoubles,
+    long? TraderRoubles);
+
+/// <summary>The lookup the desktop is currently showing, and what it found.</summary>
+public sealed record TabletSearch(string Query, IReadOnlyList<TabletSearchResult> Results);
+
 /// <summary>What the desktop is looking at: the view a following tablet mirrors.</summary>
 public sealed record TabletMapView(
     string? FloorId,
@@ -80,6 +98,7 @@ public sealed record TabletMapSurface(
     IReadOnlyList<TabletMapLayer> Layers,
     IReadOnlyList<TabletMapObject> Objects,
     TabletMapView View,
+    TabletSearch? Search,
     string? Message,
     DateTimeOffset PublishedUtc);
 
@@ -100,6 +119,7 @@ public static class TabletMapSurfaceBuilder
         string mapName,
         TabletMapArtwork? artwork,
         WorkspaceProjection? workspace,
+        TabletSearch? search,
         string? message,
         DateTimeOffset publishedUtc)
     {
@@ -172,6 +192,7 @@ public static class TabletMapSurfaceBuilder
             layers,
             objects,
             view,
+            search,
             reviewed ? message : message ?? "This map has no reviewed 2D plan yet.",
             publishedUtc);
     }

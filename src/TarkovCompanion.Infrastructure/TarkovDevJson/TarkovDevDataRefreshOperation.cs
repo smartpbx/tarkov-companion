@@ -330,7 +330,14 @@ public sealed class TarkovDevDataRefreshOperation(
             : null;
     }
 
-    private static string ModeSlug(GameMode gameMode) => gameMode switch
+    /// <summary>
+    /// The mode's slug, as every sync_state and cache row is keyed by it.
+    /// </summary>
+    /// <remarks>
+    /// Public because reading those rows back needs the same answer this writes them with, and
+    /// a second copy of this mapping elsewhere is a silent mismatch waiting to happen.
+    /// </remarks>
+    public static string ModeSlug(GameMode gameMode) => gameMode switch
     {
         GameMode.Regular => "regular",
         GameMode.Pve => "pve",

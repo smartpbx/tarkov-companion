@@ -42,10 +42,31 @@ public static class SupportBundle
     /// opened or rendered. The recent names are inspected only for parser compatibility; their
     /// characters and the coordinates encoded in them never cross into the returned text.
     /// </remarks>
+    /// <summary>How many self-test lines may be carried, so a future probe list cannot grow this.</summary>
+    private const int MaximumSelfTestFacts = 32;
+
     public static string Describe(
         ApplicationRuntimeSnapshot snapshot,
         IReadOnlyList<string> recentScreenshotNames,
-        string? logPath)
+        string? logPath) =>
+        Describe(snapshot, recentScreenshotNames, logPath, selfTest: null);
+
+    /// <summary>
+    /// The same report, plus the closed projection of the last self-test.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 41] The self-test's own text names folders, files, endpoints and a
+    /// position, which docs/SAFETY.md allows it to do locally and does not allow here. What
+    /// crosses into an outbound report is a fixed capability identifier and its verdict —
+    /// enough to say which capability failed, and nothing that identifies the machine it
+    /// failed on. The caller is responsible for passing
+    /// <c>SelfTestSummary.ToSupportFacts</c>, which is the only producer of that shape.
+    /// </remarks>
+    public static string Describe(
+        ApplicationRuntimeSnapshot snapshot,
+        IReadOnlyList<string> recentScreenshotNames,
+        string? logPath,
+        IReadOnlyList<(string Key, string Value)>? selfTest)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(recentScreenshotNames);
@@ -132,6 +153,17 @@ public static class SupportBundle
         AppendFact(report, "squadmate position latency", snapshot.Group.PositionLatency.Describe());
         report.AppendLine();
 
+        if (selfTest is { Count: > 0 })
+        {
+            report.AppendLine("### Self-test");
+            foreach (var (key, value) in selfTest.Take(MaximumSelfTestFacts))
+            {
+                AppendFact(report, Bounded(key), Bounded(value));
+            }
+
+            report.AppendLine();
+        }
+
         report.AppendLine("### Privacy boundary");
         AppendFact(report, "application log content included", "no");
         AppendFact(report, "runtime detail text included", "no");
@@ -139,6 +171,19 @@ public static class SupportBundle
         report.AppendLine();
         report.AppendLine(Footer);
         return report.ToString();
+    }
+
+    /// <summary>A short, single-line value. The projection is closed; this keeps it that way.</summary>
+    private static string Bounded(string value)
+    {
+        const int Maximum = 64;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "unknown";
+        }
+
+        var flattened = new string([.. value.Where(character => !char.IsControl(character))]).Trim();
+        return flattened.Length <= Maximum ? flattened : flattened[..Maximum];
     }
 
     private static void AppendFact(StringBuilder report, string label, string value) =>

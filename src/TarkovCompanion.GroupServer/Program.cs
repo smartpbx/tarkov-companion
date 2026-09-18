@@ -258,6 +258,10 @@ app.MapGet("/health", () => Results.Ok(new
     members = rooms.MemberCount,
     // v2r-fast-positions (package 31): exchanges being held open for a change right now.
     held = roomChanges.WaitingCount,
+    // [V2 rough package 34] And the same for the paired tablets' map reads, which are held by
+    // the same rules against the same Kestrel. Counted separately because they are bounded
+    // separately, and the only way to see either bound being reached is from outside.
+    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
 }));
 
 // The second screen.
@@ -939,6 +943,10 @@ app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, U
         ? TypedResults.Ok(new RelayUpdateState(null, null, null, true, true, "Asked for. The relay restarts if there is a newer build."))
         : TypedResults.BadRequest("This relay cannot be asked to update: it has no writable state directory.");
 });
+
+// V2 rough package 36 (self-updating builds): the desktop's rough update channel, as read-only
+// static files under /updates. No key, no state, nothing at startup; see UpdateFeedFiles.
+app.MapUpdateFeed(UpdateFeedFiles.Root());
 
 app.Run();
 

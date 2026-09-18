@@ -6,6 +6,7 @@ using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Shell;
@@ -1789,11 +1790,15 @@ public sealed class SettingsPageViewModel : PageViewModel
     private bool _isBusyWithUpdate;
     private bool _canDownloadUpdate;
     private bool _canRestartForUpdate;
+    private string _availableBuild = "Not checked yet";
+    private int _updatePercent;
+    private bool _isDownloadingUpdate;
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
     private ApplicationRuntimeSnapshot? _snapshot;
     private string _diagnosticsStatus = "Nothing copied yet.";
+    private readonly SelfTestJournal? _selfTest;
 
     /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
     public string DiagnosticsStatus
@@ -1835,10 +1840,20 @@ public sealed class SettingsPageViewModel : PageViewModel
 
         try
         {
+            var summary = _selfTest?.Last;
             var report = SupportBundle.Describe(
                 snapshot,
                 snapshot.RecentScreenshotNames,
-                CrashLog.FilePath);
+                CrashLog.FilePath,
+                summary?.ToSupportFacts(CultureInfo.CurrentCulture));
+            // The clipboard stays on this machine, so it also carries the self-test's own
+            // words — the folders, endpoints and reasons that are most of the answer, and the
+            // part SupportBundle may not send anywhere.
+            if (summary is not null)
+            {
+                report = report + Environment.NewLine + summary.ToText(CultureInfo.CurrentCulture);
+            }
+
             await toClipboard(report).ConfigureAwait(true);
             DiagnosticsStatus = string.Create(
                 CultureInfo.CurrentCulture,
@@ -1877,7 +1892,10 @@ public sealed class SettingsPageViewModel : PageViewModel
         // Optional so a composition without stored settings still builds a Settings page,
         // which is what the tests that construct this by hand rely on.
         IEftPathOverrideStore? gameFolders = null,
-        RaidObservationService? observation = null)
+        RaidObservationService? observation = null,
+        // V2 rough package 41 (#292, #281): the last self-test, so a problem report carries
+        // which capability failed rather than only the state it failed in.
+        SelfTestJournal? selfTest = null)
         : base("Settings & diagnostics", "Runtime configuration and a manual data refresh", "Not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
@@ -1889,13 +1907,18 @@ public sealed class SettingsPageViewModel : PageViewModel
         _updates = updates;
         _gameFolders = gameFolders;
         _observation = observation;
+        _selfTest = selfTest;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
         ReportProblemCommand = new AsyncDelegateCommand(ReportProblemAsync);
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
+        UpdateNowCommand = new AsyncDelegateCommand(UpdateNowAsync);
+        UpdateDataFolder = UpdateDataFolderText.Describe(paths.Root, AppContext.BaseDirectory);
         if (_updates is not null)
         {
+            UpdateChannelName = _updates.Channel.Name;
+            InstallerLocation = _updates.Channel.Installer;
             _installedBuild = _updates.InstalledBuild;
             if (!_updates.IsInstalled)
             {
@@ -1903,6 +1926,7 @@ public sealed class SettingsPageViewModel : PageViewModel
                 // says "Running from a folder, not installed". Said twice it was a fact
                 // repeated; said once with what to do about it, it is an answer.
                 _updateStatus = "Only an installed build updates itself. Run the installer once and this keeps itself current.";
+                _availableBuild = "Not checked · a folder build does not update";
             }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
@@ -2048,6 +2072,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public DelegateCommand RestartForUpdateCommand { get; }
 
+    /// <summary>Fetches, checks and installs the waiting build in one press.</summary>
+    public AsyncDelegateCommand UpdateNowCommand { get; }
+
     public AsyncDelegateCommand CopyDiagnosticsCommand { get; }
 
     public AsyncDelegateCommand ReportProblemCommand { get; }
@@ -2084,7 +2111,11 @@ public sealed class SettingsPageViewModel : PageViewModel
         DiagnosticsStatus = "Sending…";
         try
         {
-            var report = SupportBundle.Describe(snapshot, snapshot.RecentScreenshotNames, CrashLog.FilePath);
+            var report = SupportBundle.Describe(
+                snapshot,
+                snapshot.RecentScreenshotNames,
+                CrashLog.FilePath,
+                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture));
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -2115,6 +2146,48 @@ public sealed class SettingsPageViewModel : PageViewModel
         private set => SetProperty(ref _updateStatus, value);
     }
 
+    /// <summary>Which feed this build follows.</summary>
+    public string UpdateChannelName { get; } = "None";
+
+    /// <summary>Where the installer is, for a build that was run from a folder.</summary>
+    public Uri? InstallerLocation { get; }
+
+    /// <summary>The same address as text, so it can be read and copied as well as opened.</summary>
+    public string InstallerAddress => InstallerLocation?.AbsoluteUri ?? string.Empty;
+
+    /// <summary>Where the player's data is, and whether an update can touch it.</summary>
+    public string UpdateDataFolder { get; }
+
+    /// <summary>The newer build the feed offers, or that there is not one.</summary>
+    public string AvailableBuild
+    {
+        get => _availableBuild;
+        private set => SetProperty(ref _availableBuild, value);
+    }
+
+    /// <summary>How far the download has got, 0 to 100.</summary>
+    public int UpdatePercent
+    {
+        get => _updatePercent;
+        private set => SetProperty(ref _updatePercent, value);
+    }
+
+    public bool IsDownloadingUpdate
+    {
+        get => _isDownloadingUpdate;
+        private set => SetProperty(ref _isDownloadingUpdate, value);
+    }
+
+    /// <summary>
+    /// Whether this is a build run from a folder that an installer would replace.
+    /// </summary>
+    /// <remarks>
+    /// The page says so and points at the installer rather than offering buttons that cannot
+    /// act. A portable zip is still the fallback when the installer will not run, so this is
+    /// stated as a fact about the build, not as something wrong with it.
+    /// </remarks>
+    public bool IsRunFromFolder => _updates is { IsInstalled: false };
+
     /// <summary>Raised when a build starts or stops waiting, so the rail can mark itself.</summary>
     public event EventHandler<bool>? UpdateWaitingChanged;
 
@@ -2126,6 +2199,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         {
             if (SetProperty(ref _canDownloadUpdate, value))
             {
+                OnPropertyChanged(nameof(CanUpdateNow));
                 UpdateWaitingChanged?.Invoke(this, value || CanRestartForUpdate);
             }
         }
@@ -2139,10 +2213,14 @@ public sealed class SettingsPageViewModel : PageViewModel
         {
             if (SetProperty(ref _canRestartForUpdate, value))
             {
+                OnPropertyChanged(nameof(CanUpdateNow));
                 UpdateWaitingChanged?.Invoke(this, value || CanDownloadUpdate);
             }
         }
     }
+
+    /// <summary>Whether a newer build is waiting, fetched or not, for the one-press update.</summary>
+    public bool CanUpdateNow => CanDownloadUpdate || CanRestartForUpdate;
 
     /// <summary>
     /// Looks for a newer build, on a timer, without anybody asking.
@@ -2245,13 +2323,48 @@ public sealed class SettingsPageViewModel : PageViewModel
         IsBusyWithUpdate = true;
         CanDownloadUpdate = false;
         UpdateStatus = "Downloading…";
+        UpdatePercent = 0;
+        IsDownloadingUpdate = true;
         try
         {
-            Apply(await _updates.DownloadAsync(CancellationToken.None).ConfigureAwait(true));
+            // Progress<T> carries each report back to the thread this started on, because the
+            // updater reports from whichever thread its download happens to be running on.
+            var progress = new Progress<int>(percent => UpdatePercent = percent);
+            Apply(await _updates
+                .DownloadAsync(CancellationToken.None, ((IProgress<int>)progress).Report)
+                .ConfigureAwait(true));
         }
         finally
         {
+            IsDownloadingUpdate = false;
             IsBusyWithUpdate = false;
+        }
+    }
+
+    /// <summary>
+    /// One press: fetch the waiting build, check it against the feed, install it and reopen.
+    /// </summary>
+    /// <remarks>
+    /// Three buttons in a row - check, download, restart - were three chances to stop halfway
+    /// and forget. Anything that goes wrong before the restart leaves this build running and
+    /// says what happened: nothing of the installed application is touched until the updater
+    /// has a package that matched the feed.
+    /// </remarks>
+    private async Task UpdateNowAsync()
+    {
+        if (_updates is null || IsBusyWithUpdate)
+        {
+            return;
+        }
+
+        if (!CanRestartForUpdate)
+        {
+            await DownloadUpdateAsync().ConfigureAwait(true);
+        }
+
+        if (CanRestartForUpdate)
+        {
+            RestartForUpdate();
         }
     }
 
@@ -2260,6 +2373,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         UpdateStatus = progress.Status;
         CanDownloadUpdate = progress.CanDownload;
         CanRestartForUpdate = progress.CanApply;
+        AvailableBuild = progress.Available ?? (progress.Failed ? "Unknown · the check failed" : "Nothing newer");
     }
 
     /// <summary>
@@ -2543,7 +2657,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         MapViewModel map,
         QuestsPageViewModel quests,
         TimeProvider timeProvider,
-        ILogger<MainWindowViewModel> logger)
+        ILogger<MainWindowViewModel> logger,
+        // V2 rough package 41 (#292, #281): optional so every hand-built test graph still builds.
+        SelfTestJournal? selfTest = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2576,7 +2692,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             recycleBin,
             updates,
             gameFolders,
-            observation)
+            observation,
+            selfTest)
         {
             // The quest exchange and the TarkovTracker import are rendered on Settings now,
             // bound through this, so they stop costing 180 px above the quest board.

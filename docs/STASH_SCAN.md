@@ -79,7 +79,8 @@ snapshots, and shows an ammo and key summary by joining recognized items against
 `IItemFactCatalog`. Starting a scan arms the shell's existing capture chrome with the Stash, Ammo,
 or Keys intent.
 
-`StashScanCaptureHandoff` (#273) bridges an accepted Stash-intent capture into this backend: it
+`StashScanCaptureHandoff` (#273) bridges an accepted Stash-intent capture into this backend. While
+a guided scan is collecting (below) the capture joins that scan; otherwise it
 takes the pixel-derived `GridReconstructionRequest` `CaptureRecognitionPipeline` attaches to the
 capture's analysis (see `docs/RECOGNITION.md`), reconstructs it, and assembles it as a single-frame
 session rooted at the `stash` container path, confirmed to start at cell zero with an unresolved
@@ -90,6 +91,67 @@ supplies them with origin hints, so nothing here needs to change to support that
 intents still have no handoff and are acknowledged without producing advice.
 Keep/Sell/Use soon grouping via `StashOrganizationPlanner` and #308 ammo/key intelligence is not
 wired either — general items are listed under Review.
+
+## Guided full-stash scan (package 40)
+
+A stash is taller than a screen: 34 rows is three 1080p screens. `GuidedStashScanService` holds the
+screenshots of one scroll-through until the player presses Finish, and says after each one what to
+do next. Choosing **Full stash** and **Start scan** in the workspace starts it; Ammo and Keys still
+go through the shared capture dialog as one screenshot.
+
+- **Arming.** An armed intent lives fifteen seconds and is spent by one capture, so
+  `GuidedStashScanArming` re-arms Stash whenever the capture service is idle, but only while the
+  scan is actively being taken. A scan read back at start-up waits for **Keep going**, and ten idle
+  minutes release the slot, so an abandoned stash scan cannot swallow a loot scan in the next raid.
+- **Closing it halfway.** The scan is written, without pixels, to `stash-scan-in-progress.json`
+  in the config folder after every screenshot and read back the next time the Stash workspace
+  opens. It ends only by **Finish** or **Discard**. A file that no longer reads is renamed
+  `.unreadable`, not deleted.
+- **A mis-step.** The same screenshot twice is skipped. One that shares no rows with the rest is
+  kept and reported ("scroll back up a little"), and is placed as soon as a later screenshot
+  bridges the gap. **Undo last** takes one back.
+- **Stitching.** `StashScanAssembler` aligns on two named items. `StashLayoutAligner` runs after
+  it, for the frames it left unplaced, and aligns on the shape of the footprints instead: every
+  compared cell must agree, at least three whole items must be shared, and a tie is left unplaced.
+  Rectangles touching a screenshot's first or last row are not compared, because the viewport
+  cuts items there.
+- **One grid.** `StashReconstructionProjector` folds the placed screenshots into container
+  coordinates and claims each cell once: named beats unnamed, whole beats edge-cut, and two
+  different names for one anchor leave the tile unknown. The workspace draws that grid, and draws
+  a tile nobody could name as `?` where it is.
+- **Owned counts.** On Finish, `StashOwnedCountsApplier` writes the named items' counts to
+  `PlayerProfile.OwnedItemCounts`, which is what the hideout requirements, quest item needs and
+  the Keep verdict read. A scan with any unknown tile or unplaced screenshot only raises counts;
+  only a scan with everything named and placed may lower one; items it did not see are untouched.
+
+### What was measured, and on what
+
+There is no real stash screenshot on the development host, so
+`StashScanEndToEndMeasurementTests` paints a 34-row stash at the one measured geometry and scores
+the real pixel reader, reconstructor, assembler and projector against the layout it painted. The
+artwork is invented, so these numbers describe the plumbing, not the game.
+
+| Step | Lattice exact | Footprints found | Spurious | Screens placed | Items correct |
+| --- | --- | --- | --- | --- | --- |
+| Before | 0 / 3 | 23 / 202 | 242 | 1 / 3 | 0 / 165 |
+| Stash lattice from its known shape | 3 / 3 | 125 / 202 | 261 | 1 / 3 | 0 / 165 |
+| Footprints from the lines between cells | 3 / 3 | 202 / 202 | 7 | 1 / 3 | 0 / 165 |
+| Layout stitching | 3 / 3 | 202 / 202 | 7 | 3 / 3 | 0 named, 165 drawn as unknown |
+| The same, with in-game tile fingerprints | 3 / 3 | 202 / 202 | 7 | 3 / 3 | 162 / 165, 0 wrong |
+
+The seven spurious footprints are items the viewport really does cut; the folded grid replaces
+them with the whole item from the neighbouring screenshot. A per-screenshot list of the last row
+would have shown 36 items the stash does not contain.
+
+Two things keep a real scan from naming anything today, and both belong to the shared recognizer
+rather than to this workflow. Nothing feeds the icon evidence cache, so there is nothing to match
+against. And `IconCandidateSeparator` names a tile only on a bit-exact fingerprint: against
+catalogue-style icons the painted tiles were bit-exact 0 times in 67 (median 5 bits from the true
+icon, 11 at most), where a rule of "within 12 bits and 4 clear of the runner-up" would have named
+65 of them, none wrongly.
+
+`tools/V2RenderPreview --stash-scan-demo mid|complete|mid-unnamed|complete-unnamed` drives the
+composed services from the same painted frames.
 
 ## Safety
 

@@ -128,6 +128,7 @@
     </div>
     <p class="quiet" id="modeNote">Following the desktop's map.</p>
     <div class="floors" id="floors"></div>
+    <div class="floors" id="layers"></div>
     <div id="mapWrap">
       <canvas id="map"></canvas>
       <div id="mapTools">
@@ -156,6 +157,7 @@
       <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
       <button type="button" id="findGo">Search on desktop</button>
     </div>
+    <div class="markList" id="found"></div>
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
@@ -629,6 +631,9 @@
   // The desktop republishes its map about once a second while a raid is running. Twice that,
   // and a tablet says the desktop is gone rather than showing a map that stopped being true.
   const SURFACE_STALE_MS = 20_000;
+  // Matches the relay's own cap (RelayMapSurfaceStore.MaximumWait). Asking for more is clamped
+  // there; asking for less would just mean more round trips saying nothing happened.
+  const HOLD_SECONDS = 20;
 
   function renderLiveStatus() {
     $("liveDot").classList.toggle("on", !!(live?.connected && live?.surface));
@@ -653,6 +658,8 @@
   let artwork = null;
   let artworkSha = null;
   let camera = null;
+  let localSelectionId = null;
+  let localHiddenLayers = null;
 
   const COLOURS = {
     Extract: "#77b895",
@@ -734,8 +741,9 @@
     }
 
     const surface = live.surface;
-    const hidden = new Set(surface.layers.filter((layer) => !layer.isVisible).map((layer) => layer.id));
+    const hidden = hiddenLayers();
     const floor = surface.view.floorId;
+    const selectedId = selectionId();
     const scale = Math.max(1, Math.min(2, project.scale * 40));
     for (const item of surface.objects) {
       if (hidden.has(item.layerId)) continue;
@@ -760,6 +768,16 @@
 
       const [px, py] = project.toScreen(points[0], points[1]);
       if (px < -40 || py < -40 || px > width + 40 || py > height + 40) continue;
+      if (item.id === selectedId) {
+        // What the desktop has selected, or what this tablet just tapped — the same ring either
+        // way, because in Control they are the same thing.
+        context.beginPath();
+        context.arc(px, py, 11 * scale, 0, Math.PI * 2);
+        context.strokeStyle = "#22d3ee";
+        context.lineWidth = 2 * scale;
+        context.stroke();
+      }
+
       context.globalAlpha = item.isEstimate ? 0.5 : 1;
       context.beginPath();
       context.arc(px, py, 5 * scale, 0, Math.PI * 2);
@@ -775,6 +793,20 @@
         context.fillText(item.label, px + 8 * scale, py - 7 * scale);
       }
     }
+  }
+
+  // In Control the desktop's own layer state is the truth; in Independent this tablet keeps its
+  // own, because the whole point of Independent is not moving the desk.
+  function hiddenLayers() {
+    const surface = live?.surface;
+    if (!surface) return new Set();
+    return mode === "Independent" && localHiddenLayers
+      ? new Set(localHiddenLayers)
+      : new Set(surface.layers.filter((layer) => !layer.isVisible).map((layer) => layer.id));
+  }
+
+  function selectionId() {
+    return mode === "Independent" ? localSelectionId : (live?.surface?.view?.selectionId ?? localSelectionId);
   }
 
   function renderSurface() {
@@ -808,6 +840,8 @@
       .map((item) => `${item.text} · ${item.sourceUri} · ${item.licenseUri} · sha256 ${item.contentSha256.slice(0, 12)}…`)
       .join("  |  ");
     renderFloors(surface);
+    renderLayers(surface);
+    renderResults(surface);
     drawMap();
   }
 
@@ -825,19 +859,98 @@
     }
   }
 
+  // The desktop's own layer switches, on the tablet. FilterWorkspaceAction already existed;
+  // nothing sent it.
+  function renderLayers(surface) {
+    const holder = $("layers");
+    holder.replaceChildren();
+    const hidden = hiddenLayers();
+    for (const layer of surface.layers) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = layer.name;
+      button.setAttribute("aria-pressed", String(!hidden.has(layer.id)));
+      button.addEventListener("click", () => toggleLayer(layer.id));
+      holder.appendChild(button);
+    }
+  }
+
+  function toggleLayer(layerId) {
+    const surface = live?.surface;
+    if (!surface) return;
+    const hidden = hiddenLayers();
+    if (hidden.has(layerId)) hidden.delete(layerId); else hidden.add(layerId);
+    if (mode !== "Control") {
+      localHiddenLayers = hidden;
+      renderSurface();
+      return;
+    }
+
+    sendCommand({
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: {
+        type: "filter",
+        activeLayers: surface.layers.filter((layer) => !hidden.has(layer.id)).map((layer) => layer.id),
+        activeFilters: [],
+      },
+    });
+    // Drawn now rather than when the desktop's answer comes back: the tablet already knows what
+    // it asked for, and a switch that lags a round trip feels broken.
+    localHiddenLayers = hidden;
+    renderSurface();
+  }
+
+  const roubles = (value) => value == null ? null : `${value.toLocaleString()} ₽`;
+
+  // The answers to a lookup, resolved by the desktop that has the catalogue. #417 sent the query
+  // over and left the answers on the wrong screen.
+  function renderResults(surface) {
+    const holder = $("found");
+    holder.replaceChildren();
+    const results = surface.search?.results ?? [];
+    if (results.length === 0) return;
+    for (const item of results) {
+      const row = document.createElement("div");
+      row.className = "row markRow";
+      const info = document.createElement("div");
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = item.name;
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = [
+        item.shortName,
+        roubles(item.fleaRoubles) ? `flea ${roubles(item.fleaRoubles)}` : null,
+        roubles(item.traderRoubles) ? `trader ${roubles(item.traderRoubles)}` : null,
+      ].filter(Boolean).join(" · ");
+      info.append(name, meta);
+      row.append(info);
+      holder.appendChild(row);
+    }
+  }
+
+  // Held rather than polled, once the relay has told us a revision. The read waits on the relay
+  // until the desktop publishes something newer, so a teammate's marker moves here when it moves
+  // there rather than on this tablet's next tick. A relay that has not been redeployed yet sends
+  // no revision header, and this falls straight back to the poll it always did.
   async function refreshSurface() {
-    if (!live?.credential) return;
+    if (!live?.credential) return false;
     try {
-      const response = await relayCall("/v2/companion/relay/map");
+      const held = live.mapRevision !== null;
+      const query = held ? `?since=${live.mapRevision}&wait=${HOLD_SECONDS}` : "";
+      const response = await relayCall(`/v2/companion/relay/map${query}`);
       if (response.status === 404) {
         live.surface = null;
+        live.mapRevision = null;
         live.connected = false;
         renderLiveStatus();
         renderSurface();
-        return;
+        return false;
       }
 
-      if (!response.ok) return;
+      if (!response.ok) return false;
+      const revision = response.headers.get("X-Relay-Map-Revision");
       const surface = await response.json();
       const age = Date.now() - Date.parse(surface.publishedUtc);
       live.connected = age < SURFACE_STALE_MS;
@@ -851,9 +964,18 @@
 
       renderLiveStatus();
       renderSurface();
+      if (revision === null) {
+        // An older relay. It answered, it just cannot hold, so keep the timer.
+        live.mapRevision = null;
+        return false;
+      }
+
+      live.mapRevision = Number(revision);
+      return true;
     } catch {
       live.connected = false;
       renderLiveStatus();
+      return false;
     }
   }
 
@@ -907,6 +1029,7 @@
       afterDeliveryId: 0,
       marks: [],
       surface: null,
+      mapRevision: null,
       connected: false,
     };
     renderLiveStatus();
@@ -946,9 +1069,11 @@
   }
 
   async function pollSurface() {
+    // The first read cannot hold: it has no revision to hold against. Every read after it does,
+    // and comes back the moment the desktop publishes — so there is nothing to sleep between.
     while (live && live.credential) {
-      await refreshSurface();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const held = await refreshSurface();
+      if (!held) await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 
@@ -1034,6 +1159,9 @@
     if (next !== mode) {
       mode = next;
       if (mode !== "Follow" && !camera) camera = fitCamera();
+      // Leaving Independent hands the view back to the desktop, layers included; keeping this
+      // tablet's own set would quietly override what the desk is showing.
+      if (mode !== "Independent") localHiddenLayers = null;
     }
 
     renderMode();
@@ -1055,7 +1183,7 @@
           : "Moving this tablet's own view. The desktop is not following.";
     $("surface").classList.toggle("driving", mode === "Control");
     $("searchNote").textContent = mode === "Control"
-      ? "Searching runs on the desktop, where the catalogue and your quests are."
+      ? "The desktop looks it up and the answers come back here."
       : "Take control of the desktop to search on it.";
     $("findGo").disabled = mode !== "Control";
   }
@@ -1306,15 +1434,74 @@
     if (!project || !live?.surface) return;
     const box = canvas.getBoundingClientRect();
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const [x, y] = project.toPlan((event.clientX - box.left) * ratio, (event.clientY - box.top) * ratio);
+    const px = (event.clientX - box.left) * ratio;
+    const py = (event.clientY - box.top) * ratio;
+    const [x, y] = project.toPlan(px, py);
     if (markArmed) {
       addMark(x, y);
+      return;
+    }
+
+    const hit = objectAt(project, px, py);
+    if (hit) {
+      selectObject(hit);
       return;
     }
 
     if (mode === "Follow") {
       $("modeNote").textContent = "This map is the desktop's. Switch to Control or Independent to move it.";
     }
+  }
+
+  // Nearest drawn point within a thumb's width, in device pixels rather than plan units, so the
+  // target is the same size however far the map is zoomed out.
+  function objectAt(project, px, py) {
+    const surface = live?.surface;
+    if (!surface) return null;
+    const hidden = hiddenLayers();
+    const floor = surface.view.floorId;
+    const reach = 22 * Math.min(2, window.devicePixelRatio || 1);
+    let best = null;
+    let bestDistance = reach;
+    for (const item of surface.objects) {
+      if (item.points.length !== 2 || hidden.has(item.layerId)) continue;
+      if (floor && item.floorIds.length > 0 && !item.floorIds.includes(floor)) continue;
+      const [sx, sy] = project.toScreen(item.points[0], item.points[1]);
+      const distance = Math.hypot(sx - px, sy - py);
+      if (distance <= bestDistance) {
+        best = item;
+        bestDistance = distance;
+      }
+    }
+
+    return best;
+  }
+
+  // Tapping a thing on the tablet selects it on the desktop, which is what opens its card there.
+  // In Independent it selects here only, because Independent is the mode that does not touch the
+  // desk.
+  function selectObject(item) {
+    localSelectionId = item.id;
+    if (mode === "Control") {
+      sendCommand({
+        type: "controlWorkspace",
+        ...commandHeader(live.workspaceRevision + 1),
+        action: {
+          type: "select",
+          selection: {
+            kind: "Landmark",
+            referenceId: item.id,
+            originDeepLink: null,
+            focusToken: null,
+          },
+        },
+      });
+    }
+
+    $("modeNote").textContent = mode === "Control"
+      ? `Showing "${item.label}" on the desktop.`
+      : `Selected "${item.label}".`;
+    drawMap();
   }
 
   canvas.addEventListener("wheel", (event) => {
@@ -1384,7 +1571,7 @@
 
   // The relay's own /search is gone: item lookups belong on the paired desktop, which has the
   // catalogue and knows which quests and hideout modules are asking for the item (#407).
-  $("findGo").addEventListener("click", () => {
+  const runSearch = () => {
     const query = $("find").value.trim();
     if (!query || mode !== "Control") return;
     sendCommand({
@@ -1392,7 +1579,12 @@
       ...commandHeader(live.workspaceRevision + 1),
       action: { type: "search", query },
     });
-    $("searchNote").textContent = `Searching for "${query}" on the desktop.`;
+    $("searchNote").textContent = `Looking up "${query}" on the desktop…`;
+  };
+
+  $("findGo").addEventListener("click", runSearch);
+  $("find").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") runSearch();
   });
 
   setStage("pairingIdle");

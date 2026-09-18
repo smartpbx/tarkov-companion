@@ -1,18 +1,7 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer;
-using TarkovCompanion.GroupServer.Security;
-using TarkovCompanion.GroupServer.StateSync;
-using TarkovCompanion.GroupServer.Storage;
 
 namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 
@@ -35,12 +24,12 @@ namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 public sealed class RelayMapSurfaceKestrelTests
 {
     /// <summary>The same global limit <c>Program.cs</c> configures; the point of the test is that it is smaller.</summary>
-    private const int GlobalKestrelLimit = 32 * 1024;
+    private const int GlobalKestrelLimit = RelayMapTestHost.GlobalKestrelLimit;
 
     [Fact]
     public async Task ASurfaceAndItsArtworkSurviveTheServersOwnBodyLimit()
     {
-        await using var relay = await RelayHost.StartAsync();
+        await using var relay = await RelayMapTestHost.StartAsync();
         var surface = Encoding.UTF8.GetBytes(
             $$"""{"mapId":"customs","padding":"{{new string('p', RelayMapSurfaceStore.MaximumSurfaceBytes - 40)}}"}""");
         Assert.True(surface.Length > GlobalKestrelLimit, "the surface has to be larger than the limit under test");
@@ -67,7 +56,7 @@ public sealed class RelayMapSurfaceKestrelTests
     [Fact]
     public async Task AnOversizedBodyIsRefusedByThisRelayRatherThanByTheTransport()
     {
-        await using var relay = await RelayHost.StartAsync();
+        await using var relay = await RelayMapTestHost.StartAsync();
 
         var oversized = await relay.PostAsync(
             "v2/companion/relay/map",
@@ -85,7 +74,7 @@ public sealed class RelayMapSurfaceKestrelTests
     [Fact]
     public async Task AnUnauthenticatedCallerReadsNothingOverTheWireEither()
     {
-        await using var relay = await RelayHost.StartAsync();
+        await using var relay = await RelayMapTestHost.StartAsync();
         await relay.PostAsync(
             "v2/companion/relay/map",
             relay.Owner,
@@ -96,102 +85,5 @@ public sealed class RelayMapSurfaceKestrelTests
         var refused = await relay.Client.SendAsync(anonymous);
 
         Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
-    }
-
-    /// <summary>A real in-process relay: Kestrel on a loopback port, with the routes under test.</summary>
-    private sealed class RelayHost : IAsyncDisposable
-    {
-        private readonly WebApplication _app;
-        private readonly RelayTestContext _context;
-
-        private RelayHost(
-            WebApplication app,
-            RelayTestContext context,
-            HttpClient client,
-            RelaySessionCredential owner,
-            RelaySessionCredential tablet)
-        {
-            _app = app;
-            _context = context;
-            Client = client;
-            Owner = owner;
-            Tablet = tablet;
-        }
-
-        public HttpClient Client { get; }
-
-        public RelaySessionCredential Owner { get; }
-
-        public RelaySessionCredential Tablet { get; }
-
-        public static async Task<RelayHost> StartAsync()
-        {
-            var context = await RelaySecurityTestFactory.BootstrapAsync();
-            var ownerPrincipal = await context.AuthenticateOwnerAsync();
-            var completed = await RelaySecurityTestFactory.CompletedPairingAsync("kestrel-tablet", context.Clock.UtcNow);
-            var paired = await context.Registry.AddPairedDeviceAsync(
-                ownerPrincipal,
-                completed,
-                DeviceAuthorizationRole.Member,
-                CompanionSurfaceKind.TabletLandscape);
-
-            var builder = WebApplication.CreateSlimBuilder();
-            builder.Logging.ClearProviders();
-            // Exactly what Program.cs configures. Every assertion here is about a body larger
-            // than this number reaching a handler anyway.
-            builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = GlobalKestrelLimit);
-            builder.WebHost.UseUrls("http://127.0.0.1:0");
-            var app = builder.Build();
-            app.MapRelayCompanionRoutes(
-                context.Registry,
-                new OpaqueRelayFrameHub(context.Registry, context.Clock),
-                context.Recovery,
-                new RelayOwnerClaimGate(context.Clock),
-                new RelayMapSurfaceStore(context.Registry, context.Clock));
-            await app.StartAsync();
-
-            var address = app.Services.GetRequiredService<IServer>().Features
-                .Get<IServerAddressesFeature>()!.Addresses.First();
-            var client = new HttpClient { BaseAddress = new Uri(address.TrimEnd('/') + "/") };
-            return new RelayHost(
-                app,
-                context,
-                client,
-                context.OwnerCredential,
-                Assert.IsType<RelaySessionCredential>(paired.Value));
-        }
-
-        public Task<HttpResponseMessage> PostAsync(
-            string path,
-            RelaySessionCredential credential,
-            byte[] body,
-            string mediaType)
-        {
-            var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue(mediaType);
-            Authenticate(request, credential);
-            return Client.SendAsync(request);
-        }
-
-        public Task<HttpResponseMessage> GetAsync(string path, RelaySessionCredential credential)
-        {
-            var request = new HttpRequestMessage(HttpMethod.Get, path);
-            Authenticate(request, credential);
-            return Client.SendAsync(request);
-        }
-
-        private static void Authenticate(HttpRequestMessage request, RelaySessionCredential credential)
-        {
-            request.Headers.Add("X-Relay-Session", credential.SessionId.Value.ToString("D"));
-            request.Headers.Add("X-Relay-Credential", credential.Secret);
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            Client.Dispose();
-            await _app.StopAsync();
-            await _app.DisposeAsync();
-            _context.Dispose();
-        }
     }
 }
