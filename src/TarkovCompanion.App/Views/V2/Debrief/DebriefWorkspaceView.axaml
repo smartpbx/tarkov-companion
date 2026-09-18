@@ -190,15 +190,17 @@
             <Border Classes="v2-debrief-section v2-debrief-accent">
               <StackPanel Spacing="8">
                 <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
                   <TextBlock Grid.Row="0" Classes="v2-debrief-muted" Text="Mode" />
                   <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedModeLabel}" HorizontalAlignment="Right" />
                   <TextBlock Grid.Row="1" Classes="v2-debrief-muted" Text="Started" />
                   <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStartedLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Duration" />
-                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="3" Classes="v2-debrief-muted" Text="Queue/load" />
-                  <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedLoadTimeLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Ended" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedEndedLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="3" Classes="v2-debrief-muted" Text="Duration" />
+                  <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="4" Classes="v2-debrief-muted" Text="Queue/load" />
+                  <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedLoadTimeLabel}" HorizontalAlignment="Right" />
                 </Grid>
               </StackPanel>
             </Border>
@@ -210,6 +212,11 @@
                   <TextBlock Classes="v2-debrief-strong" Text="Screenshots" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedDistanceLabel}" TextWrapping="Wrap"
+                           IsVisible="{Binding HasDistance}" />
+                <Button Classes="v2-target v2-debrief-plain" HorizontalAlignment="Left" IsVisible="{Binding CanWatch}"
+                        AutomationProperties.AutomationId="v2-debrief-watch"
+                        Content="Watch on map" Command="{Binding WatchOnMapCommand}" />
                 <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>

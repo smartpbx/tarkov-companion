@@ -1,0 +1,146 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Plan.EventsWorkspaceView"
+             x:DataType="pages:EventsPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- V1's Events page in the workspace layout: create an event across the top, the events on the
+       left, and the chosen event's items on the right with what has been recorded about each.
+       An empty catalog is the ordinary out-of-season state, so it says so rather than showing an error. -->
+  <Grid RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+    <Grid Grid.Row="0" RowDefinitions="Auto,Auto" RowSpacing="6">
+      <Border Grid.Row="0" Classes="v2-intel-search" IsVisible="{Binding CanEdit}" Width="640" HorizontalAlignment="Left">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+          <TextBox Classes="v2-intel-search-input" Text="{Binding NewEventName}"
+                   PlaceholderText="New event name"
+                   AutomationProperties.AutomationId="v2-events-new-name"
+                   AutomationProperties.Name="New event name">
+            <TextBox.KeyBindings>
+              <KeyBinding Gesture="Enter" Command="{Binding CreateCommand}" />
+            </TextBox.KeyBindings>
+          </TextBox>
+          <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Create" Command="{Binding CreateCommand}"
+                  VerticalAlignment="Center" AutomationProperties.AutomationId="v2-events-create" />
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-events-reload"
+                  AutomationProperties.Name="Reload events" ToolTip.Tip="Reload"
+                  Command="{Binding RefreshCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
+          </Button>
+        </Grid>
+      </Border>
+      <TextBlock Grid.Row="1" Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap" Margin="4,0"
+                 AutomationProperties.LiveSetting="Polite" />
+    </Grid>
+
+    <!-- Nothing configured. -->
+    <Border Grid.Row="1" Classes="v2-intel-pane" Padding="24" IsVisible="{Binding HasNoEvents}"
+            VerticalAlignment="Top" MaxWidth="640" HorizontalAlignment="Left">
+      <StackPanel Spacing="8">
+        <TextBlock Classes="v2-heading-3" Text="No event is configured" AutomationProperties.HeadingLevel="2" />
+        <TextBlock Classes="v2-body" Text="{Binding EmptyGuidance}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding DefinitionsDirectory}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="0.3*,*" ColumnSpacing="16" IsVisible="{Binding HasEvents}">
+      <Border Grid.Column="0" Classes="v2-intel-pane" Padding="14"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-events-list">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <ListBox ItemsSource="{Binding Events}" SelectedItem="{Binding Selected, Mode=TwoWay}" Background="Transparent">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="pages:EventSummaryViewModel">
+                <StackPanel Spacing="2" Margin="0,4">
+                  <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding Season}" TextWrapping="Wrap"
+                             Foreground="{DynamicResource V2.Brush.Warning}" />
+                  <TextBlock Classes="v2-label" Text="{Binding Window}" TextWrapping="Wrap" />
+                  <TextBlock Classes="v2-label" Text="{Binding ItemSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </ScrollViewer>
+      </Border>
+
+      <Border Grid.Column="1" Classes="v2-intel-pane" Padding="18,14"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-events-detail">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
+          <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+            <TextBlock Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+            <Button Grid.Column="1" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
+                    Content="{Binding DeleteLabel}" IsVisible="{Binding CanEdit}" />
+          </Grid>
+          <TextBlock Grid.Row="1" Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                     Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+          <TextBlock Grid.Row="2" Classes="v2-heading-3" Text="{Binding Progress}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="3" Classes="v2-label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
+
+          <!-- A definition names items by id and nobody knows them by id, so they are chosen from the catalog. -->
+          <StackPanel Grid.Row="4" Spacing="6" IsVisible="{Binding CanEdit}">
+            <Border Classes="v2-intel-search" MinHeight="42">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
+                         PlaceholderText="Find an item to add"
+                         AutomationProperties.AutomationId="v2-events-item-search"
+                         AutomationProperties.Name="Find an item to add">
+                  <TextBox.KeyBindings>
+                    <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+                  </TextBox.KeyBindings>
+                </TextBox>
+                <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain"
+                        AutomationProperties.Name="Search" ToolTip.Tip="Search" Command="{Binding SearchCommand}">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
+                </Button>
+              </Grid>
+            </Border>
+            <TextBlock Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap" />
+            <ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding Matches}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:EventItemMatchViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
+                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Add" Command="{Binding AddCommand}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding Items}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="pages:EventItemViewModel">
+                  <Border Classes="v2-intel-fact" Padding="0,10">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ItemName}" TextWrapping="Wrap"
+                                 VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1" Spacing="1">
+                        <TextBlock Classes="v2-label" Text="Recorded" />
+                        <TextBlock Classes="v2-body" Text="{Binding StateLabel}" />
+                      </StackPanel>
+                      <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" ItemSpacing="6" LineSpacing="6">
+                        <Button Classes="v2-target v2-chip" Content="Safe" Command="{Binding MarkSafeCommand}" IsEnabled="{Binding CanRecord}" />
+                        <Button Classes="v2-target v2-chip" Content="Allergic" Command="{Binding MarkAllergicCommand}" IsEnabled="{Binding CanRecord}" />
+                        <Button Classes="v2-target v2-chip" Content="Untested" Command="{Binding MarkUntestedCommand}" IsEnabled="{Binding CanRecord}" />
+                        <Button Classes="v2-target v2-chip" Content="Unknown" Command="{Binding MarkUnknownCommand}" IsEnabled="{Binding CanRecord}" />
+                        <Button Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanEdit}" />
+                      </WrapPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

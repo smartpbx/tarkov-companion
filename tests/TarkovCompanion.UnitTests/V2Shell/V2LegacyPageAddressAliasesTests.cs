@@ -99,6 +99,15 @@ public sealed class V2LegacyPageAddressAliasesTests
         Assert.Equal(addressB, V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.B, requestedPage));
     }
 
+    [Theory]
+    [InlineData("Loadout", "plan/loadout", "prepare/loadout")]
+    [InlineData("events", "plan/events", "prepare/events")]
+    public void LoadoutAndEventsResolveToTheirPlanWorkspacesInBothVariants(string requestedPage, string addressA, string addressB)
+    {
+        Assert.Equal(addressA, V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.A, requestedPage));
+        Assert.Equal(addressB, V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, V2ShellVariants.B, requestedPage));
+    }
+
     [Fact]
     public void AnUnknownPageNameResolvesToNothing()
     {

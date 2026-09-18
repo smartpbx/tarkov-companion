@@ -12,6 +12,7 @@ using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Plan;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
@@ -126,6 +127,31 @@ internal static class Program
                 DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
             }
 
+            // Package 28: put the Plan workspace on a filter, a search and a level before the frame.
+            var planFilter = StringOption(args, "--plan-filter");
+            var planSearch = StringOption(args, "--plan-search");
+            var planLevel = IntOption(args, "--plan-level", 0);
+            if (planFilter is not null || planSearch is not null || planLevel > 0)
+            {
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                if (planLevel > 0)
+                {
+                    DrainUntilComplete(plan.SetPlayerLevelAsync(planLevel));
+                }
+
+                if (planFilter is not null)
+                {
+                    plan.Filter = Enum.Parse<PlanQuestFilter>(planFilter, ignoreCase: true);
+                }
+
+                if (planSearch is not null)
+                {
+                    plan.SearchText = planSearch;
+                }
+
+                Pump(40);
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);
@@ -135,6 +161,57 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // Package 29 (parity): Setup is one route with sections inside it, so a render names the
+            // section the same way its tab does ("progress", "privacy", "diagnostics", ...).
+            if (shell?.SetupWorkspace is { } setup && StringOption(args, "--setup-section") is { } sectionName)
+            {
+                if (!Enum.TryParse<V2SetupSection>(sectionName, ignoreCase: true, out var section))
+                {
+                    throw new ArgumentException($"No Setup section is named '{sectionName}'.");
+                }
+
+                setup.Select(section);
+                Pump(20);
+            }
+
+            // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
+            // event holding a few items, through the pages' own commands.
+            if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
+            {
+                var loadout = viewModel.Loadout;
+                loadout.SearchQuery = loadoutQuery;
+                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                if (loadout.Results.Count > 0)
+                {
+                    loadout.Results[0].AssignCommand.Execute(null);
+                    Pump(60);
+                }
+
+                DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
+                Pump(20);
+            }
+
+            if (args.Contains("--events-demo"))
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Halloween 2026";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = "bandage";
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                foreach (var match in events.Matches.Take(3).ToArray())
+                {
+                    match.AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    events.Items[0].MarkSafeCommand.Execute(null);
+                    Pump(60);
+                }
             }
 
             if (fleaQuery is not null)
@@ -231,11 +308,12 @@ internal static class Program
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
                 var demo = TeamDemoGroup(viewModel.Map.RenderModel);
+                var party = DemoParty();
                 for (var i = 0; i < 6; i++)
                 {
                     // The shell re-applies the store's snapshot on every refresh (the raid clock
                     // alone ticks once a second), so the store carries the demo group too.
-                    store.Update(snapshot => snapshot with { Group = demo });
+                    store.Update(snapshot => snapshot with { Group = demo, Squad = party });
                     services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.TeamWorkspaceViewModel>()
                         .Apply(store.Current);
                     Pump(1);
@@ -257,6 +335,28 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // Package 29 (parity): raids written through the real history service, so Debrief lists
+            // and selects them the way it does for a player's own. The newest carries a trail on the
+            // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
+            if (shell is not null && args.Contains("--debrief-demo"))
+            {
+                var seeded = SeedDebriefAsync(services, RaidDemo(viewModel.Map.RenderModel).Raid);
+                DrainUntilComplete(seeded);
+                var debrief = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>();
+                DrainUntilComplete(debrief.LoadAsync());
+                // The demo composition records a live raid of its own, which is the newest and so
+                // the one Debrief selects; pick the seeded one, the one with a trail to look at.
+                DrainUntilComplete(debrief.SelectRaidAsync(seeded.Result, CancellationToken.None));
+                Pump(20);
+                if (args.Contains("--watch"))
+                {
+                    services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>()
+                        .WatchOnMapCommand.Execute(null);
+                    // The shell picks the raid's map, opens the replay and navigates: three async steps.
+                    Pump(120);
+                }
             }
 
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
@@ -309,6 +409,63 @@ internal static class Program
                 Environment.Exit(0);
             }
         }
+    }
+
+    /// <summary>Three raids through the real history store; the newest of them is the one with a trail, and its id is returned.</summary>
+    private static async Task<Guid> SeedDebriefAsync(IServiceProvider services, TarkovCompanion.Core.Domain.Raids.RaidSnapshot shown)
+    {
+        // The store itself, not IRaidHistoryService: that is the outbox, which accepts closed typed
+        // commands only, and a fixture has no game to observe them from. The app still reads
+        // through the outbox, so Debrief lists these exactly as it lists a player's own raids.
+        IRaidHistoryService history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
+        var profile = await services.GetRequiredService<IPlayerProfileService>().GetActiveAsync(CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+        var json = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+
+        async Task<Guid> Raid(string map, TimeSpan startedAgo, TimeSpan length, string? outcome, string? notes)
+        {
+            var started = now - startedAgo;
+            var id = await history.StartAsync(
+                new(Guid.NewGuid(), profile.Id, map, "Pmc", started, null, null, null),
+                CancellationToken.None);
+            await history.EndAsync(id, started + length, outcome, notes, CancellationToken.None);
+            return id;
+        }
+
+        await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
+        await Raid("woods", TimeSpan.FromDays(1), TimeSpan.FromMinutes(38), null, "Ran the sawmill");
+        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, "Dorms then RUAF roadblock");
+        // Re-timed to fall inside the raid they belong to: the demo trail is stamped minutes ago, and
+        // the raid above started two hours back.
+        var raidStart = now - TimeSpan.FromHours(2);
+        var index = 0;
+        foreach (var step in shown.PositionTrail)
+        {
+            index++;
+            var stamped = step with { Timestamp = raidStart + TimeSpan.FromMinutes(2.5 * index) };
+            await history.RecordEventAsync(
+                newest,
+                "position",
+                stamped.Timestamp,
+                System.Text.Json.JsonSerializer.Serialize(stamped, json),
+                CancellationToken.None);
+        }
+
+        return newest;
+    }
+
+    /// <summary>A party of two as the game announces one: a leader who is ready and a member who is not.</summary>
+    private static TarkovCompanion.Core.Domain.Raids.SquadSnapshot DemoParty()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new(
+            [
+                new(null, null, "Geo", "Usec", 42, true, true, null, []),
+                new(null, null, "Riley", "Bear", 37, false, false, now.AddMinutes(14), []),
+            ],
+            now.AddSeconds(-40),
+            TimeSpan.FromSeconds(38),
+            now);
     }
 
     private static async Task SeedActiveQuestsAsync(IServiceProvider services, int count)
@@ -499,6 +656,11 @@ internal static class Program
 
         TarkovCompanion.Application.Services.Group.GroupMemberView Member(string name, TimeSpan since, params string[] quests) =>
             new(name, mapId, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", null, null, null, [], quests) { Since = since };
+        TarkovCompanion.Application.Services.Group.GroupMemberView Sharing(string name, TimeSpan since, double planX, double planY, string[] loadout, params string[] quests)
+        {
+            var (x, z) = At(planX, planY);
+            return new(name, mapId, TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid, "PMC", new(x, 0, z), 90, TimeSpan.FromSeconds(40), loadout, quests) { Since = since };
+        }
         TarkovCompanion.Application.Services.Group.GroupWaypointView Waypoint(long id, string by, double planX, double planY, string? label, string? reached, int minutesAgo)
         {
             var (x, z) = At(planX, planY);
@@ -508,13 +670,16 @@ internal static class Program
         var (pingX, pingZ) = At(55, 30);
         return new(true,
             [
-                Member("Geo", TimeSpan.FromSeconds(4), "Delivery from the Past", "Debut"),
+                Sharing("Geo", TimeSpan.FromSeconds(4), 30, 40, ["Primary: AK-74N", "Rig: Slick"], "Delivery from the Past", "Debut"),
                 Member("Riley", TimeSpan.FromSeconds(9), "Delivery from the Past"),
                 Member("Sam", TimeSpan.FromMinutes(2), "Shortage"),
             ],
             "Sharing as Clay · 3 others here",
             now)
         {
+            MyLoadout = ["Primary: AKMN", "Armour: 6B13"],
+            MyLevel = 41,
+            MySide = "Usec",
             Waypoints =
             [
                 Waypoint(1, "Geo", 22, 35, "Dorms", "Riley", 6),
