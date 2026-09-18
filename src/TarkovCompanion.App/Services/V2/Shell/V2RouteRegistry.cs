@@ -116,11 +116,13 @@ public sealed class V2RouteRegistry
         // the V1 Items page; the item route draws the same workspace with that item selected.
         new(V2Routes.Items, [V2Capabilities.ItemSearch], V2RouteContent.IntelWorkspace, "V2.Shell.Route.Items",
             UsesGameData: true),
-        new(V2Routes.Ammo, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Ammo", "Ammo",
+        // V2 rough package 28 (parity): Ammo, Keys and Flea are native workspaces over the V1
+        // pages' own view models rather than passthroughs to V1's chrome.
+        new(V2Routes.Ammo, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Ammo",
             Parent: V2Routes.Items, UsesGameData: true),
-        new(V2Routes.Keys, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Keys", "Keys",
+        new(V2Routes.Keys, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Keys",
             Parent: V2Routes.Items, UsesGameData: true),
-        new(V2Routes.Flea, [V2Capabilities.ReferenceData], V2RouteContent.LegacyPage, "V2.Shell.Route.Flea", "Flea",
+        new(V2Routes.Flea, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Flea",
             Parent: V2Routes.Items, UsesGameData: true),
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),
@@ -130,9 +132,15 @@ public sealed class V2RouteRegistry
             UsesGameData: true),
         new(V2Routes.Hideout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Hideout",
             Parent: V2Routes.Plan, UsesGameData: true),
-        new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Loadout", "Loadout",
+        // V2 rough package 25 (#402): a computed Keep list, alongside Hideout as a Plan section —
+        // it reads the same requirement catalog and profile the Hideout tab already does.
+        new(V2Routes.Keep, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Keep",
             Parent: V2Routes.Plan, UsesGameData: true),
-        new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Events", "Events",
+        // V2 rough package 28 (parity): Loadout and Events are native workspaces over the V1
+        // pages' view models, so no route passes through to V1's chrome any more.
+        new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Loadout",
+            Parent: V2Routes.Plan, UsesGameData: true),
+        new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Events",
             Parent: V2Routes.Plan),
         // v2r-team (package 9, wave 2): one native V2 Team workspace (presence, marks, group
         // sharing, paired devices) replaces the Squad/Group passthroughs and the Tablet state

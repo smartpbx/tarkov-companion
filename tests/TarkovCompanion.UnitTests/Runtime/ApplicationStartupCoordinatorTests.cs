@@ -716,7 +716,9 @@ public sealed class ApplicationStartupCoordinatorTests
 
     private sealed class StubScreenshotWatcher : IScreenshotWatcher
     {
-        public IAsyncEnumerable<string> WatchAsync(string screenshotRoot, CancellationToken cancellationToken) =>
+        public IAsyncEnumerable<ScreenshotSighting> WatchAsync(
+            string screenshotRoot,
+            CancellationToken cancellationToken) =>
             throw new NotSupportedException();
     }
 

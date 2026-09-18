@@ -319,6 +319,8 @@ public sealed class SupportBundleTests
                 "waypoints present",
                 "pings present",
                 "relay state stale",
+                // v2r-fast-positions (package 31): counts and durations, never who or where.
+                "squadmate position latency",
                 "application log content included",
                 "runtime detail text included",
                 "screenshot or OCR content included",

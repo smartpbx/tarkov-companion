@@ -1,0 +1,175 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.KeysWorkspaceView"
+             x:DataType="vm:KeysWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:pages="using:TarkovCompanion.App.ViewModels">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- V1's Keys page in the Intel layout: filter and verdict chips across the top, the keys as
+       rows (verdict, then the map, locks, uses and cost behind it), and the chosen key's reason
+       and locks in the context panel. -->
+  <Grid ColumnDefinitions="*,Auto">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+      <Border Grid.Row="0" Classes="v2-intel-search">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                Data="{DynamicResource V2.Icon.Search}" />
+          <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchQuery}"
+                   PlaceholderText="Filter keys by name or map"
+                   AutomationProperties.AutomationId="v2-keys-search"
+                   AutomationProperties.Name="Filter keys" />
+          <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain"
+                  AutomationProperties.AutomationId="v2-keys-reload"
+                  AutomationProperties.Name="Reload keys" ToolTip.Tip="Reload"
+                  Command="{Binding RefreshCommand}">
+            <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
+          </Button>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="v2-intel-pane" Padding="14"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-keys-list">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+          <ItemsControl Grid.Row="0" ItemsSource="{Binding VerdictFilters}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:KeyVerdictChipViewModel">
+                <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                        AutomationProperties.Name="{Binding Label}"
+                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <StackPanel Grid.Row="1" Spacing="2" Margin="2,0">
+            <TextBlock Classes="v2-label" IsVisible="{Binding ShowsKeyCount}" Text="{Binding KeyCountLabel}" />
+            <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                         IsVisible="{Binding ShowsNoKeys}" Text="{Binding NoKeysLabel}"
+                         TextWrapping="Wrap" Margin="2,8" />
+              <ItemsControl ItemsSource="{Binding Keys}" IsVisible="{Binding HasKeys}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:KeyListRowViewModel">
+                    <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Name}"
+                            Command="{Binding SelectCommand}">
+                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="2">
+                        <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-body" FontWeight="SemiBold"
+                                   Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
+                                   Classes.v2-intel-good="{Binding IsKeep}"
+                                   Classes.v2-intel-fair="{Binding IsKeepForLater}"
+                                   Classes.v2-intel-poor="{Binding IsSell}"
+                                   Text="{Binding VerdictLabel}" />
+                        <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-label" TextTrimming="CharacterEllipsis">
+                          <Run Text="{Binding Map}" /><Run Text=" · " /><Run Text="{Binding LockSummary}" /><Run Text=" · " /><Run Text="{Binding Uses}" />
+                        </TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label" Text="{Binding Cost}" />
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- Context panel: the chosen key. -->
+    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.LandmarkType="Complementary"
+            AutomationProperties.AutomationId="v2-keys-context">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="12" Margin="16,12,16,16">
+          <Border Classes="v2-intel-section" IsVisible="{Binding ShowsNoSelectedKey}">
+            <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                       TextWrapping="Wrap" Text="Select a key to see every lock it opens." />
+          </Border>
+
+          <Border Classes="v2-intel-accent" IsVisible="{Binding HasSelectedKey}">
+            <Border Classes="v2-intel-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2" TextWrapping="Wrap"
+                           Text="{Binding SelectedName}" />
+                <TextBlock Classes="v2-heading-3" Text="{Binding SelectedVerdict}"
+                           Classes.v2-intel-good="{Binding SelectedIsKeep}"
+                           Classes.v2-intel-fair="{Binding SelectedIsKeepForLater}"
+                           Classes.v2-intel-poor="{Binding SelectedIsSell}" />
+                <TextBlock Classes="v2-body" TextWrapping="Wrap" IsVisible="{Binding HasSelectedReason}"
+                           Text="{Binding SelectedReason}" />
+                <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch"
+                        HorizontalContentAlignment="Center" Margin="0,6,0,0"
+                        AutomationProperties.AutomationId="v2-keys-open-intel"
+                        AutomationProperties.Name="Open in Intel"
+                        Command="{Binding OpenInIntelCommand}">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Link}" />
+                    <TextBlock VerticalAlignment="Center" Text="Prices and needs" />
+                  </StackPanel>
+                </Button>
+              </StackPanel>
+            </Border>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedKey}">
+            <StackPanel Spacing="4">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Key" Margin="0,0,0,4" />
+              <Border Classes="v2-intel-fact">
+                <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label" Text="Map" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedMap}" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
+              <Border Classes="v2-intel-fact">
+                <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label" Text="Locks" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedLocks}" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
+              <Border Classes="v2-intel-fact">
+                <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label" Text="Uses" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedUses}" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
+              <Border Classes="v2-intel-fact">
+                <Grid ColumnDefinitions="110,*" ColumnSpacing="12">
+                  <TextBlock Classes="v2-label" Text="Cost" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding SelectedCost}" TextWrapping="Wrap" />
+                </Grid>
+              </Border>
+              <TextBlock Classes="v2-label" Margin="0,6,0,0" TextWrapping="Wrap" Text="{Binding SelectedProvenance}" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasSelectedLockIds}">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="Locks opened" />
+              <ItemsControl ItemsSource="{Binding SelectedLockIds}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:KeyLockViewModel">
+                    <TextBlock Classes="v2-label" Margin="0,2" Text="{Binding LockId}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

@@ -9,13 +9,14 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// <remarks>
 /// Most v1 names still resolve because <see cref="V2RouteRegistry"/> records them as
 /// <see cref="V2RouteDefinition.LegacyPage"/>, and <see cref="V2ShellAddress.Parse"/> already
-/// matches segments case-insensitively. Eight do not, for the same reason: the route each named
+/// matches segments case-insensitively. Thirteen do not, for the same reason: the route each named
 /// v1 page used to pass through to now hosts a real V2 workspace instead, so there is no
 /// registry entry left to read. "Scanner" now hosts <c>LootScanView</c> (package 1, #282);
 /// "Raid" now hosts the raid cockpit (package 2, #286); "History" now hosts the Debrief workspace
 /// (package 3, #291); "Quests" and "Hideout" now host the Plan workspace and its Hideout section
 /// (package 10, #288); "Squad" and "Group" now both host the Team workspace (package 9, #289);
-/// "Items" now hosts the Intel workspace (package 17).
+/// "Items" now hosts the Intel workspace (package 17); "Ammo", "Keys" and "Flea" now host their own
+/// Intel workspaces, and "Loadout" and "Events" their Plan workspaces (package 28).
 /// The overrides below are those historical mappings, not a general escape hatch — a route that
 /// never had a v1 page has nothing to alias, and gets none.
 /// </remarks>
@@ -32,6 +33,11 @@ public static class V2LegacyPageAddressAliases
             ["Squad"] = V2Routes.Team,
             ["Group"] = V2Routes.Group,
             ["Items"] = V2Routes.Items,
+            ["Ammo"] = V2Routes.Ammo,
+            ["Keys"] = V2Routes.Keys,
+            ["Flea"] = V2Routes.Flea,
+            ["Loadout"] = V2Routes.Loadout,
+            ["Events"] = V2Routes.Events,
         };
 
     /// <summary>The current variant's address for the route this v1 page name now belongs to, or null.</summary>

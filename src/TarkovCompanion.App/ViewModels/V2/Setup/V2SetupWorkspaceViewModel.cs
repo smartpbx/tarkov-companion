@@ -17,6 +17,9 @@ public enum V2SetupSection
     Appearance,
     Displays,
     Diagnostics,
+
+    /// <summary>Package 29 (parity): the quest-progress exchange and TarkovTracker import V1 kept in Settings.</summary>
+    Progress,
 }
 
 /// <summary>One clickable section tab, the same shape as the shell's other selectable rows.</summary>
@@ -65,6 +68,11 @@ public sealed class V2SetupSectionTabViewModel : BindableViewModel
 /// A section with nothing wired yet says so in one line rather than drawing a control that does
 /// nothing - Team &amp; Devices and Displays are both that shape today, since their real controls
 /// already live on the Team page and in automatic window placement (#316) respectively.
+///
+/// Package 29 (parity) walked V1's Settings page against this one. The quest-progress exchange and
+/// the TarkovTracker import were the only whole features Setup lacked, so they are the Progress
+/// section; they bind the same <see cref="SettingsPageViewModel.Quests"/> view model V1 does,
+/// because the import has to keep its preview, confirm and undo together (ADR 0004).
 /// </remarks>
 public sealed class V2SetupWorkspaceViewModel : BindableViewModel
 {
@@ -96,6 +104,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             new(V2SetupSection.GameProfile, "V2.Setup.Section.GameProfile", Select),
             new(V2SetupSection.Recognition, "V2.Setup.Section.Recognition", Select),
             new(V2SetupSection.Data, "V2.Setup.Section.Data", Select),
+            new(V2SetupSection.Progress, "V2.Setup.Section.Progress", Select),
             new(V2SetupSection.TeamDevices, "V2.Setup.Section.TeamDevices", Select),
             new(V2SetupSection.Updates, "V2.Setup.Section.Updates", Select),
             new(V2SetupSection.Privacy, "V2.Setup.Section.Privacy", Select),
@@ -140,7 +149,31 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string AvailableBuildLabel => V2ShellText.Get("V2.Setup.Updates.AvailableLabel");
     public string ScreenshotIntro => V2ShellText.Get("V2.Setup.Privacy.ScreenshotIntro");
     public string RetentionLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionLabel");
-    public string DebugCaptureLabel => V2ShellText.Get("V2.Setup.Privacy.DebugCapture");
+    public string RetentionValueLabel => V2ShellText.Get("V2.Setup.Privacy.RetentionValueLabel");
+    public string RecycleNote => V2ShellText.Get("V2.Setup.Privacy.RecycleNote");
+    public string FolderPlaceholder => V2ShellText.Get("V2.Setup.GameProfile.FolderPlaceholder");
+    public string ScanHint => V2ShellText.Get("V2.Setup.Recognition.ScanHint");
+    public string OfflineNote => V2ShellText.Get("V2.Setup.Data.OfflineNote");
+    public string ScaleHint => V2ShellText.Get("V2.Setup.Appearance.ScaleHint");
+    public string ScaleScope => V2ShellText.Get("V2.Setup.Appearance.ScaleScope");
+    public string LogLabel => V2ShellText.Get("V2.Setup.Diagnostics.LogLabel");
+    public string RelayNote => V2ShellText.Get("V2.Setup.Diagnostics.RelayNote");
+    public string ExchangeTitle => V2ShellText.Get("V2.Setup.Progress.ExchangeTitle");
+    public string ExchangeNote => V2ShellText.Get("V2.Setup.Progress.ExchangeNote");
+    public string ExchangePathPlaceholder => V2ShellText.Get("V2.Setup.Progress.ExchangePath");
+    public string ExportLabel => V2ShellText.Get("V2.Setup.Progress.Export");
+    public string PreviewImportLabel => V2ShellText.Get("V2.Setup.Progress.Preview");
+    public string KeepLocalLabel => V2ShellText.Get("V2.Setup.Progress.KeepLocal");
+    public string UseIncomingLabel => V2ShellText.Get("V2.Setup.Progress.UseIncoming");
+    public string ApplyImportLabel => V2ShellText.Get("V2.Setup.Progress.Apply");
+    public string UndoImportLabel => V2ShellText.Get("V2.Setup.Progress.Undo");
+    public string ImportHistoryTitle => V2ShellText.Get("V2.Setup.Progress.HistoryTitle");
+    public string TrackerTitle => V2ShellText.Get("V2.Setup.Progress.TrackerTitle");
+    public string TrackerNote => V2ShellText.Get("V2.Setup.Progress.TrackerNote");
+    public string TrackerTokenPlaceholder => V2ShellText.Get("V2.Setup.Progress.TrackerToken");
+    public string TrackerConnectLabel => V2ShellText.Get("V2.Setup.Progress.TrackerConnect");
+    public string TrackerRefreshLabel => V2ShellText.Get("V2.Setup.Progress.TrackerRefresh");
+    public string TrackerDisconnectLabel => V2ShellText.Get("V2.Setup.Progress.TrackerDisconnect");
     public string ScaleLabel => V2ShellText.Get("V2.Setup.Appearance.ScaleLabel");
     public string SmallerLabel => V2ShellText.Get("V2.Setup.Appearance.SmallerLabel");
     public string LargerLabel => V2ShellText.Get("V2.Setup.Appearance.LargerLabel");
@@ -174,6 +207,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsAppearanceSelected));
             OnPropertyChanged(nameof(IsDisplaysSelected));
             OnPropertyChanged(nameof(IsDiagnosticsSelected));
+            OnPropertyChanged(nameof(IsProgressSelected));
         }
     }
 
@@ -187,6 +221,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool IsAppearanceSelected => Selected == V2SetupSection.Appearance;
     public bool IsDisplaysSelected => Selected == V2SetupSection.Displays;
     public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
+    public bool IsProgressSelected => Selected == V2SetupSection.Progress;
 
     public void Select(V2SetupSection section) => Selected = section;
 

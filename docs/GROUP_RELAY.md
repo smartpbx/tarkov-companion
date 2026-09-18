@@ -90,6 +90,38 @@ The reply is everyone else in the group:
 You are never in your own `members` list. `room` is the hash, returned so a client can notice it
 has been talking to a different group than it thought.
 
+## Being told sooner: holding the exchange open
+
+Calling every few seconds means a squadmate's position waits most of a tick to be published and
+most of another to be collected. So the exchange may be held:
+
+    POST /state?wait=5&since=41
+
+- `wait` — seconds you are willing to wait for the room to change. The relay caps it at 20.
+- `since` — the `revision` your previous reply carried.
+
+Send both and the relay publishes you as usual, then keeps the reply back until the room changes
+or your wait runs out, whichever is first. Send neither, or either alone, and you get the
+immediate reply you always got. Nothing else about the request or the reply changed.
+
+The reply carries `revision`, which counts changes made by everybody but you — your own publish
+cannot be what ends your own hold, or every wait would finish on the request that started it.
+Send the last one you saw back as `since`. A reply with no `revision` is a relay that does not
+hold; keep to your own tick against it.
+
+What it costs the relay: one socket and one continuation per held request, at most 256 held at
+once (past that you are answered immediately), and the hold ends as soon as you disconnect. When
+it answers it writes one room, which is 4.4 KB for a five-member squad.
+
+Our client asks for a five-second hold rather than the full twenty, because the tick is also what
+keeps presence, position ages and staleness current — and it ends its own hold early whenever the
+player's position changes, so a new screenshot goes up at once instead of at the end of the wait.
+
+Its screenshot folder is polled four times a second while a raid is running and sharing is on, and
+once a second otherwise, so the poll is no longer most of the wait either. The whole path —
+screenshot written to the other member's marker moving — measures 0.40 s median and about 0.45 s
+at p95 over a 60 ms link.
+
 ## Marks
 
 A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and
@@ -208,8 +240,11 @@ invite.
 ## Landmarks for the second screen
 
 `GET /landmarks` returns every map's recognisable places in world coordinates, keyed by the
-map's normalised name. No key: this is public game data, like `/catalog`, and requiring one
-would mean the tablet could draw nothing until somebody had typed a group key.
+map's normalised name. No key: this is public game data, like `/catalog`.
+
+Since #407 the tablet no longer reads this. It draws the desktop's own scene instead (below), which
+already carries these places in the plan's units. It remains for the desktop's own naming and for
+any other client of this relay.
 
 ```json
 { "customs": [ {"k":"e","n":"Old Azs Gate","f":"scav","x":300.5,"z":-198.5},
@@ -243,7 +278,9 @@ The whole answer is 33,015 bytes for all fifteen maps.
 ## Searching the catalog
 
 `GET /search?q=salewa` returns up to twelve items with their prices. No key, like `/catalog` and
-`/landmarks`.
+`/landmarks`. Since #407 the tablet does not use this either: a lookup typed on a tablet runs on
+the paired desktop, which has the whole catalogue and knows which quests and hideout modules are
+asking for the item.
 
 ```json
 [{"id":"544fb45d4bdc2dee738b4568","name":"Salewa first aid kit",
@@ -365,6 +402,38 @@ the desktop only learns it from `POST /v2/companion/relay/devices`'s response af
 has already been handed over. The other direction — a mark the desktop already had, or places
 locally, reaching the tablet — is still deferred; see the v2r-tablet-marks-sync package PR's
 "Deferred to polish".
+
+## The desktop's map, for its paired tablets (#407)
+
+A tablet is only ever a companion paired to one desktop, and a tablet without the real map is not
+usable. The desktop is the side that has one — it holds the reviewed artwork, the plan rectangle
+(`MapPlanProjection`) and the assembled `MapSceneSnapshot` — so it publishes what it is drawing and
+its tablets read it back:
+
+| Route | Who | What |
+| --- | --- | --- |
+| `POST /v2/companion/relay/map` | the relay's owner | The scene as JSON (`TabletMapSurface`): the plan rectangle, the layers, every object already in that rectangle's units, the desktop's camera, the reviewed asset's attribution, and which artwork it expects. At most 1 MiB. |
+| `POST /v2/companion/relay/map/artwork?sha256=…` | the relay's owner | The picture itself, `image/png`/`jpeg`/`webp`, at most 24 MiB. The relay hashes the body and refuses it unless it is the bytes the caller declared. |
+| `GET /v2/companion/relay/map` | any live paired session | The current scene, or 404 while nothing is published. |
+| `GET /v2/companion/relay/map/artwork` | any live paired session | Its bytes, with the content hash as the ETag. |
+
+Both reads take the same `X-Relay-Session`/`X-Relay-Credential` pair as the frame routes, so a
+revoked device reads nothing: its credential stops authenticating. Nothing here is public — a
+reviewed asset served to anybody who asked would be a redistribution its licence does not cover.
+
+Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
+at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
+the scene and never learns which map it is. The artwork is uploaded only when its content hash
+changes, while the scene is republished about once a second during a raid, and a tablet that sees
+a scene older than twenty seconds says the desktop is offline.
+
+**Follow, Control and Independent** need no route of their own. They are the same revisioned
+commands over the same sealed frames: `SetInteractionModeCommand` for Follow and Independent,
+`RequestControlCommand` answered by the desktop's `ResolveControlCommand`, then
+`ControlWorkspaceCommand` while the lease lasts, and `PreemptControlCommand` when the desktop takes
+control back. The desktop's own navigation travels as `UpdateDesktopWorkspaceCommand`, which is
+what a following tablet mirrors. A workspace update names the device whose command caused it, so a
+tablet drops the echo of its own change rather than following it.
 
 ## Which version everything speaks
 

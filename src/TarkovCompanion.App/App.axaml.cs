@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -49,6 +50,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     // this shell instance. Resolved (not merely registered) so it starts observing
                     // for the life of the process; legacy launches never build it.
                     services.GetRequiredService<V2ShellCaptureBridge>();
+                    // [V2 rough package 24] Same reason: resolved so the paired tablets' map
+                    // starts following this shell's own raid map for the life of the process.
+                    services.GetRequiredService<TabletMapSurfacePublisher>();
                     // One-time, best-effort: gives #269's profile context something real to
                     // report without a v1/v2 profile migration UI. See the bootstrap's own remarks.
                     _ = services.GetRequiredService<LegacyProfileContextBootstrap>()

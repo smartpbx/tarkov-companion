@@ -111,7 +111,7 @@
       </Grid>
 
       <Border Grid.Row="1" Classes="v2-debrief-pane" AutomationProperties.AccessibilityView="Control">
-        <Grid RowDefinitions="Auto,*">
+        <Grid RowDefinitions="Auto,Auto,*">
           <Border Grid.Row="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
               <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
@@ -121,7 +121,28 @@
               <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="Outcome" FontWeight="SemiBold" />
             </Grid>
           </Border>
-          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRaids}">
+          <!-- V2 rough package 26 (log facts): per-map stats, measured from raid history. No
+               survival column: the game records no outcome and this does not invent one from a
+               field the player fills in by hand. -->
+          <Border Grid.Row="1" IsVisible="{Binding HasMapStats}"
+                  BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,10">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-debrief-muted" Text="By map" FontWeight="SemiBold" />
+              <ItemsControl ItemsSource="{Binding MapStats}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DebriefMapStatRowViewModel">
+                    <Grid ColumnDefinitions="2*,*,2*,2*" ColumnSpacing="16" Margin="0,2">
+                      <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
+                      <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding RaidsLabel}" />
+                      <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
+                      <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding LoadLabel}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+          <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRaids}">
             <ItemsControl ItemsSource="{Binding Raids}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:DebriefRaidRowViewModel">
@@ -140,7 +161,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
-          <StackPanel Grid.Row="1" IsVisible="{Binding HasNoRaids}" Spacing="10"
+          <StackPanel Grid.Row="2" IsVisible="{Binding HasNoRaids}" Spacing="10"
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
                   HorizontalAlignment="Center" />
@@ -162,13 +183,17 @@
             <Border Classes="v2-debrief-section v2-debrief-accent">
               <StackPanel Spacing="8">
                 <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
+                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
                   <TextBlock Grid.Row="0" Classes="v2-debrief-muted" Text="Mode" />
                   <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedModeLabel}" HorizontalAlignment="Right" />
                   <TextBlock Grid.Row="1" Classes="v2-debrief-muted" Text="Started" />
                   <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStartedLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Duration" />
-                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Ended" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedEndedLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="3" Classes="v2-debrief-muted" Text="Duration" />
+                  <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
+                  <TextBlock Grid.Row="4" Classes="v2-debrief-muted" Text="Queue/load" />
+                  <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedLoadTimeLabel}" HorizontalAlignment="Right" />
                 </Grid>
               </StackPanel>
             </Border>
@@ -180,7 +205,56 @@
                   <TextBlock Classes="v2-debrief-strong" Text="Screenshots" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedDistanceLabel}" TextWrapping="Wrap"
+                           IsVisible="{Binding HasDistance}" />
+                <Button Classes="v2-target v2-debrief-plain" HorizontalAlignment="Left" IsVisible="{Binding CanWatch}"
+                        AutomationProperties.AutomationId="v2-debrief-watch"
+                        Content="Watch on map" Command="{Binding WatchOnMapCommand}" />
                 <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- V2 rough package 26 (log facts): what the game announced while this raid was
+                 open. The game states no price for a sale, so none is shown or estimated. -->
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Chart}" />
+                  <TextBlock Classes="v2-debrief-strong" Text="Flea sales" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Classes="v2-debrief-muted" Text="Nothing sold during this raid." IsVisible="{Binding !HasSelectedSales}" />
+                <ItemsControl ItemsSource="{Binding SelectedSales}" IsVisible="{Binding HasSelectedSales}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefSaleRowViewModel">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,2">
+                        <TextBlock Grid.Column="0" Text="{Binding ItemLabel}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding CountLabel}" />
+                        <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding TimeLabel}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Quest}" />
+                  <TextBlock Classes="v2-debrief-strong" Text="Quests" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Classes="v2-debrief-muted" Text="No quest events during this raid." IsVisible="{Binding !HasSelectedQuestEvents}" />
+                <ItemsControl ItemsSource="{Binding SelectedQuestEvents}" IsVisible="{Binding HasSelectedQuestEvents}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefQuestEventRowViewModel">
+                      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10" Margin="0,2">
+                        <TextBlock Grid.Column="0" Text="{Binding QuestLabel}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding StateLabel}" />
+                        <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding TimeLabel}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </Border>
 

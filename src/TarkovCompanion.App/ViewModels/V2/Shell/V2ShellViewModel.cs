@@ -9,6 +9,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
+using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Raid;
@@ -69,6 +70,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private DateTimeOffset _homeOverviewLoadedUtc;
     private RaidLifecycleState _homeOverviewRaid;
     private readonly HideoutWorkspaceViewModel? _hideout;
+    // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
+    private readonly KeepListWorkspaceViewModel? _keep;
     private DateTimeOffset? _planDataUpdatedUtc;
     // v2r-team (package 9, wave 2): the Team workspace, shared by the Team/Group/Tablet routes.
     private readonly TeamWorkspaceViewModel? _team;
@@ -148,6 +151,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // as stashScan/debrief above.
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        // V2 rough package 25 (#402): optional for the same reason as plan/hideout above.
+        KeepListWorkspaceViewModel? keep = null,
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null)
         : this(
@@ -169,6 +174,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             debrief,
             plan,
             hideout,
+            keep,
             team,
             options.DeveloperMode)
     {
@@ -189,6 +195,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false)
         : this(
@@ -207,6 +214,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             debrief,
             plan,
             hideout,
+            keep,
             team,
             developerMode)
     {
@@ -228,6 +236,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         DebriefWorkspaceViewModel? debrief = null,
         PlanWorkspaceViewModel? plan = null,
         HideoutWorkspaceViewModel? hideout = null,
+        KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false)
     {
@@ -238,6 +247,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _debrief = debrief;
         _plan = plan;
         _hideout = hideout;
+        _keep = keep;
         _team = team;
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
@@ -260,6 +270,15 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
+        // V2 rough package 28 (parity): Ammo, Keys and Flea adapt the V1 pages' view models, and
+        // Intel searches ask for more hits than V1's cards could hold.
+        if (legacy is not null)
+        {
+            legacy.Items.ResultLimit = IntelResultLimit;
+            AmmoWorkspace = new(legacy.Ammo, id => OpenSuggestedItem(id, "v2-ammo-open-intel"));
+            KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"));
+            FleaWorkspace = new(legacy.Flea, id => OpenSuggestedItem(id, "v2-flea-open-intel"));
+        }
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)
@@ -269,6 +288,18 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
         // V2 rough package 17 (team): the Team context panel's links move through this router.
         _team?.AttachNavigation(route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        if (legacy is not null)
+        {
+            // Package 29 (parity): the in-game party is V1's Squad view model, which the legacy graph
+            // already keeps current on every runtime snapshot.
+            _team?.AttachParty(legacy.Squad);
+            // Package 29 (parity): "Watch on map" in Debrief, which V1's History page did by opening
+            // its replay bar on the Raid page. The same replay view model, now on the V2 Raid map.
+            if (_debrief is not null)
+            {
+                _debrief.ReplayRequested += (_, request) => _ = WatchRaidAsync(legacy, request);
+            }
+        }
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -369,6 +400,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Task.FromException(new InvalidOperationException("The shell is not attached to a clipboard."));
 
     public MainWindowViewModel? Legacy { get; }
+    public AmmoWorkspaceViewModel? AmmoWorkspace { get; }
+    public KeysWorkspaceViewModel? KeysWorkspace { get; }
+    public FleaWorkspaceViewModel? FleaWorkspace { get; }
     public object? LegacyPage => Legacy?.CurrentPage;
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
@@ -726,6 +760,34 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // variant's data can render, rather than branching on the variant's declared style.
     public bool UsesRailNavigation => WidthClass >= V2WidthClass.Standard;
     public bool UsesRowNavigation => !UsesRailNavigation;
+    /// <summary>
+    /// Opens a past raid's trail on the Raid map: moves the map to the raid's own map, starts the
+    /// replay V1's History page started, and goes to the Raid workspace where it is drawn.
+    /// </summary>
+    /// <remarks>
+    /// The map is chosen first because a replay carries positions and no map of its own: V1 drew
+    /// them on whichever map happened to be showing, so a Customs raid watched from Streets was a
+    /// trail across the wrong plan. The replay bar lives on the Raid workspace, where it can be
+    /// stepped and closed; while it is open the map does not follow live screenshots.
+    /// </remarks>
+    private async Task WatchRaidAsync(MainWindowViewModel legacy, DebriefReplayRequest request)
+    {
+        try
+        {
+            if (request.MapId is { Length: > 0 } mapId)
+            {
+                await legacy.Map.FollowRaidAsync(mapId).ConfigureAwait(true);
+            }
+
+            legacy.Raid.Replay.Open(request.Title, request.Positions);
+            GoTo(V2Routes.Raid, V2ShellFocusTargets.Destination(V2Routes.Raid));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _debrief?.ReportReplayFailure(exception.Message);
+        }
+    }
+
     public bool ShowsHeaderSetup => Variant.SetupPlacement == V2SetupPlacement.HeaderLink;
     public bool ShowsSeparatedSetup => Variant.SetupPlacement == V2SetupPlacement.LabelledRailSection;
     public bool ShowsHeaderSearch => Variant.SearchPlacement == V2SearchPlacement.Header;
@@ -750,6 +812,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route when route == V2Routes.Debrief => _debrief,
         var route when route == V2Routes.Plan => _plan,
         var route when route == V2Routes.Hideout => _hideout,
+        // V2 rough package 28 (parity): the reference workspaces over the V1 pages' view models.
+        var route when route == V2Routes.Ammo => AmmoWorkspace,
+        var route when route == V2Routes.Keys => KeysWorkspace,
+        var route when route == V2Routes.Flea => FleaWorkspace,
+        var route when route == V2Routes.Keep => _keep,
+        var route when route == V2Routes.Loadout => Legacy?.Loadout,
+        var route when route == V2Routes.Events => Legacy?.Events,
         // v2r-team (package 9, wave 2): Group and Tablet are separate addresses/section tabs but
         // render the same Team workspace rather than their own content.
         var route when route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet => _team,
@@ -1417,7 +1486,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route = Router.Current.Location.Route;
         // Setup joins Plan and Hideout here (package 17, home): its overview shows the same plan,
         // and variant A lands on it, so it is the page most likely to be open when data first lands.
-        if (route == V2Routes.Plan || route == V2Routes.Hideout || route == V2Routes.Setup)
+        if (route == V2Routes.Plan || route == V2Routes.Hideout || route == V2Routes.Keep || route == V2Routes.Setup)
         {
             LoadCurrentWorkspace();
         }
@@ -1442,6 +1511,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         else if (route == V2Routes.Hideout && _hideout is not null)
         {
             _ = _hideout.LoadAsync();
+        }
+        else if (route == V2Routes.Keep && _keep is not null)
+        {
+            _ = _keep.LoadAsync();
         }
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {
@@ -1802,6 +1875,15 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (result.Kind == V2IntelKind.Key)
         {
             facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Opens"), OpensValueLabel(result.Key)));
+            if (result.Key?.MaximumUses is { } uses)
+            {
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Uses"), uses.ToString("N0", CultureInfo.CurrentCulture)));
+            }
+
+            if (result.Key?.AcquisitionCostRoubles is { } cost)
+            {
+                facts.Add(new(V2ShellText.Get("V2.Shell.Intel.KeyCost"), Roubles(cost)));
+            }
         }
 
         if (result.Kind == V2IntelKind.Ammo)
@@ -1810,6 +1892,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             {
                 facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Damage"), ammo.Damage.ToString(CultureInfo.CurrentCulture)));
                 facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Penetration"), ammo.Penetration.ToString(CultureInfo.CurrentCulture)));
+                if (ammo.ArmorDamagePercent is { } armorDamage)
+                {
+                    facts.Add(new(V2ShellText.Get("V2.Shell.Intel.ArmorDamage"), $"{armorDamage.ToString("N0", CultureInfo.CurrentCulture)}%"));
+                }
+
+                if (ammo.FragmentationChance is { } fragmentation)
+                {
+                    facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Fragmentation"), fragmentation.ToString("P0", CultureInfo.CurrentCulture)));
+                }
+
                 facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Tier"), ammo.Tier));
                 facts.Add(new(V2ShellText.Get("V2.Shell.Intel.Advice"), ammo.PracticalAdvice));
             }
@@ -1840,8 +1932,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private static string OpensValueLabel(V2IntelKeyFacts? key) => key switch
     {
         { MapId: { } map, Locks.Count: > 0 } withLocks =>
-            V2ShellText.Format("V2.Shell.Intel.OpensMapAndLocks", CultureInfo.CurrentCulture, map, string.Join(", ", withLocks.Locks)),
-        { MapId: { } map } => map,
+            V2ShellText.Format("V2.Shell.Intel.OpensMapAndLocks", CultureInfo.CurrentCulture, withLocks.MapName ?? map, string.Join(", ", withLocks.Locks)),
+        { MapId: { } map } named => named.MapName ?? map,
         { Locks.Count: > 0 } locksOnly => string.Join(", ", locksOnly.Locks),
         _ => V2ShellText.Get("V2.Shell.Intel.OpensUnknown"),
     };

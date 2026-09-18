@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.ViewModels;
@@ -480,7 +481,14 @@ public static class AppComposition
                 null,
                 provider.GetRequiredService<IEftPathOverrideStore>()));
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
-            services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
+            // v2r-fast-positions (package 31): the pacer lets the watcher look four times a
+            // second while a raid is running and the group is sharing, and once a second
+            // otherwise. Without one it keeps the one-second poll it always had.
+            services.AddSingleton<IScreenshotWatchPacer>(provider =>
+                new ScreenshotWatchPacer(provider.GetRequiredService<IRuntimeStateStore>()));
+            services.AddSingleton<IScreenshotWatcher>(provider => new WindowsScreenshotWatcher(
+                commandLine.DeveloperMode,
+                pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
@@ -551,6 +559,8 @@ public static class AppComposition
         // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
         services.AddSingleton<PlanWorkspaceViewModel>();
         services.AddSingleton<HideoutWorkspaceViewModel>();
+        // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
+        services.AddSingleton<KeepListWorkspaceViewModel>();
 
         // v2r-pairing-tablet: paired companion device authority (docs/PAIRED_DEVICE_PROTOCOL.md).
         // The desktop is the sole authority over paired-device state, so the authority and its
@@ -645,6 +655,14 @@ public static class AppComposition
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
         services.AddSingleton<V2ShellCaptureBridge>();
+        // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
+        // paired device in Control mode moving it back. Refs #407.
+        services.AddSingleton(provider => new TabletMapSurfacePublisher(
+            provider.GetRequiredService<RaidCockpitViewModel>(),
+            provider.GetRequiredService<RelayMarksBridge>(),
+            provider.GetRequiredService<DesktopCompanionAuthority>(),
+            provider.GetRequiredService<RelayMarksBridge>(),
+            timeProvider));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions

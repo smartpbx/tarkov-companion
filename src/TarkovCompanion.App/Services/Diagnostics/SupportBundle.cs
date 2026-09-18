@@ -127,6 +127,9 @@ public static class SupportBundle
             "pings present",
             BoundedCount(snapshot.Group.Pings?.Count ?? 0, MaximumGroupCount));
         AppendFact(report, "relay state stale", YesNo(snapshot.Group.StaleSince is not null));
+        // v2r-fast-positions (package 31): measured, so "the markers are slow" can be answered
+        // with a number from the machine it happened on rather than with a guess.
+        AppendFact(report, "squadmate position latency", snapshot.Group.PositionLatency.Describe());
         report.AppendLine();
 
         report.AppendLine("### Privacy boundary");

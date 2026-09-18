@@ -14,7 +14,11 @@ public sealed record AmmoArmorRatingViewModel(
     string Rating,
     bool IsStrong,
     bool IsMarginal,
-    bool IsWeak);
+    bool IsWeak)
+{
+    /// <summary>The class on its own ("4"), for a table cell too small for the word.</summary>
+    public string Number => ArmorClass.StartsWith("Class ", StringComparison.Ordinal) ? ArmorClass["Class ".Length..] : ArmorClass;
+}
 
 public sealed record AmmoRoundViewModel(
     string ItemId,
@@ -29,7 +33,13 @@ public sealed record AmmoRoundViewModel(
     string PracticalAdvice,
     string LearnModeExplanation,
     string Provenance,
-    IReadOnlyList<AmmoArmorRatingViewModel> ArmorClasses);
+    IReadOnlyList<AmmoArmorRatingViewModel> ArmorClasses)
+{
+    /// <summary>The numbers behind <see cref="Damage"/> and <see cref="Penetration"/>, for a sort that must not compare strings.</summary>
+    public int DamageValue { get; init; }
+
+    public int PenetrationValue { get; init; }
+}
 
 /// <summary>
 /// Ranks the rounds in one caliber so a player can choose ammunition before a raid.
@@ -327,7 +337,11 @@ public sealed class AmmoPageViewModel : PageViewModel
             round.LearnModeExplanation,
             $"json.tarkov.dev · {Describe(stats.Provenance.SourceUpdatedUtc)} · " +
             $"confidence {round.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)}",
-            DescribeArmor(round.ArmorClassRatings));
+            DescribeArmor(round.ArmorClassRatings))
+        {
+            DamageValue = stats.Damage,
+            PenetrationValue = stats.Penetration,
+        };
     }
 
     private async Task<string> ResolveNameAsync(string itemId, CancellationToken cancellationToken)

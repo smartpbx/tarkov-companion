@@ -53,6 +53,16 @@ public sealed record TeamPresenceRowViewModel(string Name, string SinceLabel, Te
 
     public bool HasDetail => Detail.Length > 0;
 
+    /// <summary>Package 29 (parity): "312, -104 · from a screenshot 40s ago", as V1's Group page said it; empty when no position was shared.</summary>
+    public string Position { get; init; } = string.Empty;
+
+    public bool HasPosition => Position.Length > 0;
+
+    /// <summary>Package 29 (parity): the loadout and quests this member chose to share; empty when they shared neither.</summary>
+    public string Shared { get; init; } = string.Empty;
+
+    public bool HasShared => Shared.Length > 0;
+
     public bool IsLive => State == TeamPresenceState.Live;
 
     public bool IsStale => State == TeamPresenceState.Stale;
@@ -100,8 +110,9 @@ public sealed record TeamMarkRowViewModel(
 /// view models, the same way <c>DebriefWorkspaceViewModel</c> replaced the History passthrough.
 ///
 /// The in-game party (V1's Squad page — who you are running with, from the game's own party
-/// notifications) is not folded in here yet: it carries no "since"/connection-health signal, so it
-/// does not fit the Presence shape the rough scope asks for. Deferred to polish.
+/// notifications) carries no "since"/connection-health signal, so it does not fit the Presence
+/// shape. Package 29 (parity) shows it as its own Party card instead, over the same
+/// <see cref="SquadPageViewModel"/> V1 binds, which the shell attaches (<see cref="AttachParty"/>).
 /// </remarks>
 public sealed class TeamWorkspaceViewModel : BindableViewModel
 {
@@ -180,6 +191,26 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     /// this view model alone) the links do nothing rather than fail.
     /// </remarks>
     public void AttachNavigation(Action<V2RouteId> navigate) => _navigate = navigate;
+
+    /// <summary>
+    /// The in-game party, exactly as V1's Squad page shows it.
+    /// </summary>
+    /// <remarks>
+    /// Attached rather than constructed: the Squad view model belongs to the legacy graph, which the
+    /// shell holds and this view model (built in composition) does not. The legacy graph keeps it
+    /// current on every runtime snapshot, so this only has to expose it.
+    /// </remarks>
+    public void AttachParty(SquadPageViewModel party)
+    {
+        ArgumentNullException.ThrowIfNull(party);
+        Party = party;
+        OnPropertyChanged(nameof(Party));
+        OnPropertyChanged(nameof(HasParty));
+    }
+
+    public SquadPageViewModel? Party { get; private set; }
+
+    public bool HasParty => Party is not null;
 
     /// <summary>Goes to the Raid map, where the group's waypoints are drawn.</summary>
     public ICommand OpenSharedPlanCommand { get; }
@@ -272,6 +303,14 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         get => _sharesQuests;
         set => SetProperty(ref _sharesQuests, value);
     }
+
+    /// <summary>Package 29 (parity): this player's own kit, as the rest of the group described it back (V1's "Your kit, as your party sees it").</summary>
+    public string MyLoadout { get; private set; } = string.Empty;
+
+    /// <summary>Level, side and scav timer the group knows about this player; empty until somebody else says.</summary>
+    public string MyProfile { get; private set; } = string.Empty;
+
+    public bool HasMyProfile => MyProfile.Length > 0;
 
     public string LeaveLabel => _confirmingLeave ? "Confirm leave" : "Leave group";
 
@@ -580,8 +619,21 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                     : TeamPresenceState.Live)
             {
                 Detail = string.Join(" · ", new[] { MapLabel(member.MapId), RaidStateLabel(member.RaidState) }.Where(part => part.Length > 0)),
+                Position = member.Position is { } position
+                    ? string.Create(
+                        CultureInfo.CurrentCulture,
+                        $"{position.X:F0}, {position.Z:F0} · from a screenshot {GroupPageViewModel.Age(member.PositionAge)}")
+                    : string.Empty,
+                Shared = string.Join(" · ", member.Loadout.Concat(member.Quests)),
             })
             .ToArray();
+
+        MyLoadout = group.MyLoadout.Count > 0
+            ? string.Join(" · ", group.MyLoadout)
+            : group.IsSharing
+                ? "Nobody in your party is running this yet."
+                : "Turn sharing on, and a squadmate running this can tell you.";
+        MyProfile = GroupPageViewModel.DescribeMe(group);
 
         TeamQuests = group.Members
             .SelectMany(member => member.Quests.Distinct(StringComparer.OrdinalIgnoreCase))
@@ -646,6 +698,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         Pings = marks.Where(mark => mark.Number is null).ToArray();
         _group = group;
 
+        OnPropertyChanged(nameof(MyLoadout));
+        OnPropertyChanged(nameof(MyProfile));
+        OnPropertyChanged(nameof(HasMyProfile));
         OnPropertyChanged(nameof(ConnectionHealth));
         OnPropertyChanged(nameof(ConnectionDetail));
         OnPropertyChanged(nameof(IsConnected));
@@ -719,8 +774,41 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     /// <summary>Why "Pair a tablet" is disabled, as its tooltip; null while pairing is available.</summary>
     public string? PairTabletTooltip => CanPairDevice ? null : PairingUnavailableReason;
 
+    /// <summary>
+    /// What a paired device is doing to this desktop right now, and the one action that ends it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 24, #407] Control is only safe if the desktop says out loud that
+    /// something else is driving it and can take it back without hunting for a setting — which is
+    /// what the tablet concept (docs/design/v2/v2-tablet-desktop-control-concept.png) shows.
+    /// </remarks>
+    public string? ControlRequestMessage => _pairing?.ControlRequestMessage;
+
+    public bool HasControlRequest => _pairing?.HasControlRequest == true;
+
+    public string? ControlHolderMessage => _pairing?.ControlHolderMessage;
+
+    public bool HasControlHolder => _pairing?.HasControlHolder == true;
+
+    public ICommand? AllowControlCommand => _pairing?.AllowControlCommand;
+
+    public ICommand? DenyControlCommand => _pairing?.DenyControlCommand;
+
+    public ICommand? TakeBackControlCommand => _pairing?.TakeBackControlCommand;
+
     private void PairingChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
+        if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.ControlRequestMessage)
+            or nameof(CompanionPairingViewModel.HasControlRequest)
+            or nameof(CompanionPairingViewModel.ControlHolderMessage)
+            or nameof(CompanionPairingViewModel.HasControlHolder))
+        {
+            OnPropertyChanged(nameof(ControlRequestMessage));
+            OnPropertyChanged(nameof(HasControlRequest));
+            OnPropertyChanged(nameof(ControlHolderMessage));
+            OnPropertyChanged(nameof(HasControlHolder));
+        }
+
         if (eventArgs.PropertyName is nameof(CompanionPairingViewModel.Devices) or nameof(CompanionPairingViewModel.HasNoDevices))
         {
             OnPropertyChanged(nameof(Devices));
