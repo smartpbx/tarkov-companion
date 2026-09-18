@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.ViewModels;
@@ -645,6 +646,14 @@ public static class AppComposition
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
         services.AddSingleton<V2ShellCaptureBridge>();
+        // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
+        // paired device in Control mode moving it back. Refs #407.
+        services.AddSingleton(provider => new TabletMapSurfacePublisher(
+            provider.GetRequiredService<RaidCockpitViewModel>(),
+            provider.GetRequiredService<RelayMarksBridge>(),
+            provider.GetRequiredService<DesktopCompanionAuthority>(),
+            provider.GetRequiredService<RelayMarksBridge>(),
+            timeProvider));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
