@@ -240,15 +240,39 @@ public sealed class V2HomeOverviewViewModel : BindableViewModel
     {
         if (plan is not null)
         {
-            void PushPlan() => ApplyPlan(
-                plan.Groups
-                    .Select(group => (group.MapLabel, (IReadOnlyList<V2HomeLineViewModel>)group.Objectives
-                        .Select(objective => new V2HomeLineViewModel(objective.Description, objective.TaskName))
-                        .ToArray()))
-                    .ToArray(),
-                plan.ScopeLabel,
-                plan.Status);
-            plan.PropertyChanged += (_, _) => PushPlan();
+            // [V2 rough package 45] The lines are re-projected only when the groups they came from
+            // are a different list. A search narrowing its status line from "84 objectives" to "9"
+            // is a new status over the same groups, and projecting every objective again for it was
+            // the rest of what a keystroke in the quest search cost.
+            IReadOnlyList<PlanMapGroupViewModel>? projectedFrom = null;
+            IReadOnlyList<(string Map, IReadOnlyList<V2HomeLineViewModel> Objectives)> lines = [];
+            void PushPlan()
+            {
+                if (!ReferenceEquals(projectedFrom, plan.Groups))
+                {
+                    projectedFrom = plan.Groups;
+                    lines = plan.Groups
+                        .Select(group => (group.MapLabel, (IReadOnlyList<V2HomeLineViewModel>)group.Objectives
+                            .Select(objective => new V2HomeLineViewModel(objective.Description, objective.TaskName))
+                            .ToArray()))
+                        .ToArray();
+                }
+
+                ApplyPlan(lines, plan.ScopeLabel, plan.Status);
+            }
+
+            // [V2 rough package 45] Only for what the summary reads. Every character typed in the
+            // quest search raises SearchText and HasSearchText, and re-projecting every objective
+            // on the board twice per keystroke was most of what a keystroke cost.
+            plan.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName is nameof(PlanWorkspaceViewModel.Groups)
+                    or nameof(PlanWorkspaceViewModel.ScopeLabel)
+                    or nameof(PlanWorkspaceViewModel.Status))
+                {
+                    PushPlan();
+                }
+            };
             PushPlan();
         }
 

@@ -460,7 +460,7 @@ internal static class Scenarios
         var plan = host.Services.GetRequiredService<PlanWorkspaceViewModel>();
         HarnessHost.DrainUntilComplete(plan.LoadAsync());
         plan.Filter = PlanQuestFilter.All;
-        Dispatcher.UIThread.RunJobs();
+        Quiesce();
         var result = new Dictionary<string, object>
         {
             ["query"] = query,
@@ -470,6 +470,15 @@ internal static class Scenarios
             ["groups-on-board"] = plan.Groups.Count,
         };
 
+        // Whether the filter runs on the keystroke's own stack. The box must not wait for it: what
+        // the typist feels is this, not what the filter costs once it runs.
+        plan.SearchText = string.Empty;
+        Quiesce();
+        var unfiltered = plan.Groups.Sum(group => group.Objectives.Count);
+        plan.SearchText = query;
+        result["filter-ran-inline"] = plan.Groups.Sum(group => group.Objectives.Count) != unfiltered;
+        Quiesce();
+
         // Slow typing: the cost of one keystroke, start to settled, sampled over the whole query
         // twice (the first pass pays for the JIT and for the first filtered result set).
         var setter = new Samples();
@@ -478,7 +487,7 @@ internal static class Scenarios
         for (var pass = 0; pass < 2; pass++)
         {
             plan.SearchText = string.Empty;
-            Dispatcher.UIThread.RunJobs();
+            Quiesce();
             for (var length = 1; length <= query.Length; length++)
             {
                 var allocated = GC.GetTotalAllocatedBytes(false);
@@ -501,9 +510,10 @@ internal static class Scenarios
         result["keystroke-settled-ms"] = settle.Summary("-ms");
         result["keystroke-allocated-kb"] = Math.Round(bytes.Mean / 1024, 1);
 
-        // A burst: every character, then one settle.
+        // A burst: every character, then one settle. Quiesced first, so the reads the reset set off
+        // land before the clock starts rather than inside the burst.
         plan.SearchText = string.Empty;
-        Dispatcher.UIThread.RunJobs();
+        Quiesce();
         var burstAllocated = GC.GetTotalAllocatedBytes(false);
         var burst = Stopwatch.StartNew();
         for (var length = 1; length <= query.Length; length++)
@@ -520,7 +530,7 @@ internal static class Scenarios
 
         // What one more keystroke rebuilt, over a query whose result set it does not change.
         plan.SearchText = query[..^1];
-        Dispatcher.UIThread.RunJobs();
+        Quiesce();
         var listBefore = plan.Groups;
         var groupsBefore = plan.Groups.ToArray();
         var rowsBefore = groupsBefore.SelectMany(group => group.Objectives).ToArray();
@@ -536,6 +546,19 @@ internal static class Scenarios
             ["group-list-kept"] = ReferenceEquals(plan.Groups, listBefore),
         };
         return result;
+    }
+
+    /// <summary>
+    /// Runs the dispatcher until the work already in flight has finished landing, so one
+    /// measurement is not charged for what the one before it set off.
+    /// </summary>
+    private static void Quiesce()
+    {
+        for (var pass = 0; pass < 25; pass++)
+        {
+            Dispatcher.UIThread.RunJobs();
+            Thread.Sleep(2);
+        }
     }
 
     private static Dictionary<string, object> Describe(EventProbe probe) => new()
