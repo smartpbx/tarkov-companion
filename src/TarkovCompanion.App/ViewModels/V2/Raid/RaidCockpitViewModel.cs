@@ -15,6 +15,7 @@ using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Application.Services.Wiki;
@@ -236,6 +237,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
+    private readonly IWorkspaceLayoutStore? _layout;
+    private double _contextPanelWidth = DefaultContextPanelWidth;
+    private bool _contextPanelHidden;
     private readonly MapSceneRendererPresentation _presentation;
     private readonly IWikiLinkOpener? _wikiOpener;
 
@@ -297,7 +301,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         GroupSessionService? groupSession = null,
         // [Package 35] Opens the wiki page of the quest a selected objective belongs to, in the
         // player's browser. Optional: without one the link is simply not offered.
-        IWikiLinkOpener? wikiOpener = null)
+        IWikiLinkOpener? wikiOpener = null,
+        // [V2 rough package 46] Remembers how wide he dragged the context panel, and whether he
+        // put it away. Optional: without one the panel works and forgets, which is what the unit
+        // tests and the map gallery want.
+        IWorkspaceLayoutStore? layout = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
@@ -308,6 +316,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
+        _layout = layout;
+        RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
@@ -344,6 +354,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         FrameAreaCommand = new DelegateCommand(FrameArea);
         ClearObjectiveCommand = new DelegateCommand(ClearObjectiveSelection);
         UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
+        // [V2 rough package 46] One press puts the Raid plan column away and gives the map its width.
+        ToggleContextPanelCommand = new DelegateCommand(ToggleContextPanel);
 
         _map.PropertyChanged += MapPropertyChanged;
         _map.PlayerFollowRequested += PlayerFollowRequested;
@@ -358,6 +370,79 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public MapSceneRendererViewModel? Renderer { get; private set; }
 
     public bool HasRenderer => Renderer is not null;
+
+    /// <summary>
+    /// How wide the Raid plan column is, and whether it is there at all.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] "The right one is too wide, maybe we can make it adjustable or
+    /// something. More map is better." It used to be a proportional column with a 420 floor,
+    /// which at 1920 wide took 460 pixels the map could have had. It is now a width the player
+    /// drags, defaulting to 360 — enough for the marks list and the squad rows at their natural
+    /// width — clamped to something that can still be read at one end and cannot eat the map at
+    /// the other, put away entirely with one press, and remembered.
+    /// </remarks>
+    public const double DefaultContextPanelWidth = 360;
+
+    public const double MinimumContextPanelWidth = 260;
+
+    public const double MaximumContextPanelWidth = 720;
+
+    public double ContextPanelWidth
+    {
+        get => _contextPanelWidth;
+        private set
+        {
+            var clamped = Math.Clamp(
+                double.IsFinite(value) ? value : DefaultContextPanelWidth,
+                MinimumContextPanelWidth,
+                MaximumContextPanelWidth);
+            if (Math.Abs(clamped - _contextPanelWidth) < 0.5)
+            {
+                return;
+            }
+
+            _contextPanelWidth = clamped;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
+
+    public ICommand ToggleContextPanelCommand { get; }
+
+    public bool ShowsContextPanel => !_contextPanelHidden;
+
+    public string ContextPanelToggleLabel => _contextPanelHidden ? "Show the raid plan" : "Hide the raid plan";
+
+    /// <summary>Drags the panel's edge. The width the player sees is the width that is kept.</summary>
+    public void ResizeContextPanel(double width)
+    {
+        ContextPanelWidth = width;
+        _layout?.Set(
+            WorkspaceLayoutKeys.RaidPanelWidth,
+            _contextPanelWidth.ToString("F0", CultureInfo.InvariantCulture));
+    }
+
+    public void ToggleContextPanel()
+    {
+        _contextPanelHidden = !_contextPanelHidden;
+        _layout?.Set(WorkspaceLayoutKeys.RaidPanelHidden, _contextPanelHidden ? "true" : "false");
+        OnPropertyChanged(nameof(ShowsContextPanel));
+        OnPropertyChanged(nameof(ContextPanelToggleLabel));
+    }
+
+    private void RestoreContextPanel()
+    {
+        if (_layout?.Get(WorkspaceLayoutKeys.RaidPanelWidth) is { } width &&
+            double.TryParse(width, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+        {
+            _contextPanelWidth = Math.Clamp(parsed, MinimumContextPanelWidth, MaximumContextPanelWidth);
+        }
+
+        _contextPanelHidden = string.Equals(
+            _layout?.Get(WorkspaceLayoutKeys.RaidPanelHidden),
+            "true",
+            StringComparison.Ordinal);
+    }
 
     /// <summary>Why the map is not showing, while <see cref="HasRenderer"/> is false.</summary>
     public string UnavailableReason

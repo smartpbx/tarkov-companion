@@ -32,6 +32,7 @@ using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
@@ -59,6 +60,7 @@ using TarkovCompanion.Infrastructure.Persistence.Stash;
 using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.Infrastructure.Workspaces;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
@@ -253,6 +255,11 @@ public static class AppComposition
         services.AddSingleton<IDataSyncService, DataSyncService>();
         services.AddSingleton<IItemSearchService, ItemSearchService>();
         services.AddSingleton<IPriceHistoryService, PriceHistoryService>();
+
+        // [V2 rough package 46] How the player arranged the window: the navigation rail's width
+        // and the Raid context panel's. Chrome preferences, remembered so they are set once.
+        services.AddSingleton<IWorkspaceLayoutStore>(_ => new JsonFileWorkspaceLayoutStore(
+            Path.Combine(paths.Config, "workspace-layout.json")));
 
         services.AddSingleton(TarkovDevMapCatalogClientOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Catalog")));
         services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")));

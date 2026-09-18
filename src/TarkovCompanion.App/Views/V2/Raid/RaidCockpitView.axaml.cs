@@ -22,6 +22,7 @@ public sealed partial class RaidCockpitView : UserControl
     private const string IdleClass = "v2-raid-idle";
 
     private readonly DispatcherTimer _idleTimer;
+    private bool _panelDrag;
 
     public RaidCockpitView()
     {
@@ -44,6 +45,59 @@ public sealed partial class RaidCockpitView : UserControl
         {
             cockpit.RemoveMarkAt(objectId);
         }
+    }
+
+    /// <summary>
+    /// Dragging the Raid plan's edge.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Not a GridSplitter: the panel's width is a remembered number the
+    /// view model owns, and a splitter would own it instead and forget it on every rebuild.
+    /// Dragging left widens the panel, because the handle is on the panel's left edge, so the
+    /// width is the distance from the pointer to the workspace's right edge.
+    /// </remarks>
+    private void PanelHandlePressed(object? sender, PointerPressedEventArgs eventArgs)
+    {
+        if (sender is not Border handle ||
+            !eventArgs.GetCurrentPoint(handle).Properties.IsLeftButtonPressed ||
+            DataContext is not RaidCockpitViewModel { ShowsContextPanel: true })
+        {
+            return;
+        }
+
+        _panelDrag = true;
+        eventArgs.Pointer.Capture(handle);
+        eventArgs.Handled = true;
+    }
+
+    private void PanelHandleMoved(object? sender, PointerEventArgs eventArgs)
+    {
+        if (!_panelDrag || DataContext is not RaidCockpitViewModel cockpit)
+        {
+            return;
+        }
+
+        cockpit.ResizeContextPanel(Bounds.Width - eventArgs.GetPosition(this).X);
+        eventArgs.Handled = true;
+    }
+
+    // Two handlers rather than one: PointerReleased and PointerCaptureLost carry different
+    // argument types, and AXAML matches an event handler by its exact signature.
+    private void PanelHandleReleased(object? sender, PointerReleasedEventArgs eventArgs) =>
+        EndPanelDrag(eventArgs.Pointer);
+
+    private void PanelHandleCaptureLost(object? sender, PointerCaptureLostEventArgs eventArgs) =>
+        EndPanelDrag(eventArgs.Pointer);
+
+    private void EndPanelDrag(IPointer pointer)
+    {
+        if (!_panelDrag)
+        {
+            return;
+        }
+
+        _panelDrag = false;
+        pointer.Capture(null);
     }
 
     private void MapPointerActive(object? sender, PointerEventArgs eventArgs)

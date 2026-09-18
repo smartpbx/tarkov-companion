@@ -194,6 +194,38 @@ internal static class Program
                 Pump(40);
             }
 
+            // [V2 rough package 46] The chrome the player can now collapse, so a render can show
+            // the map at each of the widths it can have.
+            if (shell is not null && StringOption(args, "--nav-rail") is { } railMode)
+            {
+                var wanted = TarkovCompanion.App.Services.V2.Shell.V2NavigationRailTokens.Parse(railMode);
+                for (var guard = 0; guard < 3 && shell.NavigationRail != wanted; guard++)
+                {
+                    shell.CycleNavigationRail();
+                }
+
+                Pump(10);
+                Console.WriteLine($"Nav rail: {shell.NavigationRail}");
+            }
+
+            if (shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel panelCockpit)
+            {
+                if (args.Contains("--hide-raid-panel") && panelCockpit.ShowsContextPanel)
+                {
+                    panelCockpit.ToggleContextPanel();
+                    Pump(10);
+                }
+
+                if (IntOption(args, "--raid-panel-width", 0) is var panelWidth and > 0)
+                {
+                    panelCockpit.ResizeContextPanel(panelWidth);
+                    Pump(10);
+                }
+
+                Console.WriteLine(
+                    $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);

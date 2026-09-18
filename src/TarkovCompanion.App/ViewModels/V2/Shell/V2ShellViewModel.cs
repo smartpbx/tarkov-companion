@@ -81,6 +81,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly CoalescingDispatch _apply;
     private readonly SynchronizationContext? _dispatcherContext;
     private readonly ConcurrentQueue<V2ShellPersistenceResult> _persistenceResults = new();
+    private V2NavigationRail _navigationRail = V2NavigationRail.Labels;
     private readonly List<INotifyPropertyChanged> _legacyContextSources = [];
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _lifetimeToken;
@@ -318,6 +319,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             V2ShellFocusTargets.Health,
             V2ShellFocusTargets.HealthDialog));
         DismissSurfaceBannerCommand = new DelegateCommand(DismissSurfaceBanner);
+        CycleNavigationRailCommand = new DelegateCommand(CycleNavigationRail);
+        ShowNavigationRailCommand = new DelegateCommand(ShowNavigationRail);
         PaletteCommand = new DelegateCommand(() => ToggleDialog(
             V2ShellDialogKind.Commands,
             V2ShellFocusTargets.Palette,
@@ -766,6 +769,86 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // variant's data can render, rather than branching on the variant's declared style.
     public bool UsesRailNavigation => WidthClass >= V2WidthClass.Standard;
     public bool UsesRowNavigation => !UsesRailNavigation;
+
+    /// <summary>
+    /// How much of the left rail is showing: its labels, only its icons, or nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] "The left sidebar should be collapsible ... more map is better."
+    /// Three states rather than two, because the middle one is the useful one: 56 pixels of icons
+    /// keeps every destination one press away and hands 112 pixels to the map, and hiding it
+    /// entirely hands over 168. Nothing becomes unreachable when it is away — a launcher button
+    /// floats over the workspace's top-left corner with the same destinations in it, the command
+    /// palette still lists every route, and Ctrl+B brings the rail straight back.
+    ///
+    /// Remembered, because a choice like this is made once. It is chrome, so it is kept in the
+    /// same preview state as the window's own placement rather than in a store of its own.
+    /// </remarks>
+    public V2NavigationRail NavigationRail
+    {
+        get => _navigationRail;
+        private set
+        {
+            if (_navigationRail == value)
+            {
+                return;
+            }
+
+            _navigationRail = value;
+            foreach (var destination in PrimaryDestinations)
+            {
+                destination.ShowsLabel = value == V2NavigationRail.Labels;
+            }
+
+            SetupDestination.ShowsLabel = value == V2NavigationRail.Labels;
+            OnPropertyChanged(nameof(NavigationRail));
+            OnPropertyChanged(nameof(ShowsNavigationRail));
+            OnPropertyChanged(nameof(ShowsNavigationLauncher));
+            OnPropertyChanged(nameof(NavigationRailWidth));
+            OnPropertyChanged(nameof(NavigationRailStateLabel));
+            OnPropertyChanged(nameof(NavigationRailToggleName));
+        }
+    }
+
+    public bool ShowsNavigationRail => UsesRailNavigation && NavigationRail != V2NavigationRail.Hidden;
+
+    /// <summary>The floating way back to the destinations while the rail is away.</summary>
+    public bool ShowsNavigationLauncher => UsesRailNavigation && NavigationRail == V2NavigationRail.Hidden;
+
+    public double NavigationRailWidth => NavigationRail == V2NavigationRail.Labels ? 168 : 60;
+
+    public string NavigationRailStateLabel => V2ShellText.Get(NavigationRail switch
+    {
+        V2NavigationRail.Labels => "V2.Shell.Nav.RailLabels",
+        V2NavigationRail.Icons => "V2.Shell.Nav.RailIcons",
+        _ => "V2.Shell.Nav.RailHidden",
+    });
+
+    public string NavigationRailToggleName => V2ShellText.Get("V2.Shell.Command.NavigationRail");
+
+    public string ShowNavigationRailLabel => V2ShellText.Get("V2.Shell.Nav.ShowRail");
+
+    public string NavigationLauncherLabel => V2ShellText.Get("V2.Shell.Nav.GoTo");
+
+    /// <summary>Labels to icons to away and round again, the way one control with three states works.</summary>
+    public void CycleNavigationRail()
+    {
+        NavigationRail = NavigationRail switch
+        {
+            V2NavigationRail.Labels => V2NavigationRail.Icons,
+            V2NavigationRail.Icons => V2NavigationRail.Hidden,
+            _ => V2NavigationRail.Labels,
+        };
+        Announce(NavigationRailStateLabel, V2Announcement.Polite);
+        QueueSave();
+    }
+
+    public void ShowNavigationRail()
+    {
+        NavigationRail = V2NavigationRail.Labels;
+        Announce(NavigationRailStateLabel, V2Announcement.Polite);
+        QueueSave();
+    }
     /// <summary>
     /// Opens a past raid's trail on the Raid map: moves the map to the raid's own map, starts the
     /// replay V1's History page started, and goes to the Raid workspace where it is drawn.
@@ -923,6 +1006,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ICommand CaptureCommand { get; }
     public ICommand HealthCommand { get; }
     public ICommand PaletteCommand { get; }
+
+    /// <summary>Labels, icons, away — one control with three states (package 46).</summary>
+    public ICommand CycleNavigationRailCommand { get; }
+
+    /// <summary>Brings the rail back from the launcher that floats over the workspace.</summary>
+    public ICommand ShowNavigationRailCommand { get; }
     public ICommand AddressCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand PinCommand { get; }
@@ -1118,6 +1207,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         OnPropertyChanged(nameof(WidthClassLabel));
         OnPropertyChanged(nameof(UsesCompactDensity));
         OnPropertyChanged(nameof(UsesRailNavigation));
+        OnPropertyChanged(nameof(ShowsNavigationRail));
+        OnPropertyChanged(nameof(ShowsNavigationLauncher));
         OnPropertyChanged(nameof(UsesRowNavigation));
         OnPropertyChanged(nameof(ShowsIntelBeside));
         OnPropertyChanged(nameof(ShowsIntelInsteadOfPage));
@@ -1409,6 +1500,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         var loaded = _preview.Load();
         CaptureShortcutEnabled = loaded.State.CaptureShortcutEnabled;
+        NavigationRail = V2NavigationRailTokens.Parse(loaded.State.NavigationRail);
         Pins = loaded.State.Pins;
         Recents = loaded.State.Recents;
         _window = loaded.State.Window;
@@ -2626,6 +2718,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 RestorePaletteInvoker(paletteWasOpen, effectiveInvoker);
                 break;
             case V2ShellCommandKind.ResetPreview: ResetPreviewCommand.Execute(null); break;
+            case V2ShellCommandKind.CycleNavigationRail:
+                CycleNavigationRail();
+                RestorePaletteInvoker(paletteWasOpen, effectiveInvoker);
+                break;
             case V2ShellCommandKind.NextRegion: MoveRegion(reverse: false); break;
             case V2ShellCommandKind.PreviousRegion: MoveRegion(reverse: true); break;
         }
@@ -2879,6 +2975,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Pins = Pins,
         Window = _window,
         CaptureShortcutEnabled = CaptureShortcutEnabled,
+        NavigationRail = NavigationRail.ToToken(),
     };
 
     private string DefaultPageFocusTarget() =>
@@ -3009,6 +3106,7 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
 {
     private readonly V2DestinationDefinition _definition;
     private bool _isCurrent;
+    private bool _showsLabel = true;
 
     public V2ShellDestinationViewModel(V2DestinationDefinition definition, Action<V2RouteId> navigate)
     {
@@ -3019,6 +3117,21 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
     public V2RouteId Route => _definition.Route;
     public string Label => V2ShellText.Get(_definition.LabelKey);
     public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
+
+    /// <summary>
+    /// Whether the rail is wide enough to be writing this destination's name beside its icon.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Set by the shell when the rail's width changes, rather than read out
+    /// of the shell by a binding that walks up out of the item template. An item that knows its
+    /// own presentation is also what lets the rail's tooltip carry the name while it is collapsed:
+    /// the label is hidden, never removed from the accessible name.
+    /// </remarks>
+    public bool ShowsLabel
+    {
+        get => _showsLabel;
+        set => SetProperty(ref _showsLabel, value);
+    }
     /// <summary>A decorative rail icon. Purely visual — the automation name is <see cref="Label"/>.</summary>
     // Decorative rail icons are small vector shapes built directly in the view (Rectangle/
     // Ellipse, not a font glyph — a Unicode dingbat from an uncovered font block rendered as

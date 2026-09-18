@@ -322,6 +322,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasFloorStack => IsStacked && FloorLayers.Count > 1;
     /// <summary>The one flat picture, drawn only while the stack is not.</summary>
     public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
+
+    /// <summary>
+    /// What the Layers button says: the word, and how many layers are on.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] The count is the whole reason a menu is allowed to replace a strip
+    /// of visible switches. Folded away, the switches no longer say what is drawn; the count on
+    /// the button does, so nothing has to be opened to find out.
+    /// </remarks>
+    public string LayersMenuLabel => $"Layers · {Layers.Count(layer => layer.IsVisible)} on";
     /// <summary>What the stack did, in one line: how many plates of how many floors.</summary>
     public string StackStatus { get; private set; } = string.Empty;
     public bool HasStackStatus => StackStatus.Length > 0;
@@ -1863,7 +1873,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(SelectedFloor));
             RaiseFloorStackChanged();
         }
-        if (layers) OnPropertyChanged(nameof(Layers));
+        if (layers)
+        {
+            OnPropertyChanged(nameof(Layers));
+            // [V2 rough package 46] The Layers button's count is the only thing saying what is
+            // drawn once the switches are behind a menu, so it has to move when they do.
+            OnPropertyChanged(nameof(LayersMenuLabel));
+        }
+
         if (visibleContent)
         {
             OnPropertyChanged(nameof(SpatialObjects));
