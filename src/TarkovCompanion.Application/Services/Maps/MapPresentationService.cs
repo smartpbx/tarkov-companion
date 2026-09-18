@@ -365,6 +365,17 @@ public sealed record MapTilePlan(
 
 public static class MapTilePlanner
 {
+    /// <summary>
+    /// How many tiles one map may hold at once.
+    /// </summary>
+    /// <remarks>
+    /// Lives here rather than only in the App layer's canvas mapper because the plan rectangle
+    /// depends on it: a budget that admits a different grid describes a different rectangle, and
+    /// the loader, the coordinate mapper and <see cref="MapPlanProjection"/> must all plan the
+    /// same grid or the artwork and the markers part company again.
+    /// </remarks>
+    public const int MaximumTilesPerView = 256;
+
     public static MapTilePlan Plan(MapVariant variant, int zoom, int maximumTiles = 64)
     {
         ArgumentNullException.ThrowIfNull(variant);
