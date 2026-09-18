@@ -777,6 +777,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route when route == V2Routes.Keys => KeysWorkspace,
         var route when route == V2Routes.Flea => FleaWorkspace,
         var route when route == V2Routes.Keep => _keep,
+        var route when route == V2Routes.Loadout => Legacy?.Loadout,
+        var route when route == V2Routes.Events => Legacy?.Events,
         // v2r-team (package 9, wave 2): Group and Tablet are separate addresses/section tabs but
         // render the same Team workspace rather than their own content.
         var route when route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet => _team,

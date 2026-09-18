@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Maps;
@@ -39,6 +40,14 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
             () => _owner.MarkObjectiveDoneAsync(objective.ObjectiveId, objective.TargetCount ?? objective.RecordedCount));
         MarkQuestDoneCommand = new AsyncDelegateCommand(() => _owner.MarkQuestDoneAsync(task.TaskId));
         ShowOnMapCommand = new AsyncDelegateCommand(() => _owner.ShowOnMapAsync(objective.MapIds[0]));
+        StartQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.Active));
+        FailQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.Failed));
+        ResetQuestCommand = new AsyncDelegateCommand(() => _owner.SetQuestStateAsync(task.TaskId, RecordedTaskState.NotStarted));
+        TogglePinQuestCommand = new AsyncDelegateCommand(() => _owner.TogglePinAsync(QuestPinTargetKind.Task, task.TaskId, task.IsPinned));
+        TogglePinObjectiveCommand = new AsyncDelegateCommand(() => _owner.TogglePinAsync(QuestPinTargetKind.Objective, objective.ObjectiveId, objective.IsPinned));
+        IncrementCountCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveCountAsync(objective, 1));
+        DecrementCountCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveCountAsync(objective, -1));
+        ResetObjectiveCommand = new AsyncDelegateCommand(() => _owner.SetObjectiveStateAsync(objective, RecordedObjectiveState.Unknown));
     }
 
     internal QuestSummaryReadModel Task { get; }
@@ -97,6 +106,31 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
+    /// <summary>What the quest is doing when it is not being played: available now, locked and why, completed, failed.</summary>
+    public string StatusLabel => PlanQuestRules.DescribeStatus(Task);
+
+    public bool HasStatusLabel => StatusLabel.Length > 0;
+
+    /// <summary>Not yet started, or failed and started over.</summary>
+    public bool CanStartQuest => Task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted or RecordedTaskState.Failed;
+
+    public bool CanFailQuest => Task.RecordedState == RecordedTaskState.Active;
+
+    public bool CanResetQuest => Task.RecordedState is RecordedTaskState.Active or RecordedTaskState.Completed or RecordedTaskState.Failed;
+
+    public bool CanMarkQuestDone => Task.RecordedState != RecordedTaskState.Completed;
+
+    public string PinQuestLabel => Task.IsPinned ? "Unpin quest" : "Pin quest";
+
+    public string PinObjectiveLabel => Objective.IsPinned ? "Unpin objective" : "Pin objective";
+
+    /// <summary>Only an objective with a target has a count to step.</summary>
+    public bool CanChangeCount => Objective.TargetCount is not null;
+
+    public bool IsOptional => Objective.IsOptional == true;
+
+    public bool CanResetObjective => Objective.RecordedState != RecordedObjectiveState.Unknown;
+
     public ICommand OpenWikiCommand { get; }
 
     public ICommand MarkObjectiveDoneCommand { get; }
@@ -104,6 +138,22 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     public ICommand MarkQuestDoneCommand { get; }
 
     public ICommand ShowOnMapCommand { get; }
+
+    public ICommand StartQuestCommand { get; }
+
+    public ICommand FailQuestCommand { get; }
+
+    public ICommand ResetQuestCommand { get; }
+
+    public ICommand TogglePinQuestCommand { get; }
+
+    public ICommand TogglePinObjectiveCommand { get; }
+
+    public ICommand IncrementCountCommand { get; }
+
+    public ICommand DecrementCountCommand { get; }
+
+    public ICommand ResetObjectiveCommand { get; }
 }
 
 /// <summary>One quest with objectives in a map group, for the context panel's quest list.</summary>
@@ -168,6 +218,37 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
 
+    private IReadOnlyList<PlanRequirementRowViewModel> _requirements = [];
+
+    /// <summary>What this map's objectives ask the player to bring, hand in or find, against what they hold.</summary>
+    public IReadOnlyList<PlanRequirementRowViewModel> Requirements
+    {
+        get => _requirements;
+        internal set
+        {
+            if (SetProperty(ref _requirements, value))
+            {
+                OnPropertyChanged(nameof(HasRequirements));
+                OnPropertyChanged(nameof(StillNeededCount));
+                OnPropertyChanged(nameof(RequirementsSummary));
+                OnPropertyChanged(nameof(RequirementsReady));
+            }
+        }
+    }
+
+    public bool HasRequirements => Requirements.Count > 0;
+
+    public int StillNeededCount => Requirements.Count(row => !row.IsSatisfied);
+
+    public bool RequirementsReady => HasRequirements && StillNeededCount == 0;
+
+    /// <summary>"All ready", "2 still needed", or empty where the objectives ask for no item.</summary>
+    public string RequirementsSummary => !HasRequirements
+        ? string.Empty
+        : RequirementsReady
+            ? "All ready"
+            : $"{StillNeededCount:N0} still needed";
+
     public bool IsSelected
     {
         get => _isSelected;
@@ -211,11 +292,23 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private string _mapNote = string.Empty;
     private QuestBoardReadModel? _board;
     private QuestProfileScope? _scope;
-    private bool _showAll;
     private string _status = "Loading your quest board…";
     private string _scopeLabel = "No profile loaded";
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
     private PlanMapGroupViewModel? _selectedGroup;
+    private readonly IItemRepository? _itemRepository;
+    private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _missingItems = new(StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, int> _ownedItems = new Dictionary<string, int>(StringComparer.Ordinal);
+    private static readonly PlanTraderOption AllTraders = new(null, "All traders");
+    private PlanQuestFilter _filter = PlanQuestFilter.Active;
+    private IReadOnlyList<PlanFilterChipViewModel>? _filterChips;
+    private string _searchText = string.Empty;
+    private IReadOnlyList<PlanTraderOption> _traders = [AllTraders];
+    private PlanTraderOption _selectedTrader = AllTraders;
+    private IReadOnlyList<PlanTraderLoyaltyViewModel> _traderLoyalty = [];
+    private int _playerLevel = QuestsPageViewModel.MinimumLevel;
+    private string _rollup = string.Empty;
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
@@ -232,8 +325,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // the shared map away from a raid in progress. Both optional, like mapData.
         RaidCockpitViewModel? raidCockpit = null,
         IRuntimeStateStore? runtime = null,
-        QuestMapProjectionService? projection = null)
+        QuestMapProjectionService? projection = null,
+        // Package 28: names the items a map's objectives ask for. Optional like the rest, so a
+        // composition without the item catalog still plans, with the ids as the names.
+        IItemRepository? itemRepository = null)
     {
+        _itemRepository = itemRepository;
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
         _commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
@@ -309,6 +406,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedGroup));
             _ = FollowSelectedGroupAsync();
+            _ = ResolveRequirementNamesAsync(value);
         }
     }
 
@@ -350,17 +448,107 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
     public ICommand OpenHideoutCommand { get; }
 
+    /// <summary>The older two-state view of <see cref="Filter"/>: everything, or the active quests.</summary>
     public bool ShowAll
     {
-        get => _showAll;
+        get => Filter == PlanQuestFilter.All;
+        set => Filter = value ? PlanQuestFilter.All : PlanQuestFilter.Active;
+    }
+
+    public PlanQuestFilter Filter
+    {
+        get => _filter;
         set
         {
-            if (SetProperty(ref _showAll, value))
+            if (SetProperty(ref _filter, value))
+            {
+                foreach (var chip in FilterChips)
+                {
+                    chip.IsSelected = chip.Filter == value;
+                }
+
+                OnPropertyChanged(nameof(ShowAll));
+                ApplyFilter();
+            }
+        }
+    }
+
+    public IReadOnlyList<PlanFilterChipViewModel> FilterChips => _filterChips ??= CreateFilterChips();
+
+    /// <summary>Words that must all appear somewhere in a quest: its name, trader, maps or an objective.</summary>
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value ?? string.Empty))
+            {
+                OnPropertyChanged(nameof(HasSearchText));
+                ApplyFilter();
+            }
+        }
+    }
+
+    public bool HasSearchText => _searchText.Trim().Length > 0;
+
+    public ICommand ClearSearchCommand => _clearSearch ??= new DelegateCommand(() => SearchText = string.Empty);
+
+    private ICommand? _clearSearch;
+
+    /// <summary>Every trader the board has a quest from, after "All traders".</summary>
+    public IReadOnlyList<PlanTraderOption> Traders
+    {
+        get => _traders;
+        private set => SetProperty(ref _traders, value);
+    }
+
+    public PlanTraderOption SelectedTrader
+    {
+        get => _selectedTrader;
+        set
+        {
+            if (value is not null && SetProperty(ref _selectedTrader, value))
             {
                 ApplyFilter();
             }
         }
     }
+
+    /// <summary>The player's level, which every level-gated quest is measured against.</summary>
+    /// <remarks>
+    /// Typed in because the game never writes its own player's down: left at the stored 1, a fresh
+    /// profile gates hundreds of quests behind levels the player is long past.
+    /// </remarks>
+    public decimal PlayerLevel => _playerLevel;
+
+    public IReadOnlyList<PlanTraderLoyaltyViewModel> TraderLoyalty
+    {
+        get => _traderLoyalty;
+        private set
+        {
+            if (SetProperty(ref _traderLoyalty, value))
+            {
+                OnPropertyChanged(nameof(HasTraderLoyalty));
+            }
+        }
+    }
+
+    public bool HasTraderLoyalty => _traderLoyalty.Count > 0;
+
+    /// <summary>"12 items still needed": the unmet requirements of every map on show, each item counted once.</summary>
+    public string RequirementsRollup
+    {
+        get => _rollup;
+        private set
+        {
+            if (SetProperty(ref _rollup, value))
+            {
+                OnPropertyChanged(nameof(HasRequirementsRollup));
+            }
+        }
+    }
+
+    public bool HasRequirementsRollup => _rollup.Length > 0;
 
     public string Status
     {
@@ -388,15 +576,13 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
+            _ownedItems = profile.OwnedItemCounts;
+            _missingItems.Clear();
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
             _projected.Clear();
+            ApplyProfile(profile.Level, profile.TraderLevels);
             ApplyFilter();
-            Status = _board.UnavailableReason ?? (HasGroups
-                ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
-                : ShowAll
-                    ? "No quests recorded yet."
-                    : "No active quests. Turn on Show everything to see the rest.");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -421,7 +607,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
         var previousMapKey = SelectedGroup is { } previous ? previous.MapId ?? AnyMapKey : null;
         var buckets = new Dictionary<string, List<PlanObjectiveBucketEntry>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var entry in Bucket(_board.Tasks, ShowAll))
+        var terms = QuestsPageViewModel.SearchTerms(SearchText);
+        foreach (var entry in Bucket(_board.Tasks, Filter, terms, SelectedTrader.TraderId, SearchableText))
         {
             if (!buckets.TryGetValue(entry.MapKey, out var list))
             {
@@ -444,10 +631,229 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             .OrderBy(group => group.MapId is null ? 1 : 0)
             .ThenBy(group => group.MapLabel, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
+        RebuildRequirements();
         SelectedGroup = Groups.FirstOrDefault(group =>
                 previousMapKey is not null &&
                 string.Equals(group.MapId ?? AnyMapKey, previousMapKey, StringComparison.OrdinalIgnoreCase))
             ?? Groups.FirstOrDefault();
+        UpdateStatus();
+    }
+
+    private void UpdateStatus() => Status = _board?.UnavailableReason ?? (HasGroups
+        ? $"{CountLabel(Groups.Sum(group => group.Objectives.Count), "objective")} across {CountLabel(Groups.Count, "map")}"
+        : PlanQuestRules.DescribeEmpty(Filter, SearchText.Trim(), SelectedTrader.TraderId is not null));
+
+    /// <summary>Everything the search reads on a quest, so "customs" finds a quest by the map its objectives are on.</summary>
+    private string SearchableText(QuestSummaryReadModel task) => string.Join(
+        '\n',
+        new[] { task.Name, task.TraderName ?? string.Empty, task.TraderId ?? string.Empty }
+            .Concat(task.Objectives.Select(objective => objective.Description))
+            .Concat(task.Objectives.SelectMany(objective => objective.MapIds).Distinct(StringComparer.OrdinalIgnoreCase).Select(NameOfMap)));
+
+    private IReadOnlyList<PlanFilterChipViewModel> CreateFilterChips()
+    {
+        var chips = Enum.GetValues<PlanQuestFilter>()
+            .Select(filter => new PlanFilterChipViewModel(filter, selected => Filter = selected))
+            .ToArray();
+        foreach (var chip in chips)
+        {
+            chip.IsSelected = chip.Filter == _filter;
+        }
+
+        return chips;
+    }
+
+    /// <summary>Takes the profile's level and loyalty, and the traders the board actually has quests from.</summary>
+    private void ApplyProfile(int level, IReadOnlyDictionary<string, int> traderLevels)
+    {
+        _playerLevel = level;
+        OnPropertyChanged(nameof(PlayerLevel));
+        var named = _board is null
+            ? []
+            : _board.Tasks
+                .Where(task => !string.IsNullOrWhiteSpace(task.TraderId))
+                .GroupBy(task => task.TraderId!, StringComparer.Ordinal)
+                .Select(group => new PlanTraderOption(
+                    group.Key,
+                    group.Select(task => task.TraderName).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? group.Key))
+                .OrderBy(option => option.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+        Traders = [AllTraders, .. named];
+        _selectedTrader = Traders.FirstOrDefault(option => option.TraderId == _selectedTrader.TraderId) ?? AllTraders;
+        OnPropertyChanged(nameof(SelectedTrader));
+        TraderLoyalty =
+        [
+            .. named.Select(option => new PlanTraderLoyaltyViewModel(
+                option.TraderId!,
+                option.Name,
+                traderLevels.GetValueOrDefault(option.TraderId!))),
+        ];
+    }
+
+    /// <summary>Stores a typed level and re-reads the board, because every level-gated quest is measured against it.</summary>
+    /// <remarks>
+    /// A cleared box is not a level and is ignored; anything outside the game's own range is pulled
+    /// back into it, because a spinner holding 800 gates the catalog as thoroughly as one holding 1.
+    /// </remarks>
+    public async Task SetPlayerLevelAsync(decimal? value)
+    {
+        if (value is not { } entered)
+        {
+            return;
+        }
+
+        var level = (int)Math.Clamp(entered, QuestsPageViewModel.MinimumLevel, QuestsPageViewModel.MaximumLevel);
+        if (level == _playerLevel)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            if (profile.Level != level)
+            {
+                await _profileService
+                    .SaveAsync(profile with { Level = level, UpdatedUtc = DateTimeOffset.UtcNow }, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+
+            await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            OnPropertyChanged(nameof(PlayerLevel));
+            Status = $"Level not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>Records loyalty with one trader (0 to 4) and re-reads the board, since what is available depends on it.</summary>
+    public async Task SetTraderLevelAsync(string traderId, decimal level)
+    {
+        if (string.IsNullOrWhiteSpace(traderId))
+        {
+            return;
+        }
+
+        var wanted = (int)Math.Clamp(level, 0, 4);
+
+        // The spinner reports its own initial value as a change each time the rows are rebuilt;
+        // that is not an edit, and answering it would read the profile once per trader per refresh.
+        if (_traderLoyalty.FirstOrDefault(row => row.TraderId == traderId) is { } shown && shown.Level == wanted)
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            if (profile.TraderLevels.GetValueOrDefault(traderId) == wanted)
+            {
+                return;
+            }
+
+            var levels = new Dictionary<string, int>(profile.TraderLevels, StringComparer.Ordinal)
+            {
+                [traderId] = wanted,
+            };
+            await _profileService
+                .SaveAsync(profile with { TraderLevels = levels, UpdatedUtc = DateTimeOffset.UtcNow }, CancellationToken.None)
+                .ConfigureAwait(true);
+            await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Trader loyalty not saved · {exception.Message}";
+        }
+    }
+
+    private void RebuildRequirements()
+    {
+        foreach (var group in Groups)
+        {
+            group.Requirements = BuildRequirementsFor(group);
+        }
+
+        UpdateRollup();
+    }
+
+    private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group) =>
+        PlanQuestRules.BuildRequirements(
+            group.Objectives.Select(row => row.Objective),
+            NameOfItem,
+            _ownedItems);
+
+    /// <summary>
+    /// What an item is called: its catalog name, or plainly that the catalog lacks it once that is
+    /// known. An id would read as a bug; a name nobody has looked up yet is the id until they do.
+    /// </summary>
+    private string NameOfItem(string itemId) => _itemNames.TryGetValue(itemId, out var name)
+        ? name
+        : _missingItems.Contains(itemId) ? "Item not in the catalog" : itemId;
+
+    /// <summary>Each unmet requirement counted once however many maps ask for it.</summary>
+    private void UpdateRollup()
+    {
+        var unmet = Groups
+            .SelectMany(group => group.Requirements.Where(row => !row.IsSatisfied))
+            .Select(row => (row.ItemName, row.HandlingLabel))
+            .Distinct()
+            .Count();
+        RequirementsRollup = unmet == 0 ? string.Empty : $"{CountLabel(unmet, "item")} still needed";
+    }
+
+    /// <summary>
+    /// Names the items the selected map asks for, once each. Only the selected map's, because
+    /// naming every item of every quest in "All" is thousands of catalog reads for names nobody
+    /// is looking at; the others read by id until they are chosen.
+    /// </summary>
+    private async Task ResolveRequirementNamesAsync(PlanMapGroupViewModel? group)
+    {
+        if (group is null || _itemRepository is null)
+        {
+            return;
+        }
+
+        var unnamed = group.Objectives
+            .SelectMany(row => row.Objective.ItemTargets)
+            .Select(target => target.ItemId)
+            .Distinct(StringComparer.Ordinal)
+            .Where(id => !_itemNames.ContainsKey(id) && !_missingItems.Contains(id))
+            .Take(150)
+            .ToArray();
+        if (unnamed.Length == 0)
+        {
+            return;
+        }
+
+        var resolved = false;
+        foreach (var id in unnamed)
+        {
+            try
+            {
+                if (await _itemRepository.GetAsync(id, CancellationToken.None).ConfigureAwait(true) is { } item)
+                {
+                    _itemNames[id] = item.Name;
+                }
+                else
+                {
+                    _missingItems.Add(id);
+                }
+
+                resolved = true;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One unreadable item costs one name, not the panel.
+                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name item {id}: {exception.Message}");
+            }
+        }
+
+        if (resolved && Groups.Contains(group))
+        {
+            group.Requirements = BuildRequirementsFor(group);
+            UpdateRollup();
+        }
     }
 
     /// <summary>"1 objective", "3 quests": the plural is regular for every noun this page counts.</summary>
@@ -716,29 +1122,45 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         QuestObjectiveReadModel Objective);
 
     /// <summary>
-    /// Actionable-by-default filtering and map bucketing, kept free of the map/wiki/command
-    /// services so it can be tested without them.
+    /// The older two-state form: active quests and their unfinished objectives, or everything.
+    /// </summary>
+    internal static IReadOnlyList<PlanObjectiveBucketEntry> Bucket(
+        IReadOnlyList<QuestSummaryReadModel> tasks,
+        bool showAll) => Bucket(tasks, showAll ? PlanQuestFilter.All : PlanQuestFilter.Active, [], null, null);
+
+    /// <summary>
+    /// Filtering and map bucketing, kept free of the map/wiki/command services so it can be
+    /// tested without them.
     /// </summary>
     /// <remarks>
-    /// With <paramref name="showAll"/> false: only active quests, and only their objectives that
-    /// are not yet recorded complete. With it true: every quest and every objective, unfiltered.
+    /// A quest is kept when it belongs to the filter, is from the chosen trader (if one is chosen)
+    /// and its text answers every search word. Its objectives are then kept unless recorded
+    /// complete, except where the filter is one that shows finished work.
     /// </remarks>
     internal static IReadOnlyList<PlanObjectiveBucketEntry> Bucket(
         IReadOnlyList<QuestSummaryReadModel> tasks,
-        bool showAll)
+        PlanQuestFilter filter,
+        IReadOnlyList<string> searchTerms,
+        string? traderId,
+        Func<QuestSummaryReadModel, string>? searchableText)
     {
         ArgumentNullException.ThrowIfNull(tasks);
+        ArgumentNullException.ThrowIfNull(searchTerms);
+        var showFinished = PlanQuestRules.ShowsFinishedObjectives(filter);
         var entries = new List<PlanObjectiveBucketEntry>();
         foreach (var task in tasks)
         {
-            if (!showAll && task.RecordedState != RecordedTaskState.Active)
+            if (!PlanQuestRules.Includes(task, filter) ||
+                (traderId is not null && !string.Equals(task.TraderId, traderId, StringComparison.OrdinalIgnoreCase)) ||
+                (searchTerms.Count > 0 &&
+                 !QuestsPageViewModel.MatchesEveryTerm(searchableText?.Invoke(task) ?? task.Name, searchTerms)))
             {
                 continue;
             }
 
             foreach (var objective in task.Objectives)
             {
-                if (!showAll && objective.RecordedState == RecordedObjectiveState.Completed)
+                if (!showFinished && objective.RecordedState == RecordedObjectiveState.Completed)
                 {
                     continue;
                 }
@@ -841,8 +1263,29 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             count,
             CancellationToken.None));
 
-    internal Task MarkQuestDoneAsync(string taskId) => MutateAsync(scope =>
-        _commandService.SetTaskStateAsync(scope, taskId, RecordedTaskState.Completed, CancellationToken.None));
+    internal Task MarkQuestDoneAsync(string taskId) => SetQuestStateAsync(taskId, RecordedTaskState.Completed);
+
+    internal Task SetQuestStateAsync(string taskId, RecordedTaskState state) => MutateAsync(scope =>
+        _commandService.SetTaskStateAsync(scope, taskId, state, CancellationToken.None));
+
+    internal Task TogglePinAsync(QuestPinTargetKind kind, string targetId, bool isPinned) => MutateAsync(scope =>
+        _commandService.SetPinAsync(scope, kind, targetId, !isPinned, 0, null, CancellationToken.None));
+
+    internal Task SetObjectiveStateAsync(QuestObjectiveReadModel objective, RecordedObjectiveState state) => MutateAsync(scope =>
+        _commandService.SetObjectiveProgressAsync(scope, objective.ObjectiveId, state, null, CancellationToken.None));
+
+    /// <summary>Steps an objective's recorded count by one, never below nothing and never past its target.</summary>
+    internal Task SetObjectiveCountAsync(QuestObjectiveReadModel objective, int direction) => MutateAsync(scope =>
+        _commandService.SetObjectiveProgressAsync(
+            scope,
+            objective.ObjectiveId,
+            RecordedObjectiveState.InProgress,
+            direction < 0
+                ? Math.Max(0, (objective.RecordedCount ?? 0) - 1)
+                : objective.TargetCount is { } target
+                    ? Math.Min(target, (objective.RecordedCount ?? 0) + 1)
+                    : (objective.RecordedCount ?? 0) + 1,
+            CancellationToken.None));
 
     /// <summary>Follows the shared map to the objective's map and tells the shell to show it.</summary>
     internal async Task ShowOnMapAsync(string mapId)

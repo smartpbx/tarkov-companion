@@ -797,6 +797,8 @@ public sealed class QuestReadService(
         {
             TraderName = NameOfTrader(task.TraderId, context),
             WikiUri = task.WikiUri,
+            KappaRequired = task.KappaRequired,
+            MinimumPlayerLevel = task.MinimumPlayerLevel,
         };
     }
 
