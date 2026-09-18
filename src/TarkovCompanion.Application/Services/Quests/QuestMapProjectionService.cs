@@ -34,6 +34,15 @@ public sealed record QuestMapObjectiveProjection(
 {
     public bool HasExactGeometry =>
         !IsFloorFiltered && GeometryKind is QuestMapGeometryKind.Point or QuestMapGeometryKind.Region;
+
+    /// <summary>The objective this was projected from, with everything the map's detail card says about it.</summary>
+    public QuestMapObjectiveReadModel? Source { get; init; }
+
+    /// <summary>The zone this placed (or failed to place), in world coordinates, for deciding which floor it is on.</summary>
+    public QuestObjectiveZone? Zone { get; init; }
+
+    /// <summary>Whether this is one of several candidate spots (possibleLocations) rather than a place the source authored.</summary>
+    public bool IsPossibleLocation => Zone?.IsPossibleLocation == true;
 }
 
 public sealed record QuestMapProjectionReadModel(
@@ -256,7 +265,11 @@ public sealed class QuestMapProjectionService
             objective.ItemTargets,
             questCatalogProvenance,
             mapCatalogProvenance,
-            Attribution(variant));
+            Attribution(variant))
+        {
+            Source = objective,
+            Zone = zone,
+        };
     }
 
     private static string? ValidateProjectionBoundary(
@@ -394,7 +407,11 @@ public sealed class QuestMapProjectionService
         objective.ItemTargets,
         questCatalogProvenance,
         mapCatalogProvenance,
-        Attribution(variant));
+        Attribution(variant))
+    {
+        Source = objective,
+        Zone = zone,
+    };
 
     private static QuestMapProjectionReadModel Unavailable(
         QuestMapObjectivesReadModel query,
