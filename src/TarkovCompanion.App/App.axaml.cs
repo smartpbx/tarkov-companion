@@ -1,10 +1,13 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Notifications;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
@@ -20,6 +23,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
     private MainWindowViewModel? _mainViewModel;
+    private TrayPresenceHost? _tray;
+    private NotificationBridge? _notifications;
+    private bool _closesToTray;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -72,15 +78,99 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     viewModel.Map.OpenOn(launch.MapId, launch.MapFloor, launch.StacksFloors);
                 }
 
-                desktop.MainWindow = new MainWindow
+                var window = new MainWindow
                 {
                     DataContext = viewModel,
                 };
+                desktop.MainWindow = window;
+                // [V2 rough package 43 (#314)] The tray, and the five notifications behind it.
+                // Attached after the window exists because closing to the tray only makes sense
+                // when there is a tray to close to, and the pop-up needs a window to draw in.
+                AttachNotifications(desktop, window);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
             }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Puts the companion in the system tray and starts deciding what is worth saying.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43] Best-effort throughout. A platform with no tray leaves the tray host
+    /// unavailable, the window then closes the way it always has, and the notifications still work
+    /// — they simply have nowhere quiet to go. Nothing here is allowed to stop the application
+    /// starting, which is why the whole thing is inside one catch: a missing tray is not worth a
+    /// failed launch.
+    /// </remarks>
+    private void AttachNotifications(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
+    {
+        try
+        {
+            _tray = services.GetRequiredService<TrayPresenceHost>();
+            _tray.Attach(this, new(
+                Show: () => Restore(window),
+                OpenRaid: () => Restore(window, V2Routes.Raid),
+                OpenTeam: () => Restore(window, V2Routes.Team),
+                OpenSetup: () => Restore(window, V2Routes.Setup),
+                Quit: () =>
+                {
+                    _closesToTray = false;
+                    desktop.Shutdown();
+                }));
+            services.GetRequiredService<PopupNotificationHost>()
+                .Attach(new WindowNotificationManager(window) { Position = NotificationPosition.BottomRight, MaxItems = 3 });
+
+            // The window closing is the application going quiet, not the application stopping:
+            // a companion that has to be relaunched to tell you anything cannot tell you anything.
+            // Only when there is actually a tray to reach it by.
+            _closesToTray = _tray.IsAvailable;
+            window.Closing += (_, args) =>
+            {
+                if (!_closesToTray || desktop.ShutdownMode == ShutdownMode.OnExplicitShutdown && !window.IsVisible)
+                {
+                    return;
+                }
+
+                args.Cancel = true;
+                window.Hide();
+            };
+
+            if (_closesToTray)
+            {
+                // Otherwise hiding the only window would end the process before the tray icon
+                // had a chance to be pressed.
+                desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            }
+
+            _notifications = services.GetRequiredService<NotificationBridge>();
+            _notifications.Raised += (_, _) => _tray?.Update(services
+                .GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>().Current);
+            var runtime = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+            runtime.Changed += (_, _) => _tray?.Update(runtime.Current);
+            _tray.Update(runtime.Current);
+            _ = _notifications.InitializeAsync(_stopping.Token);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _tray = null;
+            _notifications = null;
+            _closesToTray = false;
+        }
+    }
+
+    /// <summary>Brings the window back from the tray, optionally on a named workspace.</summary>
+    private void Restore(MainWindow window, V2RouteId? route = null)
+    {
+        window.Show();
+        window.WindowState = WindowState.Normal;
+        window.Activate();
+        _tray?.ClearUnread();
+        if (route is { } destination && _mainViewModel?.PreviewShell is { } shell)
+        {
+            shell.GoTo(destination);
+        }
     }
 
     /// <summary>
@@ -100,6 +190,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         }
 
         _mainViewModel?.Map.Dispose();
+        _notifications?.Dispose();
+        _tray?.Dispose();
         try
         {
             await _initialization.WaitAsync(InitializationDrainTimeout, CancellationToken.None).ConfigureAwait(false);

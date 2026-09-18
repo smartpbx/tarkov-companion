@@ -32,7 +32,7 @@ public sealed class NotificationBridge : IDisposable
     private readonly NotificationCoordinator _coordinator;
     private readonly IReadOnlyList<INotificationChannel> _quietChannels;
     private readonly Func<INotificationChannel?> _popupChannel;
-    private readonly SettingsPageViewModel? _settingsPage;
+    private readonly Func<SettingsPageViewModel?> _settingsPage;
     private readonly TimeProvider _timeProvider;
     private readonly ITimer _flushTimer;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -48,7 +48,9 @@ public sealed class NotificationBridge : IDisposable
         // Resolved late and per notification, because the window it draws into may not exist yet
         // and may be closed to the tray by the time one arrives.
         Func<INotificationChannel?> popupChannel,
-        SettingsPageViewModel? settingsPage = null,
+        // A function, not the view model: resolving it eagerly here would build the whole V1
+        // graph the moment notifications are composed.
+        Func<SettingsPageViewModel?>? settingsPage = null,
         TimeProvider? timeProvider = null,
         NotificationCoordinator? coordinator = null)
     {
@@ -57,7 +59,7 @@ public sealed class NotificationBridge : IDisposable
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _quietChannels = quietChannels ?? throw new ArgumentNullException(nameof(quietChannels));
         _popupChannel = popupChannel ?? throw new ArgumentNullException(nameof(popupChannel));
-        _settingsPage = settingsPage;
+        _settingsPage = settingsPage ?? (static () => null);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _coordinator = coordinator ?? new NotificationCoordinator();
         _stateStore.Changed += StateChanged;
@@ -197,7 +199,7 @@ public sealed class NotificationBridge : IDisposable
             FailedDataEndpoints = snapshot.Data.FailedEndpoints,
             // "Ready to install" is the unpacked build waiting for a restart, not merely one that
             // exists in the feed: an offer somebody has not downloaded is not ready for anything.
-            UpdateReadyBuild = _settingsPage is { CanRestartForUpdate: true } settings
+            UpdateReadyBuild = _settingsPage() is { CanRestartForUpdate: true } settings
                 ? settings.AvailableBuild
                 : null,
         };

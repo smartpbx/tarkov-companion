@@ -57,6 +57,15 @@ public sealed class TrayPresence : INotificationChannel, IDisposable
     {
         ArgumentNullException.ThrowIfNull(application);
         _actions = actions ?? throw new ArgumentNullException(nameof(actions));
+        // Windows only, the way the rest of the platform layer draws its line. A tray exists on
+        // other desktops, but this is the platform the companion is used on and the one the
+        // close-to-tray behaviour is verified on; everywhere else the window keeps closing the way
+        // it always has rather than disappearing into something that may not be there.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         try
         {
             _baseIcon = new Bitmap(AssetLoader.Open(BaseIconUri));
