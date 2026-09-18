@@ -119,9 +119,13 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             : enteringNewRaid || clearingRaid
                 ? false
                 : Current.IsManualMapOverride;
+        // A screenshot gap wide enough to start a new raid (see MaximumPositionGap) carries no
+        // map of its own, and letting the fallback keep the old raid's map would show a raid on
+        // a map it was never confirmed to be on. Log evidence that starts a new raid this way
+        // always carries its own MapId, so it never reaches the fallback and is unaffected.
         var mapId = Current.IsManualMapOverride && evidence.Kind != RaidEvidenceKind.ManualOverride && !enteringNewRaid
             ? Current.MapId
-            : evidence.MapId ?? (clearingRaid ? null : Current.MapId);
+            : evidence.MapId ?? (clearingRaid || evidence.StartsNewRaid ? null : Current.MapId);
 
         Current = Current with
         {
@@ -214,6 +218,20 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
     }
 
     /// <summary>
+    /// How long a gap between two screenshots can be before they cannot be the same raid.
+    /// </summary>
+    /// <remarks>
+    /// Without a log line to say where one raid ends and the next begins, screenshots alone
+    /// have to. This reuses <see cref="RaidResume"/>'s own bound on how long a raid can run,
+    /// because a gap wider than that cannot be a pause inside one raid. Without it, a
+    /// companion that cannot read the game's logs never leaves <see cref="RaidLifecycleState.InRaid"/>
+    /// on its own, so every later screenshot only ever extended the trail it already had —
+    /// including the screenshot backlog replayed on startup, which joined every raid in it,
+    /// however many days apart, into one walk.
+    /// </remarks>
+    private static readonly TimeSpan MaximumPositionGap = RaidResume.LongestRaid + RaidResume.Margin;
+
+    /// <summary>
     /// Records where the player was, from a screenshot the player chose to take.
     /// </summary>
     /// <remarks>
@@ -232,7 +250,10 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             return Current;
         }
 
-        if (Current.State != RaidLifecycleState.InRaid)
+        var gapFromLast = Current.LastKnownPosition is { } last
+            ? observedUtc - last.Timestamp.ToUniversalTime()
+            : (TimeSpan?)null;
+        if (Current.State != RaidLifecycleState.InRaid || gapFromLast > MaximumPositionGap)
         {
             Apply(new RaidEvidence(
                 RaidEvidenceKind.ScreenshotFilename,
@@ -240,7 +261,14 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
                 null,
                 RaidLifecycleState.InRaid,
                 new Confidence(0.80),
-                "A normal screenshot filename provides last-known raid position evidence."));
+                "A normal screenshot filename provides last-known raid position evidence.")
+            {
+                // Set even when a raid is already running: without it, a gap this wide while
+                // still InRaid would not requalify as enteringRaid below, and the new raid
+                // would inherit the old one's id, start time and trail instead of starting
+                // its own.
+                StartsNewRaid = true,
+            });
         }
 
         Current = Current with

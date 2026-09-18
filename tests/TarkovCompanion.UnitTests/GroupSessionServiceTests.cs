@@ -143,6 +143,49 @@ public sealed class GroupSessionServiceTests
     public void HowLongAgoReadsAsSomebodyWouldSayIt(int seconds, string expected) =>
         Assert.Equal(expected, GroupSessionService.Ago(TimeSpan.FromSeconds(seconds)));
 
+    /// <summary>
+    /// A report over the relay's size budget is trimmed and sent rather than refused whole.
+    /// </summary>
+    [Fact]
+    public async Task AnOversizedReportIsTrimmedToFitBeforeItIsSent()
+    {
+        string? sentBody = null;
+        var handler = new StubHandler(async request =>
+        {
+            sentBody = await request.Content!.ReadAsStringAsync();
+            return Json("""{"reference":"abc123456789","detail":"Sent."}""");
+        });
+        await using var service = Service(handler, out _);
+
+        // Far past the relay's 64 KiB budget.
+        var huge = new string('x', 200_000);
+        var result = await service.ReportProblemAsync(huge, CancellationToken.None);
+
+        Assert.NotNull(sentBody);
+        Assert.True(
+            System.Text.Encoding.UTF8.GetByteCount(sentBody!) <= 64 * 1024,
+            "The body sent to the relay should fit within its size budget.");
+        Assert.Contains("trimmed", sentBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Sent", result, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A 413 is Kestrel's own refusal before the endpoint ran; its body is not a detail worth
+    /// showing, so the player is told plainly instead of "the relay refused it (413)".
+    /// </summary>
+    [Fact]
+    public async Task A413IsExplainedPlainlyRatherThanShownAsARawStatusCode()
+    {
+        var handler = new StubHandler(_ =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.RequestEntityTooLarge)));
+        await using var service = Service(handler, out _);
+
+        var result = await service.ReportProblemAsync("a small report", CancellationToken.None);
+
+        Assert.Contains("too large", result, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("413", result, StringComparison.Ordinal);
+    }
+
     private static GroupSessionService Service(StubHandler handler, out RuntimeStateStore store)
     {
         store = new(new(

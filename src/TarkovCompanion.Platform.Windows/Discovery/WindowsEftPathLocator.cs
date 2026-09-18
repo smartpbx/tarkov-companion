@@ -32,6 +32,18 @@ public interface IEftPathProbe
     /// and then position never appears and discovery still reports success.
     /// </remarks>
     DateTimeOffset? NewestImageWrite(string path) => null;
+
+    /// <summary>
+    /// When the newest *.log file under a folder, at any depth, was written, or null when the
+    /// folder holds none.
+    /// </summary>
+    /// <remarks>
+    /// A reinstall to a different drive can leave the old install's Logs folder behind,
+    /// existing but no longer written to. Existence alone cannot tell that folder from the one
+    /// the game is actually using; nothing was ever read from it because nothing was ever
+    /// there to read.
+    /// </remarks>
+    DateTimeOffset? NewestLogWrite(string path) => null;
 }
 
 public sealed class WindowsEftPathLocator(
@@ -124,7 +136,7 @@ public sealed class WindowsEftPathLocator(
                 _probe.DirectoryExists(previousInstall);
             var install = FirstExisting(candidates.InstallRoots) ??
                 (previousInstallExists ? previous.Paths.InstallRoot : null);
-            var logs = Named(named.LogRoot) ?? FirstExisting(candidates.LogRoots);
+            var logs = Named(named.LogRoot) ?? BestLogRoot(candidates.LogRoots);
             var screenshots = Named(named.ScreenshotRoot) ?? BestScreenshotRoot(candidates.ScreenshotRoots);
             var foundCount = new[] { install, logs, screenshots }.Count(path => path is not null);
             var confidence = foundCount switch
@@ -331,6 +343,33 @@ public sealed class WindowsEftPathLocator(
         Existing(paths).FirstOrDefault();
 
     /// <summary>
+    /// Picks the log folder the game is actually writing to.
+    /// </summary>
+    /// <remarks>
+    /// The same reasoning as <see cref="BestScreenshotRoot"/>, and for the same underlying
+    /// problem: a machine can have more than one folder on disk that looks like a real EFT log
+    /// root -- a leftover from a reinstall to a different drive, most often -- and the first
+    /// one that merely exists is not necessarily the one the game writes to now. Where more
+    /// than one candidate exists, the one holding the newest log line wins.
+    /// </remarks>
+    private string? BestLogRoot(IEnumerable<string> paths)
+    {
+        var existing = Existing(paths).ToArray();
+        if (existing.Length <= 1)
+        {
+            return existing.FirstOrDefault();
+        }
+
+        var newest = existing
+            .Select(path => (Path: path, Written: _probe.NewestLogWrite(path)))
+            .Where(entry => entry.Written is not null)
+            .OrderByDescending(entry => entry.Written!.Value)
+            .Select(entry => entry.Path)
+            .FirstOrDefault();
+        return newest ?? existing[0];
+    }
+
+    /// <summary>
     /// Picks the screenshot folder the game is actually using.
     /// </summary>
     /// <remarks>
@@ -388,6 +427,23 @@ public sealed class SystemEftPathProbe : IEftPathProbe
             var newest = new DirectoryInfo(path)
                 .EnumerateFiles()
                 .Where(file => ImageExtensions.Contains(file.Extension))
+                .Select(file => file.LastWriteTimeUtc)
+                .DefaultIfEmpty(DateTime.MinValue)
+                .Max();
+            return newest == DateTime.MinValue ? null : new DateTimeOffset(newest, TimeSpan.Zero);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public DateTimeOffset? NewestLogWrite(string path)
+    {
+        try
+        {
+            var newest = new DirectoryInfo(path)
+                .EnumerateFiles("*.log", SearchOption.AllDirectories)
                 .Select(file => file.LastWriteTimeUtc)
                 .DefaultIfEmpty(DateTime.MinValue)
                 .Max();
