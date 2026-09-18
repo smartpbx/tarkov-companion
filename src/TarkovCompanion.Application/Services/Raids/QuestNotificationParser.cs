@@ -42,7 +42,7 @@ public static class QuestNotificationParser
     /// recognised nothing at all. Verified against a live install: 380 of these lines across
     /// eight log folders, every one of them with a "new_message" payload.
     /// </remarks>
-    private const string ChatTypeMarker = "ChatMessageReceived";
+    public const string NotificationMarker = "ChatMessageReceived";
 
     /// <summary>
     /// A quest id is a twenty-four character identifier.
@@ -62,7 +62,7 @@ public static class QuestNotificationParser
     /// </remarks>
     public static QuestStatusObservation? ParseLine(string? line, DateTimeOffset observedUtc)
     {
-        if (string.IsNullOrEmpty(line) || !line.Contains(ChatTypeMarker, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(line) || !line.Contains(NotificationMarker, StringComparison.Ordinal))
         {
             return null;
         }

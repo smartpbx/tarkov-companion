@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.App.Services.V2.Shell;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
@@ -144,14 +145,34 @@ public static class SelfTestProbes
             return Unknown(LogsId, "Logs", $"Nothing was read: {problem}", [], took);
         }
 
-        var facts = new List<SelfTestFact>(6)
+        var facts = new List<SelfTestFact>(8)
         {
             new(
                 string.Create(
                     culture,
-                    $"Read {reading.LinesRead:N0} line(s), {Bytes(reading.Bytes, culture)}, from {reading.FileName} in session {reading.SessionFolder}"),
+                    $"Read {reading.LinesRead:N0} line(s), {Bytes(reading.Bytes, culture)}, from {reading.Files.Count} file(s) in session {reading.SessionFolder}"),
                 source),
         };
+
+        // Per file, because the whole reason a raid's quests went unnoticed for a day is that a
+        // reading like this one looked at a single file and reported its zero as the session's.
+        foreach (var file in reading.Files)
+        {
+            facts.Add(new(
+                file.Problem is { Length: > 0 } unreadable
+                    ? string.Create(culture, $"{file.Name} could not be read: {unreadable}")
+                    : string.Create(
+                        culture,
+                        $"{file.Name}: {file.LinesRead:N0} line(s){(file.Mode == LogReadMode.ChatOnly ? " (quest and flea notifications only)" : string.Empty)}, {file.QuestEvents} quest, {file.FleaSales} flea"),
+                source));
+        }
+
+        if (reading.SkippedFiles.Count > 0)
+        {
+            facts.Add(new(
+                string.Create(culture, $"Not opened: {string.Join(", ", reading.SkippedFiles)}"),
+                "this companion reads only the log files it has a use for"));
+        }
 
         if (reading.SessionStartedUtc is { } started)
         {
@@ -178,7 +199,9 @@ public static class SelfTestProbes
                 : "No queue time in this session — the game writes one only when matchmaking finishes",
             source));
         facts.Add(new(
-            string.Create(culture, $"{reading.QuestEvents} quest notification(s) and {reading.FleaSales} flea sale(s)"),
+            string.Create(
+                culture,
+                $"{reading.QuestEvents} quest notification(s) and {reading.FleaSales} flea sale(s) across every file read"),
             source));
 
         var understood = reading.RaidsSeen + reading.QuestEvents + reading.FleaSales;
@@ -193,11 +216,27 @@ public static class SelfTestProbes
                 took);
         }
 
-        return understood == 0 && reading.QueueTime is null
-            ? Unknown(
+        if (understood == 0 && reading.QueueTime is null)
+        {
+            return Unknown(
                 LogsId,
                 "Logs",
                 string.Create(culture, $"Read {reading.LinesRead:N0} lines and recognised nothing in them."),
+                facts,
+                took);
+        }
+
+        // A session with raids in it and no quest notification anywhere used to pass quietly,
+        // which is how a player who had handed in quests came to believe the companion had seen
+        // them. It reads a raid and misses every quest for one reason -- the quest announcements
+        // are not in anything being read -- and that has to be on the face of the report.
+        return reading.QuestEvents == 0 && reading.RaidsSeen > 0
+            ? Unknown(
+                LogsId,
+                "Logs",
+                string.Create(
+                    culture,
+                    $"Recognised {reading.RaidsSeen} raid(s) but not one quest notification in {reading.Files.Count} file(s). If you handed a quest in during this session, the companion did not see it."),
                 facts,
                 took)
             : new(
