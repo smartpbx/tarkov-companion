@@ -1,7 +1,10 @@
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Threading;
+using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Wiki;
@@ -244,6 +247,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     // one, results rows have no wiki link, which is what they had until now.
     private readonly IItemRepository? _itemRepository;
     private readonly IWikiLinkOpener? _wikiOpener;
+    // [V2 rough package 40] Optional for the same reason: without them a Stash scan is one
+    // screenshot through the capture dialog, which is what it was before.
+    private readonly GuidedStashScanService? _guidedScan;
+    private readonly GuidedStashScanArming? _arming;
+    private readonly IProfileRuntimeContextService? _profileContext;
+    private readonly StashReconstructionProjector _projector = new();
+    private StashReconstruction _reconstruction = StashReconstruction.Empty;
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
     private IReadOnlyDictionary<string, KeyFacts>? _keyFactsByItemId;
     private StashSnapshotRecord? _selected;
@@ -262,7 +272,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         IRuntimeStateStore runtime,
         TimeProvider? clock = null,
         IItemRepository? itemRepository = null,
-        IWikiLinkOpener? wikiOpener = null)
+        IWikiLinkOpener? wikiOpener = null,
+        GuidedStashScanService? guidedScan = null,
+        GuidedStashScanArming? arming = null,
+        IProfileRuntimeContextService? profileContext = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow));
@@ -272,6 +285,23 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _clock = clock ?? TimeProvider.System;
         _itemRepository = itemRepository;
         _wikiOpener = wikiOpener;
+        _guidedScan = guidedScan;
+        _arming = arming;
+        _profileContext = profileContext;
+        if (_guidedScan is not null)
+        {
+            _guidedScan.Changed += OnGuidedScanChanged;
+        }
+
+        if (_arming is not null)
+        {
+            _arming.Changed += OnGuidedScanChanged;
+        }
+
+        FinishScanCommand = new AsyncDelegateCommand(FinishScanAsync);
+        UndoLastScreenshotCommand = new AsyncDelegateCommand(UndoLastScreenshotAsync);
+        DiscardScanCommand = new AsyncDelegateCommand(DiscardScanAsync);
+        ContinueScanCommand = new DelegateCommand(() => _arming?.Resume());
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         DeleteSelectedCommand = new AsyncDelegateCommand(DeleteSelectedAsync);
@@ -282,7 +312,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         StartFullScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Stash));
         StartAmmoScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Ammo));
         StartKeysScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Keys));
-        StartSelectedScanCommand = new DelegateCommand(() => RequestScan(ScanTarget));
+        StartSelectedScanCommand = new AsyncDelegateCommand(StartSelectedScanAsync);
         ShowGridCommand = new DelegateCommand(() => IsGridView = true);
         ShowListCommand = new DelegateCommand(() => IsGridView = false);
         ScanTargets =
@@ -303,6 +333,34 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     public IReadOnlyList<StashScanTargetViewModel> ScanTargets { get; }
 
     public ICommand StartSelectedScanCommand { get; }
+
+    public ICommand FinishScanCommand { get; }
+
+    public ICommand UndoLastScreenshotCommand { get; }
+
+    public ICommand DiscardScanCommand { get; }
+
+    public ICommand ContinueScanCommand { get; }
+
+    /// <summary>A guided full-stash scan is collecting screenshots, in this run or a previous one.</summary>
+    public bool IsScanInProgress => _guidedScan?.Current.IsCollecting == true;
+
+    public bool IsScanIdle => !IsScanInProgress;
+
+    /// <summary>The scan is waiting, but screenshots are not being taken as stash screenshots right now.</summary>
+    public bool IsScanPaused => IsScanInProgress && _arming?.IsActive != true;
+
+    public bool CanFinishScan => IsScanInProgress && _guidedScan!.Current.Screenshots > 0;
+
+    public string GuidedHeadline => _guidedScan?.Current.Headline ?? string.Empty;
+
+    public string GuidedNextStep => IsScanPaused
+        ? PausedNextStep(_guidedScan!.Current)
+        : _guidedScan?.Current.NextStep ?? string.Empty;
+
+    private static string PausedNextStep(GuidedStashScanProgress progress) => progress.Screenshots == 0
+        ? "An unfinished scan is waiting. Press Keep going, then scroll to the top of your stash and take a screenshot."
+        : $"An unfinished scan is waiting: {progress.Screenshots.ToString(CultureInfo.CurrentCulture)} screenshot{(progress.Screenshots == 1 ? string.Empty : "s")}, rows 1–{progress.RowsCovered.ToString(CultureInfo.CurrentCulture)}. Keep going, finish with what you have, or discard it.";
 
     public ICommand ShowGridCommand { get; }
 
@@ -334,17 +392,25 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     {
         get
         {
-            if (_selected is null)
+            if (_selected is null && !IsScanInProgress)
             {
                 return string.Empty;
             }
 
-            var stacks = Regions.Sum(region => region.Tiles.Count);
-            var unresolved = _selected.Recognition.Result.Value!.UnresolvedCells.Value;
-            var stacksLabel = $"{stacks.ToString(CultureInfo.CurrentCulture)} stacks";
-            return unresolved is > 0
-                ? $"{stacksLabel} · {unresolved.Value.ToString(CultureInfo.CurrentCulture)} cells unresolved"
-                : stacksLabel;
+            // Counted from the one reconstructed grid, so a row two screenshots share is one row.
+            var culture = CultureInfo.CurrentCulture;
+            var label = $"{_reconstruction.KnownTiles.ToString(culture)} named";
+            if (_reconstruction.UnknownTiles > 0)
+            {
+                label += $" · {_reconstruction.UnknownTiles.ToString(culture)} unknown";
+            }
+
+            if (_reconstruction.UnplacedRegions > 0)
+            {
+                label += $" · {_reconstruction.UnplacedRegions.ToString(culture)} screenshot{(_reconstruction.UnplacedRegions == 1 ? string.Empty : "s")} not placed";
+            }
+
+            return IsScanInProgress ? $"Scanning · {label}" : label;
         }
     }
 
@@ -499,6 +565,92 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     private void RequestScan(ScanIntent intent) => ScanRequested?.Invoke(this, intent);
 
+    /// <summary>
+    /// A full-stash scan is a scroll-through, so it starts a guided scan; ammo and key scans are
+    /// still one screenshot through the shared capture dialog.
+    /// </summary>
+    private async Task StartSelectedScanAsync()
+    {
+        if (ScanTarget != ScanIntent.Stash || _guidedScan is null || CurrentScope() is not { } scope)
+        {
+            RequestScan(ScanTarget);
+            return;
+        }
+
+        await _guidedScan
+            .StartAsync(
+                scope,
+                _profileContext?.Current.ActiveProfile?.Context.DataSnapshot.SnapshotId ?? "unversioned",
+                CancellationToken.None)
+            .ConfigureAwait(true);
+        _arming?.Resume();
+    }
+
+    private async Task FinishScanAsync()
+    {
+        if (_guidedScan is null)
+        {
+            return;
+        }
+
+        var finished = await _guidedScan.FinishAsync(CancellationToken.None).ConfigureAwait(true);
+        if (finished is null)
+        {
+            return;
+        }
+
+        _selected = null;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+        Status = $"Scan saved. {finished.OwnedCounts.Summary}";
+    }
+
+    private async Task UndoLastScreenshotAsync()
+    {
+        if (_guidedScan is not null)
+        {
+            await _guidedScan.UndoLastAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+    }
+
+    private async Task DiscardScanAsync()
+    {
+        if (_guidedScan is null)
+        {
+            return;
+        }
+
+        await _guidedScan.DiscardAsync(CancellationToken.None).ConfigureAwait(true);
+        _selected = null;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>A screenshot landed, or the scan started, paused or ended: redraw from it.</summary>
+    private void OnGuidedScanChanged(object? sender, EventArgs eventArgs)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnGuidedScanChanged(sender, eventArgs));
+            return;
+        }
+
+        _ = ShowScanProgressAsync();
+    }
+
+    private async Task ShowScanProgressAsync()
+    {
+        await OverlayScanProgressAsync(CancellationToken.None).ConfigureAwait(true);
+        RaiseAll();
+    }
+
+    /// <summary>While a scan is collecting, the grid shows that scan rather than the last saved one.</summary>
+    private async Task OverlayScanProgressAsync(CancellationToken cancellationToken)
+    {
+        if (_guidedScan is { Current.IsCollecting: true } guided)
+        {
+            await BuildItemBreakdownAsync(guided.Current.Reconstruction, cancellationToken).ConfigureAwait(true);
+        }
+    }
+
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
     public async Task LoadAsync(CancellationToken cancellationToken)
@@ -514,6 +666,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         try
         {
+            // An unfinished scan from a previous run is read back here, the first time the
+            // workspace is opened, and waits paused until the player says to keep going.
+            if (_guidedScan is not null)
+            {
+                await _guidedScan.InitializeAsync(cancellationToken).ConfigureAwait(true);
+            }
+
             _ammoByItemId ??= (await _catalog.GetAmmoAsync(cancellationToken).ConfigureAwait(true))
                 .ToDictionary(ammo => ammo.ItemId, StringComparer.Ordinal);
             _keyFactsByItemId ??= (await _catalog.GetKeyFactsAsync(cancellationToken).ConfigureAwait(true))
@@ -549,6 +708,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 }
             }
 
+            await OverlayScanProgressAsync(cancellationToken).ConfigureAwait(true);
             RaiseAll();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -582,6 +742,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         _selected = record;
         await BuildItemBreakdownAsync(record, cancellationToken).ConfigureAwait(true);
+        await OverlayScanProgressAsync(cancellationToken).ConfigureAwait(true);
         PendingCorrections = record.Recognition.Result.Value is { } recognized
             ? ReviewCommandsFor(recognized.SnapshotId)
             : [];
@@ -726,41 +887,46 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 command.Reason))
             .ToArray();
 
-    private async Task BuildItemBreakdownAsync(StashSnapshotRecord record, CancellationToken cancellationToken)
+    private Task BuildItemBreakdownAsync(StashSnapshotRecord record, CancellationToken cancellationToken) =>
+        BuildItemBreakdownAsync(_projector.Project(record.Recognition.Result.Value!), cancellationToken);
+
+    /// <summary>
+    /// Draws the stash from its one reconstructed grid rather than screenshot by screenshot.
+    /// </summary>
+    /// <remarks>
+    /// Listing each captured region separately showed every shared row twice - 36 extra items on
+    /// the measured three-screen scan - and dropped every cell without a name. A tile nobody could
+    /// name is now drawn where it is, as unknown.
+    /// </remarks>
+    private async Task BuildItemBreakdownAsync(StashReconstruction reconstruction, CancellationToken cancellationToken)
     {
+        _reconstruction = reconstruction;
         var ammoByItemId = _ammoByItemId ?? new Dictionary<string, AmmoStats>(StringComparer.Ordinal);
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
         var wikiUriByItemId = new Dictionary<string, string?>(StringComparer.Ordinal);
-        var stash = record.Recognition.Result.Value!;
 
         var items = new List<StashItemRowViewModel>();
         var regions = new List<StashRegionViewModel>();
         var ammoRounds = new Dictionary<string, (int Rounds, int Stacks)>(StringComparer.Ordinal);
         var keyOccurrences = new Dictionary<string, (string DisplayName, int Duplicates)>(StringComparer.Ordinal);
 
-        foreach (var region in stash.CapturedRegions)
+        foreach (var container in reconstruction.Containers)
         {
             var tiles = new List<StashGridTileViewModel>();
-            foreach (var cell in region.Grid.Cells)
+            foreach (var tile in container.Tiles)
             {
-                var item = cell.Item.Value;
-                if (item is null)
-                {
-                    continue;
-                }
-
-                var canonicalId = item.CanonicalId.Value;
-                var displayName = item.DisplayName.Value ?? canonicalId ?? "Unresolved item";
-                var quantity = item.Quantity.Value ?? 1;
-                var itemKey = $"{region.ContainerPath}@{cell.Anchor.Row}:{cell.Anchor.Column}";
+                var canonicalId = tile.ItemId;
+                var displayName = tile.DisplayName
+                    ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : "Unknown");
+                var quantity = tile.Quantity ?? 1;
 
                 var wikiUri = await WikiUriForAsync(canonicalId, wikiUriByItemId, cancellationToken).ConfigureAwait(true);
                 var bare = new StashItemRowViewModel(
-                    itemKey,
+                    tile.ItemKey,
                     displayName,
-                    region.ContainerPath,
+                    container.ContainerPath,
                     quantity == 1 ? "x1" : $"x{quantity.ToString(CultureInfo.CurrentCulture)}",
-                    DescribeProvenance(cell.Item.Provenance),
+                    DescribeProvenance(tile.Provenance),
                     StashPlanGroup.Review)
                 {
                     WikiUri = wikiUri,
@@ -774,13 +940,17 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 // Every read footprint is drawn on its container's grid, including the ammo and
                 // key stacks the summaries below fold together rather than list.
                 var kind = StashTileKind.Item;
-                if (canonicalId is not null && ammoByItemId.TryGetValue(canonicalId, out var ammo))
+                if (canonicalId is null)
+                {
+                    kind = StashTileKind.Unresolved;
+                }
+                else if (ammoByItemId.TryGetValue(canonicalId, out var ammo))
                 {
                     var running = ammoRounds.GetValueOrDefault(ammo.Caliber);
                     ammoRounds[ammo.Caliber] = (running.Rounds + quantity, running.Stacks + 1);
                     kind = StashTileKind.Ammo;
                 }
-                else if (canonicalId is not null && keyFactsByItemId.TryGetValue(canonicalId, out _))
+                else if (keyFactsByItemId.TryGetValue(canonicalId, out _))
                 {
                     var running = keyOccurrences.GetValueOrDefault(
                         canonicalId,
@@ -788,19 +958,15 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     keyOccurrences[canonicalId] = (displayName, running.Duplicates + 1);
                     kind = StashTileKind.Key;
                 }
-                else if (item.DisplayName.Value is null && canonicalId is null)
-                {
-                    kind = StashTileKind.Unresolved;
-                }
                 else
                 {
                     items.Add(row);
                 }
 
                 tiles.Add(new StashGridTileViewModel(
-                    cell.Anchor,
-                    item.WidthCells.Value ?? 1,
-                    item.HeightCells.Value ?? 1,
+                    new GridCellAddress(tile.Row, tile.Column),
+                    tile.Width,
+                    tile.Height,
                     displayName,
                     quantity > 1 ? $"x{quantity.ToString(CultureInfo.CurrentCulture)}" : string.Empty,
                     kind,
@@ -808,9 +974,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             }
 
             regions.Add(new StashRegionViewModel(
-                ContainerTitle(region.ContainerPath),
-                region.Grid.Geometry.Rows.Value,
-                region.Grid.Geometry.Columns.Value,
+                ContainerTitle(container.ContainerPath),
+                container.Rows,
+                container.Columns,
                 tiles));
         }
 
@@ -925,5 +1091,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(AmmoCountLabel));
         OnPropertyChanged(nameof(KeyCountLabel));
         OnPropertyChanged(nameof(ItemCountLabel));
+        OnPropertyChanged(nameof(IsScanInProgress));
+        OnPropertyChanged(nameof(IsScanIdle));
+        OnPropertyChanged(nameof(IsScanPaused));
+        OnPropertyChanged(nameof(CanFinishScan));
+        OnPropertyChanged(nameof(GuidedHeadline));
+        OnPropertyChanged(nameof(GuidedNextStep));
     }
 }
