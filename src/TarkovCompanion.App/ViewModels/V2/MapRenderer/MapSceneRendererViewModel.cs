@@ -412,7 +412,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var changedSceneIdentity = !string.Equals(previous.LocationId, scene.LocationId, StringComparison.Ordinal) ||
             !string.Equals(previous.VariantKey, scene.VariantKey, StringComparison.Ordinal);
         var boundsChanged = previous.Bounds != scene.Bounds;
-        var objectDefinitionsChanged = !Equivalent(previous.Objects, scene.Objects);
+        var objectDefinitionsChanged = !SameObjects(previous.Objects, scene.Objects) || StylesChanged();
         var layerDefinitionsChanged = !Equivalent(previous.Layers, scene.Layers);
         var layerVisibilityChanged = !Equivalent(previous.View.Layers, scene.View.Layers);
         var floorIdsChanged = !Equivalent(previous.FloorIds, scene.FloorIds, StringComparer.OrdinalIgnoreCase);
@@ -2037,6 +2037,67 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private static bool Equivalent<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) =>
         left.Count == right.Count && left.SequenceEqual(right);
+
+    /// <summary>
+    /// Whether two scenes carry objects that would be drawn identically.
+    /// </summary>
+    /// <remarks>
+    /// Not <see cref="Equivalent{T}"/>: scene objects hold their floor ids and points in arrays a
+    /// record compares by reference, so a scene rebuilt from unchanged inputs always looked
+    /// different and every present recreated every marker, label and line on the plan (measured:
+    /// about 13 MB of allocation and a half-second of UI time per present on Customs).
+    /// </remarks>
+    private static bool SameObjects(IReadOnlyList<MapSceneObject> left, IReadOnlyList<MapSceneObject> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < left.Count; index++)
+        {
+            if (!left[index].HasSameDisplayAs(right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the host now wants any drawn marker or line to look different than it was built to.
+    /// </summary>
+    /// <remarks>
+    /// A style is asked for when a view model is made, not when it is drawn, so an object that is
+    /// unchanged but whose owner has been given a new colour (a squadmate joining reassigns
+    /// them all) would otherwise keep its old one for as long as it went on being reused.
+    /// </remarks>
+    private bool StylesChanged()
+    {
+        if (_styleResolver is null)
+        {
+            return false;
+        }
+
+        foreach (var marker in SpatialObjects)
+        {
+            if (marker.SceneObject is { } sceneObject && marker.Style != _styleResolver(sceneObject))
+            {
+                return true;
+            }
+        }
+
+        foreach (var line in GeometryObjects)
+        {
+            if (line.Style != _styleResolver(line.SceneObject))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool Equivalent(
         IReadOnlyList<string> left,

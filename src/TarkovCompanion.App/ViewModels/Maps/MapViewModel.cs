@@ -4220,9 +4220,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         ArgumentNullException.ThrowIfNull(waypoints);
         ArgumentNullException.ThrowIfNull(pings);
+        // Rebuilt only when something a mark is drawn from moved. This ran on every snapshot,
+        // assigned GroupMarks and MarkList afresh each time, and so told the Raid workspace the
+        // group's marks had changed whenever anything at all was published.
+        var unchanged = _waypoints.SequenceEqual(waypoints) && _pings.SequenceEqual(pings);
         _waypoints = waypoints;
         _pings = pings;
+        var pending = _pending.Count;
         DropConfirmedPending();
+        if (unchanged && _pending.Count == pending)
+        {
+            return;
+        }
+
         UpdateGroupMarks();
     }
 
@@ -5570,13 +5580,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        // Nothing here depends on anything but these two, and both are records the runtime
-        // store hands out by reference: an unchanged snapshot carries the same instances. So
-        // the common case — a snapshot that changed something else entirely — costs a pair of
-        // reference comparisons rather than LootProximity.Near over every loot position on the
-        // map, of which Woods has 815. ShowSide and ShowActiveExtracts have had this since
-        // they were written; this is the one that did not.
-        if (ReferenceEquals(_playerPosition, position) && ReferenceEquals(_playerTrailPositions, trail))
+        // Nothing here depends on anything but these two, so the common case — a snapshot that
+        // changed something else entirely — costs a comparison rather than LootProximity.Near
+        // over every loot position on the map, of which Woods has 815. ShowSide and
+        // ShowActiveExtracts have had this since they were written; this is the one that did not.
+        //
+        // The trail is compared point by point, not by instance. The store used to hand out
+        // the same trail object until it changed, and that is what this compared, but the store
+        // copies the list into a boxed immutable array whenever it publishes the raid, so the
+        // instance differed on every publication and this ran in full about once a second, each
+        // time replacing the marker and the trail and rebuilding the whole plan.
+        if (ReferenceEquals(_playerPosition, position) && SameTrail(_playerTrailPositions, trail))
         {
             return;
         }
@@ -5603,6 +5617,29 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    internal static bool SameTrail(IReadOnlyList<ScreenshotPosition> current, IReadOnlyList<ScreenshotPosition> incoming)
+    {
+        if (ReferenceEquals(current, incoming))
+        {
+            return true;
+        }
+
+        if (current.Count != incoming.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < current.Count; index++)
+        {
+            if (!ReferenceEquals(current[index], incoming[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

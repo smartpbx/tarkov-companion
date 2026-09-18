@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -251,6 +252,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private MapSceneBounds _planBounds = UnplaceablePlanBounds;
     private CachedMapAsset? _cachedAsset;
     private string? _backgroundSha;
+    private DateTimeOffset _backgroundComposedUtc;
     private Bitmap? _backgroundImage;
     private QuestObjectiveScene _questScene = QuestObjectiveScene.Empty;
     private string? _selectedObjectiveId;
@@ -263,6 +265,19 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private string? _floorArtworkVariantKey;
     /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
     private string _stackRefusal = string.Empty;
+    private readonly DeferredDispatch _rebuildRequest;
+    private bool _disposed;
+
+    // What the last rebuild was built from. The runtime store publishes for every slice it holds
+    // (supervisor, outbox, lifecycle, scan, observation), ten to eighteen times for one screenshot,
+    // and only these two are things the plan draws.
+    private RaidSnapshot? _seenRaid;
+    private GroupSnapshot? _seenGroup;
+
+    // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
+    // one thing on the plan that changes with the clock alone, so it is the one thing the clock
+    // has to be allowed to rebuild for.
+    private DateTimeOffset? _positionStaleAtUtc;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -296,6 +311,18 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
+        var synchronizationContext = SynchronizationContext.Current;
+        _rebuildRequest = new(
+            synchronizationContext?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
+                ? synchronizationContext
+                : null,
+            () =>
+            {
+                if (!_disposed)
+                {
+                    _ = RebuildAsync();
+                }
+            });
 
         RebuildMapPicker();
         RebuildArtworkVariants();
@@ -656,6 +683,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _map.PropertyChanged -= MapPropertyChanged;
         _map.PlayerFollowRequested -= PlayerFollowRequested;
         _raid.PropertyChanged -= RaidPropertyChanged;
@@ -1017,7 +1045,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
         {
             OnPropertyChanged(nameof(SelectedMap));
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
         }
         else if (e.PropertyName is nameof(MapViewModel.Variants)
             or nameof(MapViewModel.SelectedVariant)
@@ -1041,11 +1069,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             OnPropertyChanged(nameof(HasPlayerMarker));
             OnPropertyChanged(nameof(HasPlayerTrail));
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
         }
         else if (MapRedraws.Contains(e.PropertyName))
         {
-            _ = RebuildAsync();
+            _rebuildRequest.Request();
         }
     }
 
@@ -1230,6 +1258,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                // The raid clock ticks once a second, which is the only clock this page has. The
+                // plan changes with it exactly once per screenshot: when the marker turns from
+                // fresh to "from an older screenshot".
+                if (_positionStaleAtUtc is { } staleAt && _timeProvider.GetUtcNow() >= staleAt)
+                {
+                    _positionStaleAtUtc = null;
+                    _rebuildRequest.Request();
+                }
+
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
@@ -1250,16 +1287,36 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
     }
 
+    /// <summary>
+    /// Rebuilds the plan when the raid or the group changed, and only then.
+    /// </summary>
+    /// <remarks>
+    /// This used to rebuild the whole scene on every publication of the runtime store, whatever
+    /// had changed in it. A single screenshot publishes the raid, the screenshot's name, the
+    /// outbox's queue, the supervisor's operations and more, each one a full rebuild and each one
+    /// recreating every marker on the plan. The store keeps the instance of a slice that an
+    /// update did not touch, so a reference comparison is enough to tell them apart.
+    /// </remarks>
     private void RuntimeStateChanged(object? sender, EventArgs e)
     {
+        var snapshot = _stateStore.Current;
+        var raid = snapshot.Raid;
+        var group = snapshot.Group;
+        if (ReferenceEquals(raid, _seenRaid) && ReferenceEquals(group, _seenGroup))
+        {
+            return;
+        }
+
+        _seenRaid = raid;
+        _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
-        _ = RebuildAsync();
+        _rebuildRequest.Request();
     }
 
     private void MarksChanged()
     {
         RefreshMarkRows();
-        _ = RebuildAsync();
+        _rebuildRequest.Request();
     }
 
     private void RefreshMarkRows()
@@ -1335,6 +1392,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
         RefreshMarkRows();
+        // Read once, before anything is built from it: a publication that lands while this runs
+        // then differs from what was seen and asks for one more pass, instead of being taken for
+        // something this pass already drew.
+        var runtime = _stateStore.Current;
+        _seenRaid = runtime.Raid;
+        _seenGroup = runtime.Group;
         var model = _map.RenderModel;
         if (model is null)
         {
@@ -1370,6 +1433,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
             _cachedAssetVariantKey = null;
             _cachedAsset = null;
+            // The asset is reviewed when its picture was made, not each time the scene is built.
+            // A new timestamp per rebuild made every scene's asset list differ from the last, so
+            // the renderer re-resolved the artwork on every raid tick.
+            if (!string.Equals(_backgroundSha, composed.ContentSha256, StringComparison.Ordinal))
+            {
+                _backgroundComposedUtc = nowUtc;
+            }
+
             _backgroundSha = composed.ContentSha256;
             ReplaceBackgroundImage(composed.Image);
             asset = new MapSceneAsset(
@@ -1382,7 +1453,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 variant.Key,
                 "current",
                 MapSceneAssetReviewStatus.Reviewed,
-                nowUtc);
+                _backgroundComposedUtc);
         }
         else
         {
@@ -1443,7 +1514,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 cached.RetrievedUtc);
         }
 
-        var raidSnapshot = _stateStore.Current.Raid;
+        var raidSnapshot = runtime.Raid;
         // [V2 rough package 22] Place names, spawn areas and locked doors too, not only extracts
         // and objectives. The assembler has always adapted all five; the cockpit asked for two of
         // them, which is why V2 had no street names and why its own "Spawn areas" card was always
@@ -2006,18 +2077,28 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// Headings are turned by the artwork's own rotation for the same reason V1 turns them: the
     /// screenshot records a bearing in the world, and the map is drawn with the world turned.
     /// </remarks>
-    private LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc) => BuildLiveLayers(
-        new(
-            _map.PlayerPosition,
-            _map.PlayerTrailPositions,
-            _map.GroupMembers,
-            _map.IsOnOpenMap,
-            _map.GroupColorFor,
-            _map.ShowsGroupNames,
-            _map.VisitedRaids,
-            _map.ShowsVisited),
-        model,
-        nowUtc);
+    private LiveSceneLayers BuildLiveLayers(MapRenderModel model, DateTimeOffset nowUtc)
+    {
+        var player = _map.PlayerPosition;
+        var built = BuildLiveLayers(
+            new(
+                player,
+                _map.PlayerTrailPositions,
+                _map.GroupMembers,
+                _map.IsOnOpenMap,
+                _map.GroupColorFor,
+                _map.ShowsGroupNames,
+                _map.VisitedRaids,
+                _map.ShowsVisited),
+            model,
+            nowUtc);
+        // Only a marker that is still fresh has a moment to wait for. Recomputed by every rebuild,
+        // so a tick that lands a hair early just waits for the next.
+        _positionStaleAtUtc = player is { } position && nowUtc - position.Timestamp.ToUniversalTime() <= PositionFreshFor
+            ? position.Timestamp.ToUniversalTime() + PositionFreshFor
+            : null;
+        return built;
+    }
 
     internal static LiveSceneLayers BuildLiveLayers(LiveSceneInputs inputs, MapRenderModel model, DateTimeOffset nowUtc)
     {
@@ -2198,11 +2279,22 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     internal static double Bearing(double headingDegrees, double artworkRotationDegrees) =>
         double.IsFinite(headingDegrees) ? ((headingDegrees - artworkRotationDegrees) % 360 + 360) % 360 : 0;
 
-    private static string Describe(TimeSpan age) => age == TimeSpan.MaxValue
+    /// <summary>
+    /// How old a squadmate's position is, in steps of fifteen seconds under a minute.
+    /// </summary>
+    /// <remarks>
+    /// Written to the second, this text differed at every exchange for a teammate who had not
+    /// moved, and any difference in a scene object makes the plan recreate all of its markers
+    /// (about 40 MB and a third of a second on Customs). The exchange itself is five seconds
+    /// apart, so the seconds were never more than a guess.
+    /// </remarks>
+    internal static string Describe(TimeSpan age) => age == TimeSpan.MaxValue
         ? "Position unknown"
-        : age < TimeSpan.FromMinutes(1)
-            ? string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalSeconds}s ago")
-            : string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalMinutes}m ago");
+        : age < TimeSpan.FromSeconds(15)
+            ? "From a screenshot just now"
+            : age < TimeSpan.FromMinutes(1)
+                ? string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalSeconds / 15 * 15}s ago")
+                : string.Create(CultureInfo.CurrentCulture, $"From a screenshot {(int)age.TotalMinutes}m ago");
 
     private static bool TryPlan(MapRenderModel model, WorldPosition position, out MapScenePoint point)
     {
