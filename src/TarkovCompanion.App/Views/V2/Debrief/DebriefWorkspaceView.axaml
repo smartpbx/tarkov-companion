@@ -116,7 +116,8 @@
            Top with a stretch MaxHeight means a long history still fills the window and scrolls. -->
       <Border Grid.Row="1" Classes="v2-debrief-pane" VerticalAlignment="Top"
               MaxHeight="{Binding $parent[Grid].Bounds.Height}"
-              AutomationProperties.AccessibilityView="Control">
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-debrief-history">
         <Grid RowDefinitions="Auto,Auto,Auto">
           <Border Grid.Row="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">

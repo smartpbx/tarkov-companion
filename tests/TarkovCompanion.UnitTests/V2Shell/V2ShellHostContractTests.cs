@@ -293,7 +293,9 @@ public sealed class V2ShellHostContractTests
         // The item footprint and the hideout detail are the size of what they hold.
         Assert.Contains("<Border Classes=\"v2-intel-stage\" HorizontalAlignment=\"Left\"", intel, StringComparison.Ordinal);
         Assert.DoesNotContain("<Setter Property=\"MinHeight\" Value=\"200\" />", intel, StringComparison.Ordinal);
-        Assert.Contains("HorizontalAlignment=\"Left\" VerticalAlignment=\"Top\" MaxWidth=\"860\"", hideout, StringComparison.Ordinal);
+        // The alignment is the rule — the card is the size of what it holds. Package 32 widened
+        // the cap so the requirements could flow into columns, so the number is not the contract.
+        Assert.Contains("HorizontalAlignment=\"Left\" VerticalAlignment=\"Top\" MaxWidth=", hideout, StringComparison.Ordinal);
 
         // Thirty extracts no longer push the rest of the raid plan off the bottom of the window.
         Assert.Contains("<ScrollViewer MaxHeight=\"330\"", raid, StringComparison.Ordinal);

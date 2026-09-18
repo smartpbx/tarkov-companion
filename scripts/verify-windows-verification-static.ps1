@@ -159,6 +159,12 @@ Require-Text $Gallery 'insideWindow' 'control-inside-the-window bounds assertion
 Require-Text $Gallery 'outside the window: ' 'useful clipped-control failure'
 Require-Text $Gallery 'Request-DesktopSize' 'desktop-size request for the ultrawide captures'
 Require-Text $Gallery 'Skipped: a $($Shot.width)x$($Shot.height) window needs a desktop' 'recorded skip rather than a cropped photograph'
+# V2 rough package 32: the 1920x1080 bounds, measured inside the control that was repaired.
+Require-Text $Gallery 'Measure-RegionFill' 'element-scoped flat-area measurement'
+Require-Text $Gallery 'expectedFill' 'element fill assertion'
+Require-Text $Gallery 'as one flat colour' 'useful empty-control failure'
+Require-Text $Gallery '$Size.width -eq 1920' 'the fill bounds applying at the window the companion runs in'
+Require-Text $Gallery 'v2-debrief-history' 'the Debrief history pane bound'
 Require-Text $Workflow 'name: v2-route-gallery' 'V2 route capture artifact'
 Require-Text $Workflow 'verification/pages/v2-a-*.png' 'narrow V2 capture upload glob'
 Require-Text $Workflow '!verification/pages/v2-a-plan-events-*.png' 'Events capture excluded from the upload'

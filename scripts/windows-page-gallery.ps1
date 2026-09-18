@@ -394,7 +394,7 @@ function Set-AutomationValue {
 }
 
 function Invoke-ShellInteraction {
-    param([IntPtr] $WindowHandle, [object] $Interaction)
+    param([IntPtr] $WindowHandle, [object] $Interaction, [string] $ScreenshotPath = "")
 
     $StepsProperty = Get-InteractionProperty -Object $Interaction -Name "steps"
     $Steps = if ($null -eq $StepsProperty) { @($Interaction) } else { @($StepsProperty) }
@@ -495,6 +495,48 @@ function Invoke-ShellInteraction {
                 }
             }
         }
+        # V2 rough package 32: of the pixels this control was given, how many did it draw on?
+        foreach ($FillAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedFill" -Default @())) {
+            $FillId = [string]$FillAssertion.automationId
+            $FillElement = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $FillId
+            if ($null -eq $FillElement) {
+                # A control that is not on this page cannot be measured. Only a shot that says the
+                # element may legitimately be absent — a workspace whose data this machine has not
+                # got — is allowed to pass without the measurement, and it says so in its detail.
+                if ([bool](Get-InteractionProperty -Object $FillAssertion -Name "whenPresent" -Default $false)) {
+                    $Completed.Add("$Description : '$FillId' is not on this page, so its fill was not measured")
+                    continue
+                }
+
+                throw "'$Description' did not expose '$FillId' to measure."
+            }
+
+            if ([string]::IsNullOrEmpty($ScreenshotPath) -or -not (Test-Path -LiteralPath $ScreenshotPath)) {
+                throw "'$Description' has no photograph to measure '$FillId' in; the shot must set captureBeforeInteraction."
+            }
+
+            Initialize-GalleryBounds
+            $FillWindow = New-Object TarkovCompanionGalleryBounds+RECT
+            if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $FillWindow)) {
+                throw "'$Description' could not read the packaged window bounds."
+            }
+
+            $FillBounds = $FillElement.Current.BoundingRectangle
+            $Fill = Measure-RegionFill `
+                -Path $ScreenshotPath `
+                -Left ([int]($FillBounds.Left - $FillWindow.Left)) `
+                -Top ([int]($FillBounds.Top - $FillWindow.Top)) `
+                -Width ([int]$FillBounds.Width) `
+                -Height ([int]$FillBounds.Height)
+            $MaximumFill = [double]$FillAssertion.maximumFlatFraction
+            if ($Fill -gt $MaximumFill) {
+                throw ("'$Description' left $([Math]::Round($Fill * 100, 1))% of '$FillId' as one flat colour " +
+                    "(bound $([Math]::Round($MaximumFill * 100, 1))%), measured over $([int]$FillBounds.Width)x$([int]$FillBounds.Height).")
+            }
+
+            $Completed.Add("$Description : '$FillId' is $([Math]::Round($Fill * 100, 1))% flat")
+        }
+
         foreach ($ExpectedName in @(Get-InteractionProperty -Object $Step -Name "expectedNames" -Default @())) {
             if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -Name $ExpectedName)) {
                 throw "'$Description' did not expose expected element '$ExpectedName'."
@@ -728,6 +770,61 @@ function Measure-DeadSpace {
             edgeDeadFraction = & $Median $EdgeRuns
             flatBandFraction = & $Median $BandRuns
         }
+    }
+    finally {
+        $Bitmap.Dispose()
+    }
+}
+
+<#
+    V2 rough package 32: how much of one element is a single flat colour.
+
+    Measure-DeadSpace answers "how much of the window is empty", which cannot tell an empty card
+    from the page behind it — both are one flat colour, just different ones. This answers the
+    question the 1920x1080 work is actually about: of the pixels this control was given, how many
+    did it draw anything on? A map card whose plan fills a third of it, or a table card holding one
+    row, scores high here whatever the page around it looks like.
+
+    The rectangle comes from UI Automation and is in screen coordinates; the photograph starts at
+    the window's own corner, so the window rectangle is what puts them in the same space.
+#>
+function Measure-RegionFill {
+    param([string] $Path, [int] $Left, [int] $Top, [int] $Width, [int] $Height)
+
+    $Bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+    try {
+        $Left = [Math]::Max(0, [Math]::Min($Left, $Bitmap.Width - 1))
+        $Top = [Math]::Max(0, [Math]::Min($Top, $Bitmap.Height - 1))
+        $Width = [Math]::Max(1, [Math]::Min($Width, $Bitmap.Width - $Left))
+        $Height = [Math]::Max(1, [Math]::Min($Height, $Bitmap.Height - $Top))
+        $Rect = New-Object System.Drawing.Rectangle 0, 0, $Bitmap.Width, $Bitmap.Height
+        $Data = $Bitmap.LockBits($Rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try {
+            $Stride = [Math]::Abs($Data.Stride)
+            $Bytes = New-Object byte[] ($Stride * $Bitmap.Height)
+            [System.Runtime.InteropServices.Marshal]::Copy($Data.Scan0, $Bytes, 0, $Bytes.Length)
+        }
+        finally {
+            $Bitmap.UnlockBits($Data)
+        }
+
+        $Counts = @{}
+        $Sampled = 0
+        $Step = 4
+        for ($Y = $Top; $Y -lt ($Top + $Height); $Y += $Step) {
+            $Row = $Y * $Stride
+            for ($X = $Left; $X -lt ($Left + $Width); $X += $Step) {
+                $Offset = $Row + ($X * 4)
+                $Key = ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
+                if ($Counts.ContainsKey($Key)) { $Counts[$Key]++ } else { $Counts[$Key] = 1 }
+                $Sampled++
+            }
+        }
+
+        if ($Sampled -eq 0) { return 1.0 }
+        $Dominant = 0
+        foreach ($Count in $Counts.Values) { if ($Count -gt $Dominant) { $Dominant = $Count } }
+        return [Math]::Round($Dominant / $Sampled, 4)
     }
     finally {
         $Bitmap.Dispose()
@@ -1152,8 +1249,13 @@ $LegacyPageBounds = {
 }
 
 $V2AcceptanceRoutes = @(
+    # V2 rough package 32 bounds the three 1920x1080 surfaces it repaired, measured inside the
+    # control rather than over the window: "how much of the window is empty" cannot tell an empty
+    # card from the page behind it, and an empty card is the fault. The numbers are the ones this
+    # branch measured, with headroom; the PR carries the before figures they have to beat.
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
-        expected = @("v2-shell-navigation-rail", "v2-map-plan") },
+        expected = @("v2-shell-navigation-rail", "v2-map-plan")
+        fill = @([pscustomobject]@{ automationId = "v2-map-plan"; maximumFlatFraction = 0.45 }) },
     [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
         expected = @("v2-shell-navigation-rail") },
     # The two bounded ones. Both were measured on this branch at under 2% of the body, against
@@ -1180,8 +1282,11 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail"); forbidden = @("v2-intel-context"); edge = 0.12 },
     [pscustomobject]@{ key = "intel-stash"; address = "#/intel/stash"; heading = "Stash scan"
         expected = @("v2-shell-navigation-rail") },
+    # whenPresent: a first run has synced the catalog but nobody has made a quest active, so Plan
+    # has no map to measure. On a machine that does, this is the bound the reflow has to hold.
     [pscustomobject]@{ key = "plan"; address = "#/plan"; heading = "Plan"
-        expected = @("v2-shell-navigation-rail") },
+        expected = @("v2-shell-navigation-rail")
+        fill = @([pscustomobject]@{ automationId = "v2-map-plan"; maximumFlatFraction = 0.35; whenPresent = $true }) },
     [pscustomobject]@{ key = "plan-hideout"; address = "#/plan/hideout"; heading = "Hideout"
         expected = @("v2-shell-navigation-rail", "v2-hideout-status") },
     [pscustomobject]@{ key = "plan-keep"; address = "#/plan/keep"; heading = "Keep list"
@@ -1197,7 +1302,8 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
-        expected = @("v2-shell-navigation-rail") },
+        expected = @("v2-shell-navigation-rail", "v2-debrief-history")
+        fill = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumFlatFraction = 0.70 }) },
     [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
         expected = @("v2-shell-navigation-rail") }
 )
@@ -1215,6 +1321,12 @@ foreach ($Route in $V2AcceptanceRoutes) {
         }
         if ($null -ne (Get-InteractionProperty -Object $Route -Name "forbidden")) {
             $Step["forbiddenAutomationIds"] = @($Route.forbidden)
+        }
+        # V2 rough package 32: bounded at 1920x1080 only. That is the window the companion runs
+        # in; a wider one legitimately leaves more of a control whose shape is fixed as flat
+        # colour, and bounding it there would be bounding the wrong thing.
+        if ($Size.width -eq 1920 -and $null -ne (Get-InteractionProperty -Object $Route -Name "fill")) {
+            $Step["expectedFill"] = @($Route.fill)
         }
 
         $Shot = [ordered]@{
@@ -1467,7 +1579,8 @@ foreach ($Shot in $Shots) {
         }
 
         if ($null -ne $Interaction) {
-            $Result.interactionDetail = Invoke-ShellInteraction -WindowHandle $Process.MainWindowHandle -Interaction $Interaction
+            $Result.interactionDetail = Invoke-ShellInteraction `
+                -WindowHandle $Process.MainWindowHandle -Interaction $Interaction -ScreenshotPath $Screenshot
             $Result.interactionSmoke = $true
             if (-not [bool](Get-InteractionProperty -Object $Shot -Name "closeImmediately" -Default $false)) {
                 Start-Sleep -Milliseconds 300
