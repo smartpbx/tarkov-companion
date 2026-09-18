@@ -136,9 +136,11 @@ public sealed class V2RouteRegistry
         // it reads the same requirement catalog and profile the Hideout tab already does.
         new(V2Routes.Keep, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Keep",
             Parent: V2Routes.Plan, UsesGameData: true),
-        new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Loadout", "Loadout",
+        // V2 rough package 28 (parity): Loadout and Events are native workspaces over the V1
+        // pages' view models, so no route passes through to V1's chrome any more.
+        new(V2Routes.Loadout, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Loadout",
             Parent: V2Routes.Plan, UsesGameData: true),
-        new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.LegacyPage, "V2.Shell.Route.Events", "Events",
+        new(V2Routes.Events, [V2Capabilities.Plan], V2RouteContent.Workspace, "V2.Shell.Route.Events",
             Parent: V2Routes.Plan),
         // v2r-team (package 9, wave 2): one native V2 Team workspace (presence, marks, group
         // sharing, paired devices) replaces the Squad/Group passthroughs and the Tablet state

@@ -53,6 +53,9 @@ public static class QuestItemRequirementFormatter
         "markerItem",
     ];
 
+    /// <summary>Whether a requirement field names something carried or worn rather than handed over.</summary>
+    public static bool IsCarriedIn(string sourceField) => CarriedIn.Contains(sourceField, StringComparer.Ordinal);
+
     /// <summary>
     /// What to have on you before the raid starts, or empty where nothing is asked.
     /// </summary>
