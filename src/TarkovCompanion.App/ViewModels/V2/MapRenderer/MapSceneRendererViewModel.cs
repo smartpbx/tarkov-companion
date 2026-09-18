@@ -76,11 +76,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     // fraction of the drawn plan rather than V1's fixed 140 canvas units, because this card is
     // whatever size the window makes it and a fixed gap is a shove off the top of a small card
     // and invisible on a large one. Clamped so it stays a stack at both ends.
-    private const double FloorSeparationFraction = 0.11;
+    private const double FloorSeparationFraction = 0.075;
     private const double MinimumFloorSeparation = 16;
-    private const double MaximumFloorSeparation = 120;
+    private const double MaximumFloorSeparation = 110;
     /// <summary>How solid a floor that is not being read is drawn; the read one is solid.</summary>
-    private const double ContextFloorOpacity = 0.3;
+    private const double ContextFloorOpacity = 0.45;
     private const double MapInset = MarkerExtent / 2;
     private static readonly MapSceneLayerId HazardsLayerId = new("hazards");
 
@@ -1278,13 +1278,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
-        var ordered = OrderedFloorIds();
+        var ordered = DrawableFloorIds();
         var artwork = _scene.Assets
             .Where(asset => asset.Kind == MapSceneAssetKind.Floor2D && asset.FloorId is not null)
             .GroupBy(asset => asset.FloorId!, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         var selectedAt = FindIndex(ordered, id => string.Equals(id, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase));
-        var separation = Math.Clamp(MapHeight * FloorSeparationFraction, MinimumFloorSeparation, MaximumFloorSeparation);
+        var separation = FloorSeparation;
         var layers = new List<MapSceneRendererFloorLayerViewModel>(ordered.Count);
         for (var index = 0; index < ordered.Count; index++)
         {
@@ -1310,11 +1310,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         FloorLayers = layers;
+        var floorCount = _scene.FloorIds.Count;
         StackStatus = layers.Count switch
         {
             0 => Text("Map.Stack.NoArtwork"),
-            _ when layers.Count < ordered.Count =>
-                Format("Map.Stack.Partial", _presentation.Number(layers.Count), _presentation.Number(ordered.Count)),
+            _ when layers.Count < floorCount =>
+                Format("Map.Stack.Partial", _presentation.Number(layers.Count), _presentation.Number(floorCount)),
             _ => Format("Map.Stack.Floors", _presentation.Number(layers.Count)),
         };
     }
@@ -1945,8 +1946,59 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
     }
 
-    private MapSceneProjection CreateProjection() =>
-        new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport, _planAspect);
+    private MapSceneProjection CreateProjection()
+    {
+        // [V2 rough package 39] A stacked map is drawn a little smaller so the floors above and
+        // below the one being read have somewhere to be. Without this the plan already fills the
+        // card and every other plate is clipped away at the card's edge, which is a stack nobody
+        // can see. The read floor still lands in exactly the rectangle this returns.
+        var (above, below) = StackHeadroom();
+        return new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset, _fillsViewport, _planAspect, above, below);
+    }
+
+    /// <summary>How far apart two plates are drawn, in canvas pixels.</summary>
+    /// <remarks>
+    /// Measured against the card rather than against the plan, because the plan's own height is
+    /// what the headroom this feeds is about to change.
+    /// </remarks>
+    private double FloorSeparation =>
+        Math.Clamp(CanvasHeight * FloorSeparationFraction, MinimumFloorSeparation, MaximumFloorSeparation);
+
+    /// <summary>How much room the plates above and below the read floor need.</summary>
+    private (double Above, double Below) StackHeadroom()
+    {
+        if (_scene.View.Mode != MapSceneMode.FloorStack2D)
+        {
+            return (0, 0);
+        }
+
+        var drawable = DrawableFloorIds();
+        if (drawable.Count < 2)
+        {
+            return (0, 0);
+        }
+
+        var at = Math.Max(0, FindIndex(drawable, id =>
+            string.Equals(id, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase)));
+        var separation = FloorSeparation;
+        // The same room above and below, because the camera centres the plan in the card: room
+        // reserved on one side only is given straight back by the centring, and the top plate
+        // goes off the card again. A little unused space under a ground floor is the price.
+        var reach = Math.Max(drawable.Count - 1 - at, at) * separation;
+        return (reach, reach);
+    }
+
+    /// <summary>The floors, lowest first, whose artwork this host can actually produce.</summary>
+    private IReadOnlyList<string> DrawableFloorIds()
+    {
+        var artwork = _scene.Assets
+            .Where(asset => asset.Kind == MapSceneAssetKind.Floor2D && asset.FloorId is not null)
+            .Select(asset => asset.FloorId!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return artwork.Count == 0
+            ? []
+            : [.. OrderedFloorIds().Where(artwork.Contains)];
+    }
 
     /// <summary>
     /// Adopts the decoded artwork's shape, and reprojects when it differs from what is drawn.
@@ -2106,12 +2158,27 @@ public sealed class MapSceneRendererFloorLayerViewModel
     /// <summary>Negative, because up the screen is a smaller Y.</summary>
     public double Translate => -Offset;
 
+    /// <summary>
+    /// Where this plate is drawn, as a transform rather than as Canvas.Left/Top.
+    /// </summary>
+    /// <remarks>
+    /// Avalonia leaves the generated ContentPresenter at the Canvas origin, so an attached
+    /// Canvas.Left on the templated control does nothing — the same reason every marker layer in
+    /// this renderer positions itself with a transform inside its own template.
+    /// </remarks>
+    public double TranslateX => Left;
+
+    public double TranslateY => Top + Translate;
+
     public double Opacity { get; }
+
+    /// <summary>The name stays readable on a quieted plate; a stack you cannot label is mush.</summary>
+    public double NameOpacity => IsSelected ? 1 : 0.8;
 
     public bool IsSelected { get; }
 
-    /// <summary>The read floor is outlined; the plates around it are not.</summary>
-    public Thickness BorderThickness => IsSelected ? new Thickness(2) : new Thickness(0);
+    /// <summary>Every sheet has an edge; the one being read has a thicker one.</summary>
+    public Thickness BorderThickness => IsSelected ? new Thickness(2) : new Thickness(1);
 
     public double Left { get; }
 
@@ -2774,13 +2841,22 @@ public sealed class MapSceneProjection
     /// non-positive falls back to the bounds' own ratio, which is what a synthetic test scene
     /// and the map gallery want.
     /// </param>
+    /// <param name="headroomAbove">
+    /// [V2 rough package 39] Canvas pixels to keep clear above the plan, and
+    /// <paramref name="headroomBelow"/> below it, for a stacked view whose other floors are
+    /// drawn off the read floor. The plan is fitted into what is left and the read floor still
+    /// lands in exactly this rectangle, so nothing about where an object projects changes — the
+    /// map is simply drawn a little smaller to leave the stack somewhere to be.
+    /// </param>
     public MapSceneProjection(
         MapSceneBounds bounds,
         double canvasWidth,
         double canvasHeight,
         double inset,
         bool fillCanvas = false,
-        double planAspect = double.NaN)
+        double planAspect = double.NaN,
+        double headroomAbove = 0,
+        double headroomBelow = 0)
     {
         _bounds = bounds;
         _canvasWidth = canvasWidth;
@@ -2789,8 +2865,14 @@ public sealed class MapSceneProjection
         var boundsHeight = bounds.Height;
         var finiteBounds = double.IsFinite(boundsWidth) && double.IsFinite(boundsHeight) &&
             boundsWidth > 0 && boundsHeight > 0;
+        // Never let the stack eat the map: half the card is the most the plates may claim.
+        var requested = Math.Max(0, headroomAbove) + Math.Max(0, headroomBelow);
+        var allowed = Math.Max(0, canvasHeight * 0.45);
+        var factor = requested > allowed && requested > 0 ? allowed / requested : 1;
+        var above = Math.Max(0, headroomAbove) * factor;
+        var below = Math.Max(0, headroomBelow) * factor;
         var availableWidth = Math.Max(1, canvasWidth - (inset * 2));
-        var availableHeight = Math.Max(1, canvasHeight - (inset * 2));
+        var availableHeight = Math.Max(1, canvasHeight - (inset * 2) - above - below);
         // "Contain" (the default) never crops the plan, at the cost of letterboxing when the
         // viewport's aspect ratio does not match the plan's. A host with its own fixed frame
         // around the map instead asks to "cover": fill the viewport edge to edge, cropping the
@@ -2817,7 +2899,7 @@ public sealed class MapSceneProjection
         MapWidth = fillCanvas ? Math.Max(byWidth, byHeight) : Math.Min(byWidth, byHeight);
         MapHeight = MapWidth / aspect;
         MapLeft = (canvasWidth - MapWidth) / 2;
-        MapTop = (canvasHeight - MapHeight) / 2;
+        MapTop = above + ((canvasHeight - above - below - MapHeight) / 2);
         // Separate axis scales: scene space is a percent box, so mapping it onto a rectangle of
         // the artwork's shape is exactly what puts a marker back over the feature it names.
         ScaleX = MapWidth / boundsWidth;

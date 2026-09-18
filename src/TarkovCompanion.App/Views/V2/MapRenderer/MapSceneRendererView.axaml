@@ -226,12 +226,13 @@
                   AutomationProperties.Name="{Binding FloorDownLabel}" ToolTip.Tip="{Binding FloorDownLabel}">
             <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
           </Button>
-          <TextBlock Classes="v2-label" VerticalAlignment="Center" TextWrapping="NoWrap"
-                     AutomationProperties.AutomationId="v2-map-floor-position"
-                     Text="{Binding FloorPositionLabel}" />
         </StackPanel>
         </WrapPanel>
-        <!-- What the stack did: how many plates of how many floors, or why there is only one. -->
+        <!-- Which floor of how many, and what the stack did, on their own line: a five-floor
+             ladder already fills the pill's width and these were being clipped beside it. -->
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorFilters}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-map-floor-position"
+                   Text="{Binding FloorPositionLabel}" />
         <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-map-stack-status"
                    AutomationProperties.AccessibilityView="Control"
@@ -342,25 +343,37 @@
                  keeps #413's contract: the rectangle the artwork draws into is the rectangle the
                  markers project into, on every floor. Nothing is sheared or scaled. -->
             <ItemsControl ItemsSource="{Binding FloorLayers}" IsVisible="{Binding HasFloorStack}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                           AutomationProperties.AccessibilityView="Control"
                           AutomationProperties.Name="Floor stack">
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:MapSceneRendererFloorLayerViewModel">
-                  <Border Canvas.Left="{Binding Left}" Canvas.Top="{Binding Top}"
-                          Width="{Binding Width}" Height="{Binding Height}"
-                          Opacity="{Binding Opacity}"
-                          Background="{DynamicResource V2.Brush.SurfaceRaised}"
-                          BorderBrush="{DynamicResource V2.Brush.Action}"
-                          BorderThickness="{Binding BorderThickness}"
-                          AutomationProperties.AutomationId="{Binding AutomationId}"
-                          AutomationProperties.Name="{Binding Name}"
-                          ToolTip.Tip="{Binding Name}">
-                    <Border.RenderTransform>
-                      <TranslateTransform Y="{Binding Translate}" />
-                    </Border.RenderTransform>
-                    <Image Source="{Binding Image}" Stretch="Fill" />
-                  </Border>
+                  <!-- Positioned by a transform, not Canvas.Left: the generated ContentPresenter
+                       stays at the Canvas origin, which is why every other layer here does the
+                       same. The name sits outside the plate's own opacity, so a quieted floor is
+                       still one you can read the name of — which is how a section drawing of a
+                       building works. -->
+                  <Panel Width="{Binding Width}" Height="{Binding Height}"
+                         AutomationProperties.AutomationId="{Binding AutomationId}"
+                         AutomationProperties.Name="{Binding Name}"
+                         ToolTip.Tip="{Binding Name}">
+                    <Panel.RenderTransform>
+                      <TranslateTransform X="{Binding TranslateX}" Y="{Binding TranslateY}" />
+                    </Panel.RenderTransform>
+                    <Border Opacity="{Binding Opacity}"
+                            Background="{DynamicResource V2.Brush.SurfaceRaised}"
+                            BorderBrush="{DynamicResource V2.Brush.Action}"
+                            BorderThickness="{Binding BorderThickness}">
+                      <Image Source="{Binding Image}" Stretch="Fill" />
+                    </Border>
+                    <!-- On the right: the floating presentation pill owns the plan's top-left
+                         corner, and a plate labelled underneath it is a plate with no label. -->
+                    <Border Classes="v2-map-chip" HorizontalAlignment="Right" VerticalAlignment="Top"
+                            Margin="6" IsHitTestVisible="False" Opacity="{Binding NameOpacity}">
+                      <TextBlock Classes="v2-label" Text="{Binding Name}" TextWrapping="NoWrap" />
+                    </Border>
+                  </Panel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>

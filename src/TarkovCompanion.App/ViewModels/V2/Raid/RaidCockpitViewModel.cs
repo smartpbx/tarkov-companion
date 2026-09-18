@@ -250,6 +250,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     // when the variant changes, because that is different artwork.
     private readonly Dictionary<string, FloorArtwork> _floorArtwork = new(StringComparer.OrdinalIgnoreCase);
     private string? _floorArtworkVariantKey;
+    /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
+    private string _stackRefusal = string.Empty;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -398,9 +400,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public bool HasFloorStack => Renderer?.HasFloorStack ?? false;
 
     /// <summary>What the stack did, in one line — the renderer's, while it has one.</summary>
-    public string StackStatus => Renderer is { HasStackStatus: true } renderer
-        ? renderer.StackStatus
-        : _map.StackStatus;
+    public string StackStatus => _stackRefusal.Length > 0
+        ? _stackRefusal
+        : Renderer is { HasStackStatus: true } renderer
+            ? renderer.StackStatus
+            : _map.StackStatus;
 
     public bool HasStackStatus => StackStatus.Length > 0;
 
@@ -675,8 +679,18 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         CancellationToken cancellationToken)
     {
         var variant = model.Variant;
-        if (!_map.IsStacked || model.Floors.Count <= 1 || variant.SvgPath is null ||
-            model.Background?.Kind == MapBackgroundKind.TileTemplate)
+        // The plates have to be the drawing. A tile grid and a drawing cover different
+        // rectangles of the same ground (see MapPlanProjection), so stacking SVG floors under a
+        // tile-drawn map's projection would put every marker beside the artwork rather than on
+        // it. Saying which press fixes it beats a stack that quietly produced nothing.
+        _stackRefusal = !_map.IsStacked || model.Floors.Count <= 1
+            ? string.Empty
+            : variant.SvgPath is null
+                ? "Stacked floors need a drawn map; this one is a photograph"
+                : model.Background?.Kind == MapBackgroundKind.TileTemplate
+                    ? "Stacked floors need the drawing — choose it above"
+                    : string.Empty;
+        if (_stackRefusal.Length > 0 || !_map.IsStacked || model.Floors.Count <= 1)
         {
             ReleaseFloorArtwork();
             return [];

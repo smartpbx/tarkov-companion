@@ -331,7 +331,8 @@
     </Grid>
 
     <Border Grid.Column="1" Classes="v2-raid-panel">
-      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
+      <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="16,12,16,16">
           <TextBlock Classes="v2-heading-2" Text="Raid plan" AutomationProperties.HeadingLevel="2" />
 
