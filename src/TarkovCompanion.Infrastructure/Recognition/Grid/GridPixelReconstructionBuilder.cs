@@ -37,11 +37,25 @@ public sealed record GridPixelReconstructionOptions
     }
 
     /// <summary>
-    /// The lowest pixel correlation that may name an item. Measured on composed frames: a true
-    /// item never scored under 0.945, even resampled from 1080p to 1440p, and the one wrong
-    /// answer the pixel check ever gave scored under 0.90.
+    /// The lowest pixel correlation that may name an item.
     /// </summary>
-    public const double DefaultMinimumPixelCorrelation = 0.90;
+    /// <remarks>
+    /// <para>
+    /// This was 0.90, chosen on composed frames, and composed frames could not test it: a true
+    /// item scores 0.97 or better there, so every floor from 0.50 to 0.90 names the same items.
+    /// Only real pixels exercise it. On 360 hand-labelled items from six real 3840x1080 stash
+    /// screenshots (2026-09-18), true items score from under 0.4 (dark attachments) to 0.99,
+    /// median 0.83, and with every reference of the shape compared at a 0.04 margin:
+    /// 0.90 names 118 and none wrongly, 0.85 names 163 and none wrongly, 0.80 names 200 and none
+    /// wrongly, 0.75 names 215 and 2 wrongly. The first wrong name sits at 0.76.
+    /// </para>
+    /// <para>
+    /// 0.85 keeps 0.09 clear of that. 0.80 would name a fifth more and keeps only 0.04, on one
+    /// player's stash and no in-raid container yet; it is not taken. Re-measure with
+    /// <c>IdentityPolicyStudyTests</c> before moving this either way.
+    /// </para>
+    /// </remarks>
+    public const double DefaultMinimumPixelCorrelation = 0.85;
 
     /// <summary>
     /// How far the best item has to stand clear of the next. Art twins that differ only by a

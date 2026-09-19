@@ -282,7 +282,9 @@ Package 37 measured the whole path, screenshot to decision, and rewrote the thre
 numbers showed were broken. How each one works now:
 
 - **The lattice.** `ContainerGridDetector` looks for thin ridges that run unbroken for about a
-  cell, wherever in the frame they are. It used to want contrast across 18% of the whole frame,
+  cell, wherever in the frame they are, first at the measured pitch (63 pixels on a 1080-tall
+  frame, held to two pixels and one phase, so a run cannot leave its own panel) and only then
+  at whatever pitch the lines suggest. It used to want contrast across 18% of the whole frame,
   which a ten-wide stash satisfies and a loot container cannot. A line hidden from top to bottom
   by wide items is assumed (up to two in a row), runs are scored by pixels of long line so the
   ribs of a rail do not outvote real rows, and the two axes are held to one pitch because cells
@@ -290,25 +292,46 @@ numbers showed were broken. How each one works now:
 - **Footprints.** `GridBorderProbe` reads the border drawn between neighbouring cells. No line
   between two cells means one item; a line means two. Joining every occupied cell that touched
   another read two bandages side by side as one 2x1 item.
-- **Identity.** The 64-bit difference hash only shortlists (32 nearest of the same shape).
-  `IconPixelDescriptor`, a 16-pixel-a-cell colour picture compared by normalised correlation,
-  decides: at least 0.90 and 0.04 clear of the next item, or the cell is refused with its
-  lookalikes attached. A named item carries that score as its evidence confidence. Rotated items
+- **Identity.** The 64-bit difference hash no longer decides or shortlists anything; it is kept
+  only as the fallback when a reference's pixels cannot be read.
+  `IconPixelDescriptor`, a 16-pixel-a-cell colour picture compared by normalised correlation
+  against every reference of the footprint's shape, decides: at least 0.85 and 0.04 clear of the
+  next item, or the cell is refused with its lookalikes attached. A named item carries that score as its evidence confidence. Rotated items
   are refused for now. `IconReferenceIndex` keeps the reference list in memory between scans.
 
 `IconEvidenceIndexer` fills the icon evidence cache (#355) from the catalog's grid images after
 each sync, on this machine only, as ADR 0007 allows. Until it has run, every cell is refused.
 
-**Measured, and what the measurement is.** There are still no container or stash screenshots to
-measure against, so `LootScanEndToEndMeasurementTests` composes frames out of json.tarkov.dev's
-own grid images with the truth known by construction (four variants: 1080p, dimmed with noise,
-resampled to 1440p, and 3840x1080) and drives them through a real capture session, the builder,
-the handoff and the decision service. Every figure from it is a ceiling: the art is the very
-bytes the index was built from and nothing is hovered, ticked found-in-raid or half covered.
-It needs the local icon corpus (`TARKOV_ICON_CORPUS`, by default
-`/root/orca/recognition-corpus/icons`: the `*-grid-image.webp` files and an `items.json`) and
-skips without it. On 72 frames and 1,022 items it finds the grid in 69, gets 990 footprints
-right, names 645 items and names none wrongly; before package 37 the same path named none.
+**Measured on composed frames.** `LootScanEndToEndMeasurementTests` composes frames out of
+json.tarkov.dev's own grid images with the truth known by construction (1080p, dimmed with
+noise, resampled to 1440p, and 3840x1080) and drives them through a real capture session, the
+builder, the handoff and the decision service. Every figure from it is a ceiling: the art is the
+very bytes the index was built from. On 72 frames and 1,022 items it finds the grid in 69, gets
+997 footprints right, names 650 and names none wrongly. It needs the local icon corpus
+(`TARKOV_ICON_CORPUS`, by default `/root/orca/recognition-corpus/icons`) and skips without it.
+
+**Measured on real screenshots (2026-09-18).** Nine 3840x1080 hideout screenshots of Clayton's
+stash and two opened cases, six of them hand-labelled from the game's captions (360 items;
+sidecars beside the screenshots, outside git). `RealScreenshotMeasurementTests` writes what the
+recognizer made of each frame as native-size overlays; `IdentityPolicyStudyTests` scores naming
+policies on the labelled cells and on composed cells side by side.
+
+- The generic detector returned a lattice across several panels in 8 of the 9 frames. Held to
+  the measured pitch it lands on one panel at the exact phase in all 9.
+- Identity: 269 cells named across the nine frames through the generic path, every one checked
+  against its caption, none wrong. On the 360 labelled items the policy names 163 (45%), against
+  63% on composed frames. Real true-item scores run from under 0.4 to 0.99, median 0.83; dark
+  attachments have a median of 0.42 and the true item is on top for only 27 of 68.
+- The floor was 0.90, chosen on composed frames, which cannot test it (every floor from 0.50 to
+  0.90 names the same composed items). On real pixels 0.90 names 118, 0.85 names 163, 0.80
+  names 200, all with none wrong, and 0.75 names 215 with 2 wrong. It is now 0.85.
+- The difference-hash shortlist dropped 27 of 360 true items before they were compared and
+  caused the only wrong name at 0.85, so every reference of the footprint's shape is compared.
+- Masking the caption and badge bands lifts a dark item's true score from 0.4 to 0.9 and starts
+  naming wrong items, because a caption is sometimes all that separates two icons. Not used.
+
+These are menu screens. They do not settle hover or selection highlights over a raid container,
+freshly looted found-in-raid state, or which panel is the container on the in-raid loot screen.
 
 Wired into `LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second,
 carried-inventory panel needs its own region split nothing attempts yet) and

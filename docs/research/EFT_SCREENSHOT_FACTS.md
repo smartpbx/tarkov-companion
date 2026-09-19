@@ -319,3 +319,36 @@ comparison tests the engine rather than the merging.
 
 The quick use strip **does** exist on the character screen, drawn as numbered empty boxes. That
 is the same element reported absent in raid: it is a menu element, not a HUD one.
+
+### What nine real stash screenshots settled (2026-09-18)
+
+Nine menu screenshots from one minute on Clayton's machine, all 3840x1080: the character screen
+with the stash scrolled to six positions, one with a hover tooltip, and two with an item case
+opened in a window over it. They are hideout screens. No in-raid container is among them.
+
+| Fact | Measured |
+|---|---|
+| Cell pitch | **63.0** pixels on both axes in all nine, on every grid on the screen |
+| Stash panel | ten columns, x = 2225 to 2855, in every frame |
+| Item and cell borders | one bright pixel, at x = 2225 + 63k, so **x mod 63 = 20** |
+| Row phase | differs per frame (y = 79, 64, 127, 331 ...): the stash scrolls by pixels, not by rows |
+| A case window | its own lattice at the same pitch and another phase (1518,149 and 1604,109) |
+| Interface | drawn in the centred 1920 pixels of the 3840; the outer quarters are backdrop |
+
+The paragraph above gives the column phase as 19. That measurement found the dark gap beside
+each line by autocorrelation. Icon fingerprints settle which one is the cell edge: a lattice at
+2224 named 3 to 7 items a frame and the same lattice at 2225 named 11 to 13.
+
+Several grids share the screen at that one pitch, each at its own phase: gear slots, pockets,
+special slots, the backpack, the stash, and any open case window. A lattice search that may
+re-anchor on each line it finds walks from one into the next. `ContainerGridDetector` returned
+one lattice across several panels in 8 of these 9 frames until it was held to the known pitch.
+
+What is drawn over an icon: the caption top-right, in a font close enough to json.tarkov.dev's
+renders that two armbands differing only in band colour were told apart; a found-in-raid tick
+bottom-right on most items; a stack count or durability figure bottom-right (`30/30`,
+`1295/1500`); a hatched tint on tagged containers. A hover tooltip covered eight cells in one
+frame, and the game's own "screenshot saved" toast sits bottom-right of the interface in some.
+
+A weapon is drawn at the size of its build, not its catalog size: an M9A3 with a magazine is
+2x2 against a catalog 2x1, so references filtered by catalog shape never include it.
