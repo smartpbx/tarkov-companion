@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
@@ -10,34 +11,16 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 public sealed partial class WindowsEftLogWatcher(
     EftLogParser parser,
     IEftLogObserver? observer = null,
-    TimeProvider? timeProvider = null) : IEftLogWatcher
+    TimeProvider? timeProvider = null,
+    ILogger<WindowsEftLogWatcher>? logger = null) : IEftLogWatcher
 {
-    /// <summary>
-    /// The log files this watcher will read.
-    /// </summary>
-    /// <remarks>
-    /// Reading every *.log in the folder was a privacy problem, not just wasted work. The
-    /// game's backend and push-notification logs carry large JSON blobs containing real
-    /// personal data for the player and for anyone they grouped with: nicknames, account and
-    /// profile ids, full inventories, health state, and looted dogtags naming a killer and a
-    /// victim. None of that is needed to tell which map a raid is on, so none of it is opened.
-    ///
-    /// application carries the map and lifecycle markers. output is the only file still
-    /// written throughout a raid, so it is what can say the player is still in one. backend
-    /// carries the userConfirmed and userMatchOver notifications that give an exact raid
-    /// start, end and duration for the player; it is opened for those and nothing else, and
-    /// the parser attributes a notification to the player only when its profile id matches
-    /// theirs, so a teammate's record is never read as the player's own.
-    ///
-    /// push-notifications stays closed. Its group blobs carry teammates' full inventories,
-    /// health and looted dogtags, and nothing here needs them.
-    /// </remarks>
-    private static readonly string[] WatchedPrefixes = ["application", "output", "backend"];
-
     /// <summary>How often file lengths are re-checked when no change notification arrives.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
 
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+
+    /// <summary>The last listing failure reported, so a folder that stays unreadable says so once.</summary>
+    private string? _lastEnumerationProblem;
 
     /// <summary>
     /// Tails the game's logs and turns appended lines into raid evidence.
@@ -62,12 +45,15 @@ public sealed partial class WindowsEftLogWatcher(
             throw new DirectoryNotFoundException($"EFT log directory does not exist: {logRoot}");
         }
 
-        // Files present when watching starts are already-finished sessions: start at their end
-        // so a restart does not replay hundreds of old raids.
+        // Start every existing file at its end, so the tail below delivers only what is
+        // appended from now on and a restart does not re-tail hundreds of old raids. What was
+        // already written is not simply discarded: the current session is replayed once, just
+        // below, and that is where a quest handed in before the companion started is recovered.
+        // The positions are taken before that replay, so each line is read exactly once.
         var lines = new AppendedLineReader(_timeProvider);
         foreach (var existing in EnumerateWatched(logRoot))
         {
-            lines.StartAtEnd(existing, SafeLength(existing));
+            lines.StartAtEnd(existing.Path, SafeLength(existing.Path));
         }
 
         // The player signs in before starting the companion in the ordinary case, so the line
@@ -86,7 +72,7 @@ public sealed partial class WindowsEftLogWatcher(
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            foreach (var path in EnumerateWatched(logRoot))
+            foreach (var (path, mode) in EnumerateWatched(logRoot))
             {
                 // A file that has not grown is still polled while it holds a part-written
                 // line, or that line would never be completed and the last entry of a rolled
@@ -100,8 +86,7 @@ public sealed partial class WindowsEftLogWatcher(
                              .ConfigureAwait(false))
                 {
                     var observedUtc = _timeProvider.GetUtcNow();
-                    var evidence = parser.ParseLine(line, observedUtc);
-                    if (evidence is not null)
+                    if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
                     {
                         yield return evidence;
                     }
@@ -111,30 +96,7 @@ public sealed partial class WindowsEftLogWatcher(
                     // raid evidence. Each parser rejects lines that are not its own on a
                     // single substring scan, so this costs almost nothing on the vast
                     // majority of lines, which are neither.
-                    if (observer is null)
-                    {
-                        continue;
-                    }
-
-                    if (GroupNotificationParser.ParseLine(line, observedUtc) is { } group)
-                    {
-                        observer.Observe(group);
-                    }
-
-                    if (FleaSaleParser.ParseLine(line, observedUtc) is { } sale)
-                    {
-                        observer.Observe(sale);
-                    }
-
-                    if (QuestNotificationParser.ParseLine(line, observedUtc) is { } quest)
-                    {
-                        observer.Observe(quest);
-                    }
-
-                    if (LoadTimeParser.ParseLine(line, observedUtc) is { } loadTime)
-                    {
-                        observer.Observe(loadTime);
-                    }
+                    Notify(line, observedUtc, mode);
                 }
             }
 
@@ -168,17 +130,17 @@ public sealed partial class WindowsEftLogWatcher(
             return null;
         }
 
-        // output is skipped. It is the largest file by far, it is mostly keepalives, and every
-        // notification it carries is duplicated into backend, which is small.
+        // Every file, output included, and bounded by EftLogFiles.MaximumReplayBytes rather than by name.
+        // output used to be skipped here on the grounds that its notifications are duplicated
+        // into backend. They are not, on 1.1.5.x, and skipping it meant a quest handed in before
+        // the companion's first poll was never seen by anything.
         var files = EnumerateWatched(folder)
-            .Where(path => !Path.GetFileNameWithoutExtension(path)
-                .Contains("output", StringComparison.OrdinalIgnoreCase))
-            .Order(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var recovery = new RaidStateService();
-        foreach (var path in files)
+        foreach (var (path, mode) in files)
         {
-            await ReplayAsync(path, recovery, cancellationToken).ConfigureAwait(false);
+            await ReplayAsync(path, mode, recovery, cancellationToken).ConfigureAwait(false);
         }
 
         var current = recovery.Current;
@@ -256,7 +218,32 @@ public sealed partial class WindowsEftLogWatcher(
                 : null;
     }
 
-    private async Task ReplayAsync(string path, RaidStateService recovery, CancellationToken cancellationToken)
+    /// <summary>
+    /// Replays one already-written file, into the raid state machine and into the observer.
+    /// </summary>
+    /// <remarks>
+    /// The observer is the fix for what this method used to be. It parsed each replayed line
+    /// for raid evidence and threw the line away, so the quest, flea, party and queue-time
+    /// parsers never saw a single line that was already in the file when watching started --
+    /// and every line already in the file is also skipped by the tail, which starts at the end.
+    /// The result was an app that recovered "a raid on Reserve is running" from a session and
+    /// recorded not one of the quests handed in during it, which is exactly what a player who
+    /// mapped a whole raid and saw no quest update was looking at. Raid lifecycle survived the
+    /// gap and everything else fell into it.
+    ///
+    /// Replaying observations is safe because every one of them is idempotent by design: quest
+    /// notifications carry their own event id and are deduplicated, a re-recorded state reports
+    /// itself unchanged, flea sales are keyed by offer id, and the party is a collapsed
+    /// snapshot rather than a log. Re-reading costs a second pass, not a double count.
+    ///
+    /// Bounded by <see cref="EftLogFiles.MaximumReplayBytes"/> from the end of the file. A session's
+    /// notifications are at its end, and output can be hundreds of megabytes of keepalives.
+    /// </remarks>
+    private async Task ReplayAsync(
+        string path,
+        LogReadMode mode,
+        RaidStateService recovery,
+        CancellationToken cancellationToken)
     {
         try
         {
@@ -265,27 +252,100 @@ public sealed partial class WindowsEftLogWatcher(
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete,
-                4096,
+                64 * 1024,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var truncated = stream.Length > EftLogFiles.MaximumReplayBytes;
+            if (truncated)
+            {
+                stream.Seek(stream.Length - EftLogFiles.MaximumReplayBytes, SeekOrigin.Begin);
+            }
+
             // Same splitting as the tail, for the same reason: a replay that cut a
             // multi-kilobyte userMatchOver in half would recover the wrong raid state. The
             // whole file is present, so nothing is left unterminated and the flush timer
             // never comes into it.
             var replay = new AppendedLineReader(_timeProvider, TimeSpan.Zero);
-            foreach (var line in await replay.ReadAsync(path, stream, cancellationToken).ConfigureAwait(false))
+            var read = await replay.ReadAsync(path, stream, cancellationToken).ConfigureAwait(false);
+            // A seek into the middle of the file lands mid-line, and half a line is worse than
+            // no line: it would be offered to the JSON parsers as though it were whole.
+            var first = truncated ? 1 : 0;
+            for (var index = first; index < read.Count; index++)
             {
+                var line = read[index];
+                var observedUtc = _timeProvider.GetUtcNow();
                 // Parsed for two side effects: the parser learns the profile id, and the
                 // private state machine works out what the player is in the middle of.
-                if (parser.ParseLine(line, _timeProvider.GetUtcNow()) is { } evidence)
+                if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
                 {
                     recovery.Apply(evidence);
                 }
+
+                Notify(line, observedUtc, mode);
             }
+
+            logger?.LogInformation(
+                "Replayed {Lines} line(s) of {File} at startup ({Mode}).",
+                read.Count - first,
+                Path.GetFileName(path),
+                mode);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            // Not fatal -- the tail still delivers whatever is appended next -- but no longer
+            // silent. A permission or locking problem on the game's own logs looks exactly like
+            // a session in which nothing happened, and that is what made this hard to find.
+            logger?.LogWarning(
+                exception,
+                "Could not replay {File}; anything already written to it is lost to this session.",
+                Path.GetFileName(path));
         }
     }
+
+    /// <summary>
+    /// Hands one line to the parsers that describe something other than the raid.
+    /// </summary>
+    /// <remarks>
+    /// One place, called from both the tail and the startup replay, because those two having
+    /// separate copies of this is the whole bug: the tail had it and the replay did not.
+    ///
+    /// <see cref="LogReadMode.ChatOnly"/> is the narrow reading of a file that is otherwise not
+    /// opened. Such a line has to carry a quest or flea marker to be looked at at all, and it
+    /// is offered to those two parsers only -- never the party parser, whose payloads are the
+    /// reason the file is treated this way.
+    /// </remarks>
+    private void Notify(string line, DateTimeOffset observedUtc, LogReadMode mode)
+    {
+        if (observer is null)
+        {
+            return;
+        }
+
+        if (mode == LogReadMode.ChatOnly && !EftLogFiles.IsChatNotification(line))
+        {
+            return;
+        }
+
+        if (mode == LogReadMode.Full && GroupNotificationParser.ParseLine(line, observedUtc) is { } group)
+        {
+            observer.Observe(group);
+        }
+
+        if (FleaSaleParser.ParseLine(line, observedUtc) is { } sale)
+        {
+            observer.Observe(sale);
+        }
+
+        if (QuestNotificationParser.ParseLine(line, observedUtc) is { } quest)
+        {
+            observer.Observe(quest);
+        }
+
+        if (mode == LogReadMode.Full && LoadTimeParser.ParseLine(line, observedUtc) is { } loadTime)
+        {
+            observer.Observe(loadTime);
+        }
+    }
+
 
     private static FileSystemWatcher? CreateChangeSignal(string logRoot, SemaphoreSlim woken)
     {
@@ -335,23 +395,43 @@ public sealed partial class WindowsEftLogWatcher(
         }
     }
 
-    private static IEnumerable<string> EnumerateWatched(string logRoot)
+    /// <summary>
+    /// The game's log files this watcher will open, and how much of each it will read.
+    /// </summary>
+    /// <remarks>
+    /// This used to swallow an unreadable log root and return nothing, which is
+    /// indistinguishable from a game that has written nothing: "watching logs: True, nothing
+    /// read yet" forever, with no way to tell a permission problem from an idle game. The
+    /// enumeration is still non-fatal, because the folder may legitimately appear later, but it
+    /// now says so once per distinct problem.
+    /// </remarks>
+    private IEnumerable<WatchedLogFile> EnumerateWatched(string logRoot)
     {
-        IEnumerable<string> files;
+        string[] files;
         try
         {
-            files = Directory.EnumerateFiles(logRoot, "*.log", SearchOption.AllDirectories);
+            files = Directory.GetFiles(logRoot, "*.log", SearchOption.AllDirectories);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            if (_lastEnumerationProblem != exception.Message)
+            {
+                _lastEnumerationProblem = exception.Message;
+                logger?.LogWarning(
+                    exception,
+                    "Could not list the game's log files under {Root}; nothing will be read from it.",
+                    logRoot);
+            }
+
             yield break;
         }
 
+        _lastEnumerationProblem = null;
         foreach (var path in files)
         {
-            if (IsWatched(path))
+            if (EftLogFiles.ReadMode(path) is { } mode)
             {
-                yield return path;
+                yield return new(path, mode);
             }
         }
     }
@@ -372,32 +452,10 @@ public sealed partial class WindowsEftLogWatcher(
         }
     }
 
-    /// <summary>Whether a log file is one the companion has any reason to open.</summary>
-    /// <remarks>
-    /// The game names each file "&lt;session stamp&gt; &lt;prefix&gt;_000.log", so the prefix is matched
-    /// within the name rather than at its start.
-    /// </remarks>
-    private static bool IsWatched(string path)
-    {
-        var name = Path.GetFileNameWithoutExtension(path.AsSpan());
-        foreach (var prefix in WatchedPrefixes)
-        {
-            var index = name.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
-            if (index < 0)
-            {
-                continue;
-            }
-
-            // "backend" must not match on "end", and "push-notifications" must not match at
-            // all, so the prefix has to begin a word.
-            if (index == 0 || name[index - 1] is ' ' or '_' or '-' or '.')
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    /// <summary>How much of a log file is read.</summary>
+    /// <param name="Path">The file.</param>
+    /// <param name="Mode">Everything in it, or only its chat notifications.</param>
+    private readonly record struct WatchedLogFile(string Path, LogReadMode Mode);
 
     /// <summary>
     /// The lines this file has finished writing since the last poll.

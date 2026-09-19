@@ -111,9 +111,19 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.Equal(1, reading.RaidsSeen);
     }
 
-    /// <summary>The game's own output log is the largest file and is duplicated into backend.</summary>
+    /// <summary>
+    /// Every file of the session is read, the output log included.
+    /// </summary>
+    /// <remarks>
+    /// This test used to assert the opposite: that output was skipped and one file was read, on
+    /// the grounds that output is the largest and is duplicated into backend. Both halves were
+    /// wrong. The duplication claim does not hold on 1.1.5.x, and reading one file -- whichever
+    /// had been written to last -- is how this reading came to report "0 quest notification(s)"
+    /// for a session in which quests had been handed in, and pass. The file set now comes from
+    /// EftLogFiles, which is what the watcher uses, so this reading describes the watcher.
+    /// </remarks>
     [Fact]
-    public async Task TheOutputLogIsNotTheFileThatIsRead()
+    public async Task EveryFileOfTheSessionIsReadIncludingTheOutputLog()
     {
         var session = Path.Combine(_root, "log_2026.09.18_20-31-04");
         Directory.CreateDirectory(session);
@@ -122,7 +132,12 @@ public sealed class SelfTestReaderTests : IDisposable
 
         var reading = await new SelfTestLogReader().ReadAsync(_root, CancellationToken.None);
 
-        Assert.Equal("2026.09.18_20-31-04 application.log", reading.FileName);
+        Assert.Equal(2, reading.Files.Count);
+        Assert.Contains(reading.Files, file => file.Name.Contains("output", StringComparison.Ordinal));
+        Assert.Contains(reading.Files, file => file.Name.Contains("application", StringComparison.Ordinal));
+        // Both files hold the same fixture lines, so everything countable doubles.
+        Assert.Equal(12, reading.LinesRead);
+        Assert.Equal(2, reading.QuestEvents);
     }
 
     [Theory]

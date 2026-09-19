@@ -12,6 +12,13 @@
             <TextBlock Classes="value" Text="{Binding ScopeStatus}" TextWrapping="Wrap" />
             <TextBlock Classes="label" Text="{Binding CatalogStatus}" TextWrapping="Wrap" />
             <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
+            <!-- [Package 47] What the game's logs have said about quests this session. Shown even
+                 when the answer is "nothing yet": a board that had learned nothing used to look
+                 exactly like a board with nothing to learn. -->
+            <TextBlock Classes="label" Text="{Binding GameLogStatus}" IsVisible="{Binding HasGameLogStatus}"
+                       TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="quests-game-log"
+                       AutomationProperties.LiveSetting="Polite" />
           </StackPanel>
           <!-- The level is typed here because the game never writes its own player's down, and
                every level requirement on this page is measured against it. Left at the stored
