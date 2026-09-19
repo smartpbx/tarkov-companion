@@ -82,10 +82,11 @@ name, every game-data endpoint by name with its size, age and row count, the dat
 migrations and table counts, the relay's build and round trip and how far behind squadmate
 positions are, and which tablets are paired and whether a scene is being published.
 
-Three verdicts. **working** means it was measured and it did what it claims. **not working** means
+Four verdicts. **working** means it was measured and it did what it claims. **not working** means
 it was measured and it did not. **could not be tested** means it could not be measured here, with
 the reason said out loud — never a pass by default, which is the whole difference between this and
-the readiness checklist above it.
+the readiness checklist above it. **waiting for you** means it is still open and needs you to do
+something; nothing is wrong, and it settles by itself.
 
 It is safe to press at any time, including mid-raid. Every reading is read-only: discovery
 re-probes folders, the log and screenshot readers open files for reading with full sharing, game
@@ -93,9 +94,32 @@ data and the database are `SELECT`s, and the relay is asked for `GET /health` an
 Nothing starts a refresh, writes to the game's folders, or changes relay state. The run is bounded
 (75 seconds) and **Stop** cancels it.
 
-The one thing it asks for is a screenshot: a position only exists once the game's screenshot key
-is pressed, so the panel says so while it waits (45 seconds) rather than reporting a failure the
-player could have prevented.
+### The screenshot capability
+
+A position only exists once the game's screenshot key is pressed, which makes this the one probe
+that cannot read its answer off disk on demand. It asks for as little as possible, in this order:
+
+1. **A screenshot already in the folder from the last ten minutes counts**, and the report names
+   the file it used and how long before the run it was taken. A shot from earlier in the session
+   went through the same folder, name, parser and clocks as one taken now, so it answers the same
+   question — and one nearly always exists. This is the usual path and needs nobody to do anything.
+2. **With none, the run still finishes.** The other six settle and are copyable; the screenshot
+   capability reports *waiting for you* and keeps watching in the background for five minutes,
+   settling to *working* the moment a screenshot with a position appears. It is outside the run's
+   own deadline, because a player who has not taken a screenshot is not a hung service.
+3. **Running out of patience is never a failure.** It reports *could not be tested*, saying that
+   nothing is wrong and to press Run again after taking one.
+
+**A screenshot taken outside a raid is a fact, not a fault.** The game writes the coordinate and
+rotation blocks only for a shot taken in a raid, so a menu, hideout or post-raid screenshot — for
+example `2026-09-18[19-03]_19.67 (1).png` — carries no position at all, and refusing to read one is
+the parser working. That reports *could not be tested*, saying the shot was taken outside a raid
+and to take one during a raid to test this end to end. **not working** is reserved for a name that
+is shaped like an in-raid shot and still yields no position, which is a real defect in this build.
+
+Either way the report keeps what it always said: which clock the time came from (the file's own
+write time, or the clock in the name when the two disagree by more than an hour) and the end-to-end
+delay from the game writing the file to a position coming out of it.
 
 **Copy result** puts the whole thing on the clipboard, paths included — that is local diagnostic
 data, which `docs/SAFETY.md` permits, and the folder and endpoint names are usually most of the

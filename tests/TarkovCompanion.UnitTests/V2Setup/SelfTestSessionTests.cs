@@ -118,6 +118,66 @@ public sealed class SelfTestSessionTests
         }
     }
 
+    /// <summary>
+    /// [V2 rough package 43a] A screenshot already on disk settles the probe inside the run, so
+    /// nothing waits and nothing is asked of anybody. This is the usual case.
+    /// </summary>
+    [Fact]
+    public async Task AScreenshotAlreadyOnDiskSettlesTheProbeWithoutWaiting()
+    {
+        var session = new SelfTestSession(new StubReadings(), new ManualTimeProvider(Now), CultureInfo.InvariantCulture);
+
+        var summary = await session.RunAsync(null, CancellationToken.None);
+
+        Assert.Null(session.Settling);
+        var screenshots = Assert.Single(summary.Capabilities, capability => capability.Id == SelfTestProbes.ScreenshotsId);
+        Assert.Equal(SelfTestOutcome.Pass, screenshots.Outcome);
+    }
+
+    /// <summary>
+    /// With nothing on disk the run still finishes; the screenshot alone stays open and says so.
+    /// </summary>
+    [Fact]
+    public async Task WithNoRecentScreenshotTheRunFinishesAndOnlyThatOneKeepsWaiting()
+    {
+        var readings = new StubReadings { NothingRecent = true };
+        var session = new SelfTestSession(readings, new ManualTimeProvider(Now), CultureInfo.InvariantCulture);
+        var reported = new List<SelfTestCapability>();
+
+        var summary = await session.RunAsync(reported.Add, CancellationToken.None);
+
+        var screenshots = Assert.Single(summary.Capabilities, capability => capability.Id == SelfTestProbes.ScreenshotsId);
+        Assert.Equal(SelfTestOutcome.Waiting, screenshots.Outcome);
+        Assert.Contains("take one in a raid", screenshots.Headline, StringComparison.OrdinalIgnoreCase);
+        // Everything else has already answered, which is the point of not blocking on this one.
+        Assert.All(
+            summary.Capabilities.Where(capability => capability.Id != SelfTestProbes.ScreenshotsId),
+            capability => Assert.NotEqual(SelfTestOutcome.Waiting, capability.Outcome));
+        Assert.NotNull(session.Settling);
+
+        var settled = await session.Settling!;
+
+        Assert.Equal(SelfTestOutcome.Pass, settled.Outcome);
+        Assert.Contains(reported, capability => capability.Outcome == SelfTestOutcome.Waiting);
+    }
+
+    /// <summary>A run still waiting on a screenshot has found nothing wrong, and says that.</summary>
+    [Fact]
+    public async Task ARunThatIsStillWaitingIsNotAFailure()
+    {
+        var session = new SelfTestSession(
+            new StubReadings { NothingRecent = true },
+            new ManualTimeProvider(Now),
+            CultureInfo.InvariantCulture);
+
+        var summary = await session.RunAsync(null, CancellationToken.None);
+
+        Assert.NotEqual(SelfTestOutcome.Fail, summary.Outcome);
+        Assert.Equal(SelfTestOutcome.Waiting, summary.Outcome);
+        Assert.Contains("waiting for you", summary.Headline(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        Assert.Equal(0, summary.FailCount);
+    }
+
     /// <summary>Readings that answer instantly, so the session's own behaviour is what is measured.</summary>
     private sealed class StubReadings : ISelfTestReadings
     {
@@ -125,20 +185,29 @@ public sealed class SelfTestSessionTests
 
         public bool BlockScreenshot { get; init; }
 
+        /// <summary>Nothing on disk, so the probe has to wait for one.</summary>
+        public bool NothingRecent { get; init; }
+
         public Task<SelfTestFolders> ReadFoldersAsync(CancellationToken cancellationToken) =>
             Task.FromResult(SelfTestProbeTests.Folders(new DateTimeOffset(2026, 9, 18, 20, 58, 0, TimeSpan.Zero)));
 
         public Task<SelfTestLogs> ReadLogsAsync(CancellationToken cancellationToken) =>
             Task.FromResult(SelfTestProbeTests.Logs());
 
-        public async Task<SelfTestScreenshot> WatchScreenshotAsync(TimeSpan patience, CancellationToken cancellationToken)
+        public Task<SelfTestScreenshot> WatchScreenshotAsync(TimeSpan patience, CancellationToken cancellationToken) =>
+            Task.FromResult(SelfTestProbeTests.Screenshot());
+
+        /// <summary>
+        /// The half that runs inside the session, so blocking here is what stalls a run.
+        /// </summary>
+        public async Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken)
         {
             if (BlockScreenshot)
             {
                 await Task.Delay(Timeout.Infinite, cancellationToken);
             }
 
-            return SelfTestProbeTests.Screenshot();
+            return NothingRecent ? SelfTestProbeTests.NoScreenshot() : SelfTestProbeTests.Screenshot();
         }
 
         public Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken) =>

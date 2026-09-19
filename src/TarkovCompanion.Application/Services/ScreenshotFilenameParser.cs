@@ -5,6 +5,28 @@ using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Application.Services;
 
+/// <summary>
+/// What one of the game's screenshot names is, before trying to read a position out of it.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 43a] Escape from Tarkov writes the coordinate and rotation blocks only for a
+/// shot taken in a raid. A menu, hideout or post-raid screenshot is named
+/// <c>2026-09-18[19-03]_19.67.png</c> — date, time, and the in-game clock, with nowhere for a
+/// position to be. Refusing to parse that one is correct, and reporting it as a fault is not: the
+/// difference is the whole of the complaint this classification exists to answer.
+/// </remarks>
+public enum ScreenshotNameKind
+{
+    /// <summary>Not one of the game's screenshot names at all.</summary>
+    Unrecognized,
+
+    /// <summary>The game's name for a shot taken outside a raid. It carries no position by design.</summary>
+    OutsideRaid,
+
+    /// <summary>Shaped like an in-raid shot: the position blocks are there to be read.</summary>
+    InRaid,
+}
+
 public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider = null) : IScreenshotFilenameParser
 {
     /// <summary>How far the file's write time may disagree with its name before it is not trusted.</summary>
@@ -134,6 +156,33 @@ public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider 
         return (degrees + 360) % 360;
     }
 
+    /// <summary>
+    /// Which kind of screenshot name this is, without attempting to read a position.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] Deliberately a separate question from <see cref="TryParse"/>. "This
+    /// will not parse" has two very different causes — a shot taken in the menu, which never had a
+    /// position, and a shot taken in a raid whose name this build cannot read, which is a real
+    /// defect. Everything that reports to a person needs to tell those apart.
+    ///
+    /// <see cref="ScreenshotNameKind.InRaid"/> means the blocks are present and the right shape,
+    /// not that they parse: a name that reaches here and still fails <see cref="TryParse"/> is the
+    /// case worth calling broken.
+    /// </remarks>
+    public static ScreenshotNameKind Classify(string filename)
+    {
+        ArgumentNullException.ThrowIfNull(filename);
+        var name = Path.GetFileName(filename);
+        if (FilenamePattern().IsMatch(name))
+        {
+            return ScreenshotNameKind.InRaid;
+        }
+
+        return OutsideRaidPattern().IsMatch(name)
+            ? ScreenshotNameKind.OutsideRaid
+            : ScreenshotNameKind.Unrecognized;
+    }
+
     private static bool TryDouble(Match match, string group, out double value) =>
         double.TryParse(match.Groups[group].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 
@@ -141,4 +190,17 @@ public sealed partial class ScreenshotFilenameParser(TimeProvider? timeProvider 
         @"^(?<date>\d{4}-\d{2}-\d{2})\[(?<time>\d{2}-\d{2})\]_(?<x>-?\d+(?:\.\d+)?),\s*(?<y>-?\d+(?:\.\d+)?),\s*(?<z>-?\d+(?:\.\d+)?)_(?<qx>-?\d+(?:\.\d+)?),\s*(?<qy>-?\d+(?:\.\d+)?),\s*(?<qz>-?\d+(?:\.\d+)?),\s*(?<qw>-?\d+(?:\.\d+)?)(?:_(?<gameTime>\d+(?:\.\d+)?))?(?:\s+\((?<duplicate>\d+)\))?\.(?:png|jpg|jpeg)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex FilenamePattern();
+
+    /// <summary>
+    /// The game's own name with the position blocks absent: a menu, hideout or post-raid shot.
+    /// </summary>
+    /// <remarks>
+    /// The same date and time the in-raid name opens with, then anything that is not a coordinate
+    /// triple. The trailing " (1)" a synced folder adds is allowed here for the same reason it is
+    /// allowed above — a duplicate suffix does not change what the shot is.
+    /// </remarks>
+    [GeneratedRegex(
+        @"^(?<date>\d{4}-\d{2}-\d{2})\[(?<time>\d{2}-\d{2})\](?:_(?<gameTime>\d+(?:\.\d+)?))?(?:\s+\((?<duplicate>\d+)\))?\.(?:png|jpg|jpeg)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex OutsideRaidPattern();
 }

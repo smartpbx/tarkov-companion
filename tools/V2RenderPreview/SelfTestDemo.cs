@@ -15,7 +15,7 @@ namespace TarkovCompanion.V2RenderPreview;
 /// screenshots kept arriving, one endpoint that refused, and a tablet paired to a desktop that
 /// has published nothing.
 /// </remarks>
-internal sealed class SelfTestDemoReadings : ISelfTestReadings
+internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : ISelfTestReadings
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
 
@@ -64,8 +64,38 @@ internal sealed class SelfTestDemoReadings : ISelfTestReadings
             2,
             Now));
 
+    /// <summary>
+    /// [V2 rough package 43a] The screenshot the probe found, or nothing, so both states render.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to the shot it found already on disk, which is the usual answer now; the waiting
+    /// state is what a folder with nothing recent in it produces, and it is worth a picture
+    /// because it is the state that used to be a red failure.
+    /// </remarks>
+    public Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken) =>
+        waitsForScreenshot
+            ? Task.FromResult(new SelfTestScreenshot(
+                @"C:\Users\clayton\OneDrive\Documents\Escape from Tarkov\Screenshots",
+                null,
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                "no clock",
+                TimeSpan.Zero,
+                null))
+            : Task.FromResult(Found() with { WasAlreadyThere = true, Age = TimeSpan.FromMinutes(3) });
+
     public Task<SelfTestScreenshot> WatchScreenshotAsync(TimeSpan patience, CancellationToken cancellationToken) =>
-        Task.FromResult(new SelfTestScreenshot(
+        // Never answers in a render: the point of the waiting picture is the waiting.
+        waitsForScreenshot
+            ? new TaskCompletionSource<SelfTestScreenshot>().Task
+            : Task.FromResult(Found());
+
+    private static SelfTestScreenshot Found() =>
+        new(
             @"C:\Users\clayton\OneDrive\Documents\Escape from Tarkov\Screenshots",
             "2026-09-18[20-58]_140.2, 3.4, -77.9_-0.033, -0.133, 0.004, -0.991_21.87 (0).png",
             Now.AddSeconds(-1),
@@ -76,7 +106,7 @@ internal sealed class SelfTestDemoReadings : ISelfTestReadings
             -77.9,
             "the file's own write time",
             TimeSpan.FromSeconds(7.4),
-            TimeSpan.FromMilliseconds(412)));
+            TimeSpan.FromMilliseconds(412));
 
     public Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new SelfTestGameData(

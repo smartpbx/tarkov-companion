@@ -27,6 +27,17 @@ public enum SelfTestOutcome
 
     /// <summary>Not measurable from here, with the reason said out loud.</summary>
     Unknown,
+
+    /// <summary>
+    /// Measurable, but only once the player does something. Nothing is wrong yet.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] The screenshot probe's live state. It used to hold the whole run open
+    /// for its patience and then report an unknown, which read as "this failed and it was your
+    /// fault for being slow". Waiting is its own thing: the rest of the run has already finished,
+    /// this one is still open, and it will settle by itself the moment a screenshot appears.
+    /// </remarks>
+    Waiting,
 }
 
 /// <summary>
@@ -59,6 +70,14 @@ public sealed record SelfTestCapability(
 
     public static SelfTestCapability Running(string id, string title, string headline) =>
         new(id, title, SelfTestOutcome.Running, headline, [], TimeSpan.Zero);
+
+    /// <summary>Open, and waiting for the player rather than for the machine.</summary>
+    public static SelfTestCapability WaitingFor(
+        string id,
+        string title,
+        string headline,
+        IReadOnlyList<SelfTestFact>? facts = null) =>
+        new(id, title, SelfTestOutcome.Waiting, headline, facts ?? [], TimeSpan.Zero);
 }
 
 /// <summary>Everything one press of the self-test found.</summary>
@@ -76,11 +95,16 @@ public sealed record SelfTestSummary(
     public int UnknownCount => Capabilities.Count(capability => capability.Outcome == SelfTestOutcome.Unknown);
 
     /// <summary>The run's verdict. One failure fails the run; an untested capability is not a pass.</summary>
+    public int WaitingCount => Capabilities.Count(capability => capability.Outcome == SelfTestOutcome.Waiting);
+
     public SelfTestOutcome Outcome =>
         Capabilities.Count == 0 ? SelfTestOutcome.Pending
         : Capabilities.Any(capability => capability.Outcome is SelfTestOutcome.Pending or SelfTestOutcome.Running) ? SelfTestOutcome.Running
         : FailCount > 0 ? SelfTestOutcome.Fail
         : UnknownCount > 0 ? SelfTestOutcome.Unknown
+        // Below the two verdicts that need somebody, above a clean pass: a run still waiting on a
+        // screenshot has found nothing wrong, and has not finished either.
+        : WaitingCount > 0 ? SelfTestOutcome.Waiting
         : SelfTestOutcome.Pass;
 
     public string Headline(CultureInfo culture)
@@ -88,9 +112,13 @@ public sealed record SelfTestSummary(
         ArgumentNullException.ThrowIfNull(culture);
         return Capabilities.Count == 0
             ? "Nothing has been tested yet."
-            : string.Create(
-                culture,
-                $"{PassCount} working, {FailCount} not working, {UnknownCount} could not be tested · took {Duration(Took, culture)}");
+            : WaitingCount > 0
+                ? string.Create(
+                    culture,
+                    $"{PassCount} working, {FailCount} not working, {UnknownCount} could not be tested, {WaitingCount} waiting for you · took {Duration(Took, culture)}")
+                : string.Create(
+                    culture,
+                    $"{PassCount} working, {FailCount} not working, {UnknownCount} could not be tested · took {Duration(Took, culture)}");
     }
 
     /// <summary>
@@ -163,6 +191,7 @@ public sealed record SelfTestSummary(
         SelfTestOutcome.Fail => "not working",
         SelfTestOutcome.Unknown => "could not be tested",
         SelfTestOutcome.Running => "testing",
+        SelfTestOutcome.Waiting => "waiting for you",
         _ => "not tested",
     };
 }
