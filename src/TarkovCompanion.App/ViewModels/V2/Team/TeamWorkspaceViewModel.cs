@@ -6,7 +6,6 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
-using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
@@ -177,7 +176,7 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
         SaveCommand = new AsyncDelegateCommand(SaveAsync);
         LeaveCommand = new AsyncDelegateCommand(LeaveAsync);
-        PairTabletCommand = new DelegateCommand(OpenPairing);
+        PairTabletCommand = new DelegateCommand(ShowDevices);
         OpenSharedPlanCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Raid));
         ManageGroupCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Group));
         ManageDevicesCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Tablet));
@@ -782,6 +781,17 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     /// something else is driving it and can take it back without hunting for a setting — which is
     /// what the tablet concept (docs/design/v2/v2-tablet-desktop-control-concept.png) shows.
     /// </remarks>
+    /// <summary>
+    /// The pairing panel, bound directly rather than forwarded property by property.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] Pairing used to be a bare popout <c>Window</c> with its own title bar
+    /// and no way back to the page behind it — the only V2 surface that was not in the shell. It is
+    /// a section of this workspace now, so the view binds its fields through here instead of this
+    /// view model growing a forwarding property for each one.
+    /// </remarks>
+    public CompanionPairingViewModel? Pairing => _pairing;
+
     public string? ControlRequestMessage => _pairing?.ControlRequestMessage;
 
     public bool HasControlRequest => _pairing?.HasControlRequest == true;
@@ -823,25 +833,21 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         }
     }
 
-    /// <summary>Opens the pairing ceremony (#383) as its own window, the same one Settings opens.</summary>
-    private void OpenPairing()
+    /// <summary>
+    /// Brings pairing on screen, which now means going to the section it lives in.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] This used to construct and show <c>CompanionPairingWindow</c>. The
+    /// window is deleted; leaving it would have been a second way in to the same ceremony, which is
+    /// how the two drifted in the first place. The automation ids on both "Pair a tablet" buttons
+    /// are unchanged, so anything that pressed them still reaches pairing — it just stays in the
+    /// shell now.
+    /// </remarks>
+    private void ShowDevices()
     {
-        if (_pairing is null)
+        if (ActiveSection != TeamWorkspaceSection.Devices)
         {
-            return;
-        }
-
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var window = new CompanionPairingWindow(_pairing);
-            if (desktop.MainWindow is { } owner)
-            {
-                window.Show(owner);
-            }
-            else
-            {
-                window.Show();
-            }
+            _navigate?.Invoke(V2Routes.Tablet);
         }
     }
 }

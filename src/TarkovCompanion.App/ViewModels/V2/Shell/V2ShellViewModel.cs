@@ -17,7 +17,6 @@ using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
-using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -1998,7 +1997,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 ToggleDialog(V2ShellDialogKind.Capture, $"v2-shell-recovery-{action.Id}", V2ShellFocusTargets.CaptureDialog);
                 break;
             case "manage-pairing":
-                OpenCompanionPairingWindow();
+                // [V2 rough package 48] Pairing is a section of the Team workspace now, not a
+                // popout window, so recovery navigates to it like every other recovery action.
+                Act(Router.Navigate(V2Routes.Tablet, $"v2-shell-recovery-{action.Id}"));
                 break;
             case "sync":
                 if (Legacy is not null)
@@ -2017,36 +2018,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
-    /// <summary>
-    /// Opens the paired-device pairing panel as its own window.
-    /// </summary>
-    /// <remarks>
-    /// A separate window rather than a fourth <see cref="V2ShellDialogKind"/>: pairing is a
-    /// focused, occasional management task, not part of the shell's own navigation surface, and
-    /// this keeps the shell's dialog/focus-target plumbing untouched by a package that only owns
-    /// the Tablet route.
-    /// </remarks>
-    private void OpenCompanionPairingWindow()
-    {
-        if (_companionPairing is null)
-        {
-            Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
-            return;
-        }
-
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var window = new CompanionPairingWindow(_companionPairing);
-            if (desktop.MainWindow is { } owner)
-            {
-                window.Show(owner);
-            }
-            else
-            {
-                window.Show();
-            }
-        }
-    }
 
     private void OpenReadiness(V2ReadinessCheck check)
     {
