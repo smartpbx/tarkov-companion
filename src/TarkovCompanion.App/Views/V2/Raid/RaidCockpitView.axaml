@@ -427,6 +427,19 @@
                         </WrapPanel>
                         <TextBlock Classes="v2-label" Text="{Binding NoLocationReason}" TextWrapping="Wrap"
                                    IsVisible="{Binding HasNoLocationReason}" />
+                        <!-- [Issue 379] The catalog has no place for this one: the player can put it on the
+                             map themselves. It is drawn as theirs ("Placed by you"), never as quest data. -->
+                        <WrapPanel ItemSpacing="6" LineSpacing="4">
+                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding PlaceLabel}"
+                                  Command="{Binding PlaceCommand}" IsVisible="{Binding CanPlace}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-place" />
+                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding MoveLabel}"
+                                  Command="{Binding PlaceCommand}" IsVisible="{Binding CanMove}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-move" />
+                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding RemoveLabel}"
+                                  Command="{Binding RemoveCommand}" IsVisible="{Binding CanRemove}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-remove" />
+                        </WrapPanel>
                         <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
                           <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="x:String">

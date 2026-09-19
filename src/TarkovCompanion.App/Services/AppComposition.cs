@@ -287,6 +287,16 @@ public static class AppComposition
         services.AddSingleton<HistoricalTrafficRuntimeService>();
         services.AddSingleton<IRaidMarkStore>(_ =>
             new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
+        // [Issue 379] Objective markers the player placed themselves, kept apart from the quest
+        // catalog because a sync replaces the catalog and a note of theirs must outlive it.
+        services.AddSingleton<IUserQuestMarkStore>(_ =>
+            new JsonFileUserQuestMarkStore(Path.Combine(paths.Config, "user-quest-markers.json"), timeProvider));
+        services.AddSingleton(provider => new QuestCoverageViewModel(
+            provider.GetRequiredService<IQuestCatalog>(),
+            provider.GetRequiredService<IUserQuestMarkStore>(),
+            provider.GetRequiredService<IMapDataService>(),
+            () => provider.GetRequiredService<MapViewModel>().Locations,
+            provider.GetRequiredService<IProfileRuntimeContextService>()));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
@@ -631,7 +641,9 @@ public static class AppComposition
             // too, through the same relay call the Team workspace uses.
             provider.GetRequiredService<GroupSessionService>(),
             // [Package 35] The wiki link on a selected quest objective.
-            provider.GetRequiredService<IWikiLinkOpener>()));
+            provider.GetRequiredService<IWikiLinkOpener>(),
+            // [Issue 379] The player's own objective markers.
+            provider.GetRequiredService<IUserQuestMarkStore>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2

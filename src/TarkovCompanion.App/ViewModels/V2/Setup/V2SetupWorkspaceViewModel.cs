@@ -257,7 +257,27 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
     public bool IsProgressSelected => Selected == V2SetupSection.Progress;
 
-    public void Select(V2SetupSection section) => Selected = section;
+    public void Select(V2SetupSection section)
+    {
+        Selected = section;
+        if (section == V2SetupSection.Data && QuestCoverage is { } coverage)
+        {
+            _ = coverage.RefreshAsync();
+        }
+    }
+
+    /// <summary>The per-map quest objective coverage Data shows, or null in a shell built without one.</summary>
+    public QuestCoverageViewModel? QuestCoverage { get; private set; }
+
+    public bool HasQuestCoverage => QuestCoverage is not null;
+
+    /// <summary>Hands this page the coverage report after construction, for the same ordering reason as <see cref="AttachSelfTest"/>.</summary>
+    public void AttachQuestCoverage(QuestCoverageViewModel coverage)
+    {
+        QuestCoverage = coverage ?? throw new ArgumentNullException(nameof(coverage));
+        OnPropertyChanged(nameof(QuestCoverage));
+        OnPropertyChanged(nameof(HasQuestCoverage));
+    }
 
     /// <summary>Where the Home readiness checklist sends a check's Open button, when it names one.</summary>
     public static bool TryMapReadinessCheck(string checkId, out V2SetupSection section) =>

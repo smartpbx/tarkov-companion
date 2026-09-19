@@ -421,7 +421,10 @@ internal static class Program
                 Console.WriteLine("Objectives: " + string.Join(" | ", raid.QuestObjectives.Select(row => $"{(row.HasNumber ? row.Number : "-")} {row.Where}")));
                 if (StringOption(args, "--select-objective") is { } objectiveNumber)
                 {
-                    var row = raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
+                    // "none" picks the first objective with no number, which is one with no place.
+                    var row = objectiveNumber == "none"
+                        ? raid.QuestObjectives.FirstOrDefault(item => !item.HasNumber)
+                        : raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
                     if (row is null)
                     {
                         Console.Error.WriteLine($"No objective is numbered '{objectiveNumber}'.");
@@ -431,6 +434,17 @@ internal static class Program
                         row.SelectCommand.Execute(null);
                         Pump(40);
                         Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
+                        // Issue 379: put the selected objective on the middle of the plan, the way a click on
+                        // the map after "Place on map" would, so the "Placed by you" marker can be seen.
+                        if (args.Contains("--place-selected-objective") && raid.SelectedObjective is { CanPlace: true } selected &&
+                            raid.Renderer is { } placing)
+                        {
+                            selected.PlaceCommand.Execute(null);
+                            var bounds = placing.Scene.Bounds;
+                            raid.PlaceArmedMarkAt(new(bounds.MinimumX + (bounds.Width / 2), bounds.MinimumY + (bounds.Height / 2)));
+                            Pump(80);
+                            Console.WriteLine($"Placed: {raid.SelectedObjective?.Where} #{raid.SelectedObjective?.Number}");
+                        }
                     }
                 }
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
