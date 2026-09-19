@@ -20,6 +20,9 @@ public enum V2SetupSection
 
     /// <summary>Package 29 (parity): the quest-progress exchange and TarkovTracker import V1 kept in Settings.</summary>
     Progress,
+
+    /// <summary>V2 rough package 43 (#314): the five notifications, each with a switch and a test.</summary>
+    Notifications,
 }
 
 /// <summary>One clickable section tab, the same shape as the shell's other selectable rows.</summary>
@@ -95,13 +98,19 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         // V2 rough package 41 (#292, #281): the self-test lives in Diagnostics, beside the
         // Copy diagnostics it now feeds. Optional so the shells that build Setup without a
         // composed application still build.
-        SetupSelfTestViewModel? selfTest = null)
+        SetupSelfTestViewModel? selfTest = null,
+        // V2 rough package 43 (#314): Notifications is its own section rather than a corner of
+        // Privacy, because it is the only page that decides what interrupts a raid. Optional for
+        // the same reason the self-test is: a shell built without a composed application still
+        // has to build.
+        SetupNotificationsViewModel? notifications = null)
     {
         _navigate = navigate ?? throw new ArgumentNullException(nameof(navigate));
         Settings = settings;
         Group = group;
         Legacy = legacy;
         SelfTest = selfTest;
+        Notifications = notifications;
         OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Team));
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));
@@ -117,6 +126,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             new(V2SetupSection.TeamDevices, "V2.Setup.Section.TeamDevices", Select),
             new(V2SetupSection.Updates, "V2.Setup.Section.Updates", Select),
             new(V2SetupSection.Privacy, "V2.Setup.Section.Privacy", Select),
+            new(V2SetupSection.Notifications, "V2.Setup.Section.Notifications", Select),
             new(V2SetupSection.Appearance, "V2.Setup.Section.Appearance", Select),
             new(V2SetupSection.Displays, "V2.Setup.Section.Displays", Select),
             new(V2SetupSection.Diagnostics, "V2.Setup.Section.Diagnostics", Select),
@@ -134,6 +144,18 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public SetupSelfTestViewModel? SelfTest { get; private set; }
 
     public bool HasSelfTest => SelfTest is not null;
+
+    /// <summary>V2 rough package 43 (#314): the notification switches, once one has been composed.</summary>
+    public SetupNotificationsViewModel? Notifications { get; private set; }
+
+    public bool HasNotifications => Notifications is not null;
+
+    public void AttachNotifications(SetupNotificationsViewModel notifications)
+    {
+        Notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
+        OnPropertyChanged(nameof(Notifications));
+        OnPropertyChanged(nameof(HasNotifications));
+    }
 
     /// <summary>
     /// Hands this page the self-test after construction.
@@ -208,6 +230,9 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string LargerLabel => V2ShellText.Get("V2.Setup.Appearance.LargerLabel");
     public string ResetLabel => V2ShellText.Get("V2.Setup.Appearance.ResetLabel");
     public string DisplaysInfo => V2ShellText.Get("V2.Setup.Displays.Info");
+    public string NotificationsIntro => V2ShellText.Get("V2.Setup.Notifications.Intro");
+    public string NotificationsRaidNote => V2ShellText.Get("V2.Setup.Notifications.RaidNote");
+    public string NotificationsTestLabel => V2ShellText.Get("V2.Setup.Notifications.TestLabel");
     public string SelfTestHeading => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestHeading");
     public string SelfTestIntro => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestIntro");
     public string SelfTestRunLabel => V2ShellText.Get("V2.Setup.Diagnostics.SelfTestRun");
@@ -242,6 +267,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsDisplaysSelected));
             OnPropertyChanged(nameof(IsDiagnosticsSelected));
             OnPropertyChanged(nameof(IsProgressSelected));
+            OnPropertyChanged(nameof(IsNotificationsSelected));
         }
     }
 
@@ -256,6 +282,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool IsDisplaysSelected => Selected == V2SetupSection.Displays;
     public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
     public bool IsProgressSelected => Selected == V2SetupSection.Progress;
+    public bool IsNotificationsSelected => Selected == V2SetupSection.Notifications;
 
     public void Select(V2SetupSection section) => Selected = section;
 

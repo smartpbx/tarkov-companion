@@ -29,7 +29,19 @@ public sealed record RuntimeDataState(
     int ItemCount,
     int SyncedEndpointCount,
     DateTimeOffset? UpdatedUtc,
-    string Detail);
+    string Detail)
+{
+    /// <summary>
+    /// The endpoints that did not refresh, by name. Empty after a clean refresh.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43] <see cref="Detail"/> has always named them, inside a sentence
+    /// assembled for a status line. A notification has to name them too, and parsing that sentence
+    /// back apart to find out which ones failed would be a second source of truth that drifts the
+    /// first time the wording changes.
+    /// </remarks>
+    public IReadOnlyList<string> FailedEndpoints { get; init; } = [];
+}
 
 public sealed record ScanExecutionResult(
     bool IsAvailable,

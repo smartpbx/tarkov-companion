@@ -65,6 +65,8 @@ using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
+using TarkovCompanion.App.Services.V2.Notifications;
+using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -732,6 +734,24 @@ public static class AppComposition
             provider.GetRequiredService<SelfTestJournal>(),
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+        // [V2 rough package 43 (#314)] Tray presence and the five notifications. The tray host is
+        // registered here and attached once Avalonia is up; the bridge observes the runtime store
+        // for the life of the process and is resolved by the shell that shows Setup.
+        services.AddSingleton<TrayPresenceHost>();
+        services.AddSingleton<PopupNotificationHost>();
+        services.AddSingleton<INotificationSettingsStore>(_ =>
+            new JsonFileNotificationSettingsStore(Path.Combine(paths.Config, "notifications.json")));
+        services.AddSingleton(provider => new NotificationBridge(
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<INotificationSettingsStore>(),
+            provider.GetRequiredService<IGroupSettingsStore>(),
+            [provider.GetRequiredService<TrayPresenceHost>()],
+            provider.GetRequiredService<PopupNotificationHost>,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SetupNotificationsViewModel(
+            provider.GetRequiredService<NotificationBridge>(),
+            () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));
         services.AddSingleton<LegacyProfileContextBootstrap>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
