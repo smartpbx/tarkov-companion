@@ -36,6 +36,34 @@ public sealed partial class RuntimeArchitectureRatchetTests
     }
 
     /// <summary>
+    /// The GDI window-capture stack was retired (#316), and this is what stops it coming back by
+    /// default. Scans read the screenshots the game writes; a capturing service returns only as
+    /// a deliberate decision, with pixel, time and memory bounds, and this test is then edited
+    /// with it.
+    /// </summary>
+    [Fact]
+    public void TheWindowCaptureStackStaysRetired()
+    {
+        var root = RepositoryRoot();
+        var composition = File.ReadAllText(Path.Combine(root, "src", "TarkovCompanion.App", "Services", "AppComposition.cs"));
+
+        Assert.False(Directory.Exists(Path.Combine(root, "src", "TarkovCompanion.Platform.Windows", "Capture")));
+        Assert.DoesNotContain("GdiScreenCaptureService", composition, StringComparison.Ordinal);
+        Assert.Contains(
+            "AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>",
+            composition,
+            StringComparison.Ordinal);
+        foreach (var file in Directory.EnumerateFiles(
+                     Path.Combine(root, "src", "TarkovCompanion.Platform.Windows"), "*.cs", SearchOption.AllDirectories)
+                     .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+        {
+            var source = File.ReadAllText(file);
+            Assert.DoesNotContain("BitBlt", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("GetWindowDC", source, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
     /// Disposing a registration waits for its callback, and the pending-cancellation callback
     /// takes the scheduler lock. Doing it while holding that lock is a deadlock waiting to
     /// happen; only the non-blocking unregister is allowed.

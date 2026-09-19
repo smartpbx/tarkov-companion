@@ -4,7 +4,6 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Raids;
-using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Security;

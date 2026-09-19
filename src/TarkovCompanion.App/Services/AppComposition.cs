@@ -70,7 +70,6 @@ using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Infrastructure.Wiki;
-using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Security;
@@ -504,7 +503,10 @@ public static class AppComposition
                 commandLine.DeveloperMode,
                 pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
-            services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
+            // [Issue 316] GDI window capture is retired: scans read the screenshots the game writes.
+            // The slot stays because the scan use case and the capture-session source take one;
+            // both report an unavailable capture instead of failing.
+            services.AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
             services.AddSingleton<IExtractRecognitionService>(provider =>
                 provider.GetRequiredService<ExtractRecognitionService>());
