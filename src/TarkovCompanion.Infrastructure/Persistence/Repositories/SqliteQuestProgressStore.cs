@@ -691,11 +691,22 @@ public sealed class SqliteQuestProgressStore(
             throw new ArgumentException("A correlation id is required.", nameof(mutation));
         }
 
-        if (mutation.Actor != QuestProgressActor.User ||
-            !mutation.Source.Equals("Manual", StringComparison.Ordinal))
+        // Two writers, and each has to name itself honestly. The player typing on the page is
+        // one. The game announcing a quest in its own logs is the other, and it was previously
+        // writing as though it were the player: the only way past this check was to claim to be
+        // a manual edit, which left the page unable to say where a state had come from. An
+        // import still cannot mutate this; it has its own staged path.
+        var declared = (mutation.Actor, mutation.Source) switch
+        {
+            (QuestProgressActor.User, QuestProgressSources.Manual) => true,
+            (QuestProgressActor.GameLog, QuestProgressSources.GameLog) => true,
+            _ => false,
+        };
+        if (!declared)
         {
             throw new InvalidOperationException(
-                "Stage 2 progress accepts explicit manual commands only; imports and observations cannot mutate it.");
+                "Stage 2 progress accepts manual commands and the game's own log observations only; " +
+                "imports cannot mutate it, and an actor must match its source.");
         }
     }
 

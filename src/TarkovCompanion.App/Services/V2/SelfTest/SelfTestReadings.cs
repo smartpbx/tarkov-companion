@@ -1,3 +1,5 @@
+using TarkovCompanion.Application.Services.Raids;
+
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
 /// <summary>One folder the companion chose, why it chose it, and when it last changed.</summary>
@@ -27,6 +29,33 @@ public sealed record SelfTestFolders(
 /// parsers the watcher uses, so "understood nothing" here means the same thing it would mean
 /// during a raid — and that is precisely the state that used to be invisible.
 /// </remarks>
+/// <summary>One of the session's log files, and what came out of it.</summary>
+/// <param name="Name">The file's own name.</param>
+/// <param name="Mode">Whether every line was parsed, or only the chat notifications.</param>
+/// <param name="Bytes">How large the file is.</param>
+/// <param name="LinesRead">How many of its lines were read.</param>
+/// <param name="QuestEvents">Quest notifications found in this file.</param>
+/// <param name="FleaSales">Flea sales found in this file.</param>
+/// <param name="Problem">Why this file could not be read, where it could not.</param>
+public sealed record SelfTestLogFile(
+    string Name,
+    LogReadMode Mode,
+    long Bytes,
+    int LinesRead,
+    int QuestEvents,
+    int FleaSales,
+    string? Problem = null);
+
+/// <summary>
+/// What this build understood of the newest game session.
+/// </summary>
+/// <remarks>
+/// The totals are across every file of the session that the watcher would open, and
+/// <see cref="Files"/> breaks them down per file. Both matter: a build that read seven hundred
+/// lines and found no quest in them is reporting something very different depending on whether
+/// it looked at one file or at six, and an earlier version of this reading looked at one and
+/// said neither.
+/// </remarks>
 public sealed record SelfTestLogs(
     string? SessionFolder,
     DateTimeOffset? SessionStartedUtc,
@@ -41,7 +70,20 @@ public sealed record SelfTestLogs(
     int QuestEvents,
     int FleaSales,
     DateTimeOffset ReadUtc,
-    string? Problem = null);
+    string? Problem = null)
+{
+    /// <summary>
+    /// Every file of the session that was read, and what each yielded.
+    /// </summary>
+    /// <remarks>
+    /// An init property rather than a positional parameter, so the call sites and test doubles
+    /// that build this by hand are unaffected by its arrival.
+    /// </remarks>
+    public IReadOnlyList<SelfTestLogFile> Files { get; init; } = [];
+
+    /// <summary>Files of the session that hold no line this companion has a use for.</summary>
+    public IReadOnlyList<string> SkippedFiles { get; init; } = [];
+}
 
 /// <summary>A screenshot that arrived while the self-test was watching, and what came out of it.</summary>
 /// <param name="Clock">Which clock the time came from: the file's own, or the one in the name.</param>

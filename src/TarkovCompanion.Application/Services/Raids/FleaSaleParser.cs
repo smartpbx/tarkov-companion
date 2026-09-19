@@ -16,7 +16,7 @@ namespace TarkovCompanion.Application.Services.Raids;
 public static class FleaSaleParser
 {
     /// <summary>The notification type, exactly as the game writes it.</summary>
-    private const string SoldTypeMarker = "RagfairOfferSold";
+    public const string NotificationMarker = "RagfairOfferSold";
 
     /// <summary>
     /// Reads one log line as a completed flea sale, or returns null.
@@ -27,7 +27,7 @@ public static class FleaSaleParser
     /// </remarks>
     public static FleaSaleObservation? ParseLine(string? line, DateTimeOffset observedUtc)
     {
-        if (string.IsNullOrEmpty(line) || !line.Contains(SoldTypeMarker, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(line) || !line.Contains(NotificationMarker, StringComparison.Ordinal))
         {
             return null;
         }
@@ -50,7 +50,7 @@ public static class FleaSaleParser
             }
 
             var payload = document.RootElement[0];
-            if (!string.Equals(ReadText(payload, "type"), SoldTypeMarker, StringComparison.Ordinal))
+            if (!string.Equals(ReadText(payload, "type"), NotificationMarker, StringComparison.Ordinal))
             {
                 return null;
             }
