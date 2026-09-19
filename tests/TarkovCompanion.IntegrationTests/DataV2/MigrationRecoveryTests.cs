@@ -11,7 +11,7 @@ public sealed class MigrationRecoveryTests
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         Assert.Equal(14, SqliteMigrationLedger.Entries.Count);
-        Assert.Equal("0014_flea_market_settings", SqliteMigrationLedger.Entries[^1].Id);
+        Assert.Equal("0015_flea_market_settings", SqliteMigrationLedger.Entries[^1].Id);
         Assert.All(SqliteMigrationLedger.Entries, entry =>
         {
             var fixture = SqliteMigrationRunner.ReadFixture(entry.Id);
@@ -22,7 +22,7 @@ public sealed class MigrationRecoveryTests
         });
         Assert.Equal(14, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
 
-        var latest = SqliteMigrationRunner.ReadFixture("0014_flea_market_settings").RollbackSql;
+        var latest = SqliteMigrationRunner.ReadFixture("0015_flea_market_settings").RollbackSql;
         await using (var latestConnection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
         await using (var latestCommand = latestConnection.CreateCommand())
         {
@@ -461,7 +461,7 @@ public sealed class MigrationRecoveryTests
         "0013_task_objective_task_scoped_keys" =>
             "INSERT INTO task_objective_items(task_id, objective_id, item_id, count, found_in_raid_required) " +
             "VALUES ('rollback-task', 'rollback-objective', 'rollback-item-2', 2, 0);",
-        "0014_flea_market_settings" =>
+        "0015_flea_market_settings" =>
             "INSERT INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc) " +
             "VALUES (1, 0.05, 0.05, '2026-09-19T00:00:00Z');",
         _ => string.Empty,
@@ -482,7 +482,7 @@ public sealed class MigrationRecoveryTests
         "0011_v2_data_platform" => "SELECT COUNT(*) FROM pragma_table_info('http_response_cache') WHERE name = 'body_json';",
         "0012_task_wiki_link" => "SELECT COUNT(*) FROM pragma_table_info('quest_catalog_tasks') WHERE name = 'wiki_url';",
         "0013_task_objective_task_scoped_keys" => "SELECT COUNT(*) FROM pragma_table_info('task_objective_items') WHERE name = 'task_id';",
-        "0014_flea_market_settings" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'flea_market_settings';",
+        "0015_flea_market_settings" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'flea_market_settings';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 
