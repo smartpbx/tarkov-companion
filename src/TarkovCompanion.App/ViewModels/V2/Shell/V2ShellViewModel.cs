@@ -1787,6 +1787,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
         _team?.Apply(snapshot);
+        // [V2 rough package 60 — Team] #289: the pairing code's countdown rides the shell's own
+        // one-second pass rather than starting a second timer that would need its own shutdown.
+        _companionPairing?.TickExpiry();
         _team?.SetActiveSection(Router.Current.Location.Route == V2Routes.Group
             ? TeamWorkspaceSection.Group
             : Router.Current.Location.Route == V2Routes.Tablet

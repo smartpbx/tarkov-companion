@@ -460,12 +460,34 @@
 
                     <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingTablet}">
                       <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                                 Text="On the tablet, open the relay's /tablet page and enter this code:" />
-                      <!-- Read across a desk, which is where the tablet is. -->
-                      <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
-                                 AutomationProperties.AutomationId="v2-team-pairing-code"
-                                 Text="{Binding Pairing.PairingCode}" />
-                      <TextBlock Classes="v2-label" Text="Waiting for the tablet…" />
+                                 Text="Scan this on the tablet, or open the relay's /tablet page and type the code:" />
+                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
+                        <!-- [V2 rough package 60 — Team] #289: the payload has always existed and
+                             was never drawn, so the only way onto a tablet was to type. White
+                             behind it in every theme: a reader wants dark on light, and the
+                             high-contrast palette's canvas is black. -->
+                        <Border Grid.Column="0" Background="White" CornerRadius="6" Padding="0"
+                                IsVisible="{Binding Pairing.HasQrSymbol}"
+                                AutomationProperties.AccessibilityView="Raw">
+                          <Viewbox Width="176" Height="176">
+                            <Path Fill="Black" Data="{Binding Pairing.QrPath}"
+                                  AutomationProperties.AutomationId="v2-team-pairing-qr" />
+                          </Viewbox>
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+                          <!-- Read across a desk, which is where the tablet is. -->
+                          <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
+                                     AutomationProperties.AutomationId="v2-team-pairing-code"
+                                     Text="{Binding Pairing.PairingCode}" />
+                          <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                     AutomationProperties.AutomationId="v2-team-pairing-expiry"
+                                     AutomationProperties.LiveSetting="Polite"
+                                     IsVisible="{Binding Pairing.HasCodeExpiry}"
+                                     Text="{Binding Pairing.CodeExpiry}" />
+                          <TextBlock Classes="v2-label" Text="Waiting for the tablet…"
+                                     IsVisible="{Binding !Pairing.IsCodeExpired}" />
+                        </StackPanel>
+                      </Grid>
                     </StackPanel>
 
                     <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingApproval}">
@@ -533,9 +555,13 @@
                               <TextBlock Classes="v2-label" Text="·" />
                               <TextBlock Classes="v2-label" Text="{Binding Status}" />
                             </StackPanel>
+                            <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                       AutomationProperties.LiveSetting="Assertive"
+                                       IsVisible="{Binding Confirming}" Text="{Binding RevokeWarning}" />
                           </StackPanel>
-                          <Button Grid.Column="2" Classes="v2-team-plain" Content="Revoke" Command="{Binding RevokeCommand}"
-                                  IsVisible="{Binding CanRevoke}" />
+                          <Button Grid.Column="2" Classes="v2-team-plain" Content="{Binding RevokeLabel}"
+                                  Command="{Binding RevokeCommand}" IsVisible="{Binding CanRevoke}"
+                                  AutomationProperties.AutomationId="v2-team-revoke-device" />
                         </Grid>
                       </Border>
                     </DataTemplate>
@@ -649,6 +675,14 @@
                 <StackPanel Spacing="6">
                   <TextBlock Classes="v2-label" IsVisible="{Binding HasNoMarks}" TextWrapping="Wrap"
                              Text="Waypoints your group places on the Raid map appear here." />
+                  <!-- [V2 rough package 60 — Team] #289: undo rather than confirm. A dialog on
+                       every removed ping would be in the way constantly, and putting one back
+                       costs nothing; revoking a device is the opposite case and is confirmed. -->
+                  <Button Classes="v2-team-plain" HorizontalAlignment="Left"
+                          IsVisible="{Binding CanUndoRemove}"
+                          AutomationProperties.AutomationId="v2-team-undo-remove-mark"
+                          AutomationProperties.LiveSetting="Polite"
+                          Content="{Binding UndoRemoveLabel}" Command="{Binding UndoRemoveCommand}" />
                   <ItemsControl ItemsSource="{Binding Waypoints}" IsVisible="{Binding HasWaypoints}">
                     <ItemsControl.ItemsPanel>
                       <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
