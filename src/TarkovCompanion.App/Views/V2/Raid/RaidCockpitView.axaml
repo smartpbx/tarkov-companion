@@ -432,6 +432,19 @@
               <TextBlock Classes="v2-label" Text="{Binding MapSummary}"
                          IsVisible="{Binding MapSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding TrafficLayerNotice}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding TrafficRows}" IsVisible="{Binding HasTrafficRows}"
+                            AutomationProperties.AutomationId="v2-raid-traffic-rows">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <Border Classes="v2-raid-row" Padding="8,3">
+                      <TextBlock Classes="v2-label" Text="{Binding}" />
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Border>
 
