@@ -319,7 +319,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
+        _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
         _rebuildRequest = new(
             synchronizationContext?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
@@ -2270,7 +2270,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 MapSceneTruthKind.LocalLastKnown,
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"You · {position.Timestamp.ToLocalTime():T} · facing {heading:F0}°"),
+                    $"You · {LocalTime.Time(position.Timestamp)} · facing {heading:F0}°"),
                 stale ? "From an older screenshot — you have probably moved since." : null,
                 MapSceneGeometry.At(here),
                 [],
@@ -2398,7 +2398,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.LocalLastKnown,
                 visited[index].StartedUtc is { } started
-                    ? $"Raid on {started.ToLocalTime():d}"
+                    ? $"Raid on {LocalTime.Date(started)}"
                     : "An earlier raid",
                 null,
                 new(MapSceneGeometryKind.Line, points),

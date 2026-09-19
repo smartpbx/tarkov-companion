@@ -1,5 +1,6 @@
 using System.Globalization;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -136,7 +137,7 @@ public sealed record RaidSummaryViewModel(
     }
 
     private static string FormatMoment(DateTimeOffset moment) =>
-        moment.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+        LocalTime.Moment(moment);
 
     /// <summary>
     /// Renders an elapsed time the way a player reads a raid: minutes and seconds.
@@ -179,5 +180,5 @@ public sealed record RaidSummaryViewModel(
         ? "No screenshot taken"
         : string.Create(
             CultureInfo.CurrentCulture,
-            $"{lastKnownPosition.Position.X:F0}, {lastKnownPosition.Position.Y:F0}, {lastKnownPosition.Position.Z:F0} · {lastKnownPosition.Timestamp.ToLocalTime():T}");
+            $"{lastKnownPosition.Position.X:F0}, {lastKnownPosition.Position.Y:F0}, {lastKnownPosition.Position.Z:F0} · {LocalTime.Time(lastKnownPosition.Timestamp)}");
 }

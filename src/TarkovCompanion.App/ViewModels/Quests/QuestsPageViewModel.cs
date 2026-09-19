@@ -8,6 +8,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.Quests;
 
@@ -1312,7 +1313,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             ? $" Read quota remaining: {remaining}/{status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
             : " Read quota is unknown.";
         var backoff = status.NextEligibleRefreshUtc is { } next
-            ? $" Next eligible refresh: {next:O}."
+            ? $" Next eligible refresh: {LocalTime.Moment(next)}."
             : string.Empty;
         TarkovTrackerStatus = string.Join(" ", new[] { operation, availability }
                 .Where(value => !string.IsNullOrWhiteSpace(value))) + quota + backoff;
@@ -1444,7 +1445,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     private static QuestImportHistoryRowViewModel Describe(QuestImportRecord record) => new(
         string.Create(
             CultureInfo.CurrentCulture,
-            $"{record.ProfileName} · {record.ImportedUtc.ToLocalTime():g}"),
+            $"{record.ProfileName} · {LocalTime.Moment(record.ImportedUtc)}"),
         string.Create(
             CultureInfo.CurrentCulture,
             $"Applied {record.AppliedChangeCount} · kept {record.KeptLocalCount} local · {record.Unresolved.Count} unresolved · from {record.SourceAppVersion}"),
