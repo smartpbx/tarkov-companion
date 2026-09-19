@@ -133,6 +133,13 @@
               <TextBlock Classes="v2-label" Text="{Binding RequirementsRollup}" IsVisible="{Binding HasRequirementsRollup}"
                          Foreground="{DynamicResource V2.Brush.Warning}"
                          AutomationProperties.AutomationId="v2-plan-rollup" />
+              <!-- What the game's logs have said about quests this session. Present even when the
+                   answer is "nothing yet": a board that had learned nothing used to look exactly
+                   like a board with nothing to learn. -->
+              <TextBlock Classes="v2-label" Text="{Binding GameLogStatus}" IsVisible="{Binding HasGameLogStatus}"
+                         TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-plan-game-log"
+                         AutomationProperties.LiveSetting="Polite" />
             </StackPanel>
 
             <!-- Which quests to plan around: search, a state chip, and a trader. -->
@@ -327,6 +334,11 @@
                               </Border>
                               <Border Classes="v2-plan-chip" IsVisible="{Binding HasStatusLabel}">
                                 <TextBlock Classes="v2-label" Text="{Binding StatusLabel}" />
+                              </Border>
+                              <!-- [Package 47] This quest's state is the game's own word, not
+                                   something typed on this page. -->
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding StateCameFromTheGame}">
+                                <TextBlock Classes="v2-label" Text="{Binding StateSourceLabel}" />
                               </Border>
                               <Border Classes="v2-plan-chip" IsVisible="{Binding HasHandlingLabel}">
                                 <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
