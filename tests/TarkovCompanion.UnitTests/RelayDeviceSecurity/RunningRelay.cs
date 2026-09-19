@@ -40,6 +40,13 @@ internal sealed partial class RunningRelay : IAsyncDisposable
         return Client.SendAsync(request);
     }
 
+    public Task<HttpResponseMessage> SendWithKeyAsync(HttpMethod method, string path, string operatorKey)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.Headers.Add("X-Admin-Key", operatorKey);
+        return Client.SendAsync(request);
+    }
+
     public string Log()
     {
         lock (_log)

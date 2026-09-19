@@ -9,7 +9,7 @@ This companion is external and read-only toward Escape from Tarkov. It never acc
 | `SanitizedDiagnosticEvent` | In-memory primitive only | Closed typed record with no string properties; not persisted or exported yet. |
 | Crash recovery primitive | In-memory only | At most 12 copied sanitized events and 12 run boundaries; #270 owns any durable recovery storage. |
 | Desktop support bundle | Created on demand by the desktop | Closed, bounded projection containing fixed categories, booleans, capped counts, numeric build/platform facts, and screenshot-name compatibility counts. It does not open the log or render names, paths, coordinates, credentials, OCR/pixels, exception bodies, or other free-form runtime text. |
-| Problem report | Relay reports directory | The ordinary desktop sends that exact closed bundle, but the endpoint accepts any caller-supplied body and retains it verbatim. A validated public issue is limited to reference, size, and received UTC. |
+| Problem report | Relay reports directory | The ordinary desktop sends that exact closed bundle, but the endpoint accepts any caller-supplied body (at most 64 KiB) and retains it verbatim for 30 days at most, bounded by count, bytes and free disk. A validated public issue is limited to reference, size, and received UTC. Bodies are plain text on the relay by decision; see `docs/RELAY_ADMIN.md`. |
 | Public relay `/health` | Public endpoint | Status, protocol, version and commit only. |
 | Relay readiness | `GET /admin/readiness`, operator key required | Check verdicts, pressure signals, free disk in whole megabytes, and aggregate room/member/held counts; no paths, room identifiers, keys, names or positions. |
 

@@ -137,6 +137,8 @@ builder.Services.AddSingleton<ItemSearch>();
 // Reports are taken and kept here; the hourly relay-watch workflow turns them into issues
 // using the token GitHub Actions already gives it for its own repository. So this box holds no
 // GitHub credential at all — which matters, because it is the internet-facing one.
+// v2r-fin-relay (#310): what may be held of them, and for how long (docs/RELAY_ADMIN.md).
+builder.Services.AddSingleton(_ => ProblemReportLimits.FromEnvironment(Environment.GetEnvironmentVariable));
 builder.Services.AddSingleton<ProblemReports>();
 
 // v2r-pairing-tablet: the paired-device pairing handshake mailbox (#277/#290). See
@@ -175,6 +177,7 @@ app.UseRelayHttpSecurity(securityOptions);
 var counters = app.Services.GetRequiredService<RelayOperationalCounters>();
 app.UseRelayOperationalCounters(counters);
 var rooms = app.Services.GetRequiredService<GroupRooms>();
+var problemReports = app.Services.GetRequiredService<ProblemReports>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
 var roomChanges = app.Services.GetRequiredService<GroupRoomChanges>();
@@ -228,6 +231,7 @@ _ = Task.Run(async () =>
         try
         {
             rooms.Sweep();
+            problemReports.Sweep();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -511,7 +515,7 @@ app.MapGroupRoomState(rooms, marks, roomChanges);
 // Keyed like everything else: the rate limit counts per room rather than per person. That is
 // not anonymity. The relay sees the key and the caller's address, and the body it keeps can name
 // the reporter's display name and carry their folder paths and coordinates.
-app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>>> (
+app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>, ContentHttpResult>> (
     HttpRequest request,
     ProblemReports reports,
     CancellationToken cancellationToken) =>
@@ -551,7 +555,20 @@ app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpRes
             $"This group has filed {ProblemReports.MaximumPerRoomPerHour} reports in the last hour. The earlier ones arrived.");
     }
 
-    return TypedResults.Ok(reports.Accept(room, body));
+    var outcome = reports.Accept(room, body);
+    if (outcome.Admission != ReportAdmission.Accepted)
+    {
+        // Said plainly and with a status a client can act on: the desktop shows "The relay refused it
+        // (503)" and this text, beside Copy diagnostics, so the player knows it did not arrive.
+        request.HttpContext.Response.Headers.RetryAfter = "3600";
+        return TypedResults.Text(
+            outcome.Detail,
+            "text/plain; charset=utf-8",
+            System.Text.Encoding.UTF8,
+            StatusCodes.Status503ServiceUnavailable);
+    }
+
+    return TypedResults.Ok(outcome);
 });
 
 // What is waiting to be turned into issues. References and sizes, never bodies: the repository
@@ -584,6 +601,9 @@ app.MapGet("/reports/{reference}", Results<Ok<string>, NotFound, UnauthorizedHtt
 
     return reports.Read(reference) is { } body ? TypedResults.Ok(body) : TypedResults.NotFound();
 });
+
+// The operator's half of the report lifecycle: states, marking processed or failed, deleting.
+app.MapProblemReportAdmin(problemReports);
 
 app.MapGet("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult> (HttpRequest request) =>
 {

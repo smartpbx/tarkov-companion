@@ -232,7 +232,7 @@ set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
 - `rooms.json`: registered room hashes and their labels
 - `relay-devices.json`: the paired-device registry (owner and paired devices' key thumbprints,
   sessions, audit trail); no private keys and no plaintext bearer credential
-- `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them
+- `reports/*.md`: problem reports exactly as sent, each with a `.state` file beside it (received, processed or failed). Deleted after 30 days, refused when the relay holds its limit or the disk is short; see [`docs/RELAY_ADMIN.md`](../../docs/RELAY_ADMIN.md)
 - `UPDATE_NOW`, the panel's request for an update; the updater's stamps are not here but in its
   own directories, [above](#where-the-updater-keeps-what-it-decides-from)
 

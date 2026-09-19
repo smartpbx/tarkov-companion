@@ -24,8 +24,6 @@ public sealed class RelayReadinessProbes(
     RelayOperationalCounters counters,
     bool buildKnown)
 {
-    private const long BytesPerMegabyte = 1024 * 1024;
-
     /// <summary>Older than any real check, for an updater that has never recorded one.</summary>
     private const int NeverChecked = 60 * 24 * 365;
 
@@ -90,19 +88,7 @@ public sealed class RelayReadinessProbes(
         }
     }
 
-    private int FreeDiskMegabytes()
-    {
-        try
-        {
-            var free = new DriveInfo(Path.GetFullPath(stateDirectory ?? AppContext.BaseDirectory)).AvailableFreeSpace;
-            return (int)Math.Min(int.MaxValue, free / BytesPerMegabyte);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            // Unknown is not plenty: report none, which the check treats as short.
-            return 0;
-        }
-    }
+    private int FreeDiskMegabytes() => RelayVolume.FreeMegabytes(stateDirectory ?? AppContext.BaseDirectory);
 
     private static int ElapsedMilliseconds(long started) =>
         (int)Math.Min(int.MaxValue, Stopwatch.GetElapsedTime(started).TotalMilliseconds);

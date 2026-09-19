@@ -51,7 +51,7 @@ itself and keeps its data beside its executable.
 | `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
 | `rooms.json` | The registered room hashes, with their labels and creation times. |
 | `relay-devices.json` | The paired-device registry (v2r-relay-owner): the owner and paired devices' key thumbprints, session/channel ids, and lifecycle audit trail. No private key material and no plaintext bearer credential — only its digest. Checksummed with one independently verified backup; see `VerifiedRelayRegistryStore`. |
-| `reports/*.md` | Problem reports exactly as sent, with no expiry. |
+| `reports/*.md` | Problem reports exactly as sent. Deleted after 30 days (`TARKOV_RELAY_REPORT_TTL_DAYS`); bounded by count, bytes and free disk; each has a `.state` file beside it. Lifecycle, limits and the at-rest decision are in [`RELAY_ADMIN.md`](RELAY_ADMIN.md). |
 | `UPDATE_NOW` | The panel's transient request for the root-owned updater to run. |
 
 Live member state (position, recent trail, kit) stays in memory until about three minutes after
@@ -64,6 +64,7 @@ sensitive in backups and migrations (`RISK-REPORT-REDACTION`).
 Authenticated update history and install/refusal state live under root-owned
 `/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
 `/var/lib/tarkov-group-update-status`. Neither belongs to the relay's writable state directory.
+The relay only reads that copy: the modification time of `PUBLISHED_SHA256` there is the age of the updater's last authenticated check, which `GET /admin/readiness` reports as its `updaterCheck` verdict.
 
 **How it updates itself.** The timer follows a signed ring in a separate private feed. Before it
 touches `/opt/tarkov-group`, the root updater verifies the create-once ring decision, manifest,
