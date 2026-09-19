@@ -16,6 +16,39 @@ public enum V2ShellCommandKind
     ResetPreview,
     NextRegion,
     PreviousRegion,
+    // [V2 rough package 46] "The left sidebar should be collapsible ... more map is better."
+    CycleNavigationRail,
+}
+
+/// <summary>How much of the shell's left navigation rail is showing.</summary>
+/// <remarks>
+/// [V2 rough package 46] Icons is the middle state and the one worth having: every destination is
+/// still one press away and the map gets 112 pixels back. See V2ShellViewModel.NavigationRail.
+/// </remarks>
+public enum V2NavigationRail
+{
+    Labels = 0,
+    Icons,
+    Hidden,
+}
+
+/// <summary>The rail state as it is written into the remembered preview state, and back.</summary>
+public static class V2NavigationRailTokens
+{
+    public static string ToToken(this V2NavigationRail rail) => rail switch
+    {
+        V2NavigationRail.Icons => "icons",
+        V2NavigationRail.Hidden => "hidden",
+        _ => "labels",
+    };
+
+    /// <summary>Anything unrecognised — a null, an older file, something hand-edited — is the default.</summary>
+    public static V2NavigationRail Parse(string? token) => token switch
+    {
+        "icons" => V2NavigationRail.Icons,
+        "hidden" => V2NavigationRail.Hidden,
+        _ => V2NavigationRail.Labels,
+    };
 }
 
 /// <summary>Stable automation ids used by focus restoration and the packaged Windows smoke.</summary>
@@ -24,6 +57,8 @@ public static class V2ShellFocusTargets
     public const string Capture = "v2-shell-capture";
     public const string Health = "v2-shell-health";
     public const string Palette = "v2-shell-palette";
+    public const string NavigationRailToggle = "v2-shell-navigation-rail-toggle";
+    public const string NavigationLauncher = "v2-shell-navigation-launcher";
     public const string HeaderSearch = "v2-shell-header-search";
     public const string WorkspaceSearch = "v2-shell-workspace-search";
     public const string Address = "v2-shell-address";
@@ -121,6 +156,7 @@ public static class V2ShellCommands
             new("copy-address", "V2.Shell.Command.CopyAddress", V2ShellCommandKind.CopyAddress, "Ctrl+L"),
             new("pin", "V2.Shell.Command.Pin", V2ShellCommandKind.TogglePin, "Ctrl+D"),
             new("close", "V2.Shell.Command.Close", V2ShellCommandKind.CloseTransient, "Escape"),
+            new("navigation-rail", "V2.Shell.Command.NavigationRail", V2ShellCommandKind.CycleNavigationRail, "Ctrl+B"),
             new("next-region", "V2.Shell.Command.NextRegion", V2ShellCommandKind.NextRegion, "F6"),
             new("previous-region", "V2.Shell.Command.PreviousRegion", V2ShellCommandKind.PreviousRegion, "Shift+F6"),
             new("capture-shortcut", "V2.Shell.Command.CaptureShortcut", V2ShellCommandKind.ToggleCaptureShortcut, null),
