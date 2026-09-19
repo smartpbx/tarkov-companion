@@ -55,6 +55,73 @@ public sealed class StashScanTargetViewModel : BindableViewModel
     }
 }
 
+/// <summary>The few words a sort plan is shown in.</summary>
+/// <remarks>
+/// The engine's reasons are full sentences written for an evidence disclosure and name
+/// contract fields. A row gets the strongest one that is not about evidence, and an item left
+/// under Review gets what was missing, in the player's terms.
+/// </remarks>
+public static class StashSortWording
+{
+    public static string Label(StashPlanGroup group) => group switch
+    {
+        StashPlanGroup.UseSoon => "Use soon",
+        _ => group.ToString(),
+    };
+
+    public static int Order(StashPlanGroup group) => group switch
+    {
+        StashPlanGroup.Keep => 0,
+        StashPlanGroup.UseSoon => 1,
+        StashPlanGroup.Sell => 2,
+        StashPlanGroup.Organize => 3,
+        _ => 4,
+    };
+
+    public static string Why(StashOrganizationItem? planned, IReadOnlyList<RecommendationReason>? reasons)
+    {
+        if (planned is null)
+        {
+            return string.Empty;
+        }
+
+        if (planned.ReasonCodes.Any(code => code.StartsWith("stash.specialist.", StringComparison.Ordinal)))
+        {
+            return "Ammo and keys aren't sorted yet.";
+        }
+
+        var ordered = (reasons ?? []).OrderByDescending(reason => reason.Priority).ToArray();
+        if (planned.Group != StashPlanGroup.Review)
+        {
+            return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality)?.Explanation
+                   ?? string.Empty;
+        }
+
+        var gaps = ordered
+            .Where(reason => reason.Category == RecommendationReasonCategory.EvidenceQuality)
+            .Select(reason => reason.Code switch
+            {
+                "economics.flea-net-untrusted" => "what the flea returns after its fee",
+                "economics.trader-untrusted" or "economics.price-missing" => "a current price",
+                "economics.footprint-missing" => "how many squares it takes",
+                "scarcity.unknown" or "scarcity.untrusted" => "how readily another turns up",
+                "profile.incomplete" => "your quest progress",
+                "profile.override-untrusted" => "what your rule for this item means",
+                "candidate.fir-untrusted" => "whether it is found in raid",
+                _ => null,
+            })
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return gaps.Length switch
+        {
+            0 => "Not enough is known to sort it.",
+            1 => $"Not known: {gaps[0]}.",
+            _ => $"Not known: {string.Join(", ", gaps[..^1])} and {gaps[^1]}.",
+        };
+    }
+}
+
 /// <summary>One recognized item, shown under its rough Keep/Sell/Use soon/Review group.</summary>
 public sealed record StashItemRowViewModel(
     string ItemKey,
@@ -64,7 +131,18 @@ public sealed record StashItemRowViewModel(
     string EvidenceLabel,
     StashPlanGroup Group)
 {
-    public string GroupLabel => Group.ToString();
+    public string GroupLabel => StashSortWording.Label(Group);
+
+    /// <summary>One line on why the item is in its group, from the engine's own reasons.</summary>
+    public string WhyLabel { get; init; } = string.Empty;
+
+    public bool IsKeep => Group == StashPlanGroup.Keep;
+
+    public bool IsSell => Group == StashPlanGroup.Sell;
+
+    public bool IsUseSoon => Group == StashPlanGroup.UseSoon;
+
+    public bool IsReview => Group is StashPlanGroup.Review or StashPlanGroup.Organize;
 
     public ICommand? SelectCommand { get; init; }
 
@@ -260,6 +338,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly GuidedStashScanService? _guidedScan;
     private readonly GuidedStashScanArming? _arming;
     private readonly IProfileRuntimeContextService? _profileContext;
+    private readonly StashPlanSource? _planSource;
+    private bool _isSorted;
     private readonly StashReconstructionProjector _projector = new();
     private StashReconstruction _reconstruction = StashReconstruction.Empty;
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
@@ -283,8 +363,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         IWikiLinkOpener? wikiOpener = null,
         GuidedStashScanService? guidedScan = null,
         GuidedStashScanArming? arming = null,
-        IProfileRuntimeContextService? profileContext = null)
+        IProfileRuntimeContextService? profileContext = null,
+        StashPlanSource? planSource = null)
     {
+        _planSource = planSource;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _workflow = workflow ?? throw new ArgumentNullException(nameof(workflow));
         _reviewCommands = reviewCommands ?? throw new ArgumentNullException(nameof(reviewCommands));
@@ -514,6 +596,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </summary>
     public string SelectedItemDisplayName => SelectedItem?.DisplayName ?? string.Empty;
 
+    /// <summary>The selected item's group and the whole of its reason, which a row has to trim.</summary>
+    public string SelectedItemSortLabel => SelectedItem is not { } item
+        ? string.Empty
+        : string.IsNullOrEmpty(item.WhyLabel) ? item.GroupLabel : $"{item.GroupLabel}. {item.WhyLabel}";
+
     public string TotalsLabel => _selected is null
         ? string.Empty
         : $"{_selected.Recognition.Result.Value!.TotalKnownValueRoubles.Value?.ToString("N0", CultureInfo.CurrentCulture) ?? "unknown"} roubles known · " +
@@ -523,7 +610,16 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         ? string.Empty
         : string.Join(" · ", _selected.Recognition.Result.Value!.Coverage.Select(CoverageDescription));
 
-    public string RecommendationNotice { get; } = "Sorting into Keep/Sell/Use soon isn't wired yet — shown under Review.";
+    /// <summary>
+    /// What the sort plan is made from, or why there is none.
+    /// </summary>
+    /// <remarks>
+    /// This was one fixed sentence saying the sort "isn't wired yet", true of every stash ever
+    /// scanned. It is only said now when it is still the case: no profile to sort for.
+    /// </remarks>
+    public string RecommendationNotice => _isSorted
+        ? "Sorted by your pins and rules, what quests and the hideout still need, and current prices."
+        : "No profile is active, so nothing is sorted. Everything is under Review.";
 
     public string CorrectionsNotice { get; } = "Corrections apply only to this session for now.";
 
@@ -554,6 +650,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
                 OnPropertyChanged(nameof(HasSelectedItem));
                 OnPropertyChanged(nameof(SelectedItemDisplayName));
+                OnPropertyChanged(nameof(SelectedItemSortLabel));
             }
         }
     }
@@ -919,6 +1016,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
         var wikiUriByItemId = new Dictionary<string, string?>(StringComparer.Ordinal);
 
+        var sorted = await SortAsync(reconstruction, ammoByItemId, keyFactsByItemId, cancellationToken).ConfigureAwait(true);
+        var plannedByKey = sorted?.Plan.Items.ToDictionary(item => item.ItemKey, StringComparer.Ordinal);
+        _isSorted = sorted is not null;
+        OnPropertyChanged(nameof(RecommendationNotice));
+
         var items = new List<StashItemRowViewModel>();
         var regions = new List<StashRegionViewModel>();
         var ammoRounds = new Dictionary<string, (int Rounds, int Stacks)>(StringComparer.Ordinal);
@@ -944,9 +1046,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     container.ContainerPath,
                     quantity == 1 ? "x1" : $"x{quantity.ToString(CultureInfo.CurrentCulture)}",
                     DescribeProvenance(tile.Provenance),
-                    StashPlanGroup.Review)
+                    plannedByKey?.GetValueOrDefault(tile.ItemKey)?.Group ?? StashPlanGroup.Review)
                 {
                     WikiUri = wikiUri,
+                    WhyLabel = StashSortWording.Why(
+                        plannedByKey?.GetValueOrDefault(tile.ItemKey),
+                        sorted?.ReasonsByItemKey.GetValueOrDefault(tile.ItemKey)),
                 };
                 var row = bare with
                 {
@@ -997,13 +1102,20 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 tiles));
         }
 
-        Items = items;
+        // Keep first, then what can go, then what nobody could sort; the scan's own order within
+        // each. A list in grid order buried the four things worth selling among two hundred rows.
+        Items = items
+            .Select((row, index) => (Row: row, Index: index))
+            .OrderBy(entry => StashSortWording.Order(entry.Row.Group))
+            .ThenBy(entry => entry.Index)
+            .Select(entry => entry.Row)
+            .ToArray();
         Regions = regions;
         PlanTiles =
         [
-            new(StashPlanGroup.Keep, "Keep", Count(items, StashPlanGroup.Keep), IsWired: false),
-            new(StashPlanGroup.Sell, "Sell", Count(items, StashPlanGroup.Sell), IsWired: false),
-            new(StashPlanGroup.UseSoon, "Use soon", Count(items, StashPlanGroup.UseSoon), IsWired: false),
+            new(StashPlanGroup.Keep, "Keep", Count(items, StashPlanGroup.Keep), IsWired: _isSorted),
+            new(StashPlanGroup.Sell, "Sell", Count(items, StashPlanGroup.Sell), IsWired: _isSorted),
+            new(StashPlanGroup.UseSoon, "Use soon", Count(items, StashPlanGroup.UseSoon), IsWired: _isSorted),
             new(StashPlanGroup.Review, "Review", Count(items, StashPlanGroup.Review), IsWired: true),
         ];
         AmmoSummary = ammoRounds
@@ -1024,6 +1136,47 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             })
             .OrderBy(row => row.DisplayName, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    /// <summary>
+    /// Puts every named tile to the recommendation engine and the organization planner.
+    /// </summary>
+    /// <remarks>
+    /// Null where there is nothing to sort with or for: no plan source composed, or no active
+    /// profile. A failure to sort is logged nowhere and shown as "everything under Review",
+    /// which is what the workspace showed before it could sort at all; the scan itself is
+    /// still drawn.
+    /// </remarks>
+    private async Task<StashSortPlan?> SortAsync(
+        StashReconstruction reconstruction,
+        IReadOnlyDictionary<string, AmmoStats> ammoByItemId,
+        IReadOnlyDictionary<string, KeyFacts> keyFactsByItemId,
+        CancellationToken cancellationToken)
+    {
+        if (_planSource is null || _profileContext?.Current.ActiveProfile is not { } profile || reconstruction.KnownTiles == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _planSource.BuildAsync(
+                    reconstruction,
+                    _selected?.SnapshotId.ToString("N") ?? "scan-in-progress",
+                    profile,
+                    itemId => ammoByItemId.ContainsKey(itemId)
+                        ? StashSpecialistIntelligenceKind.Ammo
+                        : keyFactsByItemId.ContainsKey(itemId)
+                            ? StashSpecialistIntelligenceKind.Key
+                            : StashSpecialistIntelligenceKind.None,
+                    _clock.GetUtcNow(),
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     private async Task<string?> WikiUriForAsync(

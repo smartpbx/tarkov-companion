@@ -198,7 +198,48 @@ public sealed class LootScanRecommendationSource(
         }
     }
 
-    private async Task<ItemRead?> ReadAsync(
+    /// <summary>
+    /// The same facts for an item seen somewhere other than a loot grid: a stash tile.
+    /// </summary>
+    /// <remarks>
+    /// #283's sort plan asks the engine the same questions about the same item, so it reads
+    /// the same facts from the same places rather than keeping a second copy of the rules for
+    /// what a price or a pin means. Null where the catalog does not know the item.
+    /// </remarks>
+    public async Task<ItemAdviceFacts?> ReadItemFactsAsync(
+        ObservedStashItem item,
+        ProfileRecord? profile,
+        LootScanNeedSnapshot? needSnapshot,
+        FleaMarketRates? rates,
+        DateTimeOffset evaluatedUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var read = await ReadAsync(
+                item.ItemId,
+                item.Width,
+                item.Height,
+                item.Quantity,
+                item.Footprint,
+                conditionApplies: null,
+                rates,
+                evaluatedUtc,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return read is null
+            ? null
+            : new(
+                ProfileFacts(profile, needSnapshot, read.ItemId, evaluatedUtc),
+                read.Economics,
+                new RecommendationScarcityFacts(Obtainability(read, evaluatedUtc)));
+    }
+
+    /// <summary>The flea rates and the player's needs, read once for a whole stash.</summary>
+    public async Task<(FleaMarketRates? Rates, LootScanNeedSnapshot? Needs)> ReadSharedFactsAsync(CancellationToken cancellationToken) =>
+        (await ReadRatesAsync(cancellationToken).ConfigureAwait(false),
+         await ReadNeedsAsync(cancellationToken).ConfigureAwait(false));
+
+    private Task<ItemRead?> ReadAsync(
         GridCellRecognition cell,
         FleaMarketRates? rates,
         DateTimeOffset evaluatedUtc,
@@ -211,9 +252,33 @@ public sealed class LootScanRecommendationSource(
             item.HeightCells.Value is not { } height ||
             item.Quantity.Value is not { } quantity)
         {
-            return null;
+            return Task.FromResult<ItemRead?>(null);
         }
 
+        return ReadAsync(
+            itemId,
+            width,
+            height,
+            quantity,
+            item.WidthCells.Provenance,
+            item.Condition.Value == ItemConditionReading.NotApplicable ? false : null,
+            rates,
+            evaluatedUtc,
+            cancellationToken);
+    }
+
+    /// <param name="conditionApplies">False where the reading says the item has no condition; null where nothing says.</param>
+    private async Task<ItemRead?> ReadAsync(
+        string itemId,
+        int width,
+        int height,
+        int quantity,
+        EvidenceProvenance footprint,
+        bool? conditionApplies,
+        FleaMarketRates? rates,
+        DateTimeOffset evaluatedUtc,
+        CancellationToken cancellationToken)
+    {
         var definition = await _items.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
         var price = await _items.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (definition is null || price is null)
@@ -304,8 +369,8 @@ public sealed class LootScanRecommendationSource(
             trader is { } traderValue
                 ? Known<long?>("economics.trader", checked(traderValue * quantity), confirmed)
                 : Absent<long?>("economics.trader", "trader.not-bought", confirmed),
-            Known<int?>("economics.squares", checked(width * height), item.WidthCells.Provenance),
-            item.Condition.Value == ItemConditionReading.NotApplicable
+            Known<int?>("economics.squares", checked(width * height), footprint),
+            conditionApplies == false
                 ? Known<double?>("economics.condition", 1, catalog)
                 : Unread<double?>("economics.condition", "condition.unread", unknown));
         return new(itemId, definition, facts, economics, catalog, unknown, confirmedUtc);
@@ -473,6 +538,15 @@ public sealed class LootScanRecommendationSource(
     /// <summary>Nothing the companion holds answers this, which is not the same as "no".</summary>
     private static EvidencedValue<T> Unread<T>(string fieldId, string code, EvidenceProvenance provenance) =>
         new(fieldId, default, new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current, code), provenance);
+
+    /// <summary>Everything the engine asks about one item, apart from what is asking.</summary>
+    public sealed record ItemAdviceFacts(
+        RecommendationProfileFacts Profile,
+        RecommendationEconomics Economics,
+        RecommendationScarcityFacts Scarcity);
+
+    /// <summary>An item as a stash scan read it: what, how big, how many, and what saw it.</summary>
+    public sealed record ObservedStashItem(string ItemId, int Width, int Height, int Quantity, EvidenceProvenance Footprint);
 
     private sealed record ItemRead(
         string ItemId,
