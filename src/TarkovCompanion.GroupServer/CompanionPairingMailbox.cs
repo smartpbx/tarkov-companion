@@ -55,10 +55,19 @@ public sealed class CompanionPairingMailbox
     public MailboxResult<bool> RegisterOffer(PairingOffer offer, string? pairingCode, string remoteAddress)
     {
         ArgumentNullException.ThrowIfNull(offer);
+        // [V2 rough package 48] Named causes. Every refusal here used to be "pairing-rejected",
+        // so six identical 400s in a relay journal said nothing about which of five things was
+        // wrong, and the desktop could only ever offer one guess. None of these tells a caller
+        // anything it did not itself send.
         var now = Now();
-        if (offer.OfferedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) || offer.ExpiresUtc <= now)
+        if (offer.OfferedUtc > now.Add(ProtocolBounds.MaxClientClockSkew))
         {
-            return MailboxResult<bool>.Reject("pairing-rejected");
+            return MailboxResult<bool>.Reject("offer-future-dated");
+        }
+
+        if (offer.ExpiresUtc <= now)
+        {
+            return MailboxResult<bool>.Reject("offer-expired");
         }
 
         string normalized;
@@ -68,7 +77,7 @@ public sealed class CompanionPairingMailbox
         }
         catch (ArgumentException)
         {
-            return MailboxResult<bool>.Reject("pairing-rejected");
+            return MailboxResult<bool>.Reject("pairing-code-malformed");
         }
 
         lock (_gate)
@@ -93,7 +102,7 @@ public sealed class CompanionPairingMailbox
 
             if (_entries.ContainsKey(offer.AttemptId))
             {
-                return MailboxResult<bool>.Reject("pairing-rejected");
+                return MailboxResult<bool>.Reject("attempt-duplicate");
             }
 
             if (_entries.Count >= MaximumAttempts)
