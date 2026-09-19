@@ -655,12 +655,14 @@ what already exists.
 ## Controls this repository cannot enforce
 
 `scripts/release/capture_controls.py` reads these from GitHub and records who captured them and
-when. It only reads. The state on **2026-09-15T04:08:06Z**, captured by `smartpbx`:
+when. It only reads. `scripts/require-checks.sh` holds the one list this repository can state
+for itself — the checks a pull request must pass — and applies or reports drift from it.
+The state on **2026-09-19T00:00:00Z**, captured by `smartpbx`:
 
 | Control | Required | Observed |
 | --- | --- | --- |
 | main: force pushes and deletion blocked | neither allowed | met |
-| main: verification checks required | `checks`, `windows-verify` among required checks | met (`checks`, `linux`, `windows-build`, `windows-verify`) |
+| main: verification checks required | `checks`, `windows-verify` among required checks | met (`linux`, `checks`, `windows-verify`), strict. Shortened to `linux`, `checks` on 2026-09-17 so a thirty-minute run would stop blocking merges; restored 2026-09-19 under #279, because in the interval the gallery caught "the package opens no window" three times and none of those could fail a merge |
 | main: supply-chain gate required | `supply-chain` (License lock) among required checks | **gap**: not required. A pull request that fails the dependency review, the workflow policy or the release fixtures can still be merged; publication's own release-time gates in `candidate` still apply |
 | main: reviewed before merge | at least one approving review | **gap**: no review requirement |
 | main: administrators cannot bypass | enforced for administrators | **gap** |
