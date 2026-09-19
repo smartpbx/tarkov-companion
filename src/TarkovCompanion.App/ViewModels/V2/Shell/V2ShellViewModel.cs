@@ -161,6 +161,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
         // record the Appearance section writes. Optional for the same reason as the rest.
         WorkspacePreferenceService? preferences = null)
+        // [#269] Setup's profile list, same reasoning again.
+        SetupProfilesViewModel? profiles = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -193,6 +195,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (preferences is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
+        if (profiles is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachProfiles(profiles);
         }
     }
 

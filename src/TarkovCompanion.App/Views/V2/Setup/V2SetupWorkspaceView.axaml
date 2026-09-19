@@ -51,6 +51,11 @@
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameProfileSelected}">
       <StackPanel Classes="v2-stack">
+        <!-- [#269] Profiles first: the game mode they carry decides what data everything below shows. -->
+        <Panel IsVisible="{Binding HasProfiles}">
+          <setup:V2SetupProfilesView DataContext="{Binding Profiles}" />
+        </Panel>
+        <Separator Margin="0,6" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.WatchedFolders}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.GameFolderStatus}" />
