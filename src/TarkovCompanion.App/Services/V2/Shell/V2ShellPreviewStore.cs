@@ -98,6 +98,9 @@ public sealed record V2ShellPreviewState
 
     public bool CaptureShortcutEnabled { get; init; } = true;
 
+    /// <summary>[V2 rough package 46] How much of the navigation rail was showing: labels, icons or hidden.</summary>
+    public string? NavigationRail { get; init; }
+
     public static V2ShellPreviewState For(V2ShellMode mode) => new() { Variant = mode.ToToken() };
 }
 

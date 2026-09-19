@@ -40,15 +40,18 @@ public sealed class TabletPageTests
     }
 
     [Fact]
-    public void ALootSpawnIsDrawnAsAPotentialAndAWaypointOnItSnapsToIt()
+    public void ALootSpawnIsDrawnAsAPotentialAndALongPressOnItMakesAWaypointThere()
     {
         // Issue 318: the tablet already received every scene object, but drew a loot spawn as a
-        // grey filled dot, the same as anything it did not know, and a waypoint tapped near one
+        // grey filled dot, the same as anything it did not know, and a waypoint placed near one
         // landed wherever the finger did.
         Assert.Contains("LootSpawn: \"#e3b341\"", Tablet.Page, StringComparison.Ordinal);
         Assert.Contains("item.truth === \"PotentialSpawn\"", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("addMark(spawn.points[0], spawn.points[1], spawn.label)", Tablet.Page, StringComparison.Ordinal);
-        Assert.Contains("markKind === \"Waypoint\" ? objectAt(project, px, py)", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains(
+            "addMark(target.hit.points[0], target.hit.points[1], \"Waypoint\", target.hit.label)",
+            Tablet.Page,
+            StringComparison.Ordinal);
+        Assert.Contains("function addMark(x, y, kind, spawnName)", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
@@ -273,7 +274,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             Stations = [];
             Items = [];
             Status = "Hideout data isn't available yet.";
-            System.Diagnostics.Trace.TraceWarning($"Hideout workspace refresh failed: {exception}");
+            WorkspaceFault.Record("hideout", "refresh", exception);
         }
     }
 
@@ -340,7 +341,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         {
             Items = [];
             Detail = "Requirements aren't available yet.";
-            System.Diagnostics.Trace.TraceWarning($"Hideout requirements failed: {exception}");
+            WorkspaceFault.Record("hideout", "read requirements", exception);
         }
     }
 
