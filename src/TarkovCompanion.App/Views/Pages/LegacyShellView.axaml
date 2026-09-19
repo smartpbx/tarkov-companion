@@ -1,0 +1,231 @@
+<!-- The V1 shell: its navigation rail, status bar, page host and footer.
+     [#294] It used to be written inline in MainWindow.axaml, which meant every one of its
+     fourteen pages was constructed and bound on every launch, V2 included, and then hidden
+     with IsVisible="False". Hidden is not absent: the views existed, their bindings were live,
+     and the only evidence of it was startup work nobody could see. It lives here now so that
+     MainWindow can realise it through a template, which happens only when V1 is the shell.
+
+     This is Clayton's fallback when V2 misbehaves, reached with the legacy ui-shell option, so it is
+     moved verbatim rather than rewritten. The V1 page templates travel with it for the same
+     reason: they are the only place that maps a V1 page view model to a V1 view, and under V2
+     the shell supplies its own. -->
+<UserControl
+    x:Class="TarkovCompanion.App.Views.Pages.LegacyShellView"
+    x:DataType="vm:MainWindowViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:TarkovCompanion.App.ViewModels"
+    xmlns:questVm="using:TarkovCompanion.App.ViewModels.Quests"
+    xmlns:pages="using:TarkovCompanion.App.Views.Pages">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:RaidPageViewModel}">
+      <pages:RaidView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScannerPageViewModel}">
+      <pages:ScannerView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ItemsPageViewModel}">
+      <pages:ItemsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:AmmoPageViewModel}">
+      <pages:AmmoView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:KeysPageViewModel}">
+      <pages:KeysView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:FleaPageViewModel}">
+      <pages:FleaView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type questVm:QuestsPageViewModel}">
+      <pages:QuestsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:HideoutPageViewModel}">
+      <pages:HideoutView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:EventsPageViewModel}">
+      <pages:EventsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:LoadoutPageViewModel}">
+      <pages:LoadoutView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:GroupPageViewModel}">
+      <pages:GroupView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:SquadPageViewModel}">
+      <pages:SquadView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:HistoryPageViewModel}">
+      <pages:HistoryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:SettingsPageViewModel}">
+      <pages:SettingsView />
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
+  <!-- One transform on the root, so nothing else in the application has to know about scale.
+       LayoutTransformControl rather than a RenderTransform, because the shell has to be
+       measured at its new size: a render transform would draw a larger window inside the old
+       one's bounds and clip everything past the edge.
+
+       Two honest caveats. A ComboBox dropdown and a tooltip are separate top-level windows and
+       stay at their designed size — that is the platform, not a thing this can reach. And the
+       map's pointer maths is unaffected, because GetPosition already reads through every
+       transform above the surface. -->
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding InterfaceScale}" ScaleY="{Binding InterfaceScale}" />
+    </LayoutTransformControl.LayoutTransform>
+  <Grid RowDefinitions="66,*,Auto" ColumnDefinitions="Auto,*">
+
+    <!-- The status bar has two tiers. Map, raid and position are the raid readout: they are
+         set at reading size because they are what a player glances at mid-raid. Observation,
+         data and scan are the health strip: they are small and grey until something is wrong,
+         at which point their colour is the only colour on the bar. Six chips of one size and
+         four permanent accent colours had made the bar as loud at rest as it could ever get. -->
+    <Border Grid.Row="0" Grid.ColumnSpan="2" Classes="chrome top">
+      <Grid ColumnDefinitions="172,*,Auto" Margin="16,0">
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+          <TextBlock Classes="sectionTitle" Text="Tarkov Companion" />
+          <TextBlock Classes="caption" Text="{Binding ModeLabel}" TextTrimming="CharacterEllipsis"
+                     IsVisible="{Binding ModeLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+
+        <!-- Each chip is capped and trims, with the full evidence on hover, so one chip with a
+             lot to say cannot push the others off the edge of the window. -->
+        <ItemsControl Grid.Column="1" ItemsSource="{Binding PrimaryStatus}" VerticalAlignment="Center" HorizontalAlignment="Left" MaxWidth="690">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <!-- Three equal cells rather than a row, so each chip has a real width to trim
+                   against and a narrow window shortens the chips instead of overlapping the
+                   health strip. -->
+              <UniformGrid Columns="3" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:StatusChip">
+              <Border Classes="chipCell" ToolTip.Tip="{Binding Evidence}">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Classes="label" Text="{Binding Label}" />
+                  <TextBlock Classes="lede" Foreground="{Binding Color}" Text="{Binding Value}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption" Text="{Binding Evidence}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <ItemsControl Grid.Column="2" ItemsSource="{Binding SecondaryStatus}" VerticalAlignment="Center">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="18" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:StatusChip">
+              <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" ToolTip.Tip="{Binding Evidence}">
+                <Ellipse Width="8" Height="8" Fill="{Binding Color}" VerticalAlignment="Center" />
+                <TextBlock Classes="label" Text="{Binding Label}" VerticalAlignment="Center" />
+                <TextBlock Classes="label" FontWeight="Medium" Foreground="{Binding Color}" Text="{Binding Value}" MaxWidth="110" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </Grid>
+    </Border>
+
+    <!-- The rail's width is bound rather than fixed at 188. The companion shares a 3840x1080
+         screen with the game, and at the window's minimum width the map is 584 pixels; 188 of
+         rail is 188 the map does not have. Collapsed it is 48 and the names move to tooltips.
+
+         Not automatic: a rail that collapsed itself at some width would be a rail that changed
+         shape while somebody was aiming at it. -->
+    <Border Grid.Row="1" Grid.Column="0" Classes="chrome rail" Padding="0,10" Width="{Binding RailWidth}">
+      <DockPanel>
+        <Button DockPanel.Dock="Bottom"
+                Classes="railToggle"
+                Click="RailToggleClick"
+                Content="{Binding RailToggleLabel}"
+                HorizontalAlignment="Stretch"
+                ToolTip.Tip="Collapse the list to icons, and back" />
+        <ItemsControl ItemsSource="{Binding Navigation}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <StackPanel>
+                <!-- A hairline rather than a heading: the rail is short of height, not of
+                     labels, and fourteen rows in one ungrouped run is a list somebody reads
+                     from the top every time. It also survives the collapse, where a heading
+                     could not. -->
+                <Border Classes="hairline" Margin="10,7,10,6" IsVisible="{Binding StartsGroup}" />
+                <Button Classes.nav="True"
+                        Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}"
+                        AutomationProperties.Name="{Binding Name}"
+                        ToolTip.Tip="{Binding Name}">
+                  <Grid ColumnDefinitions="26,*,Auto">
+                    <Path Grid.Column="0" Classes="navGlyph" Data="{Binding Glyph}" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Name}"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsRailCollapsed, Converter={x:Static BoolConverters.Not}}" />
+                    <!-- A dot, not a number. The only thing it has to say is "there is something
+                         here", and a count would invite reading it. -->
+                    <Ellipse Grid.Column="2" Classes="navNotice" IsVisible="{Binding HasNotice}" />
+                  </Grid>
+                </Button>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </DockPanel>
+    </Border>
+
+    <!-- The header row is Auto rather than a fixed height so that a page which declines it
+         gives the height back to the page instead of leaving a gap. -->
+    <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*" Margin="18,12,18,12">
+      <Grid Margin="0,0,0,12" ColumnDefinitions="*,Auto" ColumnSpacing="16" IsVisible="{Binding CurrentPage.ShowsPageHeader}">
+        <StackPanel VerticalAlignment="Center" Spacing="2" MinHeight="56">
+          <TextBlock Classes="title" Text="{Binding CurrentPage.Title}" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="inset" Padding="10,6" MaxWidth="460" VerticalAlignment="Center">
+          <TextBlock Classes="label" Text="{Binding CurrentPage.Evidence}" TextTrimming="CharacterEllipsis" />
+        </Border>
+      </Grid>
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+    </Grid>
+
+    <!-- The scan readout. At rest it is one line naming the shortcut, because that is the
+         thing a player at the game needs from this bar; the readout that used to sit here said
+         "no item scanned" in four different ways. Once something has been scanned the item
+         name is set large enough to read from the game's monitor, which is the point of the
+         shortcut. The privacy statement stays in both states because it is a promise rather
+         than a result. -->
+    <Border Grid.Row="2" Grid.ColumnSpan="2" Classes="chrome bottom" Padding="18,8">
+      <Panel>
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="20" IsVisible="{Binding HasScan}">
+          <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="label" Text="Last scan" />
+            <TextBlock Classes="display" Text="{Binding LastScanName}" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+            <TextBlock Classes="caption" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+          </StackPanel>
+          <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="24" VerticalAlignment="Center">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Value" />
+              <TextBlock Classes="lede ochre" Text="{Binding LastScanValue}" TextWrapping="Wrap" MaxWidth="280" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="label" Text="Recommendation" />
+              <TextBlock Classes="lede sage" Text="{Binding LastScanAdvice}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+        </Grid>
+        <!-- At rest this named a shortcut that no longer exists. It says what to press instead,
+             which is the game's own key, and gets out of the way once something is scanned. -->
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding HasNoScan}">
+          <TextBlock Grid.Column="0" Classes="label" Text="Take a screenshot in game to scan" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        </Grid>
+      </Panel>
+    </Border>
+  </Grid>
+  </LayoutTransformControl>
+</UserControl>

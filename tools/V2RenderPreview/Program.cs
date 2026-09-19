@@ -20,6 +20,7 @@ using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
+using TarkovCompanion.App.Views.Pages;
 using AppClass = TarkovCompanion.App.App;
 
 namespace TarkovCompanion.V2RenderPreview;
@@ -145,8 +146,26 @@ internal static class Program
                 throw new ArgumentException($"No destination is named '{startPage}'.");
             }
 
+            // [#294] How large everything is drawn, so a render can show the scale actually
+            // applying under V2. It used to apply only under V1: the transform lived inside the
+            // legacy host, and Setup's Smaller/Larger/Reset moved a number nothing read.
+            if (IntOption(args, "--interface-scale", 0) is var scalePercent and > 0)
+            {
+                for (var guard = 0; guard < 12 && Math.Round(viewModel.InterfaceScale * 100) < scalePercent; guard++)
+                {
+                    viewModel.StepInterfaceScale(1);
+                }
+
+                Console.WriteLine($"Interface scale: {viewModel.InterfaceScaleLabel}");
+            }
+
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             window.Show();
+            // [#294] Whether the V1 shell was built at all. It used to be built on every launch
+            // and hidden, so "V2 is the default" was true of what was drawn and false of what was
+            // constructed. Printed rather than asserted: this tool reports, the ratchet test in
+            // MainWindowShellCompositionTests is what fails.
+            Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
             DrainUntilComplete(viewModel.InitializeAsync());
             if (seeding is not null)
             {

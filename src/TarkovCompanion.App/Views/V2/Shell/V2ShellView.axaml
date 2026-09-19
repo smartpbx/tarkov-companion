@@ -704,19 +704,17 @@
                    here. One banner above the workspace is the whole presentation now. -->
             </StackPanel>
           </ScrollViewer>
-          <!-- V2 rough package 30 (acceptance sweep): the same page inset V1 gives these pages
-               (MainWindow.axaml's Margin="18,12,18,12"). Without it every hosted V1 page drew
-               flush to the window edge and its right-hand primary button — Ammo/Keys "Reload",
-               Flea "Look up value", Loadout "Empty the kit", Events "Create" — was cut off by
-               the window frame at both 1920 and 3840 wide. -->
-          <ContentControl Grid.Row="1" Margin="18,6,18,12"
-                          IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
+          <!-- [#294] The host that drew a V1 page inside the V2 shell is gone with the last route
+               that named one. The page inset it carried lives on inside each workspace's own
+               markup (package 30's Margin="18,6,18,12"), which is what the host contract test
+               checks; without it these pages drew flush to the window edge and the right-hand
+               primary button was cut off by the frame at 1920 and 3840 alike. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
           <!-- V2 rough package 17: the Intel workspace (search, results, item, prices) binds this
                shell directly; its search, selection and item facts are shell state. -->
           <intelViews:IntelWorkspaceView Grid.Row="1" IsVisible="{Binding ShowsIntelWorkspace}" />
-          <!-- V2 Raid cockpit (package 2): a full-page workspace on the same row as the legacy
-               page above, mutually exclusive with it by route content. -->
+          <!-- V2 Raid cockpit (package 2): a full-page workspace on the same row as the
+               workspace host above, mutually exclusive with it by route content. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
           <!-- V2 rough package 17 (scan): a quiet empty state with the one action that fills it. -->

@@ -40,15 +40,60 @@ public sealed class V2ShellRegistryTests
         Assert.ThrowsAny<ArgumentException>(() => new V2CapabilityId(value));
     }
 
-    [Fact]
-    public void Every_V1_destination_stays_reachable_through_exactly_one_route()
+    /// <summary>
+    /// [#294] Every V1 page name still opens something, and none of them opens a V1 page.
+    /// </summary>
+    /// <remarks>
+    /// The names are read from V1's own navigation list rather than copied, so adding a
+    /// fifteenth V1 page fails here rather than shipping a page with no V2 home. It was this
+    /// reading that found "Settings": it was the one name with no alias, so `--page Settings`
+    /// was fatal under the default shell while the other thirteen resolved.
+    /// </remarks>
+    [Theory]
+    [InlineData(V2ShellMode.VariantA)]
+    [InlineData(V2ShellMode.VariantB)]
+    public void Every_V1_page_name_still_opens_something(V2ShellMode mode)
     {
-        var hosted = V2RouteRegistry.Default.Routes
-            .Where(route => route.LegacyPage is not null)
-            .Select(route => route.LegacyPage!)
-            .ToArray();
+        var variant = V2ShellVariants.For(mode);
 
-        Assert.Equal(V2ShellTestData.V1Destinations.Order(StringComparer.Ordinal), hosted.Order(StringComparer.Ordinal));
+        foreach (var page in V2ShellTestData.V1PageNames())
+        {
+            Assert.False(
+                string.IsNullOrEmpty(V2LegacyPageAddressAliases.TryResolve(V2RouteRegistry.Default, variant, page)),
+                $"V1's '{page}' page has no address in {mode}, so --page {page} is fatal there.");
+        }
+    }
+
+    /// <summary>
+    /// [#294] The parity ledger accounts for every V1 page by name.
+    /// </summary>
+    /// <remarks>
+    /// The ledger is the document somebody reads before deciding a V1 path is safe to delete, and
+    /// the one Clayton reads to find where a page he used yesterday has gone. A page that is not
+    /// in it is a page nobody has decided about. This checks presence, not truthfulness: no test
+    /// can tell whether the row is right, and pretending otherwise would be worse than the gap.
+    /// </remarks>
+    [Fact]
+    public void The_parity_ledger_accounts_for_every_V1_page()
+    {
+        var ledger = File.ReadAllText(V2ShellTestData.RepositoryPath("docs", "V1_PARITY_LEDGER.md"));
+
+        foreach (var page in V2ShellTestData.V1PageNames())
+        {
+            Assert.True(
+                ledger.Contains($"| {page} |", StringComparison.Ordinal),
+                $"docs/V1_PARITY_LEDGER.md has no row for V1's '{page}' page.");
+        }
+    }
+
+    /// <summary>[#294] No route hosts a V1 page; the registry has no way left to say that it does.</summary>
+    [Fact]
+    public void No_route_can_host_a_V1_page()
+    {
+        Assert.DoesNotContain(
+            "LegacyPage",
+            typeof(V2RouteDefinition).GetProperties().Select(property => property.Name));
+        Assert.DoesNotContain("LegacyPage", Enum.GetNames<V2RouteContent>());
     }
 
     [Fact]
@@ -57,7 +102,6 @@ public sealed class V2ShellRegistryTests
         var raid = V2RouteRegistry.Default[V2Routes.Raid];
 
         Assert.Equal(V2RouteContent.RaidCockpit, raid.Content);
-        Assert.Null(raid.LegacyPage);
     }
 
     [Fact]
@@ -66,9 +110,7 @@ public sealed class V2ShellRegistryTests
         var registry = V2RouteRegistry.Default;
 
         Assert.Equal(V2RouteContent.Workspace, registry[V2Routes.Plan].Content);
-        Assert.Null(registry[V2Routes.Plan].LegacyPage);
         Assert.Equal(V2RouteContent.Workspace, registry[V2Routes.Hideout].Content);
-        Assert.Null(registry[V2Routes.Hideout].LegacyPage);
     }
 
     [Fact]
@@ -79,7 +121,6 @@ public sealed class V2ShellRegistryTests
         foreach (var route in new[] { V2Routes.Loadout, V2Routes.Events })
         {
             Assert.Equal(V2RouteContent.Workspace, registry[route].Content);
-            Assert.Null(registry[route].LegacyPage);
             Assert.Equal(V2Routes.Plan, registry[route].Parent);
         }
     }
@@ -92,7 +133,6 @@ public sealed class V2ShellRegistryTests
         foreach (var route in new[] { V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea })
         {
             Assert.Equal(V2RouteContent.Workspace, registry[route].Content);
-            Assert.Null(registry[route].LegacyPage);
             Assert.Equal(V2Routes.Items, registry[route].Parent);
         }
     }

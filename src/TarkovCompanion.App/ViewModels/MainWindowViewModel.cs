@@ -2928,12 +2928,30 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
                 OnPropertyChanged(nameof(IsLegacyShell));
                 OnPropertyChanged(nameof(IsPreviewShell));
+                OnPropertyChanged(nameof(LegacyShell));
                 OnPropertyChanged(nameof(WindowTitle));
             }
         }
     }
 
     public bool IsLegacyShell => PreviewShell is null;
+
+    /// <summary>
+    /// This view model when V1 is the shell, and null when it is not.
+    /// </summary>
+    /// <remarks>
+    /// [#294] The window binds the V1 shell's content to this rather than writing it inline, so
+    /// that a V2 launch never builds it. It used to be built every time and hidden with
+    /// IsVisible="False": all fourteen V1 pages constructed, all their bindings attached, none of
+    /// it ever drawn. A ContentControl with null content realises no template, so under V2 that
+    /// work does not happen at all.
+    ///
+    /// Not notified on its own: the shell is chosen once at process start and never swapped
+    /// (see <c>V2ShellMode</c>), and PreviewShell's setter already
+    /// raises <see cref="IsLegacyShell"/> for the one assignment that happens before the window
+    /// is shown.
+    /// </remarks>
+    public object? LegacyShell => PreviewShell is null ? this : null;
 
     public bool IsPreviewShell => PreviewShell is not null;
 

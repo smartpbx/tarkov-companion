@@ -115,9 +115,6 @@ public sealed partial class MainWindow : Window
         viewModel.RecordBounds(Width, Height, Position.X, Position.Y, WindowState == WindowState.Maximized);
     }
 
-    private void RailToggleClick(object? sender, RoutedEventArgs eventArgs) =>
-        (DataContext as MainWindowViewModel)?.ToggleRail();
-
     private void WindowKeyDown(object? sender, KeyEventArgs eventArgs)
     {
         if (DataContext is not MainWindowViewModel viewModel)
@@ -135,8 +132,31 @@ public sealed partial class MainWindow : Window
                 eventArgs.Handled = preview.HandleKey(chord, focusedId);
             }
 
-            // A V2 key not claimed by chrome still reaches the focused V2 control, but it never
-            // drops into the hidden V1 shortcut table below.
+            // [#294] How large everything is drawn is the one V1 shortcut that is not a V1
+            // shortcut: the scale is a property of the window, both shells now sit under the
+            // same transform, and Setup offers the same three buttons. Only when V2's own
+            // chrome did not claim the chord.
+            if (!eventArgs.Handled && eventArgs.KeyModifiers == KeyModifiers.Control)
+            {
+                switch (eventArgs.Key)
+                {
+                    case Key.OemPlus or Key.Add:
+                        viewModel.StepInterfaceScale(1);
+                        eventArgs.Handled = true;
+                        break;
+                    case Key.OemMinus or Key.Subtract:
+                        viewModel.StepInterfaceScale(-1);
+                        eventArgs.Handled = true;
+                        break;
+                    case Key.D0 or Key.NumPad0:
+                        viewModel.ResetInterfaceScale();
+                        eventArgs.Handled = true;
+                        break;
+                }
+            }
+
+            // Anything else a V2 key not claimed by chrome still reaches the focused V2 control,
+            // but it never drops into the V1 shortcut table below.
             return;
         }
 
