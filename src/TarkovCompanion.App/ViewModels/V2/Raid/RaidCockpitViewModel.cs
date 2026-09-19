@@ -389,10 +389,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         get => _contextPanelWidth;
         private set
         {
-            var clamped = Math.Clamp(
-                double.IsFinite(value) ? value : DefaultContextPanelWidth,
-                MinimumContextPanelWidth,
-                MaximumContextPanelWidth);
+            var clamped = ClampContextPanelWidth(value);
             if (Math.Abs(clamped - _contextPanelWidth) < 0.5)
             {
                 return;
@@ -402,6 +399,19 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             OnPropertyChanged(nameof(ContextPanelWidth));
         }
     }
+
+    /// <summary>
+    /// A width that can still be read at one end and cannot eat the map at the other.
+    /// </summary>
+    /// <remarks>
+    /// The remembered file is the player's own and nothing hostile writes it, but a width of zero
+    /// or of a million is a map nobody can see either way, and a hand-edited or truncated file is
+    /// the ordinary case. Internal so the clamp itself is tested rather than a copy of it.
+    /// </remarks>
+    internal static double ClampContextPanelWidth(double width) => Math.Clamp(
+        double.IsFinite(width) ? width : DefaultContextPanelWidth,
+        MinimumContextPanelWidth,
+        MaximumContextPanelWidth);
 
     public ICommand ToggleContextPanelCommand { get; }
 
@@ -431,7 +441,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (_layout?.Get(WorkspaceLayoutKeys.RaidPanelWidth) is { } width &&
             double.TryParse(width, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
         {
-            _contextPanelWidth = Math.Clamp(parsed, MinimumContextPanelWidth, MaximumContextPanelWidth);
+            _contextPanelWidth = ClampContextPanelWidth(parsed);
         }
 
         _contextPanelHidden = string.Equals(

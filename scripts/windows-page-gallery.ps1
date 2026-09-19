@@ -501,6 +501,31 @@ function Invoke-ShellInteraction {
                         "against window [$($WindowRect.Left),$($WindowRect.Top),$($WindowRect.Right),$($WindowRect.Bottom)].")
                 }
             }
+
+            # [V2 rough package 46] "More map is better." The map card took 46.6% of a 1920x1080
+            # window; the rail collapsing, the Raid plan column shrinking and the layer switches
+            # folding into a menu gave it 56.1%, and putting the chrome away gives it 77.4%. A
+            # fraction of the window rather than a pixel count, because the packaged shell runs
+            # at whatever scaling the runner has and a pixel floor would only measure that.
+            $MinimumWidthFraction = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "minimumWindowWidthFraction" -Default 0)
+            $MinimumHeightFraction = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "minimumWindowHeightFraction" -Default 0)
+            if ($MinimumWidthFraction -gt 0 -or $MinimumHeightFraction -gt 0) {
+                Initialize-GalleryBounds
+                $CardWindow = New-Object TarkovCompanionGalleryBounds+RECT
+                if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $CardWindow)) {
+                    throw "'$Description' could not read the packaged window bounds."
+                }
+
+                $WindowWidth = [Math]::Max(1, $CardWindow.Right - $CardWindow.Left)
+                $WindowHeight = [Math]::Max(1, $CardWindow.Bottom - $CardWindow.Top)
+                $WidthFraction = $Bounds.Width / $WindowWidth
+                $HeightFraction = $Bounds.Height / $WindowHeight
+                if ($WidthFraction -lt $MinimumWidthFraction -or $HeightFraction -lt $MinimumHeightFraction) {
+                    throw ("'$Description' measured '$BoundsLabel' at " +
+                        "$([Math]::Round($WidthFraction, 3))x$([Math]::Round($HeightFraction, 3)) of the window, " +
+                        "below ${MinimumWidthFraction}x${MinimumHeightFraction}.")
+                }
+            }
         }
         foreach ($ExpectedName in @(Get-InteractionProperty -Object $Step -Name "expectedNames" -Default @())) {
             if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -Name $ExpectedName)) {
@@ -1166,14 +1191,24 @@ $Shots.Add([pscustomobject]@{
 #                     has an empty body, and bounding that would fail for being truthful. The
 #                     rest are measured and reported, so the next person choosing a bound has
 #                     numbers rather than an impression.
+#   * map card      - [package 46] a floor under how much of the window the Raid plan gets, so
+#                     the chrome that was just taken off it cannot grow back. Expressed as a
+#                     fraction of the window, since the runner's scaling decides the pixels.
 $V2AcceptanceWidths = @(
     [pscustomobject]@{ suffix = "1920"; width = 1920; height = 1080 },
     [pscustomobject]@{ suffix = "3840"; width = 3840; height = 1080 }
 )
 
 $V2AcceptanceRoutes = @(
+    # [V2 rough package 46] The map card is the page. It was 0.641 x 0.727 of a 1920x1080 window
+    # and is now 0.700 x 0.801; the floors below fail the old layout and leave the new one room.
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
-        expected = @("v2-shell-navigation-rail", "v2-map-plan") },
+        expected = @("v2-shell-navigation-rail", "v2-map-plan", "v2-raid-layers", "v2-raid-panel-toggle",
+                     "v2-shell-navigation-rail-toggle")
+        bounds = @([pscustomobject]@{
+            automationId = "v2-map-plan"
+            minimumWindowWidthFraction = 0.66
+            minimumWindowHeightFraction = 0.75 }) },
     [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
         expected = @("v2-shell-navigation-rail") },
     # The two bounded ones. Both were measured on this branch at under 2% of the body, against
