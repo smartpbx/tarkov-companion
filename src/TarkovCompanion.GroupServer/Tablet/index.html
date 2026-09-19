@@ -85,6 +85,9 @@
   .driving { border-color: rgba(34, 211, 238, .45); }
   .floors { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .floors button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  .notice { border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; margin: 0 0 10px; font-size: 14px; cursor: pointer; }
+  .notice.warn { border-color: rgba(199, 166, 107, .6); }
+  .notice.error { border-color: rgba(199, 123, 107, .7); }
   /* An author display rule outranks the hidden attribute, and the pairing steps and the map
      surface are shown and hidden with it, so this keeps hidden meaning hidden. */
   [hidden] { display: none !important; }
@@ -132,6 +135,7 @@
       <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
     </div>
     <p class="quiet" id="modeNote">Following the desktop's map.</p>
+    <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
     <div class="floors" id="floors"></div>
     <div class="floors" id="layers"></div>
     <div id="mapWrap">
@@ -166,6 +170,7 @@
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
+<script src="/tablet/command-acknowledgement.js"></script>
 <script>
 // v2r-pairing-tablet: paired-companion pairing (docs/PAIRED_DEVICE_PROTOCOL.md "Pairing").
 //
@@ -631,6 +636,14 @@
   let markKind = "Ping";
   let markArmed = false;
   let mode = "Follow";
+  // The mode the desktop last said this device is in. `mode` moves the instant a button is pressed, so a
+  // refused or unanswered request has something true to go back to.
+  let confirmedMode = "Follow";
+  // Commands sent and not yet answered (command-acknowledgement.js). Fifteen seconds is long enough for a
+  // desktop that is busy and short enough that "the desktop is away" is said while it still matters.
+  const ACK_WAIT_MS = 15_000;
+  const pending = new CommandAcknowledgement.PendingCommands(ACK_WAIT_MS);
+  const MODE_COMMANDS = new Set(["requestControl", "setInteractionMode"]);
   const FRAME_LIFETIME_MS = 60_000;
   const CONTROL_LEASE = "00:02:00";
   // The desktop republishes its map about once a second while a raid is running. Twice that,
@@ -644,7 +657,9 @@
     $("liveDot").classList.toggle("on", !!(live?.connected && live?.surface));
     $("liveStatus").textContent = !live
       ? "Not paired."
-      : !live.credential
+      : live.revoked
+        ? "The desktop removed this tablet. Pair it again to keep using it."
+        : !live.credential
         ? "Waiting for the desktop to finish registering this tablet…"
         : !live.connected
           ? "The desktop is offline."
@@ -1096,10 +1111,24 @@
           if (batch.frames.length > 0) {
             await relayCall(`/v2/companion/relay/frames/${live.afterDeliveryId}/ack`, { method: "POST" });
           }
+        } else if (response.status === 401 || response.status === 403) {
+          deviceRemoved();
+          return;
         }
       } catch {
         // The surface poll is what decides whether the desktop is reachable; a dropped frame
         // read is just a missed update.
+      }
+
+      // Anything sent that the desktop has not answered by now: say so, once.
+      for (const late of pending.expire(Date.now())) {
+        if (MODE_COMMANDS.has(late.type)) {
+          mode = confirmedMode;
+          renderMode();
+          renderSurface();
+        }
+
+        showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1121,7 +1150,78 @@
     }
   }
 
+  function showNotice(text, tone, sticky = false) {
+    const box = $("commandNotice");
+    box.textContent = text;
+    box.className = `notice ${tone}`;
+    box.hidden = false;
+    clearTimeout(noticeTimer);
+    if (!sticky) noticeTimer = setTimeout(() => { box.hidden = true; }, 10_000);
+  }
+
+  let noticeTimer = null;
+  $("commandNotice").addEventListener("click", () => { $("commandNotice").hidden = true; });
+
+  // Before this the page sent a command and never looked at the reply, so a mark the desktop refused
+  // simply did not appear and nothing said why, and a command sent to an absent desktop looked the same
+  // as one that worked. An answer for a command this page is not waiting on (another tab's, or one it
+  // already gave up on) is ignored.
+  function handleAcknowledgement(acknowledgement) {
+    const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement);
+    const entry = pending.settle(result.commandId);
+    if (!entry) return;
+    // A refusal that says the tablet was behind carries the state to show instead.
+    if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
+    if (result.applied) return;
+    if (MODE_COMMANDS.has(entry.type)) {
+      mode = confirmedMode;
+      renderMode();
+      renderSurface();
+    }
+
+    showNotice(`${entry.label}: ${result.message}`, result.tone);
+  }
+
+  // A 401 or 403 on the frame read is the relay saying this tablet's credential no longer works: the
+  // desktop revoked it or it expired. Polling on would only repeat that silently.
+  function deviceRemoved() {
+    live.revoked = true;
+    live.credential = null;
+    live.connected = false;
+    pending.clear();
+    renderLiveStatus();
+    // The pairing form is hidden once a tablet is paired; without this "pair it again" would need a reload.
+    setStage("pairingIdle");
+    showNotice("The desktop removed this tablet. Pair it again to keep using it.", "error", true);
+  }
+
+  function failedToSend(command, status) {
+    if (MODE_COMMANDS.has(command.type)) {
+      mode = confirmedMode;
+      renderMode();
+      renderSurface();
+    }
+
+    if (status === 401 || status === 403) {
+      deviceRemoved();
+    } else if (status === 429) {
+      showNotice("That was too fast. Wait a moment and try again.", "warn");
+    } else {
+      showNotice(`${CommandAcknowledgement.labelFor(command)}: could not reach the relay. Try again.`, "error");
+    }
+  }
+
   function applyServerMessage(message) {
+    if (message?.type === "commandAcknowledgement") {
+      handleAcknowledgement(message.acknowledgement);
+      return;
+    }
+
+    if (message?.type === "deprecation") {
+      showNotice("This page is out of date with the desktop. Reload the page.", "warn", true);
+      return;
+    }
+
     // Both cases are "replace what we show": a canonical update carries its aggregate's whole
     // current state, the same shape a snapshot carries, never an incremental fold.
     if (message?.type === "canonicalSnapshot") {
@@ -1161,6 +1261,7 @@
   function applyDeviceModes(modes) {
     const entry = modes.devices.find((item) => item.deviceId.value === live.deviceId);
     const next = entry?.mode ?? "Follow";
+    confirmedMode = next;
     if (next !== mode) {
       mode = next;
       if (mode !== "Follow" && !camera) camera = fitCamera();
@@ -1226,7 +1327,7 @@
   }
 
   async function sendCommand(command) {
-    if (!live?.authorityEpoch) return;
+    if (!live?.authorityEpoch || live.revoked) return;
     const envelope = {
       protocolVersion: live.protocolVersion,
       sessionId: { value: live.sessionId },
@@ -1250,11 +1351,22 @@
       expiresUtc: now + FRAME_LIFETIME_MS,
       json,
     });
-    await relayCall("/v2/companion/relay/frames", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(frame),
-    });
+    const commandId = command.commandId?.value;
+    pending.track(commandId, CommandAcknowledgement.labelFor(command), Date.now(), command.type);
+    try {
+      const response = await relayCall("/v2/companion/relay/frames", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(frame),
+      });
+      if (!response.ok) {
+        pending.settle(commandId);
+        failedToSend(command, response.status);
+      }
+    } catch {
+      pending.settle(commandId);
+      failedToSend(command, 0);
+    }
   }
 
   const commandHeader = (revision) => {
