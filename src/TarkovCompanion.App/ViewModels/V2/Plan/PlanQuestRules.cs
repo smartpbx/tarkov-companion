@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Planning;
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
@@ -151,65 +153,39 @@ public static class PlanQuestRules
     };
 
     /// <summary>
-    /// What a set of objectives asks the player to have on them, with how much of it they hold.
+    /// What a set of objectives asks the player to have on them, with how much of it they hold,
+    /// named and ordered for the row. The requirement arithmetic is
+    /// <see cref="QuestRequirementPlanner"/>; this adds the words.
     /// </summary>
     /// <remarks>
-    /// Keys, weapons, worn gear and markers are carried in, one of each; everything else is
-    /// handed over, as many as the objective still needs. Alternatives ("this or that") are one
-    /// requirement satisfied by any of them, named by the first with the rest counted. The same
-    /// item asked for by two objectives is one row, because the player holds one pile of it.
-    /// "Not wearing" and container-content conditions name nothing to have, so they are left out.
+    /// Alternatives ("this or that") are named by the first with the rest counted.
     /// </remarks>
     public static IReadOnlyList<PlanRequirementRowViewModel> BuildRequirements(
         IEnumerable<QuestObjectiveReadModel> objectives,
         Func<string, string> nameOf,
         IReadOnlyDictionary<string, int> owned)
     {
-        ArgumentNullException.ThrowIfNull(objectives);
         ArgumentNullException.ThrowIfNull(nameOf);
-        ArgumentNullException.ThrowIfNull(owned);
-
-        var rows = new Dictionary<(string ItemId, string Handling), (string Name, int Need, int Have)>();
-        foreach (var objective in objectives.Where(objective => objective.RecordedState != RecordedObjectiveState.Completed))
-        {
-            var targets = objective.ItemTargets.Where(target => !IsCondition(target.SourceField));
-            foreach (var alternatives in targets.GroupBy(target => (target.SourceField, target.AlternativeGroup)))
-            {
-                var ids = alternatives
-                    .OrderBy(target => target.SourceOrdinal)
-                    .ThenBy(target => target.ItemId, StringComparer.Ordinal)
-                    .Select(target => target.ItemId)
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                var carried = QuestItemRequirementFormatter.IsCarriedIn(alternatives.Key.SourceField);
-                var handling = carried
-                    ? "Bring"
-                    : objective.FoundInRaidRequired == true ? "Find in raid" : "Hand in";
-                var need = carried
-                    ? 1
-                    : (int)Math.Ceiling(Math.Max(
-                        1m,
-                        (alternatives.Max(target => target.TargetCount) ?? objective.TargetCount ?? 1m) - (objective.RecordedCount ?? 0m)));
-                var have = ids.Sum(id => owned.GetValueOrDefault(id));
-                var name = ids.Length == 1
-                    ? nameOf(ids[0])
-                    : string.Create(CultureInfo.CurrentCulture, $"{nameOf(ids[0])} or {ids.Length - 1:N0} more");
-                var key = (ids[0], handling);
-                rows[key] = rows.TryGetValue(key, out var existing)
-                    ? (existing.Name, carried ? existing.Need : existing.Need + need, existing.Have)
-                    : (name, need, have);
-            }
-        }
 
         return
         [
-            .. rows
-                .Select(row => new PlanRequirementRowViewModel(row.Value.Name, row.Key.Handling, row.Value.Need, row.Value.Have))
+            .. QuestRequirementPlanner.Build(objectives, owned)
+                .Select(requirement => new PlanRequirementRowViewModel(
+                    requirement.AlternativeCount == 0
+                        ? nameOf(requirement.PrimaryItemId)
+                        : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),
+                    HandlingLabel(requirement.Handling),
+                    requirement.Need,
+                    requirement.Have))
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
         ];
     }
 
-    private static bool IsCondition(string sourceField) =>
-        sourceField is "notWearing" or "attributes" or "containsAll" or "containsOne";
+    private static string HandlingLabel(RequirementHandling handling) => handling switch
+    {
+        RequirementHandling.Bring => "Bring",
+        RequirementHandling.FindInRaid => "Find in raid",
+        _ => "Hand in",
+    };
 }

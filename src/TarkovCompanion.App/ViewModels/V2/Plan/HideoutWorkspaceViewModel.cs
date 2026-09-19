@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Planning;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -246,20 +248,18 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             _ownedItemCounts = profile.OwnedItemCounts;
             _traderLevels = profile.TraderLevels;
             _allRequirements = await _requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(true);
-            var byStation = _allRequirements
-                .GroupBy(requirement => requirement.StationId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+            var plans = HideoutPlanner.Plan(stations, profile.HideoutStationLevels, _allRequirements, _ownedItemCounts);
 
             var selectedStationId = _selected?.StationId;
-            Stations = stations
-                .Select(station => Describe(station, profile.HideoutStationLevels, byStation))
+            Stations = plans
+                .Select(Describe)
                 .OrderByDescending(station => station.HasNextLevel && !station.CanBuildNow)
                 .ThenByDescending(station => station.HasNextLevel)
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
             Status = $"{StationCountLabel} · {buildable} ready to build now";
-            Rollup = await BuildRollupAsync(cancellationToken).ConfigureAwait(true);
+            Rollup = await BuildRollupAsync(plans, cancellationToken).ConfigureAwait(true);
 
             // The detail pane is the page's primary content, so something is always selected
             // once stations exist: the previous choice if it survived, else the first station.
@@ -397,35 +397,17 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         }
     }
 
-    /// <summary>
-    /// What is still short across every station's next level. Required amounts are summed per item
-    /// before the player's holding is taken off, because one pile of bolts serves whichever station
-    /// is built first, not each of them in turn.
-    /// </summary>
-    private async Task<IReadOnlyList<HideoutRollupRowViewModel>> BuildRollupAsync(CancellationToken cancellationToken)
+    /// <summary>What is still short across every station's next level, named; the sums are <see cref="HideoutPlanner.Shortfall"/>.</summary>
+    private async Task<IReadOnlyList<HideoutRollupRowViewModel>> BuildRollupAsync(
+        IReadOnlyList<HideoutStationPlan> plans,
+        CancellationToken cancellationToken)
     {
-        var totals = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var station in Stations.Where(row => row.HasNextLevel))
+        var shortfalls = HideoutPlanner.Shortfall(plans, _ownedItemCounts);
+        var rows = new List<HideoutRollupRowViewModel>(shortfalls.Count);
+        foreach (var shortfall in shortfalls)
         {
-            foreach (var requirement in _allRequirements.Where(requirement =>
-                string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
-                requirement.TargetLevel == station.NextLevel))
-            {
-                totals[requirement.ItemId] = totals.GetValueOrDefault(requirement.ItemId) + requirement.Required;
-            }
-        }
-
-        var rows = new List<HideoutRollupRowViewModel>(totals.Count);
-        foreach (var (itemId, need) in totals)
-        {
-            var have = _ownedItemCounts.GetValueOrDefault(itemId);
-            if (have >= need)
-            {
-                continue;
-            }
-
-            var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
-            rows.Add(new(item?.Name ?? itemId, need, have));
+            var item = await _itemRepository.GetAsync(shortfall.ItemId, cancellationToken).ConfigureAwait(true);
+            rows.Add(new(item?.Name ?? shortfall.ItemId, shortfall.Need, shortfall.Have));
         }
 
         return
@@ -436,39 +418,23 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         ];
     }
 
-    private HideoutStationRowViewModel Describe(
-        HideoutStationSummary station,
-        IReadOnlyDictionary<string, int> builtLevels,
-        IReadOnlyDictionary<string, HideoutItemRequirement[]> requirementsByStation)
-    {
-        var built = builtLevels.GetValueOrDefault(station.StationId);
-        var next = station.Levels.Where(level => level > built).DefaultIfEmpty(0).Min();
-        var hasNext = next > 0;
-        var maximum = station.Levels.Count == 0 ? 0 : station.Levels.Max();
-        var nextLevelRequirements = hasNext && requirementsByStation.TryGetValue(station.StationId, out var all)
-            ? all.Where(requirement => requirement.TargetLevel == next).ToArray()
-            : [];
-        var missing = nextLevelRequirements
-            .Count(requirement => _ownedItemCounts.GetValueOrDefault(requirement.ItemId) < requirement.Required);
-
-        return new(
-            station.StationId,
-            station.Name,
-            maximum == 0 ? $"Level {built}" : $"Level {built} of {maximum}",
-            hasNext,
-            next,
-            canBuildNow: hasNext && missing == 0,
-            missingItemCount: missing,
-            select: stationId =>
-            {
-                var found = Stations.FirstOrDefault(row => row.StationId == stationId);
-                Select(found);
-            })
+    private HideoutStationRowViewModel Describe(HideoutStationPlan plan) => new(
+        plan.StationId,
+        plan.Name,
+        plan.MaximumLevel == 0 ? $"Level {plan.BuiltLevel}" : $"Level {plan.BuiltLevel} of {plan.MaximumLevel}",
+        plan.HasNextLevel,
+        plan.NextLevel,
+        canBuildNow: plan.CanBuildNow,
+        missingItemCount: plan.MissingItemCount,
+        select: stationId =>
         {
-            BuiltLevel = built,
-            MaximumLevel = maximum,
-        };
-    }
+            var found = Stations.FirstOrDefault(row => row.StationId == stationId);
+            Select(found);
+        })
+    {
+        BuiltLevel = plan.BuiltLevel,
+        MaximumLevel = plan.MaximumLevel,
+    };
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 }
