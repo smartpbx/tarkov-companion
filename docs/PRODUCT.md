@@ -42,6 +42,18 @@ identical. Applicable items begin `Untested`, then become `Safe` or `Allergic` o
 
 Consumption result precedence is `Allergic` over `Safe` over `Untested`. Once any observation is allergic, a later safe observation cannot erase that warning. This is local recorded state, never a prediction or live detection.
 
+The file format has always carried a name, a window and an active flag, and until #288 nothing in
+the application could set any of them: every event created here was undated and permanently in
+season. An event now has a schedule — rename it, give it a first and last day (either may be left
+blank, which means the author did not say), and see what the window would mean before saving it.
+A window that ends before it starts is refused rather than written. Archiving switches an event
+off and keeps it, along with everything recorded against it; only Delete removes a definition, and
+renaming keeps the id the recorded results are stored against.
+
+Event *rules* remain a stored string that nothing reads. A rule engine is deliberately not built
+here: there is no consumer for one, and a schema invented ahead of its reader would be another
+complete foundation with no caller.
+
 ## Ammunition intelligence
 
 Ammo packs resolve to their contained canonical round before evaluation. Each caliber is ranked deterministically by penetration, then damage, then canonical item ID. The first round is S tier and the remaining ranks fall into A through D percentile bands. With a profile supplied, caliber lists exclude rounds blocked by player level, game mode, trader level, or task unlock rules; direct lookup still returns the round with `ObtainableForProfile` set appropriately.
@@ -113,6 +125,22 @@ Generated explanations include personal incomplete-task count, lock count, loot,
 Loadout evaluation sums estimated cost and weight for every selected occurrence, including repeated magazines and medical items. It checks slot category, weapon/ammunition caliber, magazine/weapon and magazine/ammunition compatibility, and plate/armor compatibility. Missing catalog data produces a compatibility issue and makes weight unknown instead of presenting a partial number as complete.
 
 Warnings cover profile-unobtainable ammunition, low-tier ammunition paired with a kit worth at least 150,000 roubles, and armor with no selected plate. These are planning heuristics based on cached/public facts, not input automation or live gameplay detection.
+
+The kit is shown as ten slots, filled or not, rather than as a list of whatever happens to be
+assigned (#288). The two questions a kit is looked at to answer are what is in it and what is
+still missing, and a list answers only the first. Pressing a slot aims the search at it; a filled
+slot can be cleared from its own tile. Slots that hold several things keep a row each beneath the
+board, because only those need one.
+
+A budget is typed in roubles and read against the evaluated cost, not a running total: both totals
+count a missing price as zero and are floors, so a figure that moved while items were being added
+would be quoting a number nothing had computed. Being over is said in words as well as colour.
+
+A kit can be saved by name in `Config/loadouts.json` (24 kept, oldest dropped) and loaded back into
+the same slots. A saved kit can be compared against the current one — cost, weight, ammo tier,
+slots filled, issues, with the differences. The saved kit is **re-evaluated** at comparison time
+rather than showing what it cost when saved: prices move, and a comparison against last week's
+price is a comparison against nothing in particular.
 
 ## Playing together
 
