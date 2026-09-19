@@ -21,6 +21,16 @@ public sealed record StashReconstructedTile(
 
     /// <summary>The key review commands address a tile by: its container and absolute anchor.</summary>
     public string ItemKey => $"{ContainerPath}@{Row}:{Column}";
+
+    /// <summary>
+    /// The container this item was opened into, where the scan read its contents.
+    /// </summary>
+    /// <remarks>
+    /// A case that was opened and found to hold things is in use whatever the catalog files it
+    /// under: the source lists an Ammunition case as "barter" first and "container" second, and
+    /// the sort plan told the player to sell one that was full of ammo.
+    /// </remarks>
+    public string? NestedContainerPath { get; init; }
 }
 
 /// <summary>One container's grid, in the container's own coordinates rather than any screenshot's.</summary>
@@ -110,7 +120,10 @@ public sealed class StashReconstructionProjector
                             .Distinct(StringComparer.Ordinal)
                             .Take(3)
                             .ToArray(),
-                        cell.Item.Provenance),
+                        cell.Item.Provenance)
+                    {
+                        NestedContainerPath = cell.NestedContainerPath,
+                    },
                     touchesEdge,
                     region.CaptureOrdinal));
             }

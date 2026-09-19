@@ -728,6 +728,9 @@ public static class AppComposition
             provider.GetRequiredService<ICaptureResultHandoff>(),
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
+        // [fin-recognition] #283: the caller StashOrganizationPlanner never had. The stash
+        // workspace takes it as an optional dependency and sorts each scan with it.
+        services.AddSingleton<StashPlanSource>();
         // [fin-recognition] #282: pin, wishlist, item rule, raid phase and risk, set from the
         // Loot Scan workspace and read back by the scan.
         services.AddSingleton<LootScanWorkspaceControls>();

@@ -49,6 +49,8 @@
                           AutomationProperties.Name="{Binding AutomationName}">
                     <Panel>
                       <TextBlock Classes="stash-tile-name" Text="{Binding Name}" VerticalAlignment="Top" />
+                      <TextBlock Classes="stash-tile-tag" Classes.sell="{Binding IsSellTile}"
+                                 Text="{Binding GroupTag}" IsVisible="{Binding HasGroupTag}" />
                       <TextBlock Classes="stash-tile-detail" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
                     </Panel>
                   </Button>
@@ -99,6 +101,28 @@
     <Style Selector="Border.stash-plan-tile.review TextBlock.stash-plan-count">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <!-- #283: the plan's groups. Keep reads as settled, Sell as something to act on. -->
+    <Style Selector="Border.stash-plan-tile.keep TextBlock.stash-plan-count">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.stash-plan-tile.sell TextBlock.stash-plan-count">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.stash-group">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Width" Value="72" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.stash-group.keep">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.stash-group.sell">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.stash-group.review">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <Style Selector="TextBlock.stash-plan-count">
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading2.Size}" />
       <Setter Property="FontWeight" Value="Bold" />
@@ -139,6 +163,16 @@
       <Setter Property="LineHeight" Value="12" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.stash-tile-tag">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.stash-tile-tag.sell">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.stash-tile-detail">
       <Setter Property="FontSize" Value="10" />
@@ -307,13 +341,15 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:StashItemRowViewModel">
                       <Button Classes="stash-row" Command="{Binding SelectCommand}">
-                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                          <StackPanel Spacing="1">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                          <TextBlock Classes="stash-group" Classes.keep="{Binding IsKeep}" Classes.sell="{Binding IsSell}"
+                                     Classes.review="{Binding IsReview}" Text="{Binding GroupLabel}" />
+                          <StackPanel Grid.Column="1" Spacing="1">
                             <TextBlock Classes="v2-body" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" />
+                            <TextBlock Classes="v2-label" Text="{Binding WhyLabel}" TextTrimming="CharacterEllipsis" />
                           </StackPanel>
-                          <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center" Text="{Binding QuantityLabel}" />
-                          <Button Grid.Column="2" Classes="v2-plain" Content="Wiki"
+                          <TextBlock Grid.Column="2" Classes="v2-body" VerticalAlignment="Center" Text="{Binding QuantityLabel}" />
+                          <Button Grid.Column="3" Classes="v2-plain" Content="Wiki"
                                   IsVisible="{Binding HasWikiLink}" Command="{Binding OpenWikiCommand}" />
                         </Grid>
                       </Button>
@@ -385,7 +421,8 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:StashPlanTileViewModel">
-                <Border Classes="stash-plan-tile" Classes.review="{Binding IsReview}" Margin="0,0,8,8">
+                <Border Classes="stash-plan-tile" Classes.review="{Binding IsReview}"
+                        Classes.keep="{Binding IsKeep}" Classes.sell="{Binding IsSell}" Margin="0,0,8,8">
                   <StackPanel Spacing="2">
                     <TextBlock Classes="v2-label" Text="{Binding Label}" />
                     <TextBlock Classes="stash-plan-count" Text="{Binding CountLabel}" />
@@ -430,6 +467,7 @@
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Correct this item" AutomationProperties.HeadingLevel="3" />
               <TextBlock Classes="v2-body stash-strong" Text="{Binding SelectedItemDisplayName}" TextWrapping="Wrap" />
+              <TextBlock Classes="v2-label" Text="{Binding SelectedItemSortLabel}" TextWrapping="Wrap" />
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-field-input" Watermark="Corrected item id"
                          Text="{Binding IdentityCorrection}"

@@ -95,8 +95,20 @@ internal static class ScanDemo
         return new LootScanDecisionService().Evaluate(request);
     }
 
-    internal static StashSnapshotRecord StashRecord(InventoryProfileScope scope)
+    /// <param name="resolveId">Turns a demo item's id and name into a catalog id, where there is a catalog.</param>
+    internal static StashSnapshotRecord StashRecord(InventoryProfileScope scope, Func<string, string, string>? resolveId = null)
     {
+        GridCellRecognition Cell(
+            int row,
+            int column,
+            string itemId,
+            string displayName,
+            int width,
+            int height,
+            int quantity = 1,
+            string? nested = null) =>
+            ScanDemo.Cell(row, column, resolveId?.Invoke(itemId, displayName) ?? itemId, displayName, width, height, quantity, nested);
+
         var provenance = Screenshot("stash");
         var ordinal = 0;
         StashCaptureRegion Region(string path, int rows, int columns, params GridCellRecognition[] cells) =>
