@@ -141,8 +141,15 @@
             <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
+          <!-- The card the Windows page gallery reads to know this page has no map to measure:
+               the renderer's own background-status line is inside the renderer, which is
+               collapsed here, so this is the only thing on the page that says so. Declared the
+               way v2-map-plan and v2-debrief-history are, which is the shape UI Automation has
+               been observed to find. -->
           <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}" Margin="16"
                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.Name="{Binding UnavailableReason}"
                   AutomationProperties.AutomationId="v2-raid-unavailable">
             <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
           </Border>

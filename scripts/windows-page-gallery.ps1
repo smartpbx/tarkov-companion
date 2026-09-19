@@ -528,11 +528,22 @@ function Invoke-ShellInteraction {
             # V2 rough package 32: a control that is telling the player its content is missing is
             # not a layout to measure. The Raid map card draws one flat slate when the runner has
             # no map artwork, and bounding that is bounding whether tiles downloaded.
-            $FillUnless = [string](Get-InteractionProperty -Object $FillAssertion -Name "unlessAutomationId" -Default "")
-            if ($FillUnless -and $null -ne (Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $FillUnless)) {
-                $Completed.Add("$Description : '$FillId' was not measured, because '$FillUnless' says its content is missing")
-                continue
+            # A list, because a control can be missing its content for more than one reason and
+            # any of them makes the measurement meaningless: the Raid page has no map at all, or
+            # it has one whose tiles have not been cached. Naming only one of them is what let
+            # this assertion measure a page that was telling the player it had nothing to draw.
+            $FillUnless = @(Get-InteractionProperty -Object $FillAssertion -Name "unlessAutomationId" -Default @() |
+                Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $FillStoodDown = $false
+            foreach ($UnlessId in $FillUnless) {
+                if ($null -ne (Find-AutomationElement -WindowHandle $WindowHandle -AutomationId ([string]$UnlessId))) {
+                    $Completed.Add("$Description : '$FillId' was not measured, because '$UnlessId' says its content is missing")
+                    $FillStoodDown = $true
+                    break
+                }
             }
+
+            if ($FillStoodDown) { continue }
 
             $FillElement = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $FillId
             if ($null -eq $FillElement) {
@@ -949,6 +960,12 @@ function New-ShotResult {
     return [pscustomobject]@{
         page = $Page
         shellMode = $ShellMode
+        # Two different facts, because they were one and it cost two branches a day each.
+        # windowShown is "the packaged app put a window up"; presented is "the whole
+        # shot ran to the end". A shot that fails an assertion halfway leaves presented false,
+        # and reporting that as "no window" sent #434 and #423 both looking for a startup crash
+        # that was not there. See the problem list at the foot of this script.
+        windowShown = $false
         presented = $false
         visuallyVaried = $false
         interactionRequired = $InteractionRequired
@@ -1304,9 +1321,17 @@ $V2AcceptanceRoutes = @(
     # branch measured, with headroom; the PR carries the before figures they have to beat.
     [pscustomobject]@{ key = "raid"; address = "#/raid"; heading = "Raid"
         expected = @("v2-shell-navigation-rail", "v2-map-plan")
+        # The stand-down is the Raid page's own "no map" card, not the renderer's background
+        # status line. That line lives inside MapSceneRendererView, and the cockpit collapses the
+        # whole renderer when it has no map to draw (RaidCockpitView binds it to HasRenderer), so
+        # on a machine with no map it is not on the page to be found - while v2-map-plan's peer
+        # survives the collapse and is measured anyway, at 98.7% flat. That is what failed this
+        # branch three times: the number was right and it was about whether tiles had downloaded.
+        # v2-raid-unavailable is the card that says "No map is loaded yet.", and it is on the page
+        # exactly when there is nothing to measure.
         fill = @([pscustomobject]@{
             automationId = "v2-map-plan"; maximumFlatFraction = 0.45
-            unlessAutomationId = "v2-map-background-status" }) },
+            unlessAutomationId = @("v2-raid-unavailable", "v2-map-background-status") }) },
     [pscustomobject]@{ key = "raid-loot"; address = "#/raid/loot"; heading = "Loot decision"
         expected = @("v2-shell-navigation-rail") },
     # The two bounded ones. Both were measured on this branch at under 2% of the body, against
@@ -1558,6 +1583,7 @@ foreach ($Shot in $Shots) {
             # the run green, interactionRequired drops to false so the report does not say an
             # assertion passed, and skipped plus detail say what actually happened.
             $Result.skipped = $true
+            $Result.windowShown = $true
             $Result.presented = $true
             $Result.visuallyVaried = $true
             $Result.warningCaptureArmed = $true
@@ -1598,6 +1624,12 @@ foreach ($Shot in $Shots) {
             $Result.detail = "No window within $WindowTimeoutSeconds second(s)."
             continue
         }
+
+        # There is a window. Whatever this shot goes on to find - an assertion it fails, a hang, a
+        # process that dies a moment later - "no window" is no longer one of the things that can
+        # be wrong with it, and saying so is the difference between hunting a startup crash and
+        # reading the reason.
+        $Result.windowShown = $true
 
         # Window creation is not page readiness. Two consecutive responsive samples only make
         # the visual capture less racy. The declared V2 UIA steps prove only their named route,
@@ -1732,7 +1764,8 @@ foreach ($Shot in $Shots) {
     }
 }
 
-$NoWindow = @($Results | Where-Object { -not $_.presented })
+$NoWindow = @($Results | Where-Object { -not $_.windowShown })
+$Incomplete = @($Results | Where-Object { $_.windowShown -and -not $_.presented })
 $Blank = @($Results | Where-Object { $_.presented -and -not $_.visuallyVaried })
 $Faulted = @($Results | Where-Object { $_.interfaceFaultCount -gt 0 })
 $Unarmed = @($Results | Where-Object { -not $_.warningCaptureArmed })
@@ -1751,6 +1784,7 @@ $Report = [pscustomobject]@{
     pages = $Results
     failedCount = $Failed.Count
     noWindowCount = $NoWindow.Count
+    unfinishedCount = $Incomplete.Count
     blankCount = $Blank.Count
     interfaceFaultCount = $Faulted.Count
     warningCaptureUnarmedCount = $Unarmed.Count
@@ -1769,6 +1803,15 @@ foreach ($Result in $Results) {
     $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($Result.skipped) { "skip" } else { "ok  " }
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
     Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Dead"
+    # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
+    # here is what turns "no window: v2-a-raid-1920" in the job log into a sentence somebody can
+    # act on without downloading anything.
+    if ($Failed -contains $Result) {
+        Write-Host "     $($Result.detail)"
+        if ($Result.interactionRequired -and -not $Result.interactionSmoke) {
+            Write-Host "     $($Result.interactionDetail)"
+        }
+    }
     foreach ($Line in @($Result.interfaceFaults | Select-Object -First 5)) {
         Write-Host "     $Line"
     }
@@ -1780,6 +1823,9 @@ foreach ($Result in $Results) {
 # every usability/accessibility behavior or that map/data tiles are ready.
 $Problems = @()
 if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Object { $_.page }) -join ', ')" }
+# A shot that showed a window and then stopped. Its own detail is the only thing that says why,
+# so it is carried here rather than left in the report nobody reads until the log has been read.
+if ($Incomplete.Count -gt 0) { $Problems += "the shot did not finish: $(($Incomplete | ForEach-Object { "$($_.page) ($($_.detail))" }) -join '; ')" }
 if ($Blank.Count -gt 0) { $Problems += "insufficient visual variation: $(($Blank | ForEach-Object { $_.page }) -join ', ')" }
 if ($Faulted.Count -gt 0) { $Problems += "interface faults: $(($Faulted | ForEach-Object { $_.page }) -join ', ')" }
 if ($Unarmed.Count -gt 0) { $Problems += "warning capture was not armed: $(($Unarmed | ForEach-Object { $_.page }) -join ', ')" }

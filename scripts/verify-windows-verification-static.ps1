@@ -186,6 +186,14 @@ Require-Text $Gallery 'v2-debrief-history' 'the Debrief history pane bound'
 Require-Text $Gallery 'maximumHeightFraction' 'a bound on a control being the size of what it holds'
 Require-Text $Gallery 'unlessAutomationId' 'a fill bound that stands down when the content is missing'
 Require-Text $Gallery 'it is not the size of what it holds' 'useful oversized-control failure'
+# The stand-down has to name a control the page actually has when there is no map. The renderer's
+# own status line is inside the renderer, which the cockpit collapses in exactly that case.
+Require-Text $Gallery 'unlessAutomationId = @("v2-raid-unavailable"' 'the Raid fill bound standing down on the card that says there is no map'
+# "No window" must mean no window. It used to mean "this shot did not reach its last line", which
+# reported an assertion failure and a tray-held process as a startup crash.
+Require-Text $Gallery 'windowShown' 'a responsive window recorded apart from a shot running to the end'
+Forbid-Text $Gallery '$NoWindow = @($Results | Where-Object { -not $_.presented })' 'no-window reported for any shot that stopped early'
+Require-Text $Gallery 'the shot did not finish' 'a named reason when a shot stops after its window is up'
 Require-Text $Workflow 'name: v2-route-gallery' 'V2 route capture artifact'
 Require-Text $Workflow 'verification/pages/v2-a-*.png' 'narrow V2 capture upload glob'
 Require-Text $Workflow '!verification/pages/v2-a-plan-events-*.png' 'Events capture excluded from the upload'
