@@ -1,5 +1,9 @@
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
+using TarkovCompanion.Application.Services.LootScan;
+using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
@@ -163,6 +167,55 @@ public sealed class StashScanWorkspaceViewModelTests
         var general = Assert.Single(viewModel.Items);
         Assert.Equal(StashPlanGroup.Review, general.Group);
         Assert.Equal("Gas analyzer", general.DisplayName);
+    }
+
+    [Fact]
+    public async Task A_loaded_snapshot_is_sorted_and_the_plan_tiles_count_it()
+    {
+        // #283: the planner had no caller, so this row was Review and three tiles read a dash.
+        var store = new FakeSnapshotStore();
+        store.Seed(Record());
+        var provenance = new DataProvenance("fixture", DateTimeOffset.UnixEpoch);
+        var catalog = new FakeItemFactCatalog(
+            [new AmmoStats("ammo-9x19", "9x19mm", 10, 20, null, null, 1, null, null, null, false, false, provenance)],
+            [new KeyFacts("key-101", "customs", 20, [], ["quest-1", "quest-2"], null, 0, 0, false, 0, provenance)]);
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var now = V2Capture.LootScanFactFixtures.Now;
+        var profiles = new ProfileContextService(new Profiles.MemoryProfileStore(), new Profiles.ProfileClock(now));
+        var profile = Profiles.ProfileV2Fixtures.Profile(
+            Profiles.ProfileV2Fixtures.Context(ProfileId, "wipe-fixture", Core.Domain.Profiles.ProfileGameMode.Pvp),
+            "unrelated");
+        await profiles.CreateAsync(Profiles.ProfileV2Fixtures.Request(profile), CancellationToken.None);
+        using var runtime = new ProfileRuntimeContextService(profiles);
+        await runtime.InitializeAsync(CancellationToken.None);
+        var facts = new V2Capture.LootScanFactFixtures.Catalog();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            catalog,
+            new FakeRuntimeStateStore(RuntimeSnapshot()),
+            clock: new Runtime.ManualTimeProvider(now),
+            profileContext: runtime,
+            planSource: new StashPlanSource(new LootScanRecommendationSource(
+                facts,
+                facts,
+                new LootScanNeedSource(
+                    new V2Capture.LootScanFactFixtures.Profiles(),
+                    new ProfileNeedAggregationService([], []),
+                    new V2Capture.LootScanFactFixtures.Quests([]),
+                    new V2Capture.LootScanFactFixtures.Requirements()))));
+
+        await viewModel.LoadAsync();
+
+        var general = Assert.Single(viewModel.Items);
+        Assert.Equal("Gas analyzer", general.DisplayName);
+        Assert.Equal(StashPlanGroup.Sell, general.Group);
+        Assert.Contains("flea", general.WhyLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.All(viewModel.PlanTiles, tile => Assert.True(tile.IsWired));
+        Assert.Equal("1", viewModel.PlanTiles.Single(tile => tile.IsSell).CountLabel);
+        Assert.Equal("0", viewModel.PlanTiles.Single(tile => tile.IsReview).CountLabel);
+        Assert.StartsWith("Sorted by", viewModel.RecommendationNotice, StringComparison.Ordinal);
     }
 
     [Fact]
