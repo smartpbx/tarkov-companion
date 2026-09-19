@@ -730,7 +730,8 @@ public static class AppComposition
             provider.GetService<DesktopCompanionAuthority>(),
             provider.GetService<TabletMapSurfacePublisher>(),
             provider.GetRequiredService<CompanionPairingAvailability>().RelayOrigin ?? companionOrigin,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>()));
         services.AddSingleton(provider => new SetupSelfTestViewModel(
             provider.GetRequiredService<ISelfTestReadings>,
             provider.GetRequiredService<SelfTestJournal>(),
