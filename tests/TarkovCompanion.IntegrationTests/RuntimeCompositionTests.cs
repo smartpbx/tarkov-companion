@@ -40,6 +40,10 @@ public sealed class RuntimeCompositionTests
 
             var snapshot = services.GetRequiredService<IRuntimeStateStore>().Current;
             Assert.True(snapshot.DatabaseReady);
+            // Every page's startup load runs on its own now, so one that fails no longer skips the
+            // ones after it. A healthy launch names none: an entry here is a page that is empty on
+            // screen and would have taken the rest of the list with it before.
+            Assert.Empty(viewModel.StartupFaults);
             Assert.Equal(DataAvailability.DemoFixture, snapshot.Data.Availability);
             Assert.Equal(1, snapshot.Data.ItemCount);
             Assert.Equal("demo-graphics-card", snapshot.Scan.CanonicalItemId);

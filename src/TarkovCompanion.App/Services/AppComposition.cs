@@ -262,7 +262,15 @@ public static class AppComposition
             Path.Combine(paths.Config, "workspace-layout.json")));
 
         services.AddSingleton(TarkovDevMapCatalogClientOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Catalog")));
-        services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")));
+        // [P0 stability] Map drawings are rasterised in a child process. A native access
+        // violation inside Skia killed the application on 2026-09-19 and cannot be caught, so the
+        // draw happens somewhere the application can afford to lose. Null under a test, a tool or
+        // `dotnet run`, where the running process is not this application's own host executable
+        // and re-launching it would run something else; rasterisation is then in process, as before.
+        services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")) with
+        {
+            Rasterizer = ResolveRasterizerHost(),
+        });
         services.AddSingleton<TarkovDevMapCatalogClient>();
         services.AddSingleton<TarkovDevMapAssetCache>();
         services.AddSingleton<TarkovDevLootSpawnNormalizer>();
@@ -915,5 +923,34 @@ public static class AppComposition
             return Task.FromException<HttpResponseMessage>(
                 new HttpRequestException("Network access is disabled by TARKOV_COMPANION_OFFLINE."));
         }
+    }
+
+    /// <summary>
+    /// How to re-launch this application as a map rasteriser, when it can be re-launched at all.
+    /// </summary>
+    /// <remarks>
+    /// Only when the running process really is this application's own host executable. Under
+    /// `dotnet run`, a test host or a tool, <see cref="Environment.ProcessPath"/> is the muxer or
+    /// the tool: passing it the rasteriser's options would start something that has never heard of
+    /// them. Returning null there is not a degradation — it is the behaviour every build had
+    /// before the child process existed.
+    ///
+    /// Ninety seconds is generous by two orders of magnitude for a drawing that takes about two,
+    /// and it is a deadline rather than a budget: its job is to end a child that has hung, not to
+    /// hurry one that is working.
+    /// </remarks>
+    private static SvgRasterizerHost? ResolveRasterizerHost()
+    {
+        if (Environment.ProcessPath is not { Length: > 0 } path)
+        {
+            return null;
+        }
+
+        return string.Equals(
+            Path.GetFileNameWithoutExtension(path),
+            "TarkovCompanion",
+            StringComparison.OrdinalIgnoreCase)
+            ? new(path, [], TimeSpan.FromSeconds(90))
+            : null;
     }
 }
