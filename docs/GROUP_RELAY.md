@@ -491,7 +491,23 @@ due an update.
 | 400 | The display name is missing or longer than 48 characters |
 | 401 | The `X-Group-Key` header is missing, or outside 8–128 characters |
 | 403 | The relay is closed and this key's room is not one its operator registered |
+| 429 | Too many keys have been refused from this address recently; `Retry-After` says how long |
+| 503 | The relay could not read the list of rooms its operator registered, so it is serving none |
 
 A 401 does **not** mean a wrong key. There is no such thing here: a key nobody else uses names
 a group nobody else is in, and returns 200 with an empty member list. A 403 is the one answer
 that does mean the key is wrong for this relay, and only on a relay whose operator has closed it.
+
+A 429 is what a wrong key costs, added under #317. Nothing counted refused keys, so an eight
+character key could be guessed at whatever rate the relay could answer. A caller is now delayed
+from its fifth refused key, doubling to two seconds, and refused for sixty seconds after twenty
+refusals in five minutes; one accepted key clears the record. It applies to the operator's own
+`/admin` and `/reports` as well, on the same ladder. Sixty seconds rather than longer because this
+counts by transport address, and a relay behind a reverse proxy sees the proxy: a long lockout
+there would be an outage for everybody caused by one stranger.
+
+A 503 on a group path is a state the relay used to have no way to report. An unreadable
+`rooms.json` emptied the list, and an empty list means open — so a closed relay quietly started
+serving every room anybody could invent. It refuses everything instead and says which of the two
+it is doing, so an operator looks at the file rather than at their key. Restoring or deleting the
+file and restarting fixes it, and so does registering a room from the panel, which rewrites it.

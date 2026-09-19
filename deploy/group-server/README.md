@@ -194,7 +194,11 @@ systemd then creates `/var/lib/tarkov-group`, owns it correctly whether or not t
 set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
 
 - `marks.json`: waypoints, including who placed and who reached each one
-- `rooms.json`: registered room hashes and their labels
+- `rooms.json`: registered room hashes and their labels. **If this file exists and cannot be read,
+  the relay serves no room at all** and every group path answers 503 saying so, rather than
+  falling back to the open behaviour an empty file means (#317). Restore it, delete it, or
+  register a room from the panel — which rewrites it — and the relay serves again. The panel's own
+  access line says which of the three states it is in.
 - `relay-devices.json`: the paired-device registry (owner and paired devices' key thumbprints,
   sessions, audit trail); no private keys and no plaintext bearer credential
 - `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them

@@ -44,6 +44,7 @@ using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Infrastructure.Strategy.Datasets;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -70,7 +71,6 @@ using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Infrastructure.Wiki;
-using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Security;
@@ -300,6 +300,31 @@ public static class AppComposition
         // local pings/waypoints kept between runs.
         services.AddSingleton<MapSceneAssembler>();
         services.AddSingleton<HistoricalTrafficRuntimeService>();
+        // [Issue 311] The governed traffic snapshot store, which was merged and tested and never
+        // constructed. Packages are the five files tools/TrafficModelBuilder writes, left one
+        // directory each in Traffic/Inbox; only a key listed in Config/traffic-trusted-keys.json
+        // can make one install, and with none listed nothing does.
+        services.AddSingleton(provider => new TrafficSnapshotStore(
+            new TrafficSnapshotStoreOptions(Path.Combine(paths.Root, "Traffic", "Snapshots")),
+            new TrafficModelPackageImporter(TrafficTrustedKeys.Load(
+                Path.Combine(paths.Config, "traffic-trusted-keys.json"),
+                provider.GetService<ILogger<TrafficSnapshotStore>>())),
+            timeProvider));
+        services.AddSingleton<ITrafficPublicationSource>(provider => new InstalledTrafficPublicationSource(
+            provider.GetRequiredService<TrafficSnapshotStore>(),
+            Path.Combine(paths.Root, "Traffic", "Inbox"),
+            provider.GetService<ILogger<InstalledTrafficPublicationSource>>()));
+        services.AddSingleton<IGameVersionSource>(provider => new EftLogFolderGameVersionSource(
+            async cancellationToken => (await provider.GetRequiredService<IEftPathLocator>()
+                .FindAsync(cancellationToken).ConfigureAwait(false)).LogRoot,
+            timeProvider));
+        services.AddSingleton(provider => new HistoricalTrafficSource(
+            provider.GetRequiredService<ITrafficPublicationSource>(),
+            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<IGameVersionSource>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            provider.GetRequiredService<IMapDataService>(),
+            timeProvider));
         services.AddSingleton<IRaidMarkStore>(_ =>
             new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
@@ -512,7 +537,10 @@ public static class AppComposition
                 commandLine.DeveloperMode,
                 pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
-            services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
+            // [Issue 316] GDI window capture is retired: scans read the screenshots the game writes.
+            // The slot stays because the scan use case and the capture-session source take one;
+            // both report an unavailable capture instead of failing.
+            services.AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
             services.AddSingleton<IExtractRecognitionService>(provider =>
                 provider.GetRequiredService<ExtractRecognitionService>());
@@ -638,7 +666,7 @@ public static class AppComposition
             provider.GetRequiredService<IRuntimeStateStore>(),
             provider.GetRequiredService<MapSceneAssembler>(),
             provider.GetRequiredService<IHighValueLootRuntimeSource>(),
-            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<HistoricalTrafficSource>(),
             provider.GetRequiredService<IRaidMarkStore>(),
             provider.GetRequiredService<TarkovDevMapAssetCache>(),
             timeProvider,
