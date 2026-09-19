@@ -234,6 +234,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly IRuntimeStateStore _stateStore;
     private readonly MapSceneAssembler _assembler;
     private readonly IHighValueLootRuntimeSource _lootSource;
+    private readonly HistoricalTrafficSource _traffic;
     private readonly IRaidMarkStore _marks;
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
@@ -278,6 +279,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private RaidSnapshot? _seenRaid;
     private GroupSnapshot? _seenGroup;
 
+    // The traffic line, and the bookkeeping that keeps a slow evaluation from overwriting a newer
+    // one: the version says which request is current, the time says when the clock last had a
+    // reason to move the raid into another phase.
+    private HistoricalTrafficView _trafficView = new(
+        HistoricalTrafficRuntimeStatus.NoInstalledModel,
+        HistoricalTrafficSource.NoModelNotice,
+        [],
+        null);
+    private int _trafficVersion;
+    private DateTimeOffset _trafficEvaluatedUtc = DateTimeOffset.MinValue;
+
     // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
     // has to be allowed to rebuild for.
@@ -289,9 +301,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IRuntimeStateStore stateStore,
         MapSceneAssembler assembler,
         IHighValueLootRuntimeSource lootSource,
-        // Registered so the historical-traffic layer degrades honestly instead of not existing;
-        // see TrafficLayerNotice.
-        HistoricalTrafficRuntimeService traffic,
+        // [Issue 311] The installed governed snapshot, evaluated for the map on screen; see
+        // TrafficLayerNotice.
+        HistoricalTrafficSource traffic,
         IRaidMarkStore marks,
         TarkovDevMapAssetCache assetCache,
         TimeProvider timeProvider,
@@ -312,7 +324,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _assembler = assembler ?? throw new ArgumentNullException(nameof(assembler));
         _lootSource = lootSource ?? throw new ArgumentNullException(nameof(lootSource));
-        ArgumentNullException.ThrowIfNull(traffic);
+        _traffic = traffic ?? throw new ArgumentNullException(nameof(traffic));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
@@ -468,9 +480,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool HasMarks => Marks.Count > 0;
 
-    /// <summary>Registered but not evaluated: see the traffic remark on the constructor.</summary>
-    public string TrafficLayerNotice =>
-        "Historical traffic — estimate, no installed model yet";
+    /// <summary>What the installed historical-traffic snapshot says about this map, in one line.</summary>
+    /// <remarks>
+    /// It was the fixed words "no installed model yet", because the runtime was registered and
+    /// never asked. It is now the runtime's own answer for the map on screen, so it changes when a
+    /// snapshot is installed, when the map or raid changes and as the raid clock moves into a new
+    /// phase. Every state keeps the word "estimate": it is history, never a live position.
+    /// </remarks>
+    public string TrafficLayerNotice => _trafficView.Notice;
+
+    /// <summary>The busiest regions and routes the snapshot names, busiest first, as "Dorms · 100%".</summary>
+    public IReadOnlyList<string> TrafficRows =>
+        [.. _trafficView.Rows.Select(row =>
+            string.Create(CultureInfo.CurrentCulture, $"{row.Label} · {Math.Round(row.Relative * 100):0}%"))];
+
+    public bool HasTrafficRows => _trafficView.HasRows;
 
     // ---------------------------------------------------------------------------------------
     // [V2 rough package 22] V1 map parity. Every property below forwards to the one MapViewModel
@@ -1403,6 +1427,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     _rebuildRequest.Request();
                 }
 
+                // The raid moves from early to mid to late on the clock alone, so the traffic
+                // line has to be asked again as it does, without a rebuild for every tick.
+                if (_timeProvider.GetUtcNow() - _trafficEvaluatedUtc >= TrafficRefreshInterval)
+                {
+                    RefreshTraffic();
+                }
+
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
@@ -1508,6 +1539,45 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     private Task RenameMarkAsync(Guid id, string? name) => _marks.RenameAsync(id, name);
 
+    private static readonly TimeSpan TrafficRefreshInterval = TimeSpan.FromSeconds(30);
+
+    private void RefreshTraffic()
+    {
+        var version = Interlocked.Increment(ref _trafficVersion);
+        _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
+        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+    }
+
+    private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)
+    {
+        HistoricalTrafficView view;
+        try
+        {
+            view = await _traffic.EvaluateAsync(mapId, raid, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Nothing the snapshot store or the model can throw is a reason to lose the plan; the
+            // line falls back to the same words a machine with no snapshot shows.
+            view = new HistoricalTrafficView(
+                HistoricalTrafficRuntimeStatus.NoInstalledModel,
+                HistoricalTrafficSource.NoModelNotice,
+                [],
+                null);
+        }
+
+        if (_disposed || version != Volatile.Read(ref _trafficVersion) ||
+            (view.Notice == _trafficView.Notice && view.Rows.SequenceEqual(_trafficView.Rows)))
+        {
+            return;
+        }
+
+        _trafficView = view;
+        OnPropertyChanged(nameof(TrafficLayerNotice));
+        OnPropertyChanged(nameof(TrafficRows));
+        OnPropertyChanged(nameof(HasTrafficRows));
+    }
+
     private async Task RebuildAsync()
     {
         var cancellation = new CancellationTokenSource();
@@ -1528,6 +1598,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
         RefreshMarkRows();
+        RefreshTraffic();
         // Read once, before anything is built from it: a publication that lands while this runs
         // then differs from what was seen and asks for one more pass, instead of being taken for
         // something this pass already drew.
