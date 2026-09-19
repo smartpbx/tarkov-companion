@@ -136,6 +136,26 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool HasSelfTest => SelfTest is not null;
 
     /// <summary>
+    /// The theme, colour-vision, text-scale, density and motion choices (#266, #315).
+    /// </summary>
+    /// <remarks>
+    /// Null only in a shell built without a composed preference store, which is every unit test
+    /// that predates this and the headless hosts that build Setup to check a binding. When it is
+    /// null the section still shows the window-scale stepper rather than an empty card.
+    /// </remarks>
+    public V2AppearanceSettingsViewModel? Appearance { get; private set; }
+
+    public bool HasAppearance => Appearance is not null;
+
+    /// <summary>Hands this page the appearance choices, for the reason AttachSelfTest gives.</summary>
+    public void AttachAppearance(V2AppearanceSettingsViewModel appearance)
+    {
+        Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
+        OnPropertyChanged(nameof(Appearance));
+        OnPropertyChanged(nameof(HasAppearance));
+    }
+
+    /// <summary>
     /// Hands this page the self-test after construction.
     /// </summary>
     /// <remarks>

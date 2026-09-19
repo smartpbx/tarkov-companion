@@ -106,6 +106,17 @@
         <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.35" /></Transitions>
       </Setter>
     </Style>
+    <!-- [V2 rough package 60 — appearance] Reduce motion (#266) keeps the state change and drops
+         the transition, so the groups still dim, instantly. The class is put on the window by
+         V2AppearanceApplier: a DynamicResource duration inside a Transitions setter has no
+         resource host to resolve against and would silently keep the authored 0.35s. This style
+         has to live beside the one it overrides, because a control's own styles are applied after
+         the application's and would otherwise win. -->
+    <Style Selector="Window.v2-motion-reduced Border.v2-raid-float">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
+    </Style>
     <Style Selector="Border.v2-raid-float.v2-raid-idle">
       <Setter Property="Opacity" Value="0.12" />
     </Style>

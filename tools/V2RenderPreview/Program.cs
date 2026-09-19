@@ -17,7 +17,10 @@ using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.Services.V2.Appearance;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
 using AppClass = TarkovCompanion.App.App;
@@ -76,6 +79,12 @@ internal static class Program
                 // printing them here lets a Linux run catch the same faults before CI does.
                 .LogToTextWriter(Console.Out, Avalonia.Logging.LogEventLevel.Warning, Avalonia.Logging.LogArea.Binding, Avalonia.Logging.LogArea.Layout)
                 .SetupWithoutStarting();
+
+            // [V2 rough package 60 — appearance] #266/#315. SetupWithoutStarting never reaches
+            // OnFrameworkInitializationCompleted, so the applier the running app installs there
+            // is installed here instead. Without it every render is Dark at 100%, which is the
+            // one combination the appearance work does not need proving.
+            var appearance = ApplyAppearance(services, args);
 
             if (options.MapRendererGallery)
             {
@@ -146,6 +155,7 @@ internal static class Program
             }
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+            appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
             if (seeding is not null)
@@ -1178,5 +1188,68 @@ internal static class Program
     {
         var index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>
+    /// Applies the appearance a render asks for, and returns the applier so a window can be
+    /// given the reduced-motion class the running app gives it.
+    /// </summary>
+    /// <remarks>
+    /// Named the way the Setup page names them ("light", "high-contrast", "red-green") rather
+    /// than by enum spelling, so a render command reads like the choice it is proving.
+    /// </remarks>
+    private static V2AppearanceApplier? ApplyAppearance(IServiceProvider services, string[] args)
+    {
+        var theme = StringOption(args, "--appearance");
+        var vision = StringOption(args, "--color-vision");
+        var density = StringOption(args, "--density");
+        var scale = IntOption(args, "--text-scale", 0);
+        var reduceMotion = args.Contains("--reduce-motion");
+        if (theme is null && vision is null && density is null && scale == 0 && !reduceMotion)
+        {
+            return null;
+        }
+
+        var preferences = new WorkspacePreferences(
+            theme switch
+            {
+                "light" => AppearanceTheme.Light,
+                "high-contrast" => AppearanceTheme.HighContrast,
+                "system" => AppearanceTheme.System,
+                null or "dark" => AppearanceTheme.Dark,
+                _ => throw new ArgumentException($"No appearance is named '{theme}'."),
+            },
+            vision switch
+            {
+                "red-green" => ColorVisionMode.RedGreenSafe,
+                "blue-yellow" => ColorVisionMode.BlueYellowSafe,
+                "mono" => ColorVisionMode.Monochrome,
+                null or "standard" => ColorVisionMode.Standard,
+                _ => throw new ArgumentException($"No colour-vision palette is named '{vision}'."),
+            },
+            scale == 0 ? 100 : scale,
+            density switch
+            {
+                "compact" => InterfaceDensity.Compact,
+                "comfortable" => InterfaceDensity.Comfortable,
+                null or "standard" => InterfaceDensity.Standard,
+                _ => throw new ArgumentException($"No density is named '{density}'."),
+            },
+            reduceMotion);
+
+        var service = services.GetRequiredService<WorkspacePreferenceService>();
+        DrainUntilComplete(service.UpdateAsync(preferences, CancellationToken.None));
+        var applier = new V2AppearanceApplier(
+            Avalonia.Application.Current ?? throw new InvalidOperationException("No application was built."),
+            // Headless has no platform colour values; "system" would otherwise mean "dark"
+            // silently and a --appearance system render would prove nothing.
+            () => new Avalonia.Platform.PlatformColorValues
+            {
+                ThemeVariant = Avalonia.Platform.PlatformThemeVariant.Light,
+            });
+        applier.Apply(preferences);
+        Console.WriteLine($"Appearance: {applier.Applied?.Key} text {preferences.TextScalePercent}% {preferences.Density}" +
+            (preferences.ReduceMotion ? " reduced-motion" : string.Empty));
+        return applier;
     }
 }

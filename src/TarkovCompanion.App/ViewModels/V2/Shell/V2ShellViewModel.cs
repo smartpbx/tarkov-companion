@@ -18,6 +18,7 @@ using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Application.Services.Wiki;
@@ -156,7 +157,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
-        SetupSelfTestViewModel? selfTest = null)
+        SetupSelfTestViewModel? selfTest = null,
+        // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
+        // record the Appearance section writes. Optional for the same reason as the rest.
+        WorkspacePreferenceService? preferences = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -184,6 +188,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
+        }
+
+        if (preferences is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
         }
     }
 

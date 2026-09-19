@@ -26,6 +26,7 @@ using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -323,6 +324,12 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [V2 rough package 60 — appearance] #266/#315: the one versioned record that says how
+        // the companion looks. Nothing persisted a theme, a text scale, a density or a motion
+        // choice before this, so every palette the design system shipped was unreachable.
+        services.AddSingleton<IWorkspacePreferenceStore>(_ =>
+            new JsonFileWorkspacePreferenceStore(Path.Combine(paths.Config, "preferences.json")));
+        services.AddSingleton<WorkspacePreferenceService>();
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
