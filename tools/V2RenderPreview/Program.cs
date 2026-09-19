@@ -659,8 +659,11 @@ internal static class Program
                 setupWorkspace.Select(V2SetupSection.Diagnostics);
                 if (args.Contains("--selftest-demo"))
                 {
+                    // [V2 rough package 43a] --selftest-waiting renders the state that used to be
+                    // a red failure: every other capability settled, and the screenshot one open.
+                    var waiting = args.Contains("--selftest-waiting");
                     setupWorkspace.AttachSelfTest(new SetupSelfTestViewModel(
-                        () => new SelfTestDemoReadings(),
+                        () => new SelfTestDemoReadings(waiting),
                         new SelfTestJournal()));
                 }
 
