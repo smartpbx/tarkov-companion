@@ -43,7 +43,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(13, first.Applied.Count);
+            Assert.Equal(14, first.Applied.Count);
             Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();

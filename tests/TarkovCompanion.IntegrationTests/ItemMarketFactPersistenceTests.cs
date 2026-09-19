@@ -79,7 +79,7 @@ public sealed class ItemMarketFactPersistenceTests
         Assert.Null(await source.GetFleaRatesAsync(TestContext.Current.CancellationToken));
 
         await refresh.RefreshItemsAsync(JsonSerializer.Deserialize<TarkovDevItemsData>(Payload, options)!, Observed, TestContext.Current.CancellationToken);
-        var without = Payload[..Payload.LastIndexOf(",\n          \"fleaMarket\"", StringComparison.Ordinal)] + "}";
+        var without = Payload[..Payload.LastIndexOf("\"fleaMarket\"", StringComparison.Ordinal)].TrimEnd().TrimEnd(',') + "}";
         await refresh.RefreshItemsAsync(JsonSerializer.Deserialize<TarkovDevItemsData>(without, options)!, Observed.AddHours(9), TestContext.Current.CancellationToken);
 
         var rates = await source.GetFleaRatesAsync(TestContext.Current.CancellationToken);
