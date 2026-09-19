@@ -474,7 +474,10 @@
 
       <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
         <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
-        <Border Grid.Column="0" Width="168" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
+        <!-- [V2 rough package 60 — appearance] MinWidth rather than Width: at a 200% text scale
+             a fixed 168 clipped "Debrief" with no way to read it. The rail now takes the width
+             its longest label needs and stops growing once the labels fit. -->
+        <Border Grid.Column="0" MinWidth="168" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.LandmarkType="Navigation"
                 AutomationProperties.Name="{Binding NavigationRegionName}">
