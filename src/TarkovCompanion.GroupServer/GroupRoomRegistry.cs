@@ -78,13 +78,31 @@ public sealed class GroupRoomRegistry
     /// An empty list means open, and that is deliberate. Closing the moment an operator sets an
     /// admin key — before they have registered anything — would lock out every group on the
     /// relay at the instant the operator was trying to look at it.
+    ///
+    /// A store that could not be read is not an empty list. See <see cref="IsUnreadable"/>.
     /// </remarks>
-    public bool IsClosed => !_rooms.IsEmpty;
+    public bool IsClosed => !_rooms.IsEmpty || IsUnreadable;
+
+    /// <summary>
+    /// Whether the registered rooms exist but could not be read.
+    /// </summary>
+    /// <remarks>
+    /// [#317, RISK-RELAY-REGISTRY-FAIL-OPEN] A corrupt or unreadable store used to empty the
+    /// list, and an empty list means open. So the one event most likely to accompany tampering
+    /// — the file that says which rooms may exist becoming unreadable — turned a closed relay
+    /// into one that served every room anybody could invent, silently.
+    ///
+    /// It now refuses instead, and says which of the two it is doing: <see cref="Allows"/>
+    /// returns false for everything while this is set. That is recoverable by hand (restore or
+    /// delete the file and restart) and cannot be reached on a relay whose store is readable,
+    /// which is every healthy one.
+    /// </remarks>
+    public bool IsUnreadable { get; private set; }
 
     public int Count => _rooms.Count;
 
     /// <summary>Whether a room may be used.</summary>
-    public bool Allows(string room) => !IsClosed || _rooms.ContainsKey(room);
+    public bool Allows(string room) => !IsUnreadable && (!IsClosed || _rooms.ContainsKey(room));
 
     public IReadOnlyList<RegisteredRoom> List() =>
         [.. _rooms.Values.OrderBy(registered => registered.Label, StringComparer.CurrentCultureIgnoreCase)];
@@ -203,6 +221,11 @@ public sealed class GroupRoomRegistry
                 File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));
                 File.Move(temporary, _storePath, overwrite: true);
             }
+
+            // The store is readable again, by the strongest evidence there is: this process
+            // just wrote it. An operator who registers a room after a failed load has repaired
+            // the relay, and it should start serving rather than stay refusing.
+            IsUnreadable = false;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -213,12 +236,15 @@ public sealed class GroupRoomRegistry
     /// Reads the list back.
     /// </summary>
     /// <remarks>
-    /// An unreadable file leaves the list empty, which leaves the relay open. It was chosen as
-    /// the right direction to fail in, because the alternative is a corrupt file locking a group
-    /// out of a relay whose whole job is to be there when they play.
+    /// An unreadable file used to leave the list empty, which leaves the relay open. That was
+    /// chosen as the right direction to fail in, because the alternative is a corrupt file
+    /// locking a group out of a relay whose whole job is to be there when they play.
     ///
-    /// The #317 audit disagrees: it silently reopens a closed relay to invented keys, and nothing
-    /// tells the operator. That is RISK-RELAY-REGISTRY-FAIL-OPEN, open and owned by #310.
+    /// The #317 audit disagreed, and was right: it silently reopened a closed relay to invented
+    /// keys, and nothing told the operator. Since 2026-09-19 an unreadable store refuses every
+    /// room instead (RISK-RELAY-REGISTRY-FAIL-OPEN). Both directions of failure cost the group
+    /// their relay; only one of them also serves strangers, and only the refusal says so out
+    /// loud, in the response and at startup, so somebody can fix the file.
     /// </remarks>
     private void Load()
     {
@@ -245,7 +271,10 @@ public sealed class GroupRoomRegistry
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
+            // Refuse, rather than forget. Emptying the list here used to reopen the relay to
+            // everybody, which is the opposite of what an unreadable access list should mean.
             _rooms.Clear();
+            IsUnreadable = true;
         }
     }
 }

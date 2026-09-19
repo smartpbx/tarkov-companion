@@ -66,6 +66,12 @@ open applications before. Everything runs in GitHub Actions.
   fails it is never published, and that gate exists because a build once passed every test
   and could not open a window.
 
+A pull request merges when `linux`, `checks` and `windows-verify` are green and the branch is
+current with `main`. That list lives in `scripts/require-checks.sh`; run it to see whether the
+repository still agrees with it. `windows-verify` was briefly not required, and in that window
+the gallery caught a package that opened no window three times without any of it being able to
+stop a merge — a check nobody has to pass is a report.
+
 ## Releases
 
 - Every verified build of `main` replaces the rolling `dev` pre-release. That is the group's

@@ -147,11 +147,22 @@ public sealed class GroupRoomRegistryTests
         }
     }
 
+    /// <summary>
+    /// [#317, RISK-RELAY-REGISTRY-FAIL-OPEN] An unreadable list refuses every room.
+    /// </summary>
+    /// <remarks>
+    /// This reverses what the relay used to do, and the reversal is the point. An unreadable file
+    /// emptied the list, and an empty list means open — so the one event most likely to accompany
+    /// tampering, the file that says which rooms may exist becoming unreadable, turned a closed
+    /// relay into one serving every room anybody could invent, silently.
+    ///
+    /// Both directions of failure cost the group their relay. Only one of them also serves
+    /// strangers, and only the refusal says so out loud: the middleware answers 503 with a
+    /// different sentence, so an operator looks at the file rather than at their key.
+    /// </remarks>
     [Fact]
-    public void AnUnreadableListLeavesTheRelayOpenRatherThanShut()
+    public void AnUnreadableListRefusesEveryRoomRatherThanServingAll()
     {
-        // The direction to fail in. A corrupt file locking a group out of the relay whose whole
-        // job is to be there when they play is the worse outcome.
         var directory = Path.Combine(Path.GetTempPath(), $"tarkov-registry-{Guid.NewGuid():N}");
         var path = Path.Combine(directory, "rooms.json");
         try
@@ -161,8 +172,11 @@ public sealed class GroupRoomRegistryTests
 
             var registry = new GroupRoomRegistry(TimeProvider.System, path);
 
-            Assert.False(registry.IsClosed);
+            Assert.True(registry.IsUnreadable);
+            Assert.True(registry.IsClosed);
             Assert.Empty(registry.List());
+            Assert.False(registry.Allows(GroupKey.RoomFor("a-key-nobody-registered")));
+            Assert.True(RelayAccess.Refuses(registry, "/state", "a-key-nobody-registered"));
         }
         finally
         {
@@ -171,6 +185,57 @@ public sealed class GroupRoomRegistryTests
                 Directory.Delete(directory, recursive: true);
             }
         }
+    }
+
+    /// <summary>Registering a room after a failed read repairs the relay, because it rewrites the file.</summary>
+    /// <remarks>
+    /// Otherwise the only way out of a refusing relay would be to delete a file by hand on the
+    /// box, which is a worse answer than the operator using the panel they already have open.
+    /// </remarks>
+    [Fact]
+    public void RegisteringARoomClearsAFailedRead()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"tarkov-registry-{Guid.NewGuid():N}");
+        var path = Path.Combine(directory, "rooms.json");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(path, "{ this is not the file");
+            var registry = new GroupRoomRegistry(TimeProvider.System, path);
+            Assert.True(registry.IsUnreadable);
+
+            var added = registry.Add("Evening group", null);
+
+            Assert.NotNull(added);
+            Assert.False(registry.IsUnreadable);
+            Assert.True(registry.Allows(added!.Value.Room.Room));
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("/reports", true)]
+    [InlineData("/reports/abc", true)]
+    // The panel page takes no key and always answers 200. Counting it would let a caller clear
+    // its own penalty between guesses by asking for the page.
+    [InlineData("/admin", false)]
+    [InlineData("/admin/", false)]
+    [InlineData("/admin/rooms", true)]
+    [InlineData("/admin/update", true)]
+    [InlineData("/report", false)]
+    [InlineData("/state", false)]
+    [InlineData("/catalog/items", false)]
+    public void TheOperatorsOwnPathsAreTheirOwn(string path, bool isAdmin)
+    {
+        // [#317] The attempt limiter counts a wrong key of either kind, so it has to be able to
+        // tell them apart. /report and /reports differ by one letter and by which secret they take.
+        Assert.Equal(isAdmin, RelayAccess.IsAdminPath(path));
     }
 
     [Fact]

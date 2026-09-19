@@ -362,12 +362,18 @@ public sealed record AdminRoom(string Room, string? Label, DateTimeOffset? Regis
 /// What the relay is serving and what it was meant to be serving.
 /// </summary>
 /// <param name="Closed">Whether a room has to be registered to be usable.</param>
+/// <param name="Unreadable">
+/// [#317] Whether the list could not be read, which is a different thing from being empty and
+/// used to be indistinguishable from it. The relay is refusing every room while this is true, so
+/// the panel has to say so rather than leaving an operator to infer it from "closed, no rooms".
+/// </param>
 /// <param name="Unregistered">
 /// Rooms holding members that are not on the list. Empty is the state an operator wants; a row
 /// here is either a friend whose room predates the list, or somebody who is not a friend.
 /// </param>
 public sealed record AdminRoomsView(
     bool Closed,
+    bool Unreadable,
     string Version,
     string? Commit,
     DateTimeOffset StartedUtc,
