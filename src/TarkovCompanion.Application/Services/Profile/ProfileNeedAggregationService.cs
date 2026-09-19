@@ -139,7 +139,62 @@ public sealed class ProfileNeedAggregationService
             },
             profile.WishlistItemIds.Contains(itemId));
     }
+
+    /// <summary>
+    /// The same outstanding needs as <see cref="GetItemNeed"/>, one row each instead of a sum.
+    /// </summary>
+    /// <remarks>
+    /// The sums are enough for a page that says "two quests need it". A take-or-leave call has
+    /// to say which quest and how near it is, and rank a found-in-raid hand-in over a hideout
+    /// level three builds away, so it needs the rows the sums were added up from.
+    ///
+    /// What the profile says is already owned is spent on the nearest hideout level first, the
+    /// same subtraction the sum makes, so the two never disagree about whether anything is left.
+    /// </remarks>
+    public OutstandingItemRequirements GetOutstandingRequirements(PlayerProfile profile, string itemId)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+
+        var quests = _questRequirements
+            .Where(x => StringComparer.Ordinal.Equals(x.ItemId, itemId) && !profile.CompletedTaskIds.Contains(x.TaskId))
+            .Select(x => new OutstandingQuestRequirement(
+                x,
+                Math.Max(0, x.Required - profile.ObjectiveProgress.GetValueOrDefault(x.ObjectiveId))))
+            .Where(x => x.Remaining > 0)
+            .ToArray();
+
+        var owned = profile.OwnedItemCounts.GetValueOrDefault(itemId);
+        var hideout = new List<OutstandingHideoutRequirement>();
+        foreach (var requirement in _hideoutRequirements
+                     .Where(x => StringComparer.Ordinal.Equals(x.ItemId, itemId))
+                     .Select(x => (Requirement: x, Current: profile.HideoutStationLevels.GetValueOrDefault(x.StationId)))
+                     .Where(x => x.Current < x.Requirement.TargetLevel && x.Requirement.Required > 0)
+                     .OrderBy(x => x.Requirement.TargetLevel - x.Current)
+                     .ThenBy(x => x.Requirement.StationId, StringComparer.Ordinal)
+                     .ThenBy(x => x.Requirement.TargetLevel))
+        {
+            var spent = Math.Min(owned, requirement.Requirement.Required);
+            owned -= spent;
+            if (requirement.Requirement.Required - spent is > 0 and var remaining)
+            {
+                hideout.Add(new(requirement.Requirement, requirement.Current, remaining));
+            }
+        }
+
+        return new(quests, hideout);
+    }
 }
+
+/// <summary>One quest objective that still wants an item, and how many of it.</summary>
+public sealed record OutstandingQuestRequirement(QuestItemRequirement Requirement, int Remaining);
+
+/// <summary>One hideout level not yet built that wants an item, after what is already owned.</summary>
+public sealed record OutstandingHideoutRequirement(HideoutItemRequirement Requirement, int CurrentLevel, int Remaining);
+
+public sealed record OutstandingItemRequirements(
+    IReadOnlyList<OutstandingQuestRequirement> Quests,
+    IReadOnlyList<OutstandingHideoutRequirement> Hideout);
 
 public sealed class ProfileQuestProgressService(
     IPlayerProfileService profileService,

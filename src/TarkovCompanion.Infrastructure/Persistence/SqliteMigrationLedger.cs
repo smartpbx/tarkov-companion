@@ -29,6 +29,7 @@ public static class SqliteMigrationLedger
         new("0011_v2_data_platform", true, "Compact, recoverable V2 persistence platform"),
         new("0012_task_wiki_link", false, "Task wiki deep links"),
         new("0013_task_objective_task_scoped_keys", true, "Task-scoped task_objectives/task_objective_items keys"),
+        new("0014_flea_market_settings", false, "Published flea listing fee rates"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>

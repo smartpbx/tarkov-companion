@@ -34,9 +34,11 @@ public sealed class LootScanCaptureHandoff(
     LootScanDecisionService decisionService,
     TimeProvider? timeProvider = null,
     ILogger<LootScanCaptureHandoff>? logger = null,
-    LootScanRecommendationSource? recommendations = null) : ICaptureResultHandoff
+    LootScanRecommendationSource? recommendations = null,
+    IObservedInventoryEvidenceReader? observedInventory = null) : ICaptureResultHandoff
 {
     private readonly LootScanRecommendationSource? _recommendations = recommendations;
+    private readonly IObservedInventoryEvidenceReader? _observedInventory = observedInventory;
     private readonly IProfileRuntimeContextService _profileContext =
         profileContext ?? throw new ArgumentNullException(nameof(profileContext));
     private readonly InventoryGridReconstructor _gridReconstructor =
@@ -106,23 +108,27 @@ public sealed class LootScanCaptureHandoff(
             profile.Context.Identity.ProfileId,
             profile.Context.Identity.Generation,
             profile.Context.Mode.ToString());
-        var recommendationContext = new LootScanRecommendationContext(
-            scope,
-            profile.Context.DataSnapshot.SnapshotId,
-            inventory: null,
-            raidContext: null);
         var visibleLoot = _gridReconstructor.Reconstruct(
             request.Grid is { Surface: InventoryGridSurface.VisibleLoot } visibleLootRequest
                 ? visibleLootRequest
                 : new(InventoryGridSurface.VisibleLoot, lattice: null, occupiedCells: []),
             cancellationToken);
         var carriedInventory = _gridReconstructor.Reconstruct(
-            new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),
+            request.CarriedGrid is { Surface: InventoryGridSurface.CarriedInventory } carriedRequest
+                ? carriedRequest
+                : new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),
             cancellationToken);
         // The pipeline's content hash is the only thing that survives the pixel-free handoff
         // boundary; reusing it for both sides keeps this frame "current" without a redecode.
         var contentHash = request.ContentSha256;
         var evaluatedUtc = _timeProvider.GetUtcNow();
+        var recommendationContext = new LootScanRecommendationContext(
+            scope,
+            profile.Context.DataSnapshot.SnapshotId,
+            await ReadHoldingsAsync(scope, profile.Context.DataSnapshot.SnapshotId, cancellationToken).ConfigureAwait(false),
+            raidContext: _recommendations is null
+                ? null
+                : await _recommendations.ReadRaidContextAsync(evaluatedUtc, cancellationToken).ConfigureAwait(false));
         IReadOnlyList<LootScanCandidateRecommendation> candidates = _recommendations is null
             ? []
             : await _recommendations.BuildAsync(
@@ -134,6 +140,19 @@ public sealed class LootScanCaptureHandoff(
                     scope,
                     profile.Context.DataSnapshot.SnapshotId,
                     evaluatedUtc,
+                    cancellationToken,
+                    profile)
+                .ConfigureAwait(false);
+        IReadOnlyList<LootScanCarriedPolicy> carriedPolicies = _recommendations is null
+            ? []
+            : await _recommendations.BuildCarriedPoliciesAsync(
+                    carriedInventory,
+                    request.SessionId,
+                    request.ArtifactId,
+                    request.DecodeRevision,
+                    contentHash,
+                    evaluatedUtc,
+                    profile,
                     cancellationToken)
                 .ConfigureAwait(false);
         var lootScanRequest = new LootScanRequest(
@@ -151,8 +170,42 @@ public sealed class LootScanCaptureHandoff(
             visibleLoot,
             carriedInventory,
             candidates,
-            carriedPolicies: []);
+            carriedPolicies);
         return _decisionService.Evaluate(lootScanRequest, cancellationToken);
+    }
+
+    /// <summary>
+    /// What a stash scan last saw the player holding, where one exists for this profile.
+    /// </summary>
+    /// <remarks>
+    /// The engine subtracts holdings before it says "you still need two", and says so plainly
+    /// when it has nothing to subtract. A snapshot from another profile or another data sync is
+    /// not this profile's holdings, so it is passed over rather than handed on to be refused.
+    /// </remarks>
+    private async Task<ObservedInventoryEvidenceSnapshot?> ReadHoldingsAsync(
+        InventoryProfileScope scope,
+        string dataSnapshotId,
+        CancellationToken cancellationToken)
+    {
+        if (_observedInventory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var holdings = await _observedInventory.ReadCurrentAsync(scope, cancellationToken).ConfigureAwait(false);
+            return holdings is not null &&
+                   holdings.Scope == scope &&
+                   string.Equals(holdings.DataSnapshotId, dataSnapshotId, StringComparison.Ordinal)
+                ? holdings
+                : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not read observed holdings for a loot scan.");
+            return null;
+        }
     }
 }
 
@@ -166,4 +219,12 @@ public sealed record LootScanFrame(
     int DecodeRevision,
     string ContentSha256,
     string InitiatingDevice,
-    GridReconstructionRequest? Grid);
+    GridReconstructionRequest? Grid)
+{
+    /// <summary>
+    /// The player's own backpack as the same frame showed it, where something read it. Nothing
+    /// in the capture pipeline does yet, so a scan says the carried grid is unread and offers no
+    /// fit; a frame that does carry one is planned against it.
+    /// </summary>
+    public GridReconstructionRequest? CarriedGrid { get; init; }
+}
