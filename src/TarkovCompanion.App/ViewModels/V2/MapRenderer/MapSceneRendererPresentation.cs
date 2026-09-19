@@ -88,6 +88,7 @@ public sealed class MapSceneRendererPresentation
             ["Map.Loot.Empty"] = "No loot-spawn rows to show.",
             ["Map.Loot.FilterUnavailable"] = "Loot filters are unavailable until the map host can rebuild the canonical layer.",
             ["Map.Loot.PresetConflict"] = "Map changed before the preset finished. Earlier layer changes remain applied; review the layers and try again.",
+            ["Map.Loot.MakeWaypoint"] = "Make waypoint",
             ["Map.Loot.Coverage"] = "{0} of {1} records positioned · {2} floor-resolved · {3} map-only",
             ["Map.Loot.Page"] = "Loot page {0} of {1} · {2} matching spawns",
             ["Map.Loot.Candidates"] = "{0} of {1} candidates above threshold · {2}",

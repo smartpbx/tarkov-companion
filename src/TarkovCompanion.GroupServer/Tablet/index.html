@@ -673,6 +673,10 @@
     LastKnownPosition: "#22d3ee",
     TeammateLastKnown: "#7fa9c7",
     Label: "#8f9ba6",
+    // Potential spawns (issue 318): drawn as rings below, because a ring says "could be here"
+    // where a filled dot says "is here", and this page never knows the second.
+    LootSpawn: "#e3b341",
+    LootContainer: "#e3b341",
   };
 
   const plan = () => live?.surface?.plan ?? null;
@@ -781,11 +785,19 @@
       context.globalAlpha = item.isEstimate ? 0.5 : 1;
       context.beginPath();
       context.arc(px, py, 5 * scale, 0, Math.PI * 2);
-      context.fillStyle = colour;
-      context.fill();
-      context.strokeStyle = "#0b1016";
-      context.lineWidth = 1.5 * scale;
-      context.stroke();
+      if (item.truth === "PotentialSpawn") {
+        context.fillStyle = "#0b1016";
+        context.fill();
+        context.strokeStyle = colour;
+        context.lineWidth = 2 * scale;
+        context.stroke();
+      } else {
+        context.fillStyle = colour;
+        context.fill();
+        context.strokeStyle = "#0b1016";
+        context.lineWidth = 1.5 * scale;
+        context.stroke();
+      }
       context.globalAlpha = 1;
       if (item.label && project.scale * 40 > 0.7) {
         context.fillStyle = "#dce5ee";
@@ -1263,9 +1275,10 @@
     };
   };
 
-  function addMark(x, y) {
+  function addMark(x, y, spawnName) {
     if (!live?.authorityEpoch || !live.surface) return;
-    const label = $("markLabel").value.trim() || null;
+    // What was typed wins; otherwise a waypoint dropped on a spawn keeps that spawn's name.
+    const label = ($("markLabel").value.trim() || spawnName || "").slice(0, 80) || null;
     sendCommand({
       type: "upsertMark",
       ...commandHeader(live.marksRevision + 1),
@@ -1438,7 +1451,16 @@
     const py = (event.clientY - box.top) * ratio;
     const [x, y] = project.toPlan(px, py);
     if (markArmed) {
-      addMark(x, y);
+      // A waypoint dropped on a potential loot spawn goes exactly on it and takes its name, so
+      // "make this spawn a waypoint" is one tap from either companion. It is a note on this
+      // companion's own map and never reaches the game.
+      const spawn = markKind === "Waypoint" ? objectAt(project, px, py) : null;
+      if (spawn && (spawn.kind === "LootSpawn" || spawn.kind === "LootContainer")) {
+        addMark(spawn.points[0], spawn.points[1], spawn.label);
+      } else {
+        addMark(x, y);
+      }
+
       return;
     }
 

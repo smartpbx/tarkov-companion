@@ -143,7 +143,12 @@ public static class TabletMapSurfaceBuilder
                     ? isVisible
                     : layer.IsVisibleByDefault))
             .ToArray();
+        // Loot goes last so the cap trims it and nothing else. A loot-heavy map can hold thousands
+        // of potential spawns, the scene lists them before the player's marks, position and quest
+        // objectives, and a plain Take() would have dropped those instead. The sort is stable, so
+        // everything else keeps the order the desktop drew it in.
         var objects = scene.Objects
+            .OrderBy(item => IsBulk(item.Kind) ? 1 : 0)
             .Take(MaximumObjects)
             .Select(ToTabletObject)
             .ToArray();
@@ -196,6 +201,10 @@ public static class TabletMapSurfaceBuilder
             reviewed ? message : message ?? "This map has no reviewed 2D plan yet.",
             publishedUtc);
     }
+
+    /// <summary>The kinds a map can hold thousands of, which are the ones to trim first.</summary>
+    private static bool IsBulk(MapSceneObjectKind kind) =>
+        kind is MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer;
 
     private static TabletMapObject ToTabletObject(MapSceneObject item)
     {

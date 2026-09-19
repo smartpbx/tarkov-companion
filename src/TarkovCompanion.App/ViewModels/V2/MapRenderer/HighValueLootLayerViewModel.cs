@@ -107,6 +107,14 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
 
     public event Action? ProjectionChanged;
 
+    /// <summary>
+    /// Raised when the player asks to make a spawn a waypoint. The layer does not own waypoints;
+    /// the host that does (the Raid cockpit) places one and this only says which spawn.
+    /// </summary>
+    public event Action<HighValueLootEntry>? WaypointRequested;
+
+    internal void RequestWaypoint(HighValueLootEntry entry) => WaypointRequested?.Invoke(entry);
+
     public void SetLayerVisibility(bool isVisible, bool notifyProjection = true)
     {
         if (_isLayerVisible == isVisible)
@@ -263,7 +271,8 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                 entry,
                 _filterState.Filter,
                 _presentation,
-                () => _select(entry)))
+                () => _select(entry),
+                () => RequestWaypoint(entry)))
             .ToArray();
         VisibleObjectIds = filtered
             .Where(entry => entry.SceneObjectId is not null)
@@ -507,7 +516,8 @@ public sealed class HighValueLootEntryViewModel
         HighValueLootEntry entry,
         HighValueLootFilter filter,
         MapSceneRendererPresentation presentation,
-        Action select)
+        Action select,
+        Action? makeWaypoint = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         ArgumentNullException.ThrowIfNull(filter);
@@ -610,9 +620,17 @@ public sealed class HighValueLootEntryViewModel
             LocationLabel,
             ListOnlyLabel);
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
+        // A spawn with no drawn marker (map-only or unresolved precision) has no point to put a
+        // waypoint on, so it is not offered one rather than given a made-up position.
+        CanMakeWaypoint = makeWaypoint is not null && !IsListOnly;
+        MakeWaypointLabel = presentation.Get("Map.Loot.MakeWaypoint");
+        MakeWaypointCommand = new DelegateCommand(() => makeWaypoint?.Invoke());
     }
 
     public HighValueLootEntry Entry { get; }
+    public bool CanMakeWaypoint { get; }
+    public string MakeWaypointLabel { get; }
+    public ICommand MakeWaypointCommand { get; }
     public string Label { get; }
     public string TierLabel { get; }
     public string ValueLabel { get; }
