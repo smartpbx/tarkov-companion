@@ -6,7 +6,7 @@
 
 Window discovery enumerates normal processes and their top-level main windows. Production accepts only `EscapeFromTarkov` identities. The companion simulator is returned only when the caller explicitly passes DeveloperMode, and a real EFT window wins when both exist.
 
-Capture uses DPI-aware GDI to copy currently visible pixels from the selected, non-minimized window into an in-memory BGRA buffer. It does not hook a renderer. A virtual-desktop GDI fallback is used only when the request explicitly allows it. Regions must be positive and contained by the target window; captured bytes are never saved by this service.
+The companion does not capture the screen. The GDI window-capture service was retired (issue #316) and `UnavailableScreenCaptureService` fills its slot, so a Scan click reports "capture unavailable". Scans read the screenshot files the game itself writes, and pasted or dropped pictures. Any future capture provider needs explicit pixel, dimension, time and memory bounds and a fresh safety review before it is registered.
 
 ## Hotkey and displays
 
@@ -26,10 +26,9 @@ The secret store encrypts UTF-8 values with Windows DPAPI CurrentUser scope and 
 
 ## Windows VM validation still required
 
-Linux proves contract behavior and Windows gating but cannot exercise User32, GDI, Shcore, or DPAPI. The Windows VM must verify:
+Linux proves contract behavior and Windows gating but cannot exercise User32, Shcore, or DPAPI. The Windows VM must verify:
 
 - real and simulator window bounds at 100%, 125%, and mixed-monitor DPI;
-- window capture, explicitly allowed desktop fallback, minimized-window behavior, and BGRA orientation;
 - hotkey registration, receipt, collision reporting, unregister, and clean shutdown;
 - multiple-monitor bounds, primary identity, and scale;
 - registry/folder path discovery against an installed or synthetic layout;
