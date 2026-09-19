@@ -3,6 +3,7 @@ using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Core.Domain.Recommendations;
@@ -38,8 +39,11 @@ public sealed record StashSortPlan(
 /// apart is not done yet.
 /// </para>
 /// <para>
-/// Ammo and keys stay under Review here. The planner itself requires their answer to come from
-/// the profile-aware ammo and key services, and those have no stash handoff yet.
+/// Ammo, keys and gear stay under Review here, with what they would fetch. The planner requires
+/// their answer to come from a profile-aware specialist (the ammo and key services, and for
+/// gear the loadout planner), and none has a stash handoff yet. What the player has pinned,
+/// wishlisted, protected or given a rule is sorted all the same: their own word needs no
+/// specialist.
 /// </para>
 /// </remarks>
 public sealed class StashPlanSource(
@@ -81,25 +85,26 @@ public sealed class StashPlanSource(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var itemId = tile.ItemId!;
-            var kind = specialistKind(itemId);
             var unread = new EvidenceProvenance(
                 EvidenceSourceClass.PublicStructuredData,
                 $"json.tarkov.dev/items/{itemId}",
                 evaluatedUtc,
                 EvidenceConfidence.Unscored,
                 Producer);
-            var read = kind == StashSpecialistIntelligenceKind.None
-                ? await _facts.ReadItemFactsAsync(
-                        new(itemId, tile.Width, tile.Height, tile.Quantity ?? 1, Footprint(tile, evaluatedUtc)),
-                        profile,
-                        needs,
-                        rates,
-                        evaluatedUtc,
-                        cancellationToken)
-                    .ConfigureAwait(false)
-                : null;
+            // Read for every item, sorted or not: a row under Review still says what it would fetch.
+            var read = await _facts.ReadItemFactsAsync(
+                    new(itemId, tile.Width, tile.Height, tile.Quantity ?? 1, Footprint(tile, evaluatedUtc)),
+                    profile,
+                    needs,
+                    rates,
+                    evaluatedUtc,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var kind = specialistKind(itemId) is var named and not StashSpecialistIntelligenceKind.None
+                ? named
+                : KindFor(read?.Category);
             RecommendationResult? recommendation = null;
-            if (read is not null)
+            if (read is not null && (kind == StashSpecialistIntelligenceKind.None || IsHeldByChoice(read)))
             {
                 recommendation = _engine.Evaluate(
                     new ExplainableRecommendationRequest(
@@ -130,7 +135,7 @@ public sealed class StashPlanSource(
                 new GridCellAddress(tile.Row, tile.Column),
                 recommendation,
                 kind,
-                kind == StashSpecialistIntelligenceKind.None
+                kind == StashSpecialistIntelligenceKind.None || (read is not null && IsHeldByChoice(read))
                     ? new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "stash.specialist.not-applicable")
                     : new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current, "stash.specialist.no-stash-handoff"),
                 economics?.FleaFeeRoubles ?? Unread<long?>("stash.plan.flea-fee", "flea-fee.unread", unread),
@@ -158,6 +163,29 @@ public sealed class StashPlanSource(
         return new(plan, reasons);
     }
 
+    /// <summary>
+    /// Whether an item is the kind the player uses, whose fate a price cannot decide.
+    /// </summary>
+    private static StashSpecialistIntelligenceKind KindFor(ItemCategory? category) => category switch
+    {
+        ItemCategory.Ammunition or ItemCategory.AmmunitionPack => StashSpecialistIntelligenceKind.Ammo,
+        ItemCategory.Key => StashSpecialistIntelligenceKind.Key,
+        ItemCategory.Weapon or ItemCategory.Attachment or ItemCategory.Armor or ItemCategory.Plate or
+            ItemCategory.Helmet or ItemCategory.Headset or ItemCategory.Rig or ItemCategory.Backpack or
+            ItemCategory.Container or ItemCategory.Medicine or ItemCategory.Provision => StashSpecialistIntelligenceKind.Gear,
+        _ => StashSpecialistIntelligenceKind.None,
+    };
+
+    /// <summary>
+    /// The player has already said what to do with this item: a pin, the wishlist, protection or
+    /// a rule. That outranks waiting for a specialist, for gear as for anything else.
+    /// </summary>
+    private static bool IsHeldByChoice(LootScanRecommendationSource.ItemAdviceFacts read) =>
+        read.Profile.Pinned.Value == true ||
+        read.Profile.Wishlist.Value == true ||
+        read.Profile.ProtectedItem.Value == true ||
+        read.Profile.ExplicitAction.Value?.Action is not null;
+
     /// <summary>The better of the two ways to sell, where either is settled.</summary>
     private static EvidencedValue<long?>? Best(EvidencedValue<long?>? fleaNet, EvidencedValue<long?>? trader) =>
         (fleaNet?.Value, trader?.Value) switch
@@ -179,7 +207,15 @@ public sealed class StashPlanSource(
     /// </remarks>
     private static EvidenceProvenance Footprint(StashReconstructedTile tile, DateTimeOffset evaluatedUtc) =>
         tile.Provenance.EvidenceThroughUtc > evaluatedUtc
-            ? tile.Provenance
+            // A snapshot stamped later than the clock: one imported from a machine whose clock
+            // runs ahead, say. The engine refuses evidence from the future, and one skewed
+            // stamp would leave the whole stash unsorted, so the reading is dated to the plan.
+            ? new(
+                EvidenceSourceClass.GameWrittenScreenshot,
+                tile.Provenance.SourceIdentifier,
+                evaluatedUtc,
+                tile.Provenance.Confidence,
+                Producer)
             : new(
                 EvidenceSourceClass.DerivedCalculation,
                 $"stash-plan/footprint/{tile.ItemKey}",

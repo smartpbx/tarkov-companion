@@ -211,7 +211,8 @@ public sealed class StashScanWorkspaceViewModelTests
         var general = Assert.Single(viewModel.Items);
         Assert.Equal("Gas analyzer", general.DisplayName);
         Assert.Equal(StashPlanGroup.Sell, general.Group);
-        Assert.Contains("flea", general.WhyLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("On the flea, about ₽", general.WhyLabel, StringComparison.Ordinal);
+        Assert.EndsWith("after the fee.", general.WhyLabel, StringComparison.Ordinal);
         Assert.All(viewModel.PlanTiles, tile => Assert.True(tile.IsWired));
         Assert.Equal("1", viewModel.PlanTiles.Single(tile => tile.IsSell).CountLabel);
         Assert.Equal("0", viewModel.PlanTiles.Single(tile => tile.IsReview).CountLabel);

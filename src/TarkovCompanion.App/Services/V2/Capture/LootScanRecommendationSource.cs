@@ -231,7 +231,8 @@ public sealed class LootScanRecommendationSource(
             : new(
                 ProfileFacts(profile, needSnapshot, read.ItemId, evaluatedUtc),
                 read.Economics,
-                new RecommendationScarcityFacts(Obtainability(read, evaluatedUtc)));
+                new RecommendationScarcityFacts(Obtainability(read, evaluatedUtc)),
+                read.Definition.Category);
     }
 
     /// <summary>The flea rates and the player's needs, read once for a whole stash.</summary>
@@ -543,7 +544,8 @@ public sealed class LootScanRecommendationSource(
     public sealed record ItemAdviceFacts(
         RecommendationProfileFacts Profile,
         RecommendationEconomics Economics,
-        RecommendationScarcityFacts Scarcity);
+        RecommendationScarcityFacts Scarcity,
+        ItemCategory Category);
 
     /// <summary>An item as a stash scan read it: what, how big, how many, and what saw it.</summary>
     public sealed record ObservedStashItem(string ItemId, int Width, int Height, int Quantity, EvidenceProvenance Footprint);

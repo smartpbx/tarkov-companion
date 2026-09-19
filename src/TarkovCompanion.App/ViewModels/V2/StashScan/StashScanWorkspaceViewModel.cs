@@ -87,10 +87,27 @@ public static class StashSortWording
 
         if (planned.ReasonCodes.Any(code => code.StartsWith("stash.specialist.", StringComparison.Ordinal)))
         {
-            return "Ammo and keys aren't sorted yet.";
+            // Gear waits for the loadout planner, and still says what it is worth meanwhile.
+            var gear = planned.ReasonCodes.Contains("stash.specialist.gear-unresolved", StringComparer.Ordinal);
+            return (gear, planned.NetValueRoubles.Value) switch
+            {
+                (true, { } worth) => $"Gear isn't sorted yet. It would fetch about ₽{worth.ToString("N0", CultureInfo.CurrentCulture)}.",
+                (true, null) => "Gear isn't sorted yet.",
+                _ => "Ammo and keys aren't sorted yet.",
+            };
         }
 
         var ordered = (reasons ?? []).OrderByDescending(reason => reason.Priority).ToArray();
+        if (planned.Group == StashPlanGroup.Sell && planned.NetValueRoubles.Value is { } net)
+        {
+            // The engine's own sentence here is the working: roubles across squares, the band,
+            // both channels. A row wants where to sell it and for how much.
+            var price = net.ToString("N0", CultureInfo.CurrentCulture);
+            return planned.ReasonCodes.Any(code => code.StartsWith("economics.flea-net.", StringComparison.Ordinal))
+                ? $"On the flea, about ₽{price} after the fee."
+                : $"To a trader, ₽{price}.";
+        }
+
         if (planned.Group != StashPlanGroup.Review)
         {
             return ordered.FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality)?.Explanation
@@ -255,6 +272,21 @@ public sealed class StashGridTileViewModel : BindableViewModel
 
     public bool IsUnresolved => Kind == StashTileKind.Unresolved;
 
+    /// <summary>
+    /// "Keep" or "Sell" in the tile's corner, so the grid says what the plan decided.
+    /// </summary>
+    /// <remarks>
+    /// Only what was sorted is tagged. Review is the rest of the grid and a tag on every other
+    /// tile would say nothing; ammo and keys have their own edge colour and are not sorted here.
+    /// </remarks>
+    public string GroupTag => Kind == StashTileKind.Item && ItemRow is { IsReview: false } row ? row.GroupLabel : string.Empty;
+
+    public bool HasGroupTag => GroupTag.Length > 0;
+
+    public bool IsKeepTile => HasGroupTag && ItemRow is { IsKeep: true } or { IsUseSoon: true };
+
+    public bool IsSellTile => HasGroupTag && ItemRow is { IsSell: true };
+
     public string AutomationName
     {
         get
@@ -340,6 +372,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly IProfileRuntimeContextService? _profileContext;
     private readonly StashPlanSource? _planSource;
     private bool _isSorted;
+    private bool _sortFailed;
     private readonly StashReconstructionProjector _projector = new();
     private StashReconstruction _reconstruction = StashReconstruction.Empty;
     private IReadOnlyDictionary<string, AmmoStats>? _ammoByItemId;
@@ -618,8 +651,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// scanned. It is only said now when it is still the case: no profile to sort for.
     /// </remarks>
     public string RecommendationNotice => _isSorted
-        ? "Sorted by your pins and rules, what quests and the hideout still need, and current prices."
-        : "No profile is active, so nothing is sorted. Everything is under Review.";
+        ? "Sorted by your pins, quests, hideout and prices. Gear, ammo and keys wait under Review."
+        : _sortFailed
+            ? "This snapshot couldn't be sorted, so everything is under Review."
+            : "No profile is active, so nothing is sorted. Everything is under Review.";
 
     public string CorrectionsNotice { get; } = "Corrections apply only to this session for now.";
 
@@ -1143,9 +1178,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </summary>
     /// <remarks>
     /// Null where there is nothing to sort with or for: no plan source composed, or no active
-    /// profile. A failure to sort is logged nowhere and shown as "everything under Review",
-    /// which is what the workspace showed before it could sort at all; the scan itself is
-    /// still drawn.
+    /// profile. A failure to sort leaves everything under Review, which is what the workspace
+    /// showed before it could sort at all, and the notice says the sort failed; the scan itself
+    /// is still drawn.
     /// </remarks>
     private async Task<StashSortPlan?> SortAsync(
         StashReconstruction reconstruction,
@@ -1153,6 +1188,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         IReadOnlyDictionary<string, KeyFacts> keyFactsByItemId,
         CancellationToken cancellationToken)
     {
+        _sortFailed = false;
         if (_planSource is null || _profileContext?.Current.ActiveProfile is not { } profile || reconstruction.KnownTiles == 0)
         {
             return null;
@@ -1175,6 +1211,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            // Said as what it is. The first version of this fell through to "no profile is
+            // active", which sent the reader looking for a fault that was not there.
+            _sortFailed = true;
             return null;
         }
     }

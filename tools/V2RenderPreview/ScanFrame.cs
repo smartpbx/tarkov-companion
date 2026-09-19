@@ -58,19 +58,7 @@ internal static class ScanFrame
         var profiles = services.GetRequiredService<IProfileRuntimeContextService>();
         var profile = profiles.Current.ActiveProfile
             ?? throw new InvalidOperationException("The demo composition has no active profile.");
-        if (fleaRates?.Split(',') is [var offer, var requirement])
-        {
-            await using var connection = await services.GetRequiredService<SqliteConnectionFactory>().OpenAsync(CancellationToken.None);
-            await using var command = connection.CreateCommand();
-            command.CommandText = """
-                INSERT OR REPLACE INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc)
-                VALUES (1, $offer, $requirement, $observed);
-                """;
-            command.Parameters.AddWithValue("$offer", double.Parse(offer, CultureInfo.InvariantCulture));
-            command.Parameters.AddWithValue("$requirement", double.Parse(requirement, CultureInfo.InvariantCulture));
-            command.Parameters.AddWithValue("$observed", clock.GetUtcNow().AddHours(-1).ToString("O", CultureInfo.InvariantCulture));
-            await command.ExecuteNonQueryAsync(CancellationToken.None);
-        }
+        await SeedFleaRatesAsync(services, fleaRates, clock.GetUtcNow());
 
         var preference = services.GetRequiredService<LootScanRaidPreference>();
         if (phase is not null)
@@ -103,7 +91,32 @@ internal static class ScanFrame
             CancellationToken.None), controls);
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    /// <summary>
+    /// Writes the row an items refresh would have written, and records that refresh, in a seeded
+    /// database copied before either was kept. Does nothing where no rates are given.
+    /// </summary>
+    internal static async Task SeedFleaRatesAsync(IServiceProvider services, string? fleaRates, DateTimeOffset now)
+    {
+        if (fleaRates?.Split(',') is not [var offer, var requirement])
+        {
+            return;
+        }
+
+        var observed = now.AddHours(-1).ToString("O", CultureInfo.InvariantCulture);
+        await using var connection = await services.GetRequiredService<SqliteConnectionFactory>().OpenAsync(CancellationToken.None);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR REPLACE INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc)
+            VALUES (1, $offer, $requirement, $observed);
+            UPDATE sync_state SET last_success_utc = $observed WHERE source_key = 'items';
+            """;
+        command.Parameters.AddWithValue("$offer", double.Parse(offer, CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$requirement", double.Parse(requirement, CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$observed", observed);
+        await command.ExecuteNonQueryAsync(CancellationToken.None);
+    }
+
+    internal sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
     }

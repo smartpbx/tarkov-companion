@@ -49,6 +49,8 @@
                           AutomationProperties.Name="{Binding AutomationName}">
                     <Panel>
                       <TextBlock Classes="stash-tile-name" Text="{Binding Name}" VerticalAlignment="Top" />
+                      <TextBlock Classes="stash-tile-tag" Classes.sell="{Binding IsSellTile}"
+                                 Text="{Binding GroupTag}" IsVisible="{Binding HasGroupTag}" />
                       <TextBlock Classes="stash-tile-detail" Text="{Binding Detail}" IsVisible="{Binding HasDetail}" />
                     </Panel>
                   </Button>
@@ -161,6 +163,16 @@
       <Setter Property="LineHeight" Value="12" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.stash-tile-tag">
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="HorizontalAlignment" Value="Left" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.stash-tile-tag.sell">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.stash-tile-detail">
       <Setter Property="FontSize" Value="10" />

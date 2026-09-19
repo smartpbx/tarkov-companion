@@ -20,6 +20,8 @@ public sealed class StashPlanSourceTests
 {
     private static readonly DateTimeOffset Now = LootScanFactFixtures.Now;
 
+    public StashPlanSourceTests() => System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+
     [Fact]
     public async Task WhatNothingNeedsIsSoldWhereItFetchesMostAndSaysWhatItFetches()
     {
@@ -35,6 +37,8 @@ public sealed class StashPlanSourceTests
         // No flea listing, so the trader is the only way to sell it.
         Assert.Equal(StashPlanGroup.Sell, keycard.Group);
         Assert.Contains(keycard.ReasonCodes, code => code.StartsWith("economics.trader.", StringComparison.Ordinal));
+        Assert.Equal("To a trader, ₽90,000.", StashSortWording.Why(keycard, sorted.ReasonsByItemKey[keycard.ItemKey]));
+        Assert.StartsWith("On the flea, about ₽", StashSortWording.Why(gpu, sorted.ReasonsByItemKey[gpu.ItemKey]), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -86,6 +90,29 @@ public sealed class StashPlanSourceTests
     }
 
     [Fact]
+    public async Task GearIsNotToldToBeSoldAndStillSaysWhatItWouldFetch()
+    {
+        // The first real render put an M4A1 and the player's armour under Sell.
+        var sorted = await SortAsync([Tile(0, 0, "rifle", 5, 2)]);
+
+        var rifle = Assert.Single(sorted.Plan.Items);
+        Assert.Equal(StashPlanGroup.Review, rifle.Group);
+        Assert.Contains("stash.specialist.gear-unresolved", rifle.ReasonCodes);
+        Assert.NotNull(rifle.NetValueRoubles.Value);
+        Assert.StartsWith("Gear isn't sorted yet. It would fetch about ₽", StashSortWording.Why(rifle, null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GearThePlayerPinnedIsKeptWithoutWaitingForASpecialist()
+    {
+        var sorted = await SortAsync(
+            [Tile(0, 0, "rifle", 5, 2)],
+            progress: progress => LootScanProfileRules.WithPin(progress, "rifle", true));
+
+        Assert.Equal(StashPlanGroup.Keep, Assert.Single(sorted.Plan.Items).Group);
+    }
+
+    [Fact]
     public async Task ATileNobodyNamedIsNotInThePlanAndOneTheCatalogDoesNotKnowIsUnderReview()
     {
         var sorted = await SortAsync([Tile(0, 0, null, 1, 1), Tile(0, 1, "not-in-the-catalog", 1, 1)]);
@@ -101,6 +128,14 @@ public sealed class StashPlanSourceTests
     {
         // The tile was read a day before the plan is made; the prices are an hour old.
         var sorted = await SortAsync([Tile(0, 0, "gpu", 2, 1, readHoursAgo: 26)]);
+
+        Assert.Equal(StashPlanGroup.Sell, Assert.Single(sorted.Plan.Items).Group);
+    }
+
+    [Fact]
+    public async Task ASnapshotStampedAheadOfTheClockIsStillSorted()
+    {
+        var sorted = await SortAsync([Tile(0, 0, "gpu", 2, 1, readHoursAgo: -48)]);
 
         Assert.Equal(StashPlanGroup.Sell, Assert.Single(sorted.Plan.Items).Group);
     }

@@ -31,6 +31,7 @@ internal static class LootScanFactFixtures
             ["keycard"] = ("Lab keycard", 1, 1, false, null, 90_000, 50_000, 0, 720),
             ["relic"] = ("Relic", 1, 1, true, 100_000, 20_000, 60_000, 30, 720),
             ["item-gas-analyzer"] = ("Gas analyzer", 1, 1, true, 40_000, 15_000, 20_000, 35, 1),
+            ["rifle"] = ("Rifle", 5, 2, true, 60_000, 25_000, 45_000, 50, 1),
         };
 
         public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
@@ -40,7 +41,7 @@ internal static class LootScanFactFixtures
                     item.Name,
                     item.Name,
                     string.Empty,
-                    ItemCategory.Barter,
+                    itemId == "rifle" ? ItemCategory.Weapon : ItemCategory.Barter,
                     new ItemDimensions(item.Width, item.Height),
                     item.Flea,
                     null,
