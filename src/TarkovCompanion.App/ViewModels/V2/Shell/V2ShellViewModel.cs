@@ -25,6 +25,7 @@ using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -540,7 +541,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             "V2.Shell.Capture.Evidence",
             CultureInfo.CurrentCulture,
             review.Provenance,
-            review.CapturedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))
+            LocalTime.Moment(review.CapturedUtc))
         : string.Empty;
     public string CaptureShortcutStatus => V2ShellText.Get(
         CaptureShortcutEnabled ? "V2.Shell.Capture.ShortcutOn" : "V2.Shell.Capture.ShortcutOff");
@@ -554,7 +555,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public string LocalTimeLabel => V2ShellText.Format(
         "V2.Shell.Context.LocalTime",
         CultureInfo.CurrentCulture,
-        _clock.GetLocalNow().ToString("t", CultureInfo.CurrentCulture));
+        LocalTime.ShortTime(_clock.GetUtcNow()));
     public string RaidContextLabel => FormatRaidContext(_runtime.Current.Raid, _clock.GetUtcNow());
     /// <summary>The top bar's compact raid clock chip, e.g. "In raid · 12:34 left".</summary>
     public string RaidClockLabel => FormatRaidClock(_runtime.Current.Raid, _clock.GetUtcNow());

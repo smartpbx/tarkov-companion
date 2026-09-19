@@ -84,6 +84,23 @@ The relay cannot start a systemd unit and must not be able to — asking it to u
 that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
 them reaches the box.
 
+## Times the player reads
+
+Storage, the protocol, the database, the logs, and the checksummed exchange envelopes (profile,
+quest-progress, and stash-snapshot documents) hold UTC and never change. Every absolute time a
+person reads is that instant shown in the player's own zone, and only
+`TarkovCompanion.Core.Common.LocalTime` does the conversion. A view model calls `LocalTime.Moment`,
+`Time`, `ShortTime`, or `Date` (the player's culture) or `Sortable` / `SortableSeconds` (a fixed
+order for diagnostics); it never calls `ToLocalTime`, prints `:u`, or writes "UTC" after a time.
+Relative times ("4h ago") stay relative and are computed from two UTC instants.
+
+Output that leaves the screen says which clock it uses. The raid-history CSV is opened in a
+spreadsheet, so it carries the local clock under `start_local` / `end_local` headers; the JSON is
+ISO-8601 at the local numeric offset, so a program reads the identical instant. Copied diagnostics
+name the player's offset once in the header. Tests pin a zone that is never UTC
+(`LocalTime.UseZone`), because a UTC-only CI box prints local and UTC identically and hid this bug;
+`LocalTimeRuleContractTests` fails when a call site goes around the helper.
+
 ## Cross-platform contract
 
 Linux must build and test all domain, application, data, recognition, simulator, and demo behavior. Windows-specific code is guarded behind interfaces and runtime OS checks. The self-contained `win-x64` publish is produced on Linux and proven in the Windows VM with synthetic permitted inputs.
