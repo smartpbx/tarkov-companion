@@ -1,0 +1,2135 @@
+{
+ "source": "https://raw.githubusercontent.com/the-hideout/tarkov-dev/main/src/data/maps.json",
+ "retrievedUtc": "2026-09-18T00:00:00Z",
+ "svgViewBox": {
+  "customs": [
+   1062.4827,
+   535.17401
+  ],
+  "factory": [
+   130.81831,
+   141.23242
+  ],
+  "ground-zero": [
+   348.92543,
+   488.44792
+  ],
+  "interchange": [
+   1127.6852,
+   947.02582
+  ],
+  "lighthouse": [
+   1059.3752,
+   1722.9499
+  ],
+  "reserve": [
+   827.28742,
+   761.16437
+  ],
+  "shoreline": [
+   1559.5717,
+   1032.4935
+  ],
+  "streets-of-tarkov": [
+   605.32395,
+   831.57753
+  ],
+  "terminal": [
+   887.70096,
+   1043.9554
+  ],
+  "woods": [
+   1472.7926,
+   1420.5995
+  ]
+ },
+ "maps": [
+  {
+   "normalizedName": "streets-of-tarkov",
+   "primaryPath": "/map/streets-of-tarkov",
+   "maps": [
+    {
+     "key": "streets-of-tarkov",
+     "projection": "interactive",
+     "transform": [
+      0.38,
+      0,
+      0.38,
+      0
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       323,
+       -295
+      ],
+      [
+       -280,
+       532
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/StreetsOfTarkov.svg",
+     "svgLayer": "Ground_Level",
+     "minZoom": 1,
+     "maxZoom": 5,
+     "heightRange": [
+      -6,
+      10
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          10,
+          15
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          15,
+          20
+         ]
+        }
+       ]
+      },
+      {
+       "name": "4th Floor",
+       "svgLayer": "Fourth_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          20,
+          25
+         ]
+        }
+       ]
+      },
+      {
+       "name": "5th Floor",
+       "svgLayer": "Fifth_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          25,
+          10000
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Underground",
+       "svgLayer": "Underground_Level",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -10000,
+          -6
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "ground-zero",
+   "primaryPath": "/map/ground-zero",
+   "maps": [
+    {
+     "key": "ground-zero",
+     "projection": "interactive",
+     "transform": [
+      0.524,
+      167.3,
+      0.524,
+      65.1
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       249,
+       -124
+      ],
+      [
+       -99,
+       364
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/GroundZero.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/groundzero/main_summer/{z}/{x}/{y}.png",
+     "tileSize": 256,
+     "minZoom": 1,
+     "maxZoom": 6,
+     "heightRange": [
+      -1000,
+      28
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "altMaps": [
+      "ground-zero-21"
+     ],
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/groundzero/2nd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          28,
+          32.3
+         ]
+        },
+        {
+         "height": [
+          26,
+          31
+         ],
+         "bounds": [
+          [
+           [
+            98,
+            216
+           ],
+           [
+            91,
+            228
+           ],
+           "m showroom"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/groundzero/3rd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          32.3,
+          1000
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Garage",
+       "svgLayer": "Underground_Level",
+       "tilePath": "https://assets.tarkov.dev/maps/groundzero/garage/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -1000,
+          21
+         ],
+         "bounds": [
+          [
+           [
+            117,
+            -100
+           ],
+           [
+            43,
+            190
+           ],
+           "garage"
+          ],
+          [
+           [
+            143,
+            49
+           ],
+           [
+            117,
+            80
+           ],
+           "underpass"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "customs",
+   "primaryPath": "/map/customs",
+   "maps": [
+    {
+     "key": "customs",
+     "projection": "interactive",
+     "transform": [
+      0.239,
+      168.65,
+      0.239,
+      136.35
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       698,
+       -307
+      ],
+      [
+       -372,
+       237
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Customs.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/main/{z}/{x}/{y}.png",
+     "tileSize": 256,
+     "minZoom": 2,
+     "maxZoom": 6,
+     "heightRange": [
+      -1000,
+      1000
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/2nd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          2.7,
+          6.5
+         ],
+         "bounds": [
+          [
+           [
+            243,
+            190
+           ],
+           [
+            165,
+            125
+           ],
+           "dorms"
+          ],
+          [
+           [
+            116,
+            -83
+           ],
+           [
+            72,
+            -170
+           ],
+           "mechanic"
+          ],
+          [
+           [
+            356,
+            -30
+           ],
+           [
+            341,
+            -84
+           ],
+           "switch 2nd"
+          ],
+          [
+           [
+            334,
+            -52
+           ],
+           [
+            321,
+            -59
+           ],
+           "switch 2nd"
+          ],
+          [
+           [
+            589,
+            10
+           ],
+           [
+            577,
+            -1
+           ],
+           "scav checkpoint"
+          ],
+          [
+           [
+            580,
+            -104
+           ],
+           [
+            532,
+            -134
+           ],
+           "dead scav warehouse"
+          ],
+          [
+           [
+            625,
+            -120
+           ],
+           [
+            599,
+            -139
+           ],
+           "pump 2nd"
+          ]
+         ]
+        },
+        {
+         "height": [
+          5.7,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            580,
+            -104
+           ],
+           [
+            532,
+            -134
+           ],
+           "dead scav warehouse"
+          ],
+          [
+           [
+            -199,
+            -90
+           ],
+           [
+            -223,
+            -131
+           ],
+           "big red 2nd"
+          ],
+          [
+           [
+            239,
+            3
+           ],
+           [
+            169,
+            -160
+           ],
+           "skeleton"
+          ],
+          [
+           [
+            336,
+            -56
+           ],
+           [
+            316,
+            -95
+           ],
+           "switch snipe"
+          ],
+          [
+           [
+            584,
+            -46
+           ],
+           [
+            556,
+            -92
+           ],
+           "USEC 2nd"
+          ],
+          [
+           [
+            93,
+            0
+           ],
+           [
+            65,
+            -22
+           ],
+           "construction 2nd"
+          ]
+         ]
+        },
+        {
+         "height": [
+          14,
+          15
+         ],
+         "bounds": [
+          [
+           [
+            497,
+            -44
+           ],
+           [
+            450,
+            -90
+           ],
+           "chemical warehouse sniper scav"
+          ]
+         ]
+        },
+        {
+         "height": [
+          3.9,
+          7.6
+         ],
+         "bounds": [
+          [
+           [
+            73,
+            57
+           ],
+           [
+            22,
+            -38
+           ],
+           "warehouse 17"
+          ]
+         ]
+        },
+        {
+         "height": [
+          4.4,
+          6.5
+         ],
+         "bounds": [
+          [
+           [
+            119,
+            -57
+           ],
+           [
+            100,
+            -42
+           ],
+           "boiler"
+          ]
+         ]
+        },
+        {
+         "height": [
+          4.6,
+          7.9
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/3rd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          5.7,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            243,
+            190
+           ],
+           [
+            165,
+            125
+           ],
+           "dorms"
+          ]
+         ]
+        },
+        {
+         "height": [
+          7.7,
+          11.3
+         ],
+         "bounds": [
+          [
+           [
+            73,
+            -73
+           ],
+           [
+            22,
+            -38
+           ],
+           "warehouse 17"
+          ]
+         ]
+        },
+        {
+         "height": [
+          6.7,
+          11.6
+         ],
+         "bounds": [
+          [
+           [
+            126,
+            -64
+           ],
+           [
+            88,
+            -35
+           ],
+           "boiler"
+          ]
+         ]
+        },
+        {
+         "height": [
+          8.0,
+          11.1
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "4th Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/4th/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          11.2,
+          54.7
+         ],
+         "bounds": [
+          [
+           [
+            279,
+            -79
+           ],
+           [
+            246,
+            -1.4
+           ],
+           "oilrig & panda"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Underground",
+       "svgLayer": "Underground_Level",
+       "tilePath": "https://assets.tarkov.dev/maps/customs_0.16/underground/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -1000,
+          0.5
+         ],
+         "bounds": [
+          [
+           [
+            635,
+            -137
+           ],
+           [
+            620,
+            -125
+           ],
+           "zb-1011"
+          ],
+          [
+           [
+            473,
+            -122
+           ],
+           [
+            458,
+            -110
+           ],
+           "zb-1012"
+          ],
+          [
+           [
+            314,
+            -173
+           ],
+           [
+            308,
+            -184
+           ],
+           "old gas"
+          ],
+          [
+           [
+            349,
+            -88
+           ],
+           [
+            323,
+            -32
+           ],
+           "switch basement"
+          ],
+          [
+           [
+            219,
+            -158
+           ],
+           [
+            193,
+            -137
+           ],
+           "zb-013"
+          ],
+          [
+           [
+            122,
+            -61
+           ],
+           [
+            88,
+            -40
+           ],
+           "boiler room"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "factory",
+   "primaryPath": "/map/factory-3d",
+   "maps": [
+    {
+     "key": "factory",
+     "projection": "interactive",
+     "transform": [
+      1.629,
+      119.9,
+      1.629,
+      139.3
+     ],
+     "coordinateRotation": 90,
+     "bounds": [
+      [
+       77,
+       -64.5
+      ],
+      [
+       -65.5,
+       67.4
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Factory.svg",
+     "svgLayer": "Ground_Floor",
+     "tilePath": "https://assets.tarkov.dev/maps/factory/main/{z}/{x}/{y}.png",
+     "tileSize": 256,
+     "minZoom": 1,
+     "maxZoom": 6,
+     "heightRange": [
+      -1,
+      3
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "altMaps": [
+      "night-factory"
+     ],
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/factory/2nd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          3,
+          6
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/factory/3rd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          6,
+          10000
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Tunnels",
+       "svgLayer": "Basement",
+       "tilePath": "https://assets.tarkov.dev/maps/factory/tunnels/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -10000,
+          -1
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "icebreaker",
+   "primaryPath": "/map/icebreaker",
+   "maps": [
+    {
+     "key": "icebreaker",
+     "projection": "interactive",
+     "transform": [
+      2.0,
+      125.0,
+      3.5,
+      91.0
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       77,
+       -64.5
+      ],
+      [
+       -65.5,
+       67.4
+      ]
+     ],
+     "tilePath": "https://assets.tarkov.dev/maps/icebreaker/06_infirmary/{z}/{x}/{y}.png",
+     "tileSize": 256,
+     "minZoom": 1,
+     "maxZoom": 5,
+     "heightRange": [
+      18.92,
+      19.56
+     ],
+     "author": "TarkovBOT.eu",
+     "authorLink": "https://tarkovbot.eu/",
+     "layers": [
+      {
+       "name": "Infirmary",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/06_infirmary/{z}/{x}/{y}.png",
+       "show": true,
+       "extents": [
+        {
+         "height": [
+          18.92,
+          19.56
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Helipad",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/07_helipad/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          19.57,
+          22.1
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Gym/Canteen",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/08_gym-canteen/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          22.2,
+          25.2
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Accommodation (lower)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/09_accommodation_lower/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          25.3,
+          28.2
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Accommodation (mid)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/10_accommodation_mid/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          28.3,
+          31.3
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Accommodation (upper)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/11_accommodation_upper/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          31.4,
+          34.4
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Officers' Deck",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/12_officers_deck/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          34.5,
+          37.5
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Stairs (blocked)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/13_stairs_blocked/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          37.6,
+          40.6
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Bridge",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/14_bridge/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          40.7,
+          43.7
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Bridge Roof",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/15_bridge_roof/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          43.8,
+          10000
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Control Room",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/00_control_room/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -10000,
+          3.5
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Engine Room",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/01_engine_room/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          3.6,
+          5.6
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Engine Room (upper)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/02_engine_room_upper/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          5.7,
+          8.7
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Fuel Pumps (lower)",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/03_fuel_pumps_lower/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          8.8,
+          11.8
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Fuel Pumps",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/04_fuel_pumps/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          11.9,
+          14.9
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Storage/Security",
+       "tilePath": "https://assets.tarkov.dev/maps/icebreaker/05_storage_ecurity/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          15,
+          18.93
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "interchange",
+   "primaryPath": "/map/interchange-2d",
+   "maps": [
+    {
+     "key": "interchange",
+     "projection": "interactive",
+     "transform": [
+      0.265,
+      150.6,
+      0.265,
+      134.6
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       598,
+       -442
+      ],
+      [
+       -433,
+       426
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Interchange.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/interchange/main/{z}/{x}/{y}.png",
+     "tileSize": 256,
+     "minZoom": 1,
+     "maxZoom": 6,
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "First_Floor",
+       "show": true,
+       "extents": [
+        {
+         "height": [
+          25,
+          34
+         ],
+         "bounds": [
+          [
+           [
+            120,
+            218
+           ],
+           [
+            -222,
+            -327
+           ],
+           "mall"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Second_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          34,
+          1000
+         ],
+         "bounds": [
+          [
+           [
+            120,
+            218
+           ],
+           [
+            -222,
+            -327
+           ],
+           "mall"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "the-lab",
+   "primaryPath": "/map/labs-2d",
+   "maps": [
+    {
+     "key": "the-lab",
+     "projection": "interactive",
+     "transform": [
+      0.575,
+      281.2,
+      0.575,
+      193.7
+     ],
+     "coordinateRotation": 270,
+     "bounds": [
+      [
+       -80,
+       -477
+      ],
+      [
+       -287,
+       -193
+      ]
+     ],
+     "tilePath": "https://assets.tarkov.dev/maps/labs_v4/1st/{z}/{x}/{y}.png",
+     "tileSize": 175,
+     "minZoom": 2,
+     "maxZoom": 6,
+     "heightRange": [
+      -0.9,
+      3
+     ],
+     "author": "Tarkov.dev",
+     "authorLink": "https://tarkov.dev",
+     "altMaps": [
+      "the-lab-dark"
+     ],
+     "layers": [
+      {
+       "name": "Second Level",
+       "tilePath": "https://assets.tarkov.dev/maps/labs_v4/2nd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          3,
+          10000
+         ],
+         "bounds": [
+          [
+           [
+            -101,
+            -422
+           ],
+           [
+            -271,
+            -270
+           ]
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Technical",
+       "tilePath": "https://assets.tarkov.dev/maps/labs_v4/technical/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -10000,
+          -0.9
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "the-labyrinth",
+   "primaryPath": "/map/labyrinth",
+   "maps": [
+    {
+     "key": "the-labyrinth",
+     "projection": "interactive",
+     "transform": [
+      2.115,
+      85.5,
+      2.115,
+      128.0
+     ],
+     "coordinateRotation": 270,
+     "bounds": [
+      [
+       -52,
+       -37
+      ],
+      [
+       53,
+       76
+      ]
+     ],
+     "tilePath": "https://assets.tarkov.dev/maps/labyrinth/main/{z}/{x}/{y}.png",
+     "minZoom": 1,
+     "maxZoom": 6,
+     "author": "Tarkov.dev",
+     "authorLink": "https://tarkov.dev"
+    }
+   ]
+  },
+  {
+   "normalizedName": "lighthouse",
+   "primaryPath": "/map/lighthouse-2d-landscape",
+   "maps": [
+    {
+     "key": "lighthouse",
+     "projection": "interactive",
+     "transform": [
+      0.2,
+      0,
+      0.2,
+      0
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       515,
+       -998
+      ],
+      [
+       -545,
+       725
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Lighthouse.svg",
+     "svgLayer": "Ground_Level",
+     "minZoom": 1,
+     "maxZoom": 6,
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": []
+    }
+   ]
+  },
+  {
+   "normalizedName": "reserve",
+   "primaryPath": "/map/reserve-3d",
+   "maps": [
+    {
+     "key": "reserve",
+     "projection": "interactive",
+     "transform": [
+      0.395,
+      122.0,
+      0.395,
+      137.65
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       289,
+       -293
+      ],
+      [
+       -303,
+       244
+      ]
+     ],
+     "svgBounds": [
+      [
+       289,
+       -274
+      ],
+      [
+       -303,
+       272
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Reserve.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/reserve/main/{z}/{x}/{y}.png",
+     "minZoom": 2,
+     "maxZoom": 6,
+     "heightRange": [
+      -7,
+      10000
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/reserve/2nd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          22.1,
+          25.7
+         ],
+         "bounds": [
+          [
+           [
+            1,
+            164
+           ],
+           [
+            -17,
+            199
+           ],
+           "dome"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -3.5,
+          -0.64
+         ],
+         "bounds": [
+          [
+           [
+            -77,
+            26
+           ],
+           [
+            -177,
+            106
+           ],
+           "pawns"
+          ],
+          [
+           [
+            62,
+            59
+           ],
+           [
+            51,
+            108
+           ],
+           "checkpoint fence tower"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -3.5,
+          -0.64
+         ],
+         "bounds": [
+          [
+           [
+            -104,
+            -37
+           ],
+           [
+            -177,
+            5
+           ],
+           "black bishop"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -3.9,
+          -0.6
+         ],
+         "bounds": [
+          [
+           [
+            -47,
+            -47
+           ],
+           [
+            -85,
+            -18
+           ],
+           "white bishop"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -4.3,
+          -2.2
+         ],
+         "bounds": [
+          [
+           [
+            -19.91,
+            -13
+           ],
+           [
+            -78,
+            39
+           ],
+           "white king"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -3.8,
+          -1.1
+         ],
+         "bounds": [
+          [
+           [
+            99,
+            -50
+           ],
+           [
+            -2,
+            7
+           ],
+           "knights"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -1.9,
+          11.3
+         ],
+         "bounds": [
+          [
+           [
+            191,
+            -175
+           ],
+           [
+            137,
+            -120
+           ],
+           "train depot"
+          ]
+         ]
+        },
+        {
+         "height": [
+          1,
+          8
+         ],
+         "bounds": [
+          [
+           [
+            -109,
+            -156
+           ],
+           [
+            -119,
+            -147
+           ],
+           "towers"
+          ],
+          [
+           [
+            289,
+            -92
+           ],
+           [
+            299,
+            -82
+           ],
+           "towers"
+          ],
+          [
+           [
+            3,
+            -210
+           ],
+           [
+            -7,
+            -200
+           ],
+           "towers"
+          ],
+          [
+           [
+            195,
+            -260
+           ],
+           [
+            185,
+            -250
+           ],
+           "towers"
+          ],
+          [
+           [
+            276,
+            17
+           ],
+           [
+            266,
+            27
+           ],
+           "towers"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -4.1,
+          -1.2
+         ],
+         "bounds": [
+          [
+           [
+            -128,
+            -139
+           ],
+           [
+            -146,
+            -120
+           ],
+           "scav lands"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/reserve/3rd/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          25.7,
+          29.3
+         ],
+         "bounds": [
+          [
+           [
+            1,
+            164
+           ],
+           [
+            -17,
+            199
+           ],
+           "dome"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -0.64,
+          2.23
+         ],
+         "bounds": [
+          [
+           [
+            -77,
+            26
+           ],
+           [
+            -177,
+            106
+           ],
+           "pawns"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -0.64,
+          2.23
+         ],
+         "bounds": [
+          [
+           [
+            -104,
+            -37
+           ],
+           [
+            -177,
+            5
+           ],
+           "black bishop"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -0.6,
+          10
+         ],
+         "bounds": [
+          [
+           [
+            -47,
+            -47
+           ],
+           [
+            -85,
+            -18
+           ],
+           "white bishop"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -2.2,
+          2.14
+         ],
+         "bounds": [
+          [
+           [
+            -19.91,
+            -13
+           ],
+           [
+            -78,
+            39
+           ],
+           "white king"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -1.1,
+          1.6
+         ],
+         "bounds": [
+          [
+           [
+            99,
+            -50
+           ],
+           [
+            -2,
+            7
+           ],
+           "knights"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "4th Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/reserve/4th/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          29.3,
+          36
+         ],
+         "bounds": [
+          [
+           [
+            1,
+            164
+           ],
+           [
+            -17,
+            199
+           ],
+           "dome"
+          ]
+         ]
+        },
+        {
+         "height": [
+          2.23,
+          5
+         ],
+         "bounds": [
+          [
+           [
+            -77,
+            26
+           ],
+           [
+            -177,
+            106
+           ],
+           "pawns"
+          ]
+         ]
+        },
+        {
+         "height": [
+          2.15,
+          6.6
+         ],
+         "bounds": [
+          [
+           [
+            -19.91,
+            -13
+           ],
+           [
+            -78,
+            39
+           ],
+           "white king"
+          ]
+         ]
+        },
+        {
+         "height": [
+          1.6,
+          4.7
+         ],
+         "bounds": [
+          [
+           [
+            99,
+            -50
+           ],
+           [
+            -2,
+            7
+           ],
+           "knights"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "5th Floor",
+       "tilePath": "https://assets.tarkov.dev/maps/reserve/5th/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          5,
+          9.5
+         ],
+         "bounds": [
+          [
+           [
+            -77,
+            26
+           ],
+           [
+            -177,
+            106
+           ],
+           "pawns"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Bunkers",
+       "svgLayer": "Bunkers",
+       "tilePath": "https://assets.tarkov.dev/maps/reserve/bunkers/{z}/{x}/{y}.png",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -10000,
+          -7.27
+         ],
+         "bounds": [
+          [
+           [
+            128,
+            -208
+           ],
+           [
+            18,
+            -33
+           ],
+           "storage bunker"
+          ],
+          [
+           [
+            -46,
+            -42
+           ],
+           [
+            -176,
+            127
+           ],
+           "command bunkers"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -10000,
+          -12
+         ],
+         "bounds": [
+          [
+           [
+            -40,
+            124
+           ],
+           [
+            -124,
+            189
+           ],
+           "D2"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -10000,
+          18
+         ],
+         "bounds": [
+          [
+           [
+            23,
+            173
+           ],
+           [
+            -65,
+            189
+           ],
+           "dome tunnels"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -7.27,
+          -3.2
+         ],
+         "bounds": [
+          [
+           [
+            74,
+            -196
+           ],
+           [
+            19,
+            -149
+           ],
+           "bunker hermetic door bunkers"
+          ]
+         ]
+        },
+        {
+         "height": [
+          -11,
+          -4.6
+         ],
+         "bounds": [
+          [
+           [
+            -246,
+            -79
+           ],
+           [
+            -274,
+            -53
+           ],
+           "E1 bunkers"
+          ],
+          [
+           [
+            238,
+            -26
+           ],
+           [
+            126,
+            45
+           ],
+           "bunkers"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "shoreline",
+   "primaryPath": "/map/shoreline-2d",
+   "maps": [
+    {
+     "key": "shoreline",
+     "projection": "interactive",
+     "transform": [
+      0.16,
+      83.2,
+      0.16,
+      111.1
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       504,
+       -415
+      ],
+      [
+       -1056,
+       618
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Shoreline.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/shoreline/main_summer/{z}/{x}/{y}.png",
+     "minZoom": 2,
+     "maxZoom": 6,
+     "heightRange": [
+      -1000,
+      -1
+     ],
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": [
+      {
+       "name": "2nd Floor",
+       "svgLayer": "Second_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -1,
+          2
+         ]
+        }
+       ]
+      },
+      {
+       "name": "3rd Floor",
+       "svgLayer": "Third_Floor",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          2,
+          1000
+         ]
+        }
+       ]
+      },
+      {
+       "name": "Underground",
+       "svgLayer": "Underground_Level",
+       "show": false,
+       "extents": [
+        {
+         "height": [
+          -1000,
+          -5
+         ],
+         "bounds": [
+          [
+           [
+            -137,
+            -68
+           ],
+           [
+            -237,
+            -104
+           ],
+           "west wing"
+          ],
+          [
+           [
+            -234,
+            -134
+           ],
+           [
+            -268,
+            -163
+           ],
+           "admin"
+          ]
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "normalizedName": "terminal",
+   "primaryPath": null,
+   "maps": [
+    {
+     "key": "terminal",
+     "projection": "interactive",
+     "transform": [
+      0.2,
+      0,
+      0.2,
+      0
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       463,
+       -580
+      ],
+      [
+       -433,
+       475
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Terminal.svg",
+     "svgLayer": "Ground_Level",
+     "minZoom": 2,
+     "maxZoom": 6,
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": []
+    }
+   ]
+  },
+  {
+   "normalizedName": "woods",
+   "primaryPath": "/map/woods-2d",
+   "maps": [
+    {
+     "key": "woods",
+     "projection": "interactive",
+     "transform": [
+      0.1855,
+      112.95,
+      0.1855,
+      167.85
+     ],
+     "coordinateRotation": 180,
+     "bounds": [
+      [
+       646,
+       -914
+      ],
+      [
+       -761,
+       442
+      ]
+     ],
+     "svgPath": "https://assets.tarkov.dev/maps/svg/Woods.svg",
+     "svgLayer": "Ground_Level",
+     "tilePath": "https://assets.tarkov.dev/maps/woods/main_0.16/{z}/{x}/{y}.png",
+     "minZoom": 2,
+     "maxZoom": 6,
+     "author": "Shebuka",
+     "authorLink": "https://github.com/the-hideout/tarkov-dev-svg-maps/",
+     "layers": []
+    }
+   ]
+  }
+ ]
+}

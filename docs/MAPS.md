@@ -141,6 +141,23 @@ shaped like `TarkovCompanion.CompanionProtocol`'s own `MapMark` so a paired-devi
 one to the other without a new local model. They render as `MapSceneObjectKind.Ping`/`Waypoint`
 objects on their own scene layer, exactly like any other object the assembler places.
 
+A mark is made by gesture; there is nothing to arm first. On the desktop, right-click on bare map
+drops a ping and shift+right-click drops a numbered waypoint, while right-click on an existing mark
+— ours or the group's — removes it. Removal beats placement: `MapSceneRendererView` raises exactly
+one of `MarkerRightClicked` and `PlanRightClicked` per gesture, so the press that removes a mark can
+never also place one, and the hit area is the marker's own rather than the pixel. Both arms mark the
+gesture handled, so nothing above the plan can turn it into a context menu.
+
+The tablet has no second button, so the same three outcomes ride on how a finger behaves. Drag pans
+and pinch zooms, and neither ever leaves a mark. A tap on bare plan pings; a tap on an object selects
+it; a press held on bare plan drops a waypoint; a press held on a mark removes it. The numbers that
+tell those apart are deliberate and live in `Tablet/index.html`: a press may wander 12 CSS pixels
+from where it went down (measured straight-line, not summed along the path, so a still finger's
+jitter cannot add up to a drag), a tap is a press released within 350 ms, and a hold is 500 ms — which
+fires while the finger is still down, so the mark appears under it. A second finger cancels the press
+outright, because a pinch is never a tap. A press that placed or removed something draws a ring where
+the finger was, since there is no pointer to show what was hit.
+
 The historical-traffic layer is registered (`HistoricalTrafficRuntimeService`) but not yet
 evaluated: nothing in this pass supplies the installed `TrafficModelPublication` its scope
 (game version, wipe, cohort) needs, so the cockpit shows a static "no installed model" notice
