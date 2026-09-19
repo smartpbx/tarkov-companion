@@ -10,8 +10,8 @@ This companion is external and read-only toward Escape from Tarkov. It never acc
 | Crash recovery primitive | In-memory only | At most 12 copied sanitized events and 12 run boundaries; #270 owns any durable recovery storage. |
 | Desktop support bundle | Created on demand by the desktop | Closed, bounded projection containing fixed categories, booleans, capped counts, numeric build/platform facts, and screenshot-name compatibility counts. It does not open the log or render names, paths, coordinates, credentials, OCR/pixels, exception bodies, or other free-form runtime text. |
 | Problem report | Relay reports directory | The ordinary desktop sends that exact closed bundle, but the endpoint accepts any caller-supplied body and retains it verbatim. A validated public issue is limited to reference, size, and received UTC. |
-| Public relay `/health` | Public endpoint | Includes aggregate room/member counts and start time today, in addition to status/build fields. |
-| `RelayReadiness` | No route or consumer | The model exists but does not expose an authenticated endpoint yet. |
+| Public relay `/health` | Public endpoint | Status, protocol, version and commit only. |
+| Relay readiness | `GET /admin/readiness`, operator key required | Check verdicts, pressure signals, free disk in whole megabytes, and aggregate room/member/held counts; no paths, room identifiers, keys, names or positions. |
 
 The closed event model and desktop support-bundle projection both exclude free text, paths, screenshots, credentials, names, coordinates, raw log lines, and exception bodies. Hostile complete-payload fixtures enforce the desktop boundary. This does not make the report transport closed: **Report a problem** still sends without a separate confirmation preview, and the relay accepts arbitrary bodies from network callers. #281 owns the remaining preview experience; #310 owns relay validation, persistence, retention, and lifecycle. Report bodies must not be copied into public issues.
 

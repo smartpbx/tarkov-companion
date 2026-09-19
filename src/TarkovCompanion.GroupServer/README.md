@@ -68,7 +68,8 @@ its key in cleartext (`RISK-RELAY-KEY-DISCLOSURE`).
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
+| `GET` | `/health` | Liveness and build (status, protocol, version, commit), for the proxy, the updater and a person checking it is up |
+| `GET` | `/admin/readiness` | Operator key. Whether the relay is fit to serve, and its room/member/held counts |
 | `POST` | `/state` | Publish yourself, receive everyone else and the group's marks; `?wait=&since=` holds the answer until the room changes |
 | `GET` | `/state` | Read the room without joining it, for the second screen |
 | `DELETE` | `/state/{name}` | Leave immediately rather than timing out |

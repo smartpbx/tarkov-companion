@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer;
+using TarkovCompanion.GroupServer.Diagnostics;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
@@ -16,6 +17,8 @@ var builder = WebApplication.CreateBuilder(args);
 // 1 GB box should not be asked to buffer thirty megabytes because somebody sent it.
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
 builder.Services.AddSingleton(TimeProvider.System);
+// v2r-fin-relay (#281): what the readiness route needs and no probe can read.
+builder.Services.AddSingleton<RelayOperationalCounters>();
 builder.Services.AddSingleton<GroupRooms>();
 // v2r-fast-positions (package 31): what has changed in each room, so POST /state can hold its
 // answer until there is something new in it instead of making a caller wait for its own tick.
@@ -167,7 +170,10 @@ var app = builder.Build();
 // v2r-fin-relay (#278): the first middleware, so every response, refusals and 404s included, carries
 // the security headers and every request's transport is checked. See RelayHttpSecurityOptions for
 // why HTTPS enforcement waits for TARKOV_RELAY_TRUSTED_FORWARDERS and the headers do not.
-app.UseRelayHttpSecurity(RelayHttpSecurityOptions.FromEnvironment(app.Logger));
+var securityOptions = RelayHttpSecurityOptions.FromEnvironment(app.Logger);
+app.UseRelayHttpSecurity(securityOptions);
+var counters = app.Services.GetRequiredService<RelayOperationalCounters>();
+app.UseRelayOperationalCounters(counters);
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
@@ -249,6 +255,14 @@ var commit = build.Contains('+', StringComparison.Ordinal)
     : null;
 var startedUtc = DateTimeOffset.UtcNow;
 
+// Public, so it says what a proxy and the updater need and nothing a stranger could use: that the
+// relay is up, which protocol it speaks, and which build it is. The updater requires the signed
+// version, commit and protocol from here after an install (docs/RELEASES.md), and relay-watch
+// compares the commit with main's.
+//
+// It also said how many rooms and members the relay held, how many requests were being held open and
+// when it started. None of that is a health signal and all of it is somebody's activity, so it moved
+// to GET /admin/readiness behind the operator key (#281).
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
@@ -257,16 +271,28 @@ app.MapGet("/health", () => Results.Ok(new
     protocol = GroupProtocol.Version,
     version,
     commit,
-    startedUtc,
-    rooms = rooms.RoomCount,
-    members = rooms.MemberCount,
-    // v2r-fast-positions (package 31): exchanges being held open for a change right now.
-    held = roomChanges.WaitingCount,
-    // [V2 rough package 34] And the same for the paired tablets' map reads, which are held by
-    // the same rules against the same Kestrel. Counted separately because they are bounded
-    // separately, and the only way to see either bound being reached is from outside.
-    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
 }));
+
+// The operator's view of whether this relay is fit to serve: storage, disk, clock, build, updater,
+// latency and failures, the pressure signals, and the counts /health used to carry.
+app.MapRelayReadiness(
+    new RelayReadinessProbes(
+        TimeProvider.System,
+        StateDirectory(),
+        app.Services.GetRequiredService<RelayUpdate>(),
+        counters,
+        buildKnown: version != "unknown"),
+    new RelayOperatorContext(
+        GroupProtocol.Version,
+        version,
+        commit,
+        startedUtc,
+        securityOptions.TransportEnforced,
+        () => new RelayLoad(
+            rooms.RoomCount,
+            rooms.MemberCount,
+            roomChanges.WaitingCount,
+            app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount)));
 
 // The second screen.
 //

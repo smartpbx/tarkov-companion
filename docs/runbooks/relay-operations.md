@@ -5,8 +5,8 @@ Use UTC in incident notes. Never put group/admin/diagnostic keys, screenshots, O
 ## Readiness alert
 
 1. Use the single relay-watch issue; record its sanitized reason and UTC time.
-2. Check public `/health` for its liveness/build indication. It currently also exposes aggregate room/member counts, so do not treat it as a minimal liveness-only surface.
-3. There is currently no readiness route. Inspect the service journal, disk, clock, and updater state directly; do not claim a `RelayReadiness` result was observed.
+2. Check public `/health` for its liveness and build (`status`, `protocol`, `version`, `commit`; nothing else).
+3. With the operator key, `GET /admin/readiness` (header `X-Admin-Key`) says which check failed (`storage`, `disk`, `clock`, `build`, `updaterCheck`, `latency`, `failures`) and whether rate-limit or rejected-input pressure is elevated. Confirm what it says against the service journal, `df`, the clock and the updater's status directory before acting on it.
 4. Correct the failed condition, wait one scheduled watch interval, and comment on the existing incident. Do not open a duplicate.
 
 ## Backup and restore

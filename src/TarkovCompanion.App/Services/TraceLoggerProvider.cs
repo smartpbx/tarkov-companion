@@ -15,7 +15,9 @@ internal sealed class TraceLoggerProvider : ILoggerProvider
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+        // The factory's minimum level (TARKOV_COMPANION_DIAGNOSTIC_LOG_LEVEL) decides what is written; a
+        // floor here would make Debug and Trace unreachable without a rebuild.
+        public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
 
         public void Log<TState>(
             LogLevel logLevel,

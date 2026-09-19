@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace TarkovCompanion.Infrastructure.Diagnostics;
 
@@ -11,6 +12,16 @@ public sealed record DiagnosticRuntimeControls(
     bool InternalTelemetryRequested)
 {
     public static DiagnosticRuntimeControls LocalOnly { get; } = new(DiagnosticLogVerbosity.Information, false);
+
+    /// <summary>The level a logger factory should be given for <see cref="Verbosity"/>.</summary>
+    public LogLevel MinimumLogLevel => Verbosity switch
+    {
+        DiagnosticLogVerbosity.Trace => LogLevel.Trace,
+        DiagnosticLogVerbosity.Debug => LogLevel.Debug,
+        DiagnosticLogVerbosity.Warning => LogLevel.Warning,
+        DiagnosticLogVerbosity.Error => LogLevel.Error,
+        _ => LogLevel.Information,
+    };
 
     public static DiagnosticRuntimeControls FromEnvironment(Func<string, string?> readEnvironment)
     {

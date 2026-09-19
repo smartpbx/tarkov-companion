@@ -522,15 +522,22 @@ public static class SelfTestProbes
             new(
                 string.Create(culture, $"Running {reading.Version ?? "an unnamed build"}{(reading.Commit is null ? string.Empty : $" ({reading.Commit})")}, protocol {reading.Protocol?.ToString(culture) ?? "unknown"}"),
                 source),
-            new(
-                string.Create(culture, $"{reading.Rooms ?? 0} room(s) and {reading.Members ?? 0} member(s) on the relay"),
-                source),
-            new(
-                reading.Sharing
-                    ? string.Create(culture, $"Sharing is on as {reading.MyName ?? "an unnamed player"}, with {reading.Others.Count} other(s) in the room")
-                    : "Sharing is off, so nobody is being published to",
-                "the group settings file and the last exchange"),
         };
+
+        // The public health route stopped publishing room and member counts (#281), so a relay that
+        // does not report them is not one with zero of each, and this says nothing rather than that.
+        if (reading.Rooms is not null || reading.Members is not null)
+        {
+            facts.Add(new(
+                string.Create(culture, $"{reading.Rooms ?? 0} room(s) and {reading.Members ?? 0} member(s) on the relay"),
+                source));
+        }
+
+        facts.Add(new(
+            reading.Sharing
+                ? string.Create(culture, $"Sharing is on as {reading.MyName ?? "an unnamed player"}, with {reading.Others.Count} other(s) in the room")
+                : "Sharing is off, so nobody is being published to",
+            "the group settings file and the last exchange"));
 
         // Package 31's measurement where there is one: what the last few screenshots took to
         // arrive, not how old one marker happens to be. Where nothing has been delivered yet,

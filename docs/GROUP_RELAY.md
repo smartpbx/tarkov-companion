@@ -203,11 +203,11 @@ leaves the stale one standing.
 
 ## Health
 
-    GET /health   ->   {"status":"ok","protocol":1,"version":"2.0.1140", ...}
+    GET /health   ->   {"status":"ok","protocol":1,"version":"2.0.1140","commit":"..."}
 
 No key required. `protocol` is the number described above; `version` and `commit` say which
-build is answering. The current response also includes start time and aggregate room/member
-counts, so it is not a minimal liveness-only route.
+build is answering. That is all it says: room and member counts, held requests and start time are
+on `GET /admin/readiness`, which needs the operator key.
 
 ## Who may have a room
 
@@ -444,8 +444,8 @@ until the wait runs out — the same shape the group exchange uses, the same twe
 same global bound of 256 held requests past which a caller is answered immediately rather than
 refused, and the same rule that a caller naming neither parameter is answered exactly as before.
 The revision travels in the `X-Relay-Map-Revision` response header rather than in the body,
-because the body is the desktop's own bytes and the relay never parses them. `/health` reports
-`heldTabletReads`.
+because the body is the desktop's own bytes and the relay never parses them. `/admin/readiness`
+reports `heldTabletReads`.
 
 Both compatibility directions work untouched: an older tablet page names neither parameter and is
 answered at once; an older relay ignores both and sends no revision header, and a newer page falls

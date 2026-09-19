@@ -58,6 +58,9 @@ public sealed record RelayUpdateState(
 /// </remarks>
 /// <param name="stateDirectory">This relay's own state directory, where the request marker is written.</param>
 /// <param name="statusDirectory">The directory the updater publishes its status into, which this process only reads.</param>
+/// <summary>Whether an updater reports here, and when it last authenticated a release decision.</summary>
+public readonly record struct RelayUpdaterCheck(bool Configured, DateTimeOffset? LastVerifiedUtc);
+
 public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
 {
     private const int Sha256Length = 64;
@@ -93,6 +96,37 @@ public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
     /// Asks for an update, by writing the file the path unit watches.
     /// </summary>
     /// <returns>Whether the request was written.</returns>
+    /// <summary>
+    /// Whether an updater reports to this relay at all, and when it last authenticated a release
+    /// decision, for the readiness probe.
+    /// </summary>
+    /// <remarks>
+    /// The updater rewrites <c>PUBLISHED_SHA256</c> each time it authenticates the ring's decision,
+    /// changed or not, so its modification time is the age of the last successful check and not of
+    /// the last release: a quiet release is healthy, an updater that stopped checking is not. The
+    /// directory is root's, which this process can read and cannot write, so a compromised relay
+    /// cannot make itself look freshly checked.
+    /// </remarks>
+    public RelayUpdaterCheck ReadLastVerifiedCheck()
+    {
+        if (!IsAvailable || !HasSeparateStatusDirectory())
+        {
+            return new(false, null);
+        }
+
+        try
+        {
+            var stamp = new FileInfo(Path.Combine(statusDirectory!, "PUBLISHED_SHA256"));
+            return stamp.Exists && stamp.LinkTarget is null
+                ? new(true, new DateTimeOffset(stamp.LastWriteTimeUtc, TimeSpan.Zero))
+                : new(true, null);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new(true, null);
+        }
+    }
+
     public bool Request()
     {
         if (!IsAvailable)

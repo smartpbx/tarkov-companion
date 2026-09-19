@@ -88,7 +88,8 @@ public sealed record AppCompositionSettings(
     IScanAdapter? ScanAdapter = null,
     TarkovTrackerOptions? TarkovTrackerOptions = null,
     HttpMessageHandler? TarkovTrackerHttpMessageHandler = null,
-    IIntegrationSecretStore? IntegrationSecretStore = null);
+    IIntegrationSecretStore? IntegrationSecretStore = null,
+    Func<string, string?>? ReadEnvironment = null);
 
 public static class AppComposition
 {
@@ -151,9 +152,14 @@ public static class AppComposition
         services.AddSingleton(questTrackingOptions);
         services.AddSingleton(tarkovTrackerOptions);
         services.AddSingleton(timeProvider);
+        // v2r-fin-relay (#281): Debug or Trace diagnostics from an environment variable and a restart, not
+        // a rebuild. Read through settings so a test can supply the environment instead of setting a
+        // process-wide one.
+        var diagnosticControls = DiagnosticRuntimeControls.FromEnvironment(
+            settings.ReadEnvironment ?? Environment.GetEnvironmentVariable);
         services.AddLogging(builder =>
         {
-            builder.SetMinimumLevel(LogLevel.Information);
+            builder.SetMinimumLevel(diagnosticControls.MinimumLogLevel);
             builder.AddProvider(new TraceLoggerProvider());
             builder.AddProvider(new FileLoggerProvider());
         });
