@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -15,6 +16,7 @@ using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Application.Services.Wiki;
@@ -232,20 +234,23 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly IRuntimeStateStore _stateStore;
     private readonly MapSceneAssembler _assembler;
     private readonly IHighValueLootRuntimeSource _lootSource;
+    private readonly HistoricalTrafficSource _traffic;
     private readonly IRaidMarkStore _marks;
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
+    private readonly IWorkspaceLayoutStore? _layout;
+    private double _contextPanelWidth = DefaultContextPanelWidth;
+    private bool _contextPanelHidden;
     private readonly MapSceneRendererPresentation _presentation;
     private readonly IWikiLinkOpener? _wikiOpener;
 
     private long _revision;
     private CancellationTokenSource? _rebuildCancellation;
     private HighValueLootLayerFilterState _lootFilter = HighValueLootLayerFilterState.Default;
-    private RaidMarkKind? _armedMarkKind;
 
-    // [Issue 379] The objective whose marker the next plan click places, and the player's own
-    // markers. Optional: a cockpit built without a store offers no placing.
+    // [Issue 379] The objective whose marker the next right-click on bare map places, and the
+    // player's own markers. Optional: a cockpit built without a store offers no placing.
     private string? _armedObjectiveId;
     private readonly IUserQuestMarkStore? _userMarkers;
     private string _unavailableReason = "Loading the map…";
@@ -279,6 +284,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private RaidSnapshot? _seenRaid;
     private GroupSnapshot? _seenGroup;
 
+    // The traffic line, and the bookkeeping that keeps a slow evaluation from overwriting a newer
+    // one: the version says which request is current, the time says when the clock last had a
+    // reason to move the raid into another phase.
+    private HistoricalTrafficView _trafficView = new(
+        HistoricalTrafficRuntimeStatus.NoInstalledModel,
+        HistoricalTrafficSource.NoModelNotice,
+        [],
+        null);
+    private int _trafficVersion;
+    private DateTimeOffset _trafficEvaluatedUtc = DateTimeOffset.MinValue;
+
     // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
     // has to be allowed to rebuild for.
@@ -290,9 +306,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IRuntimeStateStore stateStore,
         MapSceneAssembler assembler,
         IHighValueLootRuntimeSource lootSource,
-        // Registered so the historical-traffic layer degrades honestly instead of not existing;
-        // see TrafficLayerNotice.
-        HistoricalTrafficRuntimeService traffic,
+        // [Issue 311] The installed governed snapshot, evaluated for the map on screen; see
+        // TrafficLayerNotice.
+        HistoricalTrafficSource traffic,
         IRaidMarkStore marks,
         TarkovDevMapAssetCache assetCache,
         TimeProvider timeProvider,
@@ -303,6 +319,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // [Package 35] Opens the wiki page of the quest a selected objective belongs to, in the
         // player's browser. Optional: without one the link is simply not offered.
         IWikiLinkOpener? wikiOpener = null,
+        // [V2 rough package 46] Remembers how wide he dragged the context panel, and whether he
+        // put it away. Optional: without one the panel works and forgets, which is what the unit
+        // tests and the map gallery want.
+        IWorkspaceLayoutStore? layout = null,
         // [Issue 379] Where the player has put objectives the quest data gives no place for.
         IUserQuestMarkStore? userMarkers = null)
     {
@@ -311,11 +331,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _assembler = assembler ?? throw new ArgumentNullException(nameof(assembler));
         _lootSource = lootSource ?? throw new ArgumentNullException(nameof(lootSource));
-        ArgumentNullException.ThrowIfNull(traffic);
+        _traffic = traffic ?? throw new ArgumentNullException(nameof(traffic));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
         _userMarkers = userMarkers;
+        _layout = layout;
+        RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
@@ -335,13 +357,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         RebuildMapPicker();
         RebuildArtworkVariants();
 
-        PlaceWaypointCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Waypoint));
-        PlacePingCommand = new DelegateCommand(() => ArmMark(RaidMarkKind.Ping));
-        CancelPlacingCommand = new DelegateCommand(() =>
-        {
-            ArmMark(null);
-            ArmObjective(null);
-        });
+        CancelPlacingObjectiveCommand = new DelegateCommand(() => ArmObjective(null));
 
         // [V2 rough package 22] Every one of these is V1's own behaviour on V1's own view model.
         // The cockpit owns where the control sits, not what pressing it means.
@@ -356,6 +372,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         FrameAreaCommand = new DelegateCommand(FrameArea);
         ClearObjectiveCommand = new DelegateCommand(ClearObjectiveSelection);
         UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
+        // [V2 rough package 46] One press puts the Raid plan column away and gives the map its width.
+        ToggleContextPanelCommand = new DelegateCommand(ToggleContextPanel);
 
         _map.PropertyChanged += MapPropertyChanged;
         _map.PlayerFollowRequested += PlayerFollowRequested;
@@ -375,6 +393,89 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool HasRenderer => Renderer is not null;
 
+    /// <summary>
+    /// How wide the Raid plan column is, and whether it is there at all.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] "The right one is too wide, maybe we can make it adjustable or
+    /// something. More map is better." It used to be a proportional column with a 420 floor,
+    /// which at 1920 wide took 460 pixels the map could have had. It is now a width the player
+    /// drags, defaulting to 360 — enough for the marks list and the squad rows at their natural
+    /// width — clamped to something that can still be read at one end and cannot eat the map at
+    /// the other, put away entirely with one press, and remembered.
+    /// </remarks>
+    public const double DefaultContextPanelWidth = 360;
+
+    public const double MinimumContextPanelWidth = 260;
+
+    public const double MaximumContextPanelWidth = 720;
+
+    public double ContextPanelWidth
+    {
+        get => _contextPanelWidth;
+        private set
+        {
+            var clamped = ClampContextPanelWidth(value);
+            if (Math.Abs(clamped - _contextPanelWidth) < 0.5)
+            {
+                return;
+            }
+
+            _contextPanelWidth = clamped;
+            OnPropertyChanged(nameof(ContextPanelWidth));
+        }
+    }
+
+    /// <summary>
+    /// A width that can still be read at one end and cannot eat the map at the other.
+    /// </summary>
+    /// <remarks>
+    /// The remembered file is the player's own and nothing hostile writes it, but a width of zero
+    /// or of a million is a map nobody can see either way, and a hand-edited or truncated file is
+    /// the ordinary case. Internal so the clamp itself is tested rather than a copy of it.
+    /// </remarks>
+    internal static double ClampContextPanelWidth(double width) => Math.Clamp(
+        double.IsFinite(width) ? width : DefaultContextPanelWidth,
+        MinimumContextPanelWidth,
+        MaximumContextPanelWidth);
+
+    public ICommand ToggleContextPanelCommand { get; }
+
+    public bool ShowsContextPanel => !_contextPanelHidden;
+
+    public string ContextPanelToggleLabel => _contextPanelHidden ? "Show the raid plan" : "Hide the raid plan";
+
+    /// <summary>Drags the panel's edge. The width the player sees is the width that is kept.</summary>
+    public void ResizeContextPanel(double width)
+    {
+        ContextPanelWidth = width;
+        _layout?.Set(
+            WorkspaceLayoutKeys.RaidPanelWidth,
+            _contextPanelWidth.ToString("F0", CultureInfo.InvariantCulture));
+    }
+
+    public void ToggleContextPanel()
+    {
+        _contextPanelHidden = !_contextPanelHidden;
+        _layout?.Set(WorkspaceLayoutKeys.RaidPanelHidden, _contextPanelHidden ? "true" : "false");
+        OnPropertyChanged(nameof(ShowsContextPanel));
+        OnPropertyChanged(nameof(ContextPanelToggleLabel));
+    }
+
+    private void RestoreContextPanel()
+    {
+        if (_layout?.Get(WorkspaceLayoutKeys.RaidPanelWidth) is { } width &&
+            double.TryParse(width, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+        {
+            _contextPanelWidth = ClampContextPanelWidth(parsed);
+        }
+
+        _contextPanelHidden = string.Equals(
+            _layout?.Get(WorkspaceLayoutKeys.RaidPanelHidden),
+            "true",
+            StringComparison.Ordinal);
+    }
+
     /// <summary>Why the map is not showing, while <see cref="HasRenderer"/> is false.</summary>
     public string UnavailableReason
     {
@@ -392,9 +493,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool HasMarks => Marks.Count > 0;
 
-    /// <summary>Registered but not evaluated: see the traffic remark on the constructor.</summary>
-    public string TrafficLayerNotice =>
-        "Historical traffic — estimate, no installed model yet";
+    /// <summary>What the installed historical-traffic snapshot says about this map, in one line.</summary>
+    /// <remarks>
+    /// It was the fixed words "no installed model yet", because the runtime was registered and
+    /// never asked. It is now the runtime's own answer for the map on screen, so it changes when a
+    /// snapshot is installed, when the map or raid changes and as the raid clock moves into a new
+    /// phase. Every state keeps the word "estimate": it is history, never a live position.
+    /// </remarks>
+    public string TrafficLayerNotice => _trafficView.Notice;
+
+    /// <summary>The busiest regions and routes the snapshot names, busiest first, as "Dorms · 100%".</summary>
+    public IReadOnlyList<string> TrafficRows =>
+        [.. _trafficView.Rows.Select(row =>
+            string.Create(CultureInfo.CurrentCulture, $"{row.Label} · {Math.Round(row.Relative * 100):0}%"))];
+
+    public bool HasTrafficRows => _trafficView.HasRows;
 
     // ---------------------------------------------------------------------------------------
     // [V2 rough package 22] V1 map parity. Every property below forwards to the one MapViewModel
@@ -469,6 +582,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     /// <summary>Where the floor on screen came from: your screenshot, or your own choice.</summary>
     public string FloorSource => _map.FloorSource;
+
+    /// <summary>Puts that answer on the renderer's own floor ladder, where the floors are chosen.</summary>
+    private void PublishFloorSource()
+    {
+        if (Renderer is { } renderer)
+        {
+            renderer.FloorSourceNote = _map.FloorSource;
+        }
+    }
 
     public bool HasFloorSource => _map.HasFloorSource;
 
@@ -583,17 +705,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public ICommand RemoveMarkCommand => _map.RemoveMarkCommand;
 
-    public ICommand PlaceWaypointCommand { get; }
+    /// <summary>
+    /// Whether the next right-click on bare map places an objective's marker rather than a ping.
+    /// </summary>
+    public bool IsPlacingObjective => _armedObjectiveId is not null;
 
-    public ICommand PlacePingCommand { get; }
-
-    public ICommand CancelPlacingCommand { get; }
-
-    public bool IsPlacingWaypoint => _armedMarkKind == RaidMarkKind.Waypoint;
-
-    public bool IsPlacingPing => _armedMarkKind == RaidMarkKind.Ping;
-
-    public bool IsPlacingMark => _armedMarkKind is not null || _armedObjectiveId is not null;
+    public ICommand CancelPlacingObjectiveCommand { get; }
 
     /// <summary>
     /// Package 29 (parity): V1's replay of a past raid, which Debrief's "Watch on map" opens. The map
@@ -651,33 +768,49 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public bool HasSpawnAreas => SpawnAreas.Count > 0;
 
     /// <summary>
-    /// The host calls this from a plan click while a mark tool is armed. It is a no-op
-    /// otherwise, so wiring it unconditionally to <c>MapSceneRendererView.PlanClicked</c> is
-    /// always safe.
+    /// Drops a mark where the gesture landed.
     /// </summary>
-    public void PlaceArmedMarkAt(MapScenePoint point)
+    /// <remarks>
+    /// [V2 rough package 46] Reported as the ping and waypoint buttons being too much work: a
+    /// right-click should drop a ping and shift+right-click a waypoint. So there is no armed
+    /// state any more — the gesture carries which mark it means, and the two round buttons that
+    /// used to arm one went with it, along with the sentence that explained them.
+    ///
+    /// The host only calls this for a gesture that hit bare map. Something under the pointer is
+    /// a removal instead, and the renderer raises exactly one of the two events per gesture, so
+    /// the press that removes a mark can never also place one on top of it.
+    /// </remarks>
+    public void PlaceMarkAt(MapScenePoint point, RaidMarkKind kind)
     {
         if (_armedObjectiveId is { } objectiveId && _userMarkers is not null && _map.RenderModel is { } objectiveModel)
         {
-            // The floor the plan is showing, like every other mark: the player clicked there.
+            // [Issue 379] An objective is waiting for its place, so this gesture is that place and
+            // not a ping or a waypoint, whichever modifier it carried. The floor is the one the plan
+            // is showing, like every other mark: the player clicked there.
             var objectiveFloor = Renderer?.Scene.View.SelectedFloorId ?? objectiveModel.SelectedFloor?.Id;
             ArmObjective(null);
             _ = _userMarkers.PlaceAsync(objectiveId, objectiveModel.Location.Id, objectiveFloor, point.X, point.Y);
             return;
         }
 
-        if (_armedMarkKind is not { } kind || _map.RenderModel is not { } model)
+        if (_map.RenderModel is not { } model)
         {
             return;
         }
 
-        var kindToPlace = kind;
         // The floor the mark belongs on is whichever one the V2 renderer is showing, not
         // whatever the V1 map last had selected — the two floor selections are independent.
         var floorId = Renderer?.Scene.View.SelectedFloorId ?? model.SelectedFloor?.Id;
-        ArmMark(null);
-        _ = PlaceMarkAsync(kindToPlace, model.Location.Id, floorId, point.X, point.Y);
+        _ = PlaceMarkAsync(kind, model.Location.Id, floorId, point.X, point.Y);
     }
+
+    /// <summary>Which mark a plan gesture means: a waypoint when it is the secondary one, a ping otherwise.</summary>
+    /// <remarks>
+    /// One place, because the desktop's Shift and the tablet's long press have to agree, and
+    /// because "what does the modifier mean" is the kind of thing that drifts between two hosts.
+    /// </remarks>
+    public static RaidMarkKind MarkKindFor(bool isSecondary) =>
+        isSecondary ? RaidMarkKind.Waypoint : RaidMarkKind.Ping;
 
     /// <summary>
     /// The host calls this from a right-click that hit something on the plan. A ping or a
@@ -721,6 +854,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (Renderer is { } renderer)
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
+            renderer.CameraMovedByPlayer -= CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
             renderer.PropertyChanged -= RendererPropertyChanged;
         }
@@ -878,8 +1012,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </summary>
     /// <remarks>
     /// V1 has already planned the grid, fetched the reviewed tiles for the level it chose and
-    /// decoded them; this only stitches them onto one surface the size of the grid, so the V2
-    /// renderer keeps its one-background-image contract without a second tile pipeline beside
+    /// decoded them; this only stitches them onto one surface covering the reviewed map, so the
+    /// V2 renderer keeps its one-background-image contract without a second tile pipeline beside
     /// V1's. A tile that never arrived is left undrawn — blank in its own square, with every
     /// other tile still in the right place.
     ///
@@ -893,15 +1027,32 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var tiles = _map.Tiles.Where(tile => tile.HasArtwork).ToArray();
         if (tiles.Length == 0 ||
-            MapPlanProjection.For(model) is not { IsValid: true } ||
+            MapPlanProjection.For(model) is not { IsValid: true } grid ||
+            MapPlanProjection.Reviewed(model) is not { IsValid: true } reviewed ||
             _map.CanvasWidth <= 0 || _map.CanvasHeight <= 0)
         {
             return null;
         }
 
-        var scale = Math.Min(1, MaximumComposedTileExtent / Math.Max(_map.CanvasWidth, _map.CanvasHeight));
-        var width = (int)Math.Round(_map.CanvasWidth * scale);
-        var height = (int)Math.Round(_map.CanvasHeight * scale);
+        // [V2 rough package 46] The crop that gives the map its own shape back. V1's canvas is
+        // the whole tile grid, and the grid is snapped outwards to whole tiles, so it carries a
+        // margin of up to one tile on each side that is not the map. Composing the picture over
+        // the reviewed rectangle instead of the grid makes the picture's pixels exactly the
+        // shape of the map, which is the rectangle everything on it now projects into.
+        var pixelsPerUnitX = _map.CanvasWidth / grid.Width;
+        var pixelsPerUnitY = _map.CanvasHeight / grid.Height;
+        var cropLeft = (reviewed.MinimumX - grid.MinimumX) * pixelsPerUnitX;
+        var cropTop = (reviewed.MinimumY - grid.MinimumY) * pixelsPerUnitY;
+        var cropWidth = reviewed.Width * pixelsPerUnitX;
+        var cropHeight = reviewed.Height * pixelsPerUnitY;
+        if (!double.IsFinite(cropLeft) || !double.IsFinite(cropTop) || cropWidth <= 0 || cropHeight <= 0)
+        {
+            return null;
+        }
+
+        var scale = Math.Min(1, MaximumComposedTileExtent / Math.Max(cropWidth, cropHeight));
+        var width = (int)Math.Round(cropWidth * scale);
+        var height = (int)Math.Round(cropHeight * scale);
         if (width <= 0 || height <= 0)
         {
             return null;
@@ -917,7 +1068,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 CultureInfo.InvariantCulture,
                 $"{tile.LocalPath}|{tile.Left}|{tile.Top}|{tile.Size}")).Order(StringComparer.Ordinal));
         var sha = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-            string.Create(CultureInfo.InvariantCulture, $"{width}x{height}\n{identity}")))).ToLowerInvariant();
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{width}x{height}@{cropLeft:F3},{cropTop:F3}\n{identity}")))).ToLowerInvariant();
         if (string.Equals(sha, _backgroundSha, StringComparison.Ordinal) && _backgroundImage is { } unchanged)
         {
             return new(unchanged, sha);
@@ -933,7 +1086,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     context.DrawImage(
                         tile.Image,
                         new Rect(0, 0, tile.Image.Size.Width, tile.Image.Size.Height),
-                        new Rect(tile.Left * scale, tile.Top * scale, tile.Size * scale, tile.Size * scale));
+                        new Rect(
+                            (tile.Left - cropLeft) * scale,
+                            (tile.Top - cropTop) * scale,
+                            tile.Size * scale,
+                            tile.Size * scale));
                 }
             }
 
@@ -987,21 +1144,16 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         await RebuildAsync().ConfigureAwait(true);
     }
 
-    /// <summary>Puts the next plan click on this objective, or stops doing so.</summary>
+    /// <summary>Puts the next right-click on bare map on this objective, or stops doing so.</summary>
     private void ArmObjective(string? objectiveId)
     {
-        if (objectiveId is not null)
-        {
-            ArmMark(null);
-        }
-
         if (_armedObjectiveId == objectiveId)
         {
             return;
         }
 
         _armedObjectiveId = objectiveId;
-        OnPropertyChanged(nameof(IsPlacingMark));
+        OnPropertyChanged(nameof(IsPlacingObjective));
     }
 
     private void RemoveObjectiveMarker(string objectiveId)
@@ -1013,24 +1165,6 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     }
 
     private void UserMarkersChanged() => _rebuildRequest.Request();
-
-    private void ArmMark(RaidMarkKind? kind)
-    {
-        if (kind is not null)
-        {
-            ArmObjective(null);
-        }
-
-        if (_armedMarkKind == kind)
-        {
-            return;
-        }
-
-        _armedMarkKind = kind;
-        OnPropertyChanged(nameof(IsPlacingWaypoint));
-        OnPropertyChanged(nameof(IsPlacingPing));
-        OnPropertyChanged(nameof(IsPlacingMark));
-    }
 
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
     {
@@ -1108,6 +1242,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             }
         }
 
+        if (e.PropertyName is nameof(MapViewModel.FloorSource))
+        {
+            // [V2 rough package 46] Beside the ladder that chooses the floor, not only in the
+            // status line at the other end of the card. A map on the wrong floor looks the same
+            // as one whose following is broken until the answer is where the choice is made.
+            PublishFloorSource();
+        }
+
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
         {
             OnPropertyChanged(nameof(SelectedMap));
@@ -1153,6 +1295,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// next rebuild that produces one, rather than being dropped.
     /// </remarks>
     private void PlayerFollowRequested(object? sender, EventArgs e) => FollowPlayer();
+
+    /// <summary>
+    /// A drag or a zoom the player did themselves stops V1 following them.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as the map snapping back after zooming in and panning.
+    /// V1 already does this for its own canvas — panning is a deliberate act and the next
+    /// screenshot should not undo it — and nothing said it for the V2 renderer, so every
+    /// screenshot pulled the camera back onto the player a beat after the drag. Invisible at the
+    /// fitted zoom, where the whole map is on screen either way; at zoom 2 or 3 it is a snap.
+    ///
+    /// Recoverable the same way it is in V1: Follow and Fit both turn following back on.
+    /// </remarks>
+    private void CameraMovedByPlayer(object? sender, EventArgs e) => _map.ReportManualPan();
 
     private void FollowPlayer()
     {
@@ -1333,6 +1489,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     _rebuildRequest.Request();
                 }
 
+                // The raid moves from early to mid to late on the clock alone, so the traffic
+                // line has to be asked again as it does, without a rebuild for every tick.
+                if (_timeProvider.GetUtcNow() - _trafficEvaluatedUtc >= TrafficRefreshInterval)
+                {
+                    RefreshTraffic();
+                }
+
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
@@ -1438,6 +1601,45 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     private Task RenameMarkAsync(Guid id, string? name) => _marks.RenameAsync(id, name);
 
+    private static readonly TimeSpan TrafficRefreshInterval = TimeSpan.FromSeconds(30);
+
+    private void RefreshTraffic()
+    {
+        var version = Interlocked.Increment(ref _trafficVersion);
+        _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
+        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+    }
+
+    private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)
+    {
+        HistoricalTrafficView view;
+        try
+        {
+            view = await _traffic.EvaluateAsync(mapId, raid, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Nothing the snapshot store or the model can throw is a reason to lose the plan; the
+            // line falls back to the same words a machine with no snapshot shows.
+            view = new HistoricalTrafficView(
+                HistoricalTrafficRuntimeStatus.NoInstalledModel,
+                HistoricalTrafficSource.NoModelNotice,
+                [],
+                null);
+        }
+
+        if (_disposed || version != Volatile.Read(ref _trafficVersion) ||
+            (view.Notice == _trafficView.Notice && view.Rows.SequenceEqual(_trafficView.Rows)))
+        {
+            return;
+        }
+
+        _trafficView = view;
+        OnPropertyChanged(nameof(TrafficLayerNotice));
+        OnPropertyChanged(nameof(TrafficRows));
+        OnPropertyChanged(nameof(HasTrafficRows));
+    }
+
     private async Task RebuildAsync()
     {
         var cancellation = new CancellationTokenSource();
@@ -1458,6 +1660,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
         RefreshMarkRows();
+        RefreshTraffic();
         // Read once, before anything is built from it: a publication that lands while this runs
         // then differs from what was seen and asks for one more pass, instead of being taken for
         // something this pass already drew.
@@ -1537,6 +1740,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
             if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
             {
+                // Before the call, because the call is what died on 2026-09-19: rasterising a
+                // drawing faults natively, raising no managed exception for any handler to see.
+                CrashBreadcrumbs.Drop("map-asset", $"reading svg {assetCacheKey}");
                 var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
@@ -1711,6 +1917,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 styleResolver: StyleFor,
                 floorElevationResolver: FloorElevation);
             renderer.ViewChangeRequested += ViewChangeRequested;
+            renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
@@ -1722,6 +1929,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         OnPropertyChanged(nameof(HasRenderer));
+        // [V2 rough package 46] A renderer that was just built, or just re-presented, has to be
+        // told why this floor is the one it is showing.
+        PublishFloorSource();
         if (_followPending)
         {
             // A screenshot that arrived before the artwork finished decoding still moves the map
@@ -1915,6 +2125,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </summary>
     private void SelectObjective(string objectiveId)
     {
+        // Choosing another objective abandons a placement waiting for this one.
+        if (_armedObjectiveId is not null && _armedObjectiveId != objectiveId)
+        {
+            ArmObjective(null);
+        }
+
         _selectedObjectiveId = objectiveId;
         if (Renderer is { } renderer &&
             _questScene.Entries.FirstOrDefault(entry => entry.ObjectiveId == objectiveId) is { } entry)
@@ -1935,6 +2151,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     private void ClearObjectiveSelection()
     {
+        ArmObjective(null);
         _selectedObjectiveId = null;
         Renderer?.ClearSelection();
         RefreshObjectives();
@@ -2046,11 +2263,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>
     private double Bearing() => (_map.RotationDegrees % 360 + 360) % 360;
 
-    /// <summary>The rectangle this model's artwork covers, as scene bounds.</summary>
-    /// <remarks>Internal for direct coverage: this one line decides whether every marker on the
-    /// map lands on the artwork or beside it (see the marker-landing tests).</remarks>
+    /// <summary>The rectangle the reviewed map covers, as scene bounds.</summary>
+    /// <remarks>
+    /// Internal for direct coverage: this one line decides whether every marker on the map lands
+    /// on the artwork or beside it (see the marker-landing tests).
+    ///
+    /// [V2 rough package 46] The reviewed map's rectangle, not the tile grid's. The grid snaps
+    /// outwards to whole tiles and is always squarer than the map it carries, so fitting it drew
+    /// Customs at 1.70 wide-to-tall when Customs is 1.97, with a blank band of tiles above and
+    /// below. <see cref="ComposeTileArtwork"/> crops the mosaic to exactly this rectangle, so the
+    /// artwork and the objects still share one rectangle — #413's contract — and that rectangle
+    /// is now the map's own shape.
+    /// </remarks>
     internal static MapSceneBounds PlanBoundsFor(MapRenderModel model) =>
-        MapPlanProjection.For(model) is { IsValid: true } rect
+        (MapPlanProjection.Reviewed(model) ?? MapPlanProjection.For(model)) is { IsValid: true } rect
             ? new(rect.MinimumX, rect.MinimumY, rect.MaximumX, rect.MaximumY)
             : UnplaceablePlanBounds;
 
