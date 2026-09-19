@@ -1472,6 +1472,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
+        // Every navigation funnels through here, which is what makes this the one place worth
+        // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
+        // a breadcrumb naming the destination is the difference between "it died" and "it died
+        // going to Plan".
+        CrashBreadcrumbs.Drop("navigate", CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
