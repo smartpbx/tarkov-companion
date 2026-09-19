@@ -545,6 +545,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// <summary>Where the floor on screen came from: your screenshot, or your own choice.</summary>
     public string FloorSource => _map.FloorSource;
 
+    /// <summary>Puts that answer on the renderer's own floor ladder, where the floors are chosen.</summary>
+    private void PublishFloorSource()
+    {
+        if (Renderer is { } renderer)
+        {
+            renderer.FloorSourceNote = _map.FloorSource;
+        }
+    }
+
     public bool HasFloorSource => _map.HasFloorSource;
 
     public bool HasArtworkChoice => _map.HasArtworkChoice;
@@ -1143,6 +1152,14 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             {
                 OnPropertyChanged(name);
             }
+        }
+
+        if (e.PropertyName is nameof(MapViewModel.FloorSource))
+        {
+            // [V2 rough package 46] Beside the ladder that chooses the floor, not only in the
+            // status line at the other end of the card. A map on the wrong floor looks the same
+            // as one whose following is broken until the answer is where the choice is made.
+            PublishFloorSource();
         }
 
         if (e.PropertyName is nameof(MapViewModel.RenderModel))
@@ -1755,6 +1772,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         }
 
         OnPropertyChanged(nameof(HasRenderer));
+        // [V2 rough package 46] A renderer that was just built, or just re-presented, has to be
+        // told why this floor is the one it is showing.
+        PublishFloorSource();
         if (_followPending)
         {
             // A screenshot that arrived before the artwork finished decoding still moves the map

@@ -302,12 +302,10 @@
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-raid-stack-status"
                            IsVisible="{Binding HasStackStatus}" />
-                <!-- V2 rough package 39: automatic floor selection says what it did, or why it
-                     could not. It used to change floors in silence and stay silent when it had
-                     nothing to go on, which looked the same as being broken. -->
-                <TextBlock Classes="v2-label" Text="{Binding FloorSource}" TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="v2-raid-floor-source"
-                           IsVisible="{Binding HasFloorSource}" />
+                <!-- V2 rough package 39 said what automatic floor selection did, or why it could
+                     not, here. [Package 46] It says it beside the floor ladder instead
+                     (v2-map-floor-source): the answer belongs where the choice is made, and this
+                     group fades when the pointer leaves the map. -->
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
                   <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
                           Command="{Binding UseFloorVariantCommand}"

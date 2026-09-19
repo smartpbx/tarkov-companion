@@ -233,6 +233,12 @@
         <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorFilters}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-map-floor-position"
                    Text="{Binding FloorPositionLabel}" />
+        <!-- [V2 rough package 46] And why it is that floor, where the floors are chosen. -->
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorSourceNote}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-map-floor-source"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.Name="{Binding FloorSourceNote}"
+                   Text="{Binding FloorSourceNote}" />
         <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-map-stack-status"
                    AutomationProperties.AccessibilityView="Control"

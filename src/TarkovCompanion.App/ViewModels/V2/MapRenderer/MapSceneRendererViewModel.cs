@@ -113,6 +113,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     // coordinates are the same normalized square for every map, so this is the only thing that
     // knows Streets is wide and Factory is not. NaN until (or unless) artwork resolves.
     private double _planAspect = double.NaN;
+    private string _floorSourceNote = string.Empty;
     // V2 rough package 20: a drag used to move nothing until the pointer came up, then jump. The
     // plan now follows the pointer 1:1 through these two numbers, which only feed the canvas's
     // RenderTransform — no measure, no arrange, no marker rebuild per pointer delta. The camera
@@ -346,6 +347,37 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             "Map.Floor.Position",
             _presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected)),
             _presentation.Number(Floors.Count));
+    /// <summary>
+    /// Why this floor is the one on screen, beside the ladder that chooses it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as vertical following not working: he went down to a
+    /// basement and the map stayed where it was. The words already existed — package 39's
+    /// FloorSource says whether following is on, whether it has a height yet, and whether that
+    /// height matched a floor — but they were only in the status line at the other end of the
+    /// card. A map stuck on the wrong floor looks the same as a map whose following is broken
+    /// unless the answer is where the floors are chosen. The host sets it; a host that has no
+    /// such notion leaves it empty and nothing is drawn.
+    /// </remarks>
+    public string FloorSourceNote
+    {
+        get => _floorSourceNote;
+        set
+        {
+            var text = value ?? string.Empty;
+            if (string.Equals(text, _floorSourceNote, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _floorSourceNote = text;
+            OnPropertyChanged(nameof(FloorSourceNote));
+            OnPropertyChanged(nameof(HasFloorSourceNote));
+        }
+    }
+
+    public bool HasFloorSourceNote => _floorSourceNote.Length > 0;
+
     public bool CanGoUpAFloor => StepTarget(1) is not null;
     public bool CanGoDownAFloor => StepTarget(-1) is not null;
     public string FloorUpLabel => Text("Map.Action.FloorUp");
