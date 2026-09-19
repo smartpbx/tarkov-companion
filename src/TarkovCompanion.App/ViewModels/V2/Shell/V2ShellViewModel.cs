@@ -163,6 +163,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         WorkspacePreferenceService? preferences = null)
         // [#269] Setup's profile list, same reasoning again.
         SetupProfilesViewModel? profiles = null)
+        // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
+        SetupAdminViewModel? admin = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -198,6 +200,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (profiles is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachProfiles(profiles);
+        if (admin is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAdmin(admin);
         }
     }
 

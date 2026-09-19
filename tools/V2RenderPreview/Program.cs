@@ -271,6 +271,20 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+            // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
+            if (shell?.SetupWorkspace is { } setupPage)
+            {
+                if (args.Contains("--show-paths"))
+                {
+                    setupPage.Paths.ToggleCommand.Execute(null);
+                }
+
+                if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
+                    && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
+                {
+                    setupPage.OpenSection(openedTarget, openedAnchor);
+                }
+
                 Pump(20);
             }
 
