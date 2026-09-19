@@ -276,10 +276,6 @@ public sealed class SelfTestReaderTests : IDisposable
         // around 20:58 UTC on that one day and has failed at every moment since, on every
         // branch, in the job main requires. A test about "now" has to be written in terms of now.
         var name = ScreenshotNamedFor(DateTimeOffset.UtcNow);
-        // Named for now rather than for a fixed minute. The parser prefers the file's own write
-        // time only while the two clocks agree to within an hour, so a hardcoded "[20-58]" made
-        // this assertion pass or fail depending on what time of day the suite ran.
-        var name = $"{DateTime.UtcNow:yyyy-MM-dd}[{DateTime.UtcNow:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
 
         var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
         await Task.Delay(120);
