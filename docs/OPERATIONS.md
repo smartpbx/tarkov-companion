@@ -64,6 +64,7 @@ sensitive in backups and migrations (`RISK-REPORT-REDACTION`).
 Authenticated update history and install/refusal state live under root-owned
 `/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
 `/var/lib/tarkov-group-update-status`. Neither belongs to the relay's writable state directory.
+The relay only reads that copy: the modification time of `PUBLISHED_SHA256` there is the age of the updater's last authenticated check, which `GET /admin/readiness` reports as its `updaterCheck` verdict.
 
 **How it updates itself.** The timer follows a signed ring in a separate private feed. Before it
 touches `/opt/tarkov-group`, the root updater verifies the create-once ring decision, manifest,
