@@ -135,6 +135,23 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
 
     public bool HasSelfTest => SelfTest is not null;
 
+    /// <summary>[#309] Screenshot tidying's preview, dry run and ledger, or null in a shell built without them.</summary>
+    public SetupCleanupViewModel? Cleanup { get; private set; }
+
+    public bool HasCleanup => Cleanup is not null;
+
+    /// <summary>The old one-press toggle shows only when there is no preview flow to go through instead.</summary>
+    public bool NoCleanup => Cleanup is null;
+
+    /// <summary>Hands this page the tidy preview after construction, for the reason <see cref="AttachSelfTest"/> gives.</summary>
+    public void AttachCleanup(SetupCleanupViewModel cleanup)
+    {
+        Cleanup = cleanup ?? throw new ArgumentNullException(nameof(cleanup));
+        OnPropertyChanged(nameof(Cleanup));
+        OnPropertyChanged(nameof(HasCleanup));
+        OnPropertyChanged(nameof(NoCleanup));
+    }
+
     /// <summary>
     /// Hands this page the self-test after construction.
     /// </summary>
@@ -242,6 +259,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsDisplaysSelected));
             OnPropertyChanged(nameof(IsDiagnosticsSelected));
             OnPropertyChanged(nameof(IsProgressSelected));
+            if (value == V2SetupSection.Privacy && Cleanup is { } cleanup)
+            {
+                cleanup.RefreshLedger();
+                cleanup.LoadAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+            }
         }
     }
 

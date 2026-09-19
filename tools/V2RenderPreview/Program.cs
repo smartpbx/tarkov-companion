@@ -219,6 +219,26 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#309] A screenshot folder of stand-in files (empty of pictures, named the way the game names
+            // them) pointed at the runtime, then Start tidying pressed: the preview and its confirm button.
+            if (shell?.SetupWorkspace is { Cleanup: { } cleanup } && args.Contains("--tidy-demo"))
+            {
+                var shots = Path.Combine(dataRoot, "tidy-demo-screenshots");
+                Directory.CreateDirectory(shots);
+                for (var day = 0; day < 6; day++)
+                {
+                    var path = Path.Combine(shots, $"2026-09-{10 + day:D2}[14-05]_demo_{day}.png");
+                    File.WriteAllText(path, new string('x', 900_000 + (day * 13_000)));
+                    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-8 + day));
+                }
+
+                File.WriteAllText(Path.Combine(shots, "notes.txt"), "not the game's");
+                var runtime = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                runtime.Update(snapshot => snapshot with { Observation = snapshot.Observation with { ScreenshotRoot = shots } });
+                cleanup.RequestToggleCommand.Execute(null);
+                Pump(60);
+            }
+
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)

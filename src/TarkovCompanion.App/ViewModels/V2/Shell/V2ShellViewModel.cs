@@ -155,7 +155,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
-        SetupSelfTestViewModel? selfTest = null)
+        SetupSelfTestViewModel? selfTest = null,
+        // [#309] Setup's screenshot-tidy preview and ledger, same reasoning again.
+        SetupCleanupViewModel? cleanup = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -183,6 +185,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
+        }
+
+        if (cleanup is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachCleanup(cleanup);
         }
     }
 

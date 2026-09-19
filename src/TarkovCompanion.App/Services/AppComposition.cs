@@ -316,6 +316,9 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [#309] What the hourly tidy moved, or failed to, kept as counts and reasons across restarts.
+        services.AddSingleton<IScreenshotTidyLedger>(_ =>
+            new JsonFileScreenshotTidyLedger(Path.Combine(paths.Config, "screenshot-tidy-ledger.json")));
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -726,6 +729,15 @@ public static class AppComposition
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#309] Setup > Privacy: preview before turning tidying on, a dry run, and the last-run ledger.
+        services.AddSingleton(provider => new SetupCleanupViewModel(
+            provider.GetRequiredService<ScreenshotRetentionService>(),
+            provider.GetRequiredService<IScreenshotRetentionStore>(),
+            provider.GetService<IScreenshotTidyLedger>(),
+            () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.ToggleScreenshotTidyingCommand,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.CanTidyScreenshots,
+            provider.GetRequiredService<TimeProvider>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

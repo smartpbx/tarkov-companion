@@ -250,6 +250,7 @@
         <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" TextWrapping="Wrap" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
+                  IsVisible="{Binding NoCleanup}"
                   IsEnabled="{Binding Settings.CanTidyScreenshots}"
                   Content="{Binding Settings.ScreenshotTidyingLabel}" Command="{Binding Settings.ToggleScreenshotTidyingCommand}" />
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-choose-retention"
@@ -258,6 +259,11 @@
         </WrapPanel>
         <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
                    IsVisible="{Binding Settings.CanTidyScreenshots}" />
+        <!-- [#309] Turning tidying on goes through a preview of exactly what it would move; a dry run and
+             the last runs are here too. -->
+        <Panel IsVisible="{Binding HasCleanup}">
+          <setup:V2SetupCleanupView DataContext="{Binding Cleanup}" />
+        </Panel>
       </StackPanel>
     </Border>
 
