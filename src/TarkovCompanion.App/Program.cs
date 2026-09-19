@@ -18,6 +18,21 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Before Velopack, before the command line, before anything: this is not the application
+        // starting, it is the application being used as a map rasteriser by an application that is
+        // already running. It draws one picture and exits. Nothing else in this method may run —
+        // an install hook, a single-instance guard or a window would all be wrong for a child that
+        // lives for two seconds.
+        //
+        // Why a child process at all: rasterising a drawing killed the application outright on
+        // 2026-09-19 with a native access violation inside Skia. A native fault cannot be caught,
+        // so the only way to survive one is for it to happen somewhere else. See
+        // OutOfProcessSvgRasterizer.
+        if (MapRasterizerHost.TryRun(args) is { } rasterizerExitCode)
+        {
+            return rasterizerExitCode;
+        }
+
         // First, before anything. Velopack runs the install, update and uninstall hooks here
         // and exits the process for some of them, so any work done before this call is work
         // done during an install the user is waiting on, and any window shown before it is a
