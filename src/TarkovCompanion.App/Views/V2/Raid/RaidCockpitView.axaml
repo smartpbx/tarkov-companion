@@ -67,7 +67,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="16,10" />
+      <Setter Property="Padding" Value="16,8" />
     </Style>
     <Style Selector="Border.v2-raid-mapcard">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
@@ -114,6 +114,43 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1,0,0,0" />
     </Style>
+    <!-- [V2 rough package 46] The panel's own edge, and the only chrome left when it is away:
+         14 pixels wide, so putting the panel away really does give the map everything else. -->
+    <Style Selector="Border.v2-raid-splitter">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Border.v2-raid-splitter:pointerover">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="Button.v2-raid-panel-toggle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-raid-panel-toggle:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.v2-raid-panel-toggle Path.v2-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+    </Style>
+    <Style Selector="Button.v2-raid-layers-button">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Button.v2-raid-layers-button Path.v2-icon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+    </Style>
   </UserControl.Styles>
 
   <!-- V2 rough package 15: map-first, like docs/design/v2/v2-raid-intelligence-concept.png. The
@@ -124,12 +161,12 @@
   <!-- V2 rough package 20: the context panel was a fixed 420px, so on Clayton's 3840-wide
        ultrawide the map card took roughly 3000px for a plan that can only ever be as tall as the
        card. A proportional column, clamped, keeps the map card near the concept's shape at every
-       width and gives the panel the room instead of leaving it as dead space. -->
-  <Grid>
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="2.6*" />
-      <ColumnDefinition Width="*" MinWidth="420" MaxWidth="760" />
-    </Grid.ColumnDefinitions>
+       width and gives the panel the room instead of leaving it as dead space.
+       [V2 rough package 46] "The right one is too wide, maybe we can make it adjustable or
+       something. More map is better." A proportional column still took 460px of a 1920 window
+       for a list of five cards. It is a dragged width now, 360 by default, remembered, and put
+       away entirely with the handle's own button — and then the map takes the whole width. -->
+  <Grid ColumnDefinitions="*,Auto,Auto">
     <Grid Grid.Column="0" RowDefinitions="*,Auto" RowSpacing="12" Margin="16,4,16,16">
       <Border Grid.Row="0" x:Name="MapCard" Classes="v2-raid-mapcard"
               PointerEntered="MapPointerActive" PointerMoved="MapPointerActive" PointerExited="MapPointerLeft">
@@ -138,7 +175,8 @@
                own DataContext is overridden to Renderer below, and a binding on the same element
                would resolve against that override instead of this page's view model. -->
           <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-            <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked"
+            <map:MapSceneRendererView DataContext="{Binding Renderer}"
+                                       PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
           <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}" Margin="16"
@@ -264,12 +302,10 @@
                 <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-raid-stack-status"
                            IsVisible="{Binding HasStackStatus}" />
-                <!-- V2 rough package 39: automatic floor selection says what it did, or why it
-                     could not. It used to change floors in silence and stay silent when it had
-                     nothing to go on, which looked the same as being broken. -->
-                <TextBlock Classes="v2-label" Text="{Binding FloorSource}" TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="v2-raid-floor-source"
-                           IsVisible="{Binding HasFloorSource}" />
+                <!-- V2 rough package 39 said what automatic floor selection did, or why it could
+                     not, here. [Package 46] It says it beside the floor ladder instead
+                     (v2-map-floor-source): the answer belongs where the choice is made, and this
+                     group fades when the pointer leaves the map. -->
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
                   <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
                           Command="{Binding UseFloorVariantCommand}"
@@ -281,87 +317,100 @@
                 </StackPanel>
               </StackPanel>
             </Border>
-            <TextBlock Classes="v2-label" Text="Click the map to place it"
-                       IsVisible="{Binding IsPlacingMark}" />
-            <StackPanel Orientation="Horizontal" Spacing="8"
-                        AutomationProperties.AccessibilityView="Control"
-                        AutomationProperties.Name="Raid map controls">
-              <ToggleButton Classes="v2-target v2-icon-btn" Command="{Binding PlacePingCommand}"
-                            IsChecked="{Binding IsPlacingPing, Mode=OneWay}"
-                            AutomationProperties.AutomationId="v2-raid-place-ping"
-                            AutomationProperties.Name="Ping" ToolTip.Tip="Ping a spot">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Target}" />
-              </ToggleButton>
-              <ToggleButton Classes="v2-target v2-icon-btn" Command="{Binding PlaceWaypointCommand}"
-                            IsChecked="{Binding IsPlacingWaypoint, Mode=OneWay}"
-                            AutomationProperties.AutomationId="v2-raid-place-waypoint"
-                            AutomationProperties.Name="Waypoint" ToolTip.Tip="Add a waypoint">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Pin}" />
-              </ToggleButton>
-              <Button Classes="v2-target v2-icon-btn" Command="{Binding CancelPlacingCommand}"
-                      IsVisible="{Binding IsPlacingMark}"
-                      AutomationProperties.AutomationId="v2-raid-cancel-placing"
-                      AutomationProperties.Name="Cancel" ToolTip.Tip="Cancel">
-                <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Close}" />
-              </Button>
-            </StackPanel>
           </StackPanel>
         </Grid>
       </Border>
 
-      <!-- The concept's bottom strip: raid phase on the left, map layer switches on the right. -->
+      <!-- The concept's bottom strip: raid phase on the left, the map's layers on the right.
+           [V2 rough package 46] "Maybe we can reduce the bottom filters as well to a simple menu
+           or half the height so there is more map space available." Fourteen switches wrapped to
+           two rows and took 110 pixels of a 1080-tall window for something a player touches once
+           a raid. They are one button now, which says how many layers are on, and opens the same
+           switches in a menu — one press to reach any of them, and 60 pixels back to the map. -->
       <Border Grid.Row="1" Classes="v2-raid-strip" IsVisible="{Binding HasRenderer}">
-        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="20">
-          <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center" MinWidth="180">
-            <TextBlock Classes="v2-label" Text="Raid phase" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
-              <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
-                         AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
-            </StackPanel>
-            <TextBlock Classes="v2-label" Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
-            <!-- V2 rough package 22: V1's status line, which is where the map says what it just
-                 did or could not do ("no transform, so positions cannot be placed"). -->
-            <TextBlock Classes="v2-label" Opacity="0.85" MaxWidth="300" TextTrimming="CharacterEllipsis"
-                       AutomationProperties.AutomationId="v2-raid-status"
-                       IsVisible="{Binding HasStatusLine}" Text="{Binding StatusLine}"
-                       ToolTip.Tip="{Binding StatusLine}" />
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
+            <TextBlock Classes="v2-label" VerticalAlignment="Center"
+                       Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
           </StackPanel>
-          <Rectangle Grid.Column="1" Width="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" />
+          <!-- V2 rough package 22: V1's status line, which is where the map says what it just
+               did or could not do ("no transform, so positions cannot be placed"). -->
+          <TextBlock Grid.Column="1" Classes="v2-label" Opacity="0.85" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis"
+                     AutomationProperties.AutomationId="v2-raid-status"
+                     IsVisible="{Binding HasStatusLine}" Text="{Binding StatusLine}"
+                     ToolTip.Tip="{Binding StatusLine}" />
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
-          <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Center" DataContext="{Binding Renderer}">
-            <TextBlock Classes="v2-label" Text="Map layers" />
-            <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding Layers}"
-                          AutomationProperties.AccessibilityView="Control"
-                          AutomationProperties.Name="Map layers">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="20" LineSpacing="0" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="mapVm:MapSceneRendererLayerViewModel">
-                  <!-- No AutomationProperties.AutomationId here: this switch shares its view model
-                       (and so its AutomationId) with the renderer's own Layers list further down the
-                       same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
-                  <!-- V2 rough package 39: the switch says how many things it would show, and
-                       an empty layer that is off cannot be switched on to an empty plan, leaving
-                       the player to work out why. One that is on can always be switched off. -->
-                  <ToggleSwitch Classes="v2-layer-switch"
-                                IsChecked="{Binding IsVisible, Mode=OneWay}"
-                                IsEnabled="{Binding CanToggle}"
-                                OnContent="{Binding Label}" OffContent="{Binding Label}"
-                                AutomationProperties.Name="{Binding ToggleLabel}"
-                                AutomationProperties.HelpText="{Binding StateLabel}"
-                                Command="{Binding ToggleCommand}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
+          <Button Grid.Column="2" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
+                  DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
+                  AutomationProperties.AutomationId="v2-raid-layers"
+                  AutomationProperties.Name="{Binding LayersMenuLabel}"
+                  ToolTip.Tip="Choose what is drawn on the map">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
+              <TextBlock VerticalAlignment="Center" Text="{Binding LayersMenuLabel}" />
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
+            </StackPanel>
+            <Button.Flyout>
+              <Flyout Placement="TopEdgeAlignedRight">
+                <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
+                  <ItemsControl x:DataType="mapVm:MapSceneRendererViewModel" ItemsSource="{Binding Layers}"
+                                MinWidth="260"
+                                AutomationProperties.AccessibilityView="Control"
+                                AutomationProperties.Name="Map layers">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="mapVm:MapSceneRendererLayerViewModel">
+                        <!-- No AutomationProperties.AutomationId here: this switch shares its view model
+                             (and so its AutomationId) with the renderer's own Layers list further down the
+                             same visual tree, and a duplicate id would make either one ambiguous to UIA. -->
+                        <!-- V2 rough package 39: the switch says how many things it would show, and
+                             an empty layer that is off cannot be switched on to an empty plan, leaving
+                             the player to work out why. One that is on can always be switched off. -->
+                        <ToggleSwitch Classes="v2-layer-switch" HorizontalAlignment="Stretch"
+                                      IsChecked="{Binding IsVisible, Mode=OneWay}"
+                                      IsEnabled="{Binding CanToggle}"
+                                      OnContent="{Binding Label}" OffContent="{Binding Label}"
+                                      AutomationProperties.Name="{Binding ToggleLabel}"
+                                      AutomationProperties.HelpText="{Binding StateLabel}"
+                                      Command="{Binding ToggleCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
         </Grid>
       </Border>
     </Grid>
 
-    <Border Grid.Column="1" Classes="v2-raid-panel">
+    <!-- [V2 rough package 46] The handle: drag it to set the panel's width, press its button to
+         put the panel away or bring it back. It stays when the panel is gone, which is what makes
+         the panel findable again without a control anywhere else. -->
+    <Border Grid.Column="1" x:Name="ContextPanelHandle" Classes="v2-raid-splitter"
+            IsVisible="{Binding HasRenderer}"
+            Cursor="SizeWestEast"
+            PointerPressed="PanelHandlePressed"
+            PointerMoved="PanelHandleMoved"
+            PointerReleased="PanelHandleReleased"
+            PointerCaptureLost="PanelHandleCaptureLost"
+            AutomationProperties.AccessibilityView="Control"
+            AutomationProperties.Name="Raid plan width">
+      <Button Classes="v2-target v2-raid-panel-toggle" VerticalAlignment="Center"
+              AutomationProperties.AutomationId="v2-raid-panel-toggle"
+              AutomationProperties.Name="{Binding ContextPanelToggleLabel}"
+              ToolTip.Tip="{Binding ContextPanelToggleLabel}"
+              Command="{Binding ToggleContextPanelCommand}">
+        <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+      </Button>
+    </Border>
+
+    <Border Grid.Column="2" Classes="v2-raid-panel"
+            Width="{Binding ContextPanelWidth}" IsVisible="{Binding ShowsContextPanel}">
       <!-- Named so a headless render can scroll it; see tools/V2RenderPreview. -->
       <ScrollViewer x:Name="RaidPanelScroll" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12" Margin="16,12,16,16">
@@ -383,6 +432,19 @@
               <TextBlock Classes="v2-label" Text="{Binding MapSummary}"
                          IsVisible="{Binding MapSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding TrafficLayerNotice}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding TrafficRows}" IsVisible="{Binding HasTrafficRows}"
+                            AutomationProperties.AutomationId="v2-raid-traffic-rows">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <Border Classes="v2-raid-row" Padding="8,3">
+                      <TextBlock Classes="v2-label" Text="{Binding}" />
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Border>
 
@@ -554,7 +616,7 @@
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Marks" />
               <TextBlock Classes="v2-label" IsVisible="{Binding !HasMarks}"
-                         Text="No marks yet. Arm Ping or Waypoint, then click the map." TextWrapping="Wrap" />
+                         Text="No marks yet. Right-click the map to ping, shift+right-click for a waypoint, right-click a mark to remove it." TextWrapping="Wrap" />
               <ItemsControl ItemsSource="{Binding Marks}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>

@@ -296,9 +296,18 @@
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
                   <StackPanel Spacing="4">
                     <TextBlock Classes="v2-heading-2" Text="Group sharing" AutomationProperties.HeadingLevel="2" />
-                    <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
-                               AutomationProperties.AutomationId="v2-team-group-status"
-                               AutomationProperties.LiveSetting="Polite" />
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                      <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                                 VerticalAlignment="Center"
+                                 AutomationProperties.AutomationId="v2-team-group-status"
+                                 AutomationProperties.LiveSetting="Polite" />
+                      <!-- Every other workspace has a Reload. Without one, a Team pane whose
+                           settings would not read had no way back short of restarting. -->
+                      <Button Classes="v2-plain v2-target v2-touch-target" Content="Reload"
+                              Command="{Binding ReloadCommand}"
+                              AutomationProperties.AutomationId="v2-team-reload"
+                              AutomationProperties.Name="Reload sharing settings" />
+                    </StackPanel>
                   </StackPanel>
                   <ToggleSwitch Grid.Column="1" Classes="v2-team-switch" VerticalAlignment="Center"
                                 IsChecked="{Binding IsEnabled, Mode=TwoWay}"
