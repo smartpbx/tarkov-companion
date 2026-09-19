@@ -386,12 +386,14 @@ public sealed class GuidedStashScanService(
         {
             GuidedStashFrameOutcome.NoGrid => "No stash grid in that screenshot. Open your stash and take it again.",
             GuidedStashFrameOutcome.Duplicate => "Same screenshot as before — skipped. Scroll down and take the next one.",
-            GuidedStashFrameOutcome.AddedUnplaced => "That one doesn't line up with the last. Scroll back up a little and take it again — it's kept in case a later one joins them.",
+            // On a real unguided burst the player paged the stash, and a page leaves only the row
+            // the viewport cuts in common: nothing to line two screens up by.
+            GuidedStashFrameOutcome.AddedUnplaced => "That one shares no rows with the last — a full page is too far. Scroll back up about half a screen and take it again. It's kept in case a later one joins them.",
             GuidedStashFrameOutcome.AddedNoNewRows => "No new rows in that one. If that was the bottom of your stash, press Finish.",
             _ when _frames.Count == 0 && _resumed => "Picked up where you left off. Scroll to the top of your stash and take a screenshot.",
             _ when _frames.Count == 0 => "Scroll to the top of your stash and take a screenshot.",
             _ when _resumed && rows == previousRows => string.Create(culture, $"Picked up where you left off. Scroll so row {Math.Max(1, rows - 3)} is near the top and take the next one, or press Finish."),
-            _ => "Scroll down about half a screen and take the next one. Press Finish at the bottom.",
+            _ => "Scroll down about half a screen with the mouse wheel, not a full page, and take the next one. Press Finish at the bottom.",
         };
         return new(
             GuidedStashScanStage.Collecting,

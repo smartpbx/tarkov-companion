@@ -302,6 +302,19 @@ Inside a cell: the caption is **top-right**, roughly the top third; the stack co
 **bottom-right**, roughly the bottom quarter; some cells carry a small circular badge, presumably
 found-in-raid. Cropping the caption band alone keeps "50" out of the same reading as the label.
 
+**What the stash grid's lines are made of** (nine 3840x1080 menu screenshots, 2026-09-18, measured
+through `StashLuminancePlane`). An item's border is one pixel, teal-tinted, 25 to 45 luminance
+levels over the pixels on both sides (85,108,105 between 56,73,50 and 55,62,70), unbroken along
+the side and drawn on the lattice line itself. The line between two empty cells is 15 over a
+purple hatch that alternates by about 6 from pixel to pixel (36,27,41 / 42,33,46). Grid showing
+through the transparent parts of a large item's art is 8 to 10. Armour and backpacks sit on a pale
+tile (about 90) whose own border measures 1 to 5; its edge is a step of 50 to 65 to the dark tile
+next door. The viewport has its own top line across the whole panel two or three pixels above the
+first row (0.66 to 0.89 of the width reads as a line, against 0.1 to 0.2 for the header text above
+it), and the panel's outer frame runs up into that header, so the frame is not the viewport. The
+scroll is not row-aligned at the bottom of the stash: the first row can be the cut one. A hover
+tooltip covers about eight cells and one outer edge.
+
 **Detect the phase, do not hardcode it.** The panel moves with the window, so a hardcoded origin
 is wrong the first time somebody plays windowed. All of the above came from one screenshot, at
 one window size, on one machine.
