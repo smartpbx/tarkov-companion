@@ -4,7 +4,7 @@
 
 Production locations and visual variants are read from the current `the-hideout/tarkov-dev` `src/data/maps.json` catalog at runtime. The client accepts unknown JSON fields, but requires location and variant identities and validates structured bounds, transforms, floors, labels, and HTTPS asset references. Interactive variants are preferred by default; a user can explicitly choose another available variant for each location, and that choice is stored in the local Tarkov Companion map settings file. The synthetic catalog in `fixtures/maps/` is test-only and is never loaded by the production catalog client.
 
-The catalog and artwork caches are separate. Both use maximum response sizes, per-request timeouts, cancellation, atomic local writes, content hashes, and an offline fallback. The artwork cache also enforces total byte and entry-count limits by evicting its oldest entries. Cached artwork records its original URI, local path, author/link, retrieval time, SHA-256 hash, and license reference. SVG and PNG tile originals remain runtime data under the user's local application-data directory; an SVG may also have a bounded local PNG render preview beside the retained original. Neither originals nor previews are embedded in source or release output. A variant without an explicit upstream `svgPath` or `tilePath` is unavailable; the app never guesses an asset URL.
+The catalog and artwork caches are separate. Both use maximum response sizes, per-request timeouts, cancellation, atomic local writes, content hashes, and an offline fallback. The artwork cache also enforces total byte and entry-count limits by evicting its oldest entries. Cached artwork records its original URI, local path, author/link, retrieval time, SHA-256 hash, and license reference. SVG and PNG tile originals remain runtime data under the user's local application-data directory; an SVG may also have bounded local PNG render previews beside the retained original: one for the whole drawing, and one per upstream layer the maps actually ask for. Neither originals nor previews are embedded in source or release output. A variant without an explicit upstream `svgPath` or `tilePath` is unavailable; the app never guesses an asset URL.
 
 The map view provides explicit location, visual-variant, and upstream floor selectors. PNG tiles or explicitly published SVG assets form the background; SVG floor selection renders only the explicitly named upstream group while retaining the cached original. Labels, companion markers, extracts, routes, risk/traffic predictions, and filters are independent hideable/highlightable overlay layers. Scroll/pointer controls provide pan and bounded zoom. When an asset, offline cache, floor, or validated transform is unavailable, the view says so and does not substitute invented geometry.
 
@@ -16,6 +16,38 @@ omission is supplied locally, with its own provenance. The 2026-09-15 sweep foun
 rows across seven maps. Nine have reviewed positions and can be drawn; Icebreaker's Helicopter
 and Terminal's Zubr Boat remain recognition-only because no reviewed world coordinate was
 available. The evidence and exact count live in `docs/research/EXTRACT_CATALOG_COVERAGE.md`.
+
+## Rasterising a drawing, and why it happens in a child process
+
+A drawing is turned into a PNG by `SvgMapRasterizer`, at up to 4096 pixels along its longer side —
+a budget to fill, not a ceiling to stay under, because the source is a vector and Factory's viewBox
+is 130.8 by 141.2.
+
+Three things bound that work, and each is here because of something Skia does not do:
+
+- **One rasterisation at a time in the process.** Nothing overlaps two 64 MiB surfaces any more. A
+  per-asset gate had kept one map's previews in order and did nothing about two different maps.
+- **The document is measured before Skia sees it** — element count, nesting depth, and the bytes the
+  surface will need. Skia does not raise a managed exception for an allocation it could not make or a
+  recursion it could not finish; it faults.
+- **The draw happens in a child process.** On 2026-09-19 rasterising Reserve killed the application
+  with a native access violation (0xc0000005) at `sk_canvas_draw_picture`. A native fault raises no
+  managed exception, unwinds nothing, and reaches no handler, so it cannot be caught — the only
+  arrangement that survives one is for it to happen somewhere the application can afford to lose.
+  The child is the same executable (`--rasterise-svg <in> --rasterise-preview <out>
+  [--rasterise-layer <id>]`), so there is nothing extra to ship and no version skew.
+
+A child that **cannot be started** — under `dotnet run`, a test or a tool, where the running process
+is not the application's own host executable — sends the work back into this process, which is what
+every build did before. A child that **started and died** does not: its failure is reported, the map
+falls back to the whole drawing where the base preview exists and to its photographic tiles where
+the variant has them, and nothing retries the fault in the process that must survive.
+
+**Previews are drawn once.** One file per upstream layer, skipped whenever the file on disk is newer
+than the SVG it came from, and deleted when a download replaces that SVG. Before this, every floor
+rasterised onto the one `<hash>.preview.png`: a stacked Reserve load drew six full previews on every
+load, and the V1 map and the V2 cockpit reading two different floors each got whichever had finished
+writing last.
 
 ## Coordinate transforms
 
