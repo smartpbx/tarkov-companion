@@ -38,6 +38,49 @@ public sealed class StashPanelRecognitionTests
         Assert.Null(new StashPanelLatticeDetector().Detect(image));
     }
 
+    /// <summary>
+    /// On two real screenshots an opened Junk case - fourteen columns at the stash's own pitch,
+    /// in front of everything - was read as the stash: a ten-column window of it scored higher
+    /// than the panel behind it.
+    /// </summary>
+    [Fact]
+    public void AnOpenedCaseAtTheSamePitchIsNotTheStash()
+    {
+        var caseAlone = SyntheticStashPainter.RenderFrame(SyntheticStashLayout.Of(0), firstRow: 0, new(VisibleRows: 0, PartialRowPixels: 0));
+        DrawEmptyGrid(caseAlone, x: 300, y: 120, columns: 14, rows: 12, pitch: 63);
+
+        Assert.Null(new StashPanelLatticeDetector().Detect(caseAlone));
+
+        var options = new SyntheticStashFrameOptions();
+        var caseBesideTheStash = SyntheticStashPainter.RenderFrame(SyntheticStashLayout.Build(rows: 34), firstRow: 10, options);
+        DrawEmptyGrid(caseBesideTheStash, x: 300, y: 120, columns: 14, rows: 12, pitch: 63);
+
+        var spec = new StashPanelLatticeDetector().Detect(caseBesideTheStash);
+
+        Assert.NotNull(spec);
+        Assert.InRange(spec!.Bounds.X, options.PanelX - 1, options.PanelX + 1);
+        Assert.Equal(options.VisibleRows, spec.Rows);
+    }
+
+    /// <summary>A grid of empty cells as the game draws them: a one-pixel hatch, lines fifteen levels over it.</summary>
+    private static void DrawEmptyGrid(TarkovCompanion.Core.Domain.Recognition.CapturedImage image, int x, int y, int columns, int rows, int pitch)
+    {
+        var pixels = System.Runtime.InteropServices.MemoryMarshal.AsMemory(image.Pixels).Span;
+        for (var row = y; row <= y + (rows * pitch); row++)
+        {
+            for (var column = x; column <= x + (columns * pitch); column++)
+            {
+                var onLine = (row - y) % pitch == 0 || (column - x) % pitch == 0;
+                var value = (byte)(onLine ? 53 : ((row + column) & 1) == 0 ? 35 : 41);
+                var offset = (row * image.Stride) + (column * 4);
+                pixels[offset] = value;
+                pixels[offset + 1] = value;
+                pixels[offset + 2] = value;
+                pixels[offset + 3] = 255;
+            }
+        }
+    }
+
     [Fact]
     public void ReadsEveryWholeItemOfAPackedScreenAsItsOwnRectangle()
     {
