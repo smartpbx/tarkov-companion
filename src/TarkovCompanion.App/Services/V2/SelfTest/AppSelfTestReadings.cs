@@ -130,6 +130,13 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
             _clock.LocalTimeZone.GetUtcOffset(_clock.GetUtcNow()),
             cancellationToken);
 
+    public Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken) =>
+        _screenshots.RecentAsync(
+            LastKnownScreenshotRoot(),
+            lookBack,
+            _clock.LocalTimeZone.GetUtcOffset(_clock.GetUtcNow()),
+            cancellationToken);
+
     public async Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken)
     {
         var rows = await _database.ReadEndpointsAsync(_gameMode, _language, cancellationToken).ConfigureAwait(false);

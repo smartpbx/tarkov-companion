@@ -19,8 +19,6 @@ namespace TarkovCompanion.LogFactsAudit;
 /// </summary>
 internal static class Program
 {
-    /// <summary>Same three files the companion opens. See EFT_LOG_FACTS.md "Privacy" section.</summary>
-    private static readonly string[] WatchedPrefixes = ["application", "output", "backend"];
 
     public static int Main(string[] args)
     {
@@ -39,12 +37,12 @@ internal static class Program
         }
 
         var files = EnumerateWatchedFiles(root)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         if (files.Length == 0)
         {
             Console.WriteLine(
-                $"No application/output/backend log files found under '{root}'; skipping. " +
+                $"No log file this companion reads was found under '{root}'; skipping. " +
                 "Point this at a folder holding log_<stamp>_<version> session folders.");
             return 0;
         }
@@ -57,7 +55,7 @@ internal static class Program
         return 0;
     }
 
-    private static Report Measure(IReadOnlyList<string> files)
+    private static Report Measure(IReadOnlyList<(string Path, LogReadMode Mode)> files)
     {
         // One parser and one state machine for the whole run, exactly as the watcher uses them:
         // the parser learns the player's own profile id from a SelectedProfile line, and the
@@ -68,15 +66,32 @@ internal static class Program
         var state = new RaidStateService();
 
         var report = new Report();
-        foreach (var path in files)
+        foreach (var (path, mode) in files)
         {
             var isApplication = Path.GetFileName(path).Contains("application", StringComparison.OrdinalIgnoreCase);
+            var quests = report.QuestEventCount;
+            var lines = 0;
             foreach (var line in SafeReadLines(path))
             {
-                MeasureLine(line, isApplication, parser, state, report);
+                lines++;
+                // Narrowed exactly as the watcher narrows it, so a count here cannot promise
+                // something the shipped code would not have seen.
+                if (mode == LogReadMode.ChatOnly && !EftLogFiles.IsChatNotification(line))
+                {
+                    continue;
+                }
+
+                MeasureLine(line, mode == LogReadMode.Full && isApplication, parser, state, report);
             }
+
+            // Per file, because "which file had the quests in it" is the question this tool was
+            // unable to answer when the note it checks was written.
+            Console.WriteLine(
+                $"  {Path.GetFileName(path)}: {lines} line(s), {mode}, " +
+                $"{report.QuestEventCount - quests} quest event(s)");
         }
 
+        Console.WriteLine();
         return report;
     }
 
@@ -207,46 +222,37 @@ internal static class Program
         }
     }
 
-    private static IEnumerable<string> EnumerateWatchedFiles(string root)
+    /// <summary>
+    /// The same files the companion opens, and how much of each.
+    /// </summary>
+    /// <remarks>
+    /// From <see cref="EftLogFiles"/> rather than a copy of the list. This tool exists to check
+    /// the note's claims against real logs, and a tool measuring a different file set from the
+    /// one the watcher reads would confirm claims about nothing. That is not hypothetical: the
+    /// note's "380 ChatMessageReceived lines across eight log folders" was measured against
+    /// push-notifications, which the watcher does not read in full, and the parser was therefore
+    /// "verified" against a file whose spelling of the announcement the shipped code never saw.
+    /// </remarks>
+    private static IEnumerable<(string Path, LogReadMode Mode)> EnumerateWatchedFiles(string root)
     {
-        IEnumerable<string> files;
+        string[] files;
         try
         {
-            files = Directory.EnumerateFiles(root, "*.log", SearchOption.AllDirectories);
+            files = Directory.GetFiles(root, "*.log", SearchOption.AllDirectories);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            Console.WriteLine($"Could not list '{root}': {exception.Message}");
             yield break;
         }
 
         foreach (var path in files)
         {
-            if (IsWatched(path))
+            if (EftLogFiles.ReadMode(path) is { } mode)
             {
-                yield return path;
+                yield return (path, mode);
             }
         }
-    }
-
-    /// <summary>Same rule as WindowsEftLogWatcher.IsWatched: the prefix has to begin a word.</summary>
-    private static bool IsWatched(string path)
-    {
-        var name = Path.GetFileNameWithoutExtension(path.AsSpan());
-        foreach (var prefix in WatchedPrefixes)
-        {
-            var index = name.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
-            if (index < 0)
-            {
-                continue;
-            }
-
-            if (index == 0 || name[index - 1] is ' ' or '_' or '-' or '.')
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static IEnumerable<string> SafeReadLines(string path)
@@ -302,5 +308,8 @@ internal static class Program
 
             return events;
         }
+
+        /// <summary>Distinct quest events seen so far, for the running per-file total.</summary>
+        public int QuestEventCount => _questEventsByState.Values.Sum(events => events.Count);
     }
 }

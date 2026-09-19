@@ -10,6 +10,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.Services.V2.SelfTest;
@@ -552,6 +553,59 @@ internal static class Program
                 }
             }
 
+            // [V2 rough package 48] The pairing panel's four states, inside Team > Devices. None of
+            // them can be reached in a render without a relay and a tablet on the other end, so the
+            // view model is put into each one through its own preview seam and the real view draws
+            // it. What is being photographed is the layout and the wording, which is what was wrong.
+            if (shell is not null && StringOption(args, "--pairing-demo") is { } pairingState)
+            {
+                var pairing = services.GetRequiredService<CompanionPairingViewModel>();
+                switch (pairingState)
+                {
+                    case "unclaimed":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.NotClaimed,
+                            CompanionPairingStage.Idle);
+                        break;
+                    case "unclaimable":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.NotConfiguredForClaiming,
+                            CompanionPairingStage.Idle,
+                            claimMessage: CompanionPairingViewModel.NotConfiguredForClaimingMessage);
+                        break;
+                    case "claimed":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.");
+                        break;
+                    case "pairing":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.AwaitingTablet,
+                            pairingCode: "K7M2-9QRT-4B");
+                        break;
+                    case "approving":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.AwaitingApproval,
+                            verificationCode: "48 15 62",
+                            requestedDisplayName: "Kitchen tablet");
+                        break;
+                    case "paired":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.",
+                            devices: [DemoPairedDevice("Kitchen tablet")]);
+                        break;
+                    default:
+                        throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
+                }
+
+                Pump(40);
+            }
+
             // [V2 rough package 22] A render-only raid: a player position with a heading, the
             // trail behind it, and a squad standing around. Everything downstream of it is the
             // real path — the runtime store, MainWindowViewModel.Apply, MapViewModel.ShowPlayer,
@@ -666,8 +720,11 @@ internal static class Program
                 setupWorkspace.Select(V2SetupSection.Diagnostics);
                 if (args.Contains("--selftest-demo"))
                 {
+                    // [V2 rough package 43a] --selftest-waiting renders the state that used to be
+                    // a red failure: every other capability settled, and the screenshot one open.
+                    var waiting = args.Contains("--selftest-waiting");
                     setupWorkspace.AttachSelfTest(new SetupSelfTestViewModel(
-                        () => new SelfTestDemoReadings(),
+                        () => new SelfTestDemoReadings(waiting),
                         new SelfTestJournal()));
                 }
 
@@ -1075,6 +1132,40 @@ internal static class Program
         }
 
         task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>One paired device, so the list has something in it to photograph.</summary>
+    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(string name)
+    {
+        var now = new DateTimeOffset(2026, 9, 18, 21, 0, 0, TimeSpan.Zero);
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var point = key.ExportParameters(false).Q;
+        byte[] cose =
+        [
+            0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20,
+            .. point.X!,
+            0x22, 0x58, 0x20,
+            .. point.Y!,
+        ];
+        var thumbprint = System.Buffers.Text.Base64Url.EncodeToString(
+            System.Security.Cryptography.SHA256.HashData(cose));
+        var device = new TarkovCompanion.CompanionProtocol.PairedDevice(
+            new TarkovCompanion.Core.Abstractions.V2.CompanionDeviceId(Guid.Parse("7a1d0000-0000-4000-8000-000000000048")),
+            name,
+            new TarkovCompanion.CompanionProtocol.DevicePublicKey(
+                new TarkovCompanion.CompanionProtocol.DeviceKeyId(thumbprint),
+                TarkovCompanion.CompanionProtocol.DeviceKeyAlgorithm.WebAuthnEs256,
+                thumbprint,
+                System.Buffers.Text.Base64Url.EncodeToString(cose)),
+            TarkovCompanion.CompanionProtocol.DeviceAuthorizationRole.Member,
+            [TarkovCompanion.CompanionProtocol.DeviceCapability.FollowDesktop],
+            TarkovCompanion.CompanionProtocol.DeviceLifecycleStatus.Active,
+            now,
+            now,
+            1,
+            now.AddDays(30),
+            now);
+        return new(device, _ => Task.CompletedTask);
     }
 
     private static int IntOption(string[] args, string name, int fallback)

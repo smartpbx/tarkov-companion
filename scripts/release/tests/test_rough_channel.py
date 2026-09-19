@@ -88,6 +88,19 @@ class RoughChannelTests(unittest.TestCase):
         with self.assertRaisesRegex(ChannelError, "not in"):
             rough_channel.stage(other, self.root / "out2")
 
+    def test_a_feed_offering_another_version_than_the_build_is_refused(self) -> None:
+        source = packaging_output(self.root / "velopack")
+
+        rough_channel.stage(source, self.root / "out", expected_version="1.0.1301")
+        with self.assertRaisesRegex(ChannelError, "this build is 2.0.1301"):
+            rough_channel.stage(source, self.root / "out2", expected_version="2.0.1301")
+        # An empty expectation is a misspelt variable, not permission to skip the check.
+        with self.assertRaisesRegex(ChannelError, "no expected version"):
+            rough_channel.stage(source, self.root / "out3", expected_version="")
+        self.assertEqual(
+            rough_channel.main(["stage", "--velopack", str(source), "--output", str(self.root / "out4"),
+                                "--expect-version", "2.0.1301"]), 1)
+
     def test_the_command_line_reports_a_refusal_as_a_failure(self) -> None:
         source = packaging_output(self.root / "velopack", sha256="B" * 64)
 
