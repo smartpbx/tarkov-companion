@@ -29,7 +29,10 @@ public static class SqliteMigrationLedger
         new("0011_v2_data_platform", true, "Compact, recoverable V2 persistence platform"),
         new("0012_task_wiki_link", false, "Task wiki deep links"),
         new("0013_task_objective_task_scoped_keys", true, "Task-scoped task_objectives/task_objective_items keys"),
-        new("0014_flea_market_settings", false, "Published flea listing fee rates"),
+        // 0014 is main's quest-journal actor migration, which landed first. This one was written
+        // as 0014 on a branch cut before it; two ids sharing a number sort by their names, and
+        // "0014_flea" sorts ahead of "0014_quest", which the ordered-ledger guard refuses.
+        new("0015_flea_market_settings", false, "Published flea listing fee rates"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>
