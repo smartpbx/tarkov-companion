@@ -85,9 +85,10 @@ public sealed class SqliteCraftPlanningCatalog(SqliteConnectionFactory connectio
         ValidateHistoryLimit(historyLimitPerCraft, nameof(historyLimitPerCraft));
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // A read of one snapshot, not a write: BEGIN DEFERRED gives the same consistent view under WAL
+        // without taking the write lock that the default BEGIN IMMEDIATE does, so a page's read is not
+        // queued behind a background refresh's write.
+        await using var transaction = connection.BeginTransaction(deferred: true);
         var scope = CraftScope.ForStation(stationId);
         IReadOnlyList<CraftPlanningEntry> result;
         try
@@ -116,9 +117,10 @@ public sealed class SqliteCraftPlanningCatalog(SqliteConnectionFactory connectio
         ValidateHistoryLimit(historyLimit, nameof(historyLimit));
 
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = (SqliteTransaction)await connection
-            .BeginTransactionAsync(cancellationToken)
-            .ConfigureAwait(false);
+        // A read of one snapshot, not a write: BEGIN DEFERRED gives the same consistent view under WAL
+        // without taking the write lock that the default BEGIN IMMEDIATE does, so a page's read is not
+        // queued behind a background refresh's write.
+        await using var transaction = connection.BeginTransaction(deferred: true);
         IReadOnlyList<CraftPlanningEntry> result;
         try
         {
