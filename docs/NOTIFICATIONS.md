@@ -45,10 +45,13 @@ than a desktop one, so even switched on it cannot appear over a game that is cov
 ## Tray presence
 
 `TrayPresence` is Windows only, the way the rest of the platform layer draws its line; everywhere
-else it reports unavailable and the application behaves exactly as it did before. When it is there,
-closing the window hides it instead of quitting (the shutdown mode moves to explicit), and the tray
-menu — Show, Raid, Team, Setup, Quit — is the way back. `TrayPresenceState` decides the words and
-the colour and has no Avalonia in it, so what the tray says is tested rather than photographed.
+else it reports unavailable and the application behaves exactly as it did before. When it is there
+on an ordinary player launch, closing the window hides it instead of quitting (the shutdown mode
+moves to explicit), and the tray menu — Show, Raid, Team, Setup, Quit — is the way back. Tool and
+verification launches (`--page`, developer mode, `TARKOV_COMPANION_UI_WARNING_LOG`,
+`TARKOV_COMPANION_QUIT_ON_CLOSE`) still quit on window close, because the Windows page gallery and
+launch probe end a run with `CloseMainWindow`. `TrayPresenceState` decides the words and the colour
+and has no Avalonia in it, so what the tray says is tested rather than photographed.
 
 The icon is the application icon with a state-coloured dot: cyan in a raid, amber loading, green
 for a finished raid with a debrief waiting, red when something needs attention. Composing it needs

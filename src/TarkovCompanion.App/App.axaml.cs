@@ -86,7 +86,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 // [V2 rough package 43 (#314)] The tray, and the five notifications behind it.
                 // Attached after the window exists because closing to the tray only makes sense
                 // when there is a tray to close to, and the pop-up needs a window to draw in.
-                AttachNotifications(desktop, window);
+                AttachNotifications(desktop, window, options);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
             }
         }
@@ -104,7 +104,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     /// starting, which is why the whole thing is inside one catch: a missing tray is not worth a
     /// failed launch.
     /// </remarks>
-    private void AttachNotifications(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
+    private void AttachNotifications(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        MainWindow window,
+        AppCommandLine? options)
     {
         try
         {
@@ -124,11 +127,14 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
 
             // The window closing is the application going quiet, not the application stopping:
             // a companion that has to be relaunched to tell you anything cannot tell you anything.
-            // Only when there is actually a tray to reach it by.
-            _closesToTray = _tray.IsAvailable;
+            // Only for an ordinary player launch with a tray — verification and --page launches
+            // still need CloseMainWindow to end the process (see CloseToTrayDecision).
+            _closesToTray = CloseToTrayDecision.ShouldCloseToTray(_tray.IsAvailable, options);
             window.Closing += (_, args) =>
             {
-                if (!_closesToTray || desktop.ShutdownMode == ShutdownMode.OnExplicitShutdown && !window.IsVisible)
+                // Already hidden under OnExplicitShutdown: let a second close (or Quit) finish.
+                if (!_closesToTray
+                    || (desktop.ShutdownMode == ShutdownMode.OnExplicitShutdown && !window.IsVisible))
                 {
                     return;
                 }
