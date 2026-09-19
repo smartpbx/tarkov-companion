@@ -201,5 +201,6 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
         "0011_v2_data_platform",
         "0012_task_wiki_link",
         "0013_task_objective_task_scoped_keys",
+        "0014_flea_market_settings",
     ];
 }
