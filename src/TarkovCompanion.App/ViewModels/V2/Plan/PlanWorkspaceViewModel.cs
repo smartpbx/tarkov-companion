@@ -374,13 +374,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         _searchableText = SearchableText;
         _selectGroup = group => SelectedGroup = group;
         _openInRaid = OpenInRaidAsync;
-        // Package 45: typing must not wait on the filter. Behind input rather than through
-        // Avalonia's own context, which posts above it: see BehindInputSynchronizationContext.
-        _filterRequest = new DeferredDispatch(
-            SynchronizationContext.Current?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
-                ? new BehindInputSynchronizationContext()
-                : null,
-            ApplyFilter);
+        // Package 45: typing must not wait on the filter. Posted behind queued input rather than
+        // through Avalonia's own context, which posts above it: see UiThreadPost.
+        _filterRequest = DeferredDispatch.Posting(UiThreadPost.BehindInput(), ApplyFilter);
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
         _commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));

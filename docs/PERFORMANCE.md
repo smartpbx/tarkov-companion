@@ -105,6 +105,13 @@ objective on the board twice per keystroke. What is left in "settled" is the wor
 really does ask for — new rows for what is now shown, and the item-name reads for the newly selected
 map.
 
+The filter is posted at `DispatcherPriority.Background` (`UiThreadPost.BehindInput`), not through
+Avalonia's own context, which posts at `Default` — above `Input`. Deferring through that takes the
+filter off the setter's stack but still runs it once per character, ahead of the next key, so the box
+stays as slow to type in as it was. Nothing installs a synchronization context: `UiThreadPost` hands
+`DeferredDispatch.Posting` a delegate, and `UiThreadPostTests` holds that decision, including that
+making it leaves `SynchronizationContext.Current` alone.
+
 ## The budgets
 
 `RaidPerformanceBudgetTests` fails if any of these regress. Byte budgets are about twice the measured
