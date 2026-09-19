@@ -161,9 +161,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SetupSelfTestViewModel? selfTest = null,
         // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
         // record the Appearance section writes. Optional for the same reason as the rest.
-        WorkspacePreferenceService? preferences = null)
+        WorkspacePreferenceService? preferences = null,
         // [#269] Setup's profile list, same reasoning again.
-        SetupProfilesViewModel? profiles = null)
+        SetupProfilesViewModel? profiles = null,
         // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
         SetupAdminViewModel? admin = null)
         : this(
@@ -198,9 +198,13 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (preferences is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
+        }
+
         if (profiles is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachProfiles(profiles);
+        }
+
         if (admin is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAdmin(admin);

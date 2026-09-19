@@ -194,6 +194,8 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
         OnPropertyChanged(nameof(Appearance));
         OnPropertyChanged(nameof(HasAppearance));
+    }
+
     /// <summary>[#292] Whether file paths show in full. Off at every launch; nothing remembers it.</summary>
     public SetupPathDisclosureViewModel Paths { get; }
 
