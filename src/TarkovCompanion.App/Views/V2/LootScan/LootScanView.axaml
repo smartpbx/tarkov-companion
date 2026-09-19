@@ -250,7 +250,7 @@
                 AutomationProperties.AutomationId="v2-loot-scan-status"
                 AutomationProperties.Name="{Binding StatusLabel}"
                 AutomationProperties.AccessibilityView="Control">
-          <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="16">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
             <Border Classes="loot-thumb" VerticalAlignment="Center">
               <Path Classes="v2-icon v2-icon-muted" HorizontalAlignment="Center" VerticalAlignment="Center"
                     Data="{DynamicResource V2.Icon.Camera}" />
@@ -263,21 +263,7 @@
               <TextBlock Classes="v2-label" Text="{Binding ContextLabel}" TextTrimming="CharacterEllipsis" />
               <TextBlock Classes="v2-label" Text="{Binding TimingSummary}" />
             </StackPanel>
-            <!-- #282: the two inputs only the player has. Changing either decides the scan again. -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
-                        IsVisible="{Binding HasControls}">
-              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding PhaseLabel}" />
-              <ComboBox Classes="loot-picker" ItemsSource="{Binding PhaseChoices}"
-                        SelectedItem="{Binding SelectedPhase}"
-                        AutomationProperties.AutomationId="v2-loot-scan-phase"
-                        AutomationProperties.Name="{Binding PhaseLabel}" />
-              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding RiskLabel}" />
-              <ComboBox Classes="loot-picker" ItemsSource="{Binding RiskChoices}"
-                        SelectedItem="{Binding SelectedRisk}"
-                        AutomationProperties.AutomationId="v2-loot-scan-risk"
-                        AutomationProperties.Name="{Binding RiskLabel}" />
-            </StackPanel>
-            <Button Grid.Column="3" Classes="v2-outline" VerticalAlignment="Center"
+            <Button Grid.Column="2" Classes="v2-outline" VerticalAlignment="Center"
                     AutomationProperties.AutomationId="v2-loot-scan-again"
                     Command="{Binding ScanAgainCommand}">
               <StackPanel Orientation="Horizontal" Spacing="8">
@@ -289,7 +275,8 @@
         </Border>
 
         <Border Grid.Column="1" Classes="v2-pane">
-          <ItemsControl ItemsSource="{Binding Filters}" VerticalAlignment="Center"
+          <StackPanel Spacing="8" VerticalAlignment="Center">
+          <ItemsControl ItemsSource="{Binding Filters}"
                         AutomationProperties.Name="{DynamicResource V2.String.LootScan.Filters}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
@@ -306,6 +293,22 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          <!-- #282: the two inputs only the player has. Changing either decides the scan again.
+               Under the chips rather than in the status pane, where they squeezed its text
+               into a column at 1920. -->
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasControls}">
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding PhaseLabel}" />
+            <ComboBox Classes="loot-picker" ItemsSource="{Binding PhaseChoices}"
+                      SelectedItem="{Binding SelectedPhase}"
+                      AutomationProperties.AutomationId="v2-loot-scan-phase"
+                      AutomationProperties.Name="{Binding PhaseLabel}" />
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding RiskLabel}" />
+            <ComboBox Classes="loot-picker" ItemsSource="{Binding RiskChoices}"
+                      SelectedItem="{Binding SelectedRisk}"
+                      AutomationProperties.AutomationId="v2-loot-scan-risk"
+                      AutomationProperties.Name="{Binding RiskLabel}" />
+          </StackPanel>
+          </StackPanel>
         </Border>
       </Grid>
 

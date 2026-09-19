@@ -250,6 +250,24 @@ public sealed class LootScanDecisionWiringTests
     }
 
     [Fact]
+    public async Task ATraderPriceIsAsFreshAsTheLastSyncAndAFleaPriceAsItsOwnStamp()
+    {
+        // Both items were last stamped by the source a month ago; the catalog synced an hour ago.
+        var result = await EvaluateAsync(new Scan
+        {
+            Loot = [Named(0, 0, "keycard", "Lab keycard", 1, 1), Named(0, 1, "relic", "Relic", 1, 1)],
+            Carried = Backpack(2, 2),
+        });
+
+        var keycard = result.Decisions.Single(item => item.Item.Value!.CanonicalId.Value == "keycard");
+        var relic = result.Decisions.Single(item => item.Item.Value!.CanonicalId.Value == "relic");
+        // No flea listing, so only what a trader pays, which does not move with the market.
+        Assert.Equal(LootScanVerdict.Take, keycard.Verdict);
+        // A month-old flea average is a month-old market figure, however fresh the sync.
+        Assert.Equal(LootScanVerdict.Review, relic.Verdict);
+    }
+
+    [Fact]
     public async Task WithNoProfileGivenNothingIsClaimedAboutPinsOrRules()
     {
         var source = new LootScanRecommendationSource(new Catalog());
@@ -453,11 +471,13 @@ public sealed class LootScanDecisionWiringTests
 
     private sealed class Catalog : IItemRepository, IItemMarketFactSource
     {
-        private static readonly Dictionary<string, (string Name, int Width, int Height, bool Flea, long? Average, long? Trader, long Base, int Offers)> Items = new()
+        private static readonly Dictionary<string, (string Name, int Width, int Height, bool Flea, long? Average, long? Trader, long Base, int Offers, int StampedHoursAgo)> Items = new()
         {
-            ["gpu"] = ("Graphics card", 2, 1, true, 337_352, 120_000, 250_000, 40),
-            ["bolts"] = ("Bolts", 1, 1, true, 9_000, 3_000, 7_000, 60),
-            ["salewa"] = ("Salewa", 1, 2, true, 60_000, 12_000, 40_000, 25),
+            ["gpu"] = ("Graphics card", 2, 1, true, 337_352, 120_000, 250_000, 40, 1),
+            ["bolts"] = ("Bolts", 1, 1, true, 9_000, 3_000, 7_000, 60, 1),
+            ["salewa"] = ("Salewa", 1, 2, true, 60_000, 12_000, 40_000, 25, 1),
+            ["keycard"] = ("Lab keycard", 1, 1, false, null, 90_000, 50_000, 0, 720),
+            ["relic"] = ("Relic", 1, 1, true, 100_000, 20_000, 60_000, 30, 720),
         };
 
         public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
@@ -476,7 +496,7 @@ public sealed class LootScanDecisionWiringTests
                     null,
                     null,
                     new HashSet<string>(),
-                    new DataProvenance("fixture", Now.AddHours(-1)))
+                    new DataProvenance("fixture", Now.AddHours(-item.StampedHoursAgo)))
                 : null);
 
         public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken) =>
@@ -486,16 +506,16 @@ public sealed class LootScanDecisionWiringTests
             Task.FromResult(Items.TryGetValue(itemId, out var item)
                 ? new ItemPriceSnapshot(
                     item.Average,
-                    item.Trader is { } trader ? [new TraderOffer("therapist", "Therapist", trader, new DataProvenance("fixture", Now.AddHours(-1)))] : [],
+                    item.Trader is { } trader ? [new TraderOffer("therapist", "Therapist", trader, new DataProvenance("fixture", Now.AddHours(-item.StampedHoursAgo)))] : [],
                     item.Average,
                     null,
                     null,
-                    new DataProvenance("fixture", Now.AddHours(-1)))
+                    new DataProvenance("fixture", Now.AddHours(-item.StampedHoursAgo)))
                 : null);
 
         Task<ItemMarketFacts?> IItemMarketFactSource.GetAsync(string itemId, CancellationToken cancellationToken) =>
             Task.FromResult(Items.TryGetValue(itemId, out var item)
-                ? new ItemMarketFacts(itemId, item.Base, item.Offers, false, Now.AddHours(-1))
+                ? new ItemMarketFacts(itemId, item.Base, item.Offers, false, Now.AddHours(-item.StampedHoursAgo), Now.AddHours(-1))
                 : null);
 
         public Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken) =>

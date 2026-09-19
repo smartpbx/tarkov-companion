@@ -249,6 +249,19 @@ public sealed class LootScanRecommendationSource(
             EvidenceConfidence.Unscored,
             Producer);
 
+        // What a trader pays does not move with the market, and the source stamps an item only
+        // when its market figures do, so a trader-only item carries a stamp weeks old. It is
+        // as fresh as the last catalog sync that confirmed it, where that is known.
+        var confirmedUtc = StaticFactsUtc(observedUtc, facts, evaluatedUtc);
+        var confirmed = confirmedUtc == observedUtc
+            ? catalog
+            : new EvidenceProvenance(
+                EvidenceSourceClass.PublicStructuredData,
+                $"json.tarkov.dev/items/{itemId}/trader",
+                confirmedUtc,
+                EvidenceConfidence.Certain,
+                Producer);
+
         var askingPrice = definition.FleaEligible ? price.Average24HourRoubles ?? price.FleaPriceRoubles : null;
         var trader = price.BestTrader?.ValueRoubles;
         EvidencedValue<long?> fleaGross;
@@ -256,9 +269,10 @@ public sealed class LootScanRecommendationSource(
         EvidencedValue<long?> fleaNet;
         if (askingPrice is not { } asking || asking <= 0)
         {
-            fleaGross = Absent<long?>("economics.flea-gross", "flea-gross.not-sold", catalog);
-            fleaFee = Absent<long?>("economics.flea-fee", "flea-fee.not-sold", catalog);
-            fleaNet = Absent<long?>("economics.flea-net", "flea-net.not-sold", catalog);
+            // "The flea does not sell this" is a fact about the catalog, not a market figure.
+            fleaGross = Absent<long?>("economics.flea-gross", "flea-gross.not-sold", confirmed);
+            fleaFee = Absent<long?>("economics.flea-fee", "flea-fee.not-sold", confirmed);
+            fleaNet = Absent<long?>("economics.flea-net", "flea-net.not-sold", confirmed);
         }
         else
         {
@@ -288,14 +302,19 @@ public sealed class LootScanRecommendationSource(
             fleaFee,
             fleaNet,
             trader is { } traderValue
-                ? Known<long?>("economics.trader", checked(traderValue * quantity), catalog)
-                : Absent<long?>("economics.trader", "trader.not-bought", catalog),
+                ? Known<long?>("economics.trader", checked(traderValue * quantity), confirmed)
+                : Absent<long?>("economics.trader", "trader.not-bought", confirmed),
             Known<int?>("economics.squares", checked(width * height), item.WidthCells.Provenance),
             item.Condition.Value == ItemConditionReading.NotApplicable
                 ? Known<double?>("economics.condition", 1, catalog)
                 : Unread<double?>("economics.condition", "condition.unread", unknown));
-        return new(itemId, definition, facts, economics, catalog, unknown);
+        return new(itemId, definition, facts, economics, catalog, unknown, confirmedUtc);
     }
+
+    private static DateTimeOffset StaticFactsUtc(DateTimeOffset stampedUtc, ItemMarketFacts? facts, DateTimeOffset evaluatedUtc) =>
+        facts?.CatalogSyncedUtc is { } synced && synced > stampedUtc
+            ? Earlier(synced, evaluatedUtc)
+            : stampedUtc;
 
     private static RecommendationProfileFacts ProfileFacts(
         ProfileRecord? profile,
@@ -375,7 +394,11 @@ public sealed class LootScanRecommendationSource(
             return Unread<RecommendationObtainabilityBand?>("scarcity.obtainability", "scarcity.offer-count-unpublished", read.Unknown);
         }
 
-        var through = Earlier(facts.ObservedUtc, evaluatedUtc);
+        // A band read off the listing count is a market figure. One read off a trader's offer,
+        // or off there being no flea to list on, is a catalog fact and as fresh as the last sync.
+        var through = facts.TraderSellsForCash || !read.Definition.FleaEligible
+            ? read.StaticFactsUtc
+            : Earlier(facts.ObservedUtc, evaluatedUtc);
         return Known<RecommendationObtainabilityBand?>(
             "scarcity.obtainability",
             band,
@@ -410,7 +433,7 @@ public sealed class LootScanRecommendationSource(
         DateTimeOffset evaluatedUtc)
     {
         var ratesUtc = Earlier(rates.ObservedUtc, evaluatedUtc);
-        var factsUtc = Earlier(facts.ObservedUtc, evaluatedUtc);
+        var factsUtc = StaticFactsUtc(Earlier(facts.ObservedUtc, evaluatedUtc), facts, evaluatedUtc);
         var through = Earlier(Earlier(catalog.ObservedUtc, ratesUtc), factsUtc);
         return new(
             EvidenceSourceClass.DerivedCalculation,
@@ -457,5 +480,6 @@ public sealed class LootScanRecommendationSource(
         ItemMarketFacts? Facts,
         RecommendationEconomics Economics,
         EvidenceProvenance Catalog,
-        EvidenceProvenance Unknown);
+        EvidenceProvenance Unknown,
+        DateTimeOffset StaticFactsUtc);
 }

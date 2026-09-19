@@ -36,12 +36,23 @@ public sealed record FleaMarketRates
 /// <param name="BasePriceRoubles">The game's own base price, which the flea fee is charged against.</param>
 /// <param name="LastOfferCount">How many flea listings the last scan of the market saw. Null where unpublished.</param>
 /// <param name="TraderSellsForCash">A trader sells it for money without a quest unlocking the offer.</param>
+/// <param name="ObservedUtc">
+/// When the source last updated this item, which is when its market figures were taken.
+/// </param>
+/// <param name="CatalogSyncedUtc">
+/// When the items catalog was last synced, where that is recorded. The source stamps an item
+/// only when its market figures move, and 1,476 of 5,442 items on 2026-09-19 carried a stamp
+/// over a week old: everything with no flea listing. What a trader pays and the base price do
+/// not move with the market, so they are as fresh as the last sync that confirmed them, and
+/// dating them by the stamp would call a quarter of the catalog expired for ever.
+/// </param>
 public sealed record ItemMarketFacts(
     string ItemId,
     long? BasePriceRoubles,
     int? LastOfferCount,
     bool TraderSellsForCash,
-    DateTimeOffset ObservedUtc);
+    DateTimeOffset ObservedUtc,
+    DateTimeOffset? CatalogSyncedUtc = null);
 
 /// <summary>
 /// The fee the game takes for listing an item on the flea market.

@@ -60,6 +60,20 @@ this", which lets the trader's offer be weighed alone.
 The fee is a calculation and is as old as the oldest thing it was calculated from. A fee worked
 out now from yesterday's price is refused like yesterday's price.
 
+## How old a price is
+
+The source stamps an item only when its market figures move. On 2026-09-19 every one of the
+3,553 items with a flea average had been stamped within twelve hours, and 1,476 of 5,442 items,
+everything with no flea listing, carried a stamp over a week old. The engine refuses a price
+older than twelve hours, so dating everything by the stamp called a quarter of the catalog
+expired for ever.
+
+So the two kinds of fact are dated differently. A flea average and a listing count are market
+figures and are as old as the item's stamp. What a trader pays, the base price, a trader's buy
+offer and "the flea does not sell this" do not move with the market: they are as fresh as the
+last items sync that confirmed them (`sync_state`), where one is recorded, and as old as the
+stamp where none is.
+
 ## Obtainability
 
 A band from two published facts, never a spawn rate:

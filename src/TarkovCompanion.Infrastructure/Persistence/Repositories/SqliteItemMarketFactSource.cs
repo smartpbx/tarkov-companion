@@ -32,8 +32,30 @@ public sealed class SqliteItemMarketFactSource(SqliteConnectionFactory connectio
         long? basePrice = reader.IsDBNull(0) ? null : reader.GetInt64(0);
         var raw = reader.IsDBNull(1) ? null : reader.GetString(1);
         var observedUtc = ParseTimestamp(reader.GetString(2));
+        await reader.DisposeAsync().ConfigureAwait(false);
         var (offers, traderSells) = ReadSourceRow(raw);
-        return new(itemId, basePrice is > 0 ? basePrice : null, offers, traderSells, observedUtc);
+        return new(
+            itemId,
+            basePrice is > 0 ? basePrice : null,
+            offers,
+            traderSells,
+            observedUtc,
+            await ReadCatalogSyncedAsync(connection, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<DateTimeOffset?> ReadCatalogSyncedAsync(
+        Microsoft.Data.Sqlite.SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT MAX(last_success_utc)
+            FROM sync_state
+            WHERE source_key = 'items' AND last_success_utc IS NOT NULL;
+            """;
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string text
+            ? ParseTimestamp(text)
+            : null;
     }
 
     public async Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken)

@@ -66,6 +66,8 @@ public sealed class ItemMarketFactPersistenceTests
         Assert.Null(coin.BasePriceRoubles);
         Assert.Null(coin.LastOfferCount);
         Assert.False(coin.TraderSellsForCash);
+        // Nothing has recorded an items sync in this database, so none is claimed.
+        Assert.Null(keycard.CatalogSyncedUtc);
         Assert.Null(await source.GetAsync("not-an-item", TestContext.Current.CancellationToken));
     }
 
