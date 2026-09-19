@@ -23,6 +23,38 @@ public sealed record DebriefRaidRowViewModel(
     public ICommand? SelectCommand { get; init; }
 
     public bool IsSelected { get; init; }
+
+    /// <summary>Where the outcome came from ("Manual", "Inferred"), or empty where there is none to label.</summary>
+    public string OutcomeKindLabel { get; init; } = string.Empty;
+
+    public bool HasOutcomeKind => OutcomeKindLabel.Length > 0;
+}
+
+/// <summary>One fact about the selected raid, with the kind of evidence behind it.</summary>
+/// <param name="KindLabel">"Observed", "Inferred", "Estimate" or "Manual"; empty where there is no value to label.</param>
+public sealed record DebriefFactRowViewModel(string Label, string Value, string KindLabel)
+{
+    public bool HasKind => KindLabel.Length > 0;
+}
+
+/// <summary>One scan taken during the selected raid.</summary>
+/// <remarks>
+/// What the companion recognised is inferred and what it is worth is an estimate, so each says so;
+/// nothing here claims value was carried out of the raid.
+/// </remarks>
+public sealed record DebriefScanRowViewModel(
+    string TimeLabel,
+    string ItemLabel,
+    string IdentityKindLabel,
+    string ValueLabel,
+    string ValueKindLabel,
+    string DetailLabel)
+{
+    public bool HasIdentityKind => IdentityKindLabel.Length > 0;
+
+    public bool HasValue => ValueLabel.Length > 0;
+
+    public bool HasDetail => DetailLabel.Length > 0;
 }
 
 /// <summary>A raid's trail, handed to the shell to draw on the Raid map (V1's "Watch it").</summary>
@@ -61,6 +93,9 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private bool _taskCatalogLoaded;
     private RaidHistoryEntry? _selected;
     private IReadOnlyList<ScreenshotPosition> _selectedPositions = [];
+    private RaidFactSources _selectedSources = new(
+        RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown);
+    private bool _selectedLoadRecorded;
     private string _status = "Raid history has not been loaded.";
     private string _correctedOutcome = string.Empty;
     private string _correctedNotes = string.Empty;
@@ -154,7 +189,24 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         var count => $"{count.ToString(CultureInfo.CurrentCulture)} screenshots recorded.",
     };
 
-    public string ScanBreakdownNotice { get; } = "Per-event scan/loot detail isn't available yet.";
+    /// <summary>Where the map came from, beside the raid's name in the detail heading.</summary>
+    public string SelectedMapKindLabel => _selectedSources.Map.Label();
+
+    public bool HasSelectedMapKind => SelectedMapKindLabel.Length > 0;
+
+    /// <summary>The distance is a floor built from straight lines between screenshots, so it is an estimate.</summary>
+    public string SelectedDistanceKindLabel => HasDistance ? RaidFactKind.Estimated.Label() : string.Empty;
+
+    /// <summary>The detail facts of the selected raid, each with the kind of evidence behind it.</summary>
+    public IReadOnlyList<DebriefFactRowViewModel> SelectedFacts { get; private set; } = [];
+
+    /// <summary>What was scanned during the selected raid.</summary>
+    public IReadOnlyList<DebriefScanRowViewModel> SelectedScans { get; private set; } = [];
+
+    public bool HasSelectedScans => SelectedScans.Count > 0;
+
+    /// <summary>"3 scans · 2 recognised": how many were taken and how many named an item, unavailable ones counted apart.</summary>
+    public string SelectedScanSummary { get; private set; } = "No scans during this raid.";
 
     /// <summary>How long matchmaking and loading took before this raid began, if it was seen.</summary>
     public string SelectedLoadTimeLabel { get; private set; } = "Load time not recorded.";
@@ -233,8 +285,17 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
-            Raids = raids
-                .Select(raid => new DebriefRaidRowViewModel(
+            var rows = new List<DebriefRaidRowViewModel>(raids.Count);
+            foreach (var raid in raids)
+            {
+                // A raid with no outcome or notes has nothing a correction could have written,
+                // so its list row needs no events read to say where its outcome came from.
+                var sources = RaidFactRules.Classify(
+                    raid,
+                    string.IsNullOrWhiteSpace(raid.Outcome)
+                        ? []
+                        : await LoadCorrectionsAsync(raid.Id, cancellationToken).ConfigureAwait(true));
+                rows.Add(new DebriefRaidRowViewModel(
                     raid.Id,
                     raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
                     raid.Mode,
@@ -245,8 +306,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 {
                     SelectCommand = new AsyncDelegateCommand(() => SelectRaidAsync(raid.Id, CancellationToken.None)),
                     IsSelected = _selected?.Id == raid.Id,
-                })
-                .ToArray();
+                    OutcomeKindLabel = sources.Outcome.Label(),
+                });
+            }
+
+            Raids = rows;
             MapStats = await BuildMapStatsAsync(raids, cancellationToken).ConfigureAwait(true);
             if (_selected is null && Raids.Count > 0)
             {
@@ -281,17 +345,109 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         {
             SelectedSales = [];
             SelectedQuestEvents = [];
+            SelectedScans = [];
+            SelectedScanSummary = "No scans during this raid.";
             SelectedLoadTimeLabel = "Load time not recorded.";
+            _selectedLoadRecorded = false;
+            _selectedSources = RaidFactRules.Classify(
+                new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
+                []);
         }
         else
         {
             SelectedSales = await LoadSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
             SelectedQuestEvents = await LoadQuestEventsAsync(raidId, cancellationToken).ConfigureAwait(true);
+            _selectedLoadRecorded = await ReadLoadSecondsAsync(raidId, cancellationToken).ConfigureAwait(true) is not null;
             SelectedLoadTimeLabel = await LoadLoadTimeLabelAsync(raidId, cancellationToken).ConfigureAwait(true);
+            _selectedSources = RaidFactRules.Classify(
+                _selected,
+                await LoadCorrectionsAsync(raidId, cancellationToken).ConfigureAwait(true));
+            await LoadScansAsync(raidId, cancellationToken).ConfigureAwait(true);
         }
+
+        SelectedFacts = BuildFacts();
 
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
         RaiseAll();
+    }
+
+    private async Task<IReadOnlyList<RaidCorrection>> LoadCorrectionsAsync(Guid raidId, CancellationToken cancellationToken) =>
+        RaidCorrection.ParseAll(
+            await _raidHistoryService
+                .ListEventPayloadsAsync(raidId, RaidCorrection.EventType, cancellationToken)
+                .ConfigureAwait(true));
+
+    /// <summary>
+    /// The facts the detail panel shows, each with the kind of evidence behind it: read from the log,
+    /// worked out by the companion, a bound rather than a reading, or typed by the player.
+    /// </summary>
+    private IReadOnlyList<DebriefFactRowViewModel> BuildFacts()
+    {
+        if (_selected is null)
+        {
+            return [];
+        }
+
+        var facts = new List<DebriefFactRowViewModel>
+        {
+            new("Mode", SelectedModeLabel, _selectedSources.Mode.Label()),
+            new("Started", SelectedStartedLabel, _selectedSources.Started.Label()),
+            new("Ended", SelectedEndedLabel, _selectedSources.Ended.Label()),
+            new("Duration", SelectedDurationLabel, _selectedSources.Duration.Label()),
+            new("Queue/load", SelectedLoadTimeLabel, _selectedLoadRecorded ? RaidFactKind.Observed.Label() : string.Empty),
+            new("Outcome", SelectedOutcomeLabel, _selectedSources.Outcome.Label()),
+        };
+        if (SelectedNotesLabel.Length > 0)
+        {
+            facts.Add(new("Notes", SelectedNotesLabel, _selectedSources.Notes.Label()));
+        }
+
+        return facts;
+    }
+
+    /// <summary>What was scanned while this raid was open, and how much of it named an item.</summary>
+    private async Task LoadScansAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, "scan", cancellationToken)
+            .ConfigureAwait(true);
+        var scans = payloads.Select(RaidScanFact.TryParse).OfType<RaidScanFact>().OrderBy(scan => scan.ObservedUtc).ToArray();
+        var rows = new List<DebriefScanRowViewModel>(scans.Length);
+        foreach (var scan in scans)
+        {
+            var itemName = scan.Recognised
+                ? scan.ItemName ?? (scan.ItemId is null ? "Item" : await ResolveItemNameAsync(scan.ItemId, cancellationToken).ConfigureAwait(true))
+                : scan.IsAvailable ? "Nothing recognised" : "Scan unavailable";
+            var detail = new List<string>();
+            if (scan.Recognised && scan.Confidence is { } confidence)
+            {
+                detail.Add(string.Create(CultureInfo.CurrentCulture, $"{confidence:P0} sure"));
+            }
+
+            if (scan.Recommendation is { Length: > 0 } recommendation)
+            {
+                detail.Add(recommendation);
+            }
+
+            rows.Add(new(
+                scan.ObservedUtc.ToLocalTime().ToString("t", CultureInfo.CurrentCulture),
+                itemName,
+                scan.IdentityKind.Label(),
+                scan.ValueRoubles is { } roubles
+                    ? string.Create(CultureInfo.CurrentCulture, $"≈ {roubles:N0} roubles")
+                    : string.Empty,
+                scan.ValueKind.Label(),
+                string.Join(" · ", detail)));
+        }
+
+        SelectedScans = rows;
+        var recognised = scans.Count(scan => scan.Recognised);
+        var unavailable = scans.Count(scan => !scan.IsAvailable);
+        SelectedScanSummary = scans.Length == 0
+            ? "No scans during this raid."
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"{CountLabel(scans.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}");
     }
 
     /// <summary>What sold on the flea while this raid was open, counted per item.</summary>
@@ -644,5 +800,12 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasSelectedQuestEvents));
         OnPropertyChanged(nameof(MapStats));
         OnPropertyChanged(nameof(HasMapStats));
+        OnPropertyChanged(nameof(SelectedMapKindLabel));
+        OnPropertyChanged(nameof(HasSelectedMapKind));
+        OnPropertyChanged(nameof(SelectedDistanceKindLabel));
+        OnPropertyChanged(nameof(SelectedFacts));
+        OnPropertyChanged(nameof(SelectedScans));
+        OnPropertyChanged(nameof(HasSelectedScans));
+        OnPropertyChanged(nameof(SelectedScanSummary));
     }
 }

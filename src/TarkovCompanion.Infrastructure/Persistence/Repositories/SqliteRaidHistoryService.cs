@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
@@ -409,6 +410,14 @@ public sealed class SqliteRaidHistoryService(
         await EndCoreAsync(connection, null, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes a player's correction, and keeps the fact that it was theirs.
+    /// </summary>
+    /// <remarks>
+    /// The update and a <c>correction</c> event go in one transaction, so a field never says it was
+    /// corrected without the record of what it said before, nor the reverse. Saving what is already
+    /// there records nothing. Debrief and the export read that event to label the field manual.
+    /// </remarks>
     public async Task CorrectAsync(
         Guid raidId,
         string? outcome,
@@ -416,19 +425,54 @@ public sealed class SqliteRaidHistoryService(
         CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE raids
-            SET outcome = $outcome, notes = $notes
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
-        command.Parameters.AddWithValue("$outcome", (object?)outcome ?? DBNull.Value);
-        command.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
-        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        RaidHistoryEntry before;
+        await using (var read = connection.CreateCommand())
         {
-            throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+            read.Transaction = transaction;
+            read.CommandText = """
+                SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
+                FROM raids
+                WHERE id = $id;
+                """;
+            read.Parameters.AddWithValue("$id", raidId.ToString("D"));
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+            }
+
+            before = ReadRaid(reader);
         }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE raids
+                SET outcome = $outcome, notes = $notes
+                WHERE id = $id;
+                """;
+            command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+            command.Parameters.AddWithValue("$outcome", (object?)outcome ?? DBNull.Value);
+            command.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        if (RaidCorrection.Between(before, outcome, notes, now) is { } correction)
+        {
+            await RecordEventCoreAsync(
+                connection,
+                transaction,
+                raidId,
+                RaidCorrection.EventType,
+                now,
+                correction.ToPayload(),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EndCoreAsync(
@@ -475,34 +519,63 @@ public sealed class SqliteRaidHistoryService(
     public async Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
-        await using var writer = new StreamWriter(destination, new UTF8Encoding(false), leaveOpen: true);
-        await writer.WriteLineAsync("id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-        foreach (var raid in raids)
-        {
-            var row = string.Join(',', new[]
-            {
-                Escape(raid.Id.ToString("D")),
-                Escape(raid.ProfileId.ToString("D")),
-                Escape(raid.MapId),
-                Escape(raid.Mode),
-                Escape(raid.StartedUtc is null ? null : Format(raid.StartedUtc.Value)),
-                Escape(raid.EndedUtc is null ? null : Format(raid.EndedUtc.Value)),
-                Escape(raid.Outcome),
-                Escape(raid.Notes),
-            });
-            await writer.WriteLineAsync(row.AsMemory(), cancellationToken).ConfigureAwait(false);
-        }
-
-        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        var records = await LoadExportRecordsAsync(cancellationToken).ConfigureAwait(false);
+        await RaidHistoryExport.WriteCsvAsync(destination, records, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        var records = await LoadExportRecordsAsync(cancellationToken).ConfigureAwait(false);
+        await RaidHistoryExport.WriteJsonAsync(destination, records, _timeProvider.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Every raid with the scans and corrections recorded against it, from one events query rather
+    /// than one per raid, because an export covers the whole history.
+    /// </summary>
+    private async Task<IReadOnlyList<RaidExportRecord>> LoadExportRecordsAsync(CancellationToken cancellationToken)
+    {
         var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
-        await JsonSerializer.SerializeAsync(destination, raids, JsonOptions, cancellationToken).ConfigureAwait(false);
+        var scans = new Dictionary<Guid, List<RaidScanFact>>();
+        var corrections = new Dictionary<Guid, List<string>>();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT raid_id, type, payload_json
+            FROM raid_events
+            WHERE type IN ('scan', 'correction') AND payload_json IS NOT NULL
+            ORDER BY timestamp_utc, id;
+            """;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!Guid.TryParse(reader.GetString(0), out var raidId))
+                {
+                    continue;
+                }
+
+                var payload = reader.GetString(2);
+                if (reader.GetString(1) == RaidCorrection.EventType)
+                {
+                    (corrections.TryGetValue(raidId, out var list) ? list : corrections[raidId] = []).Add(payload);
+                }
+                else if (RaidScanFact.TryParse(payload) is { } scan)
+                {
+                    (scans.TryGetValue(raidId, out var list) ? list : scans[raidId] = []).Add(scan);
+                }
+            }
+        }
+
+        return
+        [
+            .. raids.Select(raid => new RaidExportRecord(
+                raid,
+                RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
+                scans.GetValueOrDefault(raid.Id, []))),
+        ];
     }
 
     private static void BindRaid(SqliteCommand command, RaidHistoryEntry raid)
@@ -534,14 +607,6 @@ public sealed class SqliteRaidHistoryService(
 
     private static string Format(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-
-    private static string Escape(string? value)
-    {
-        value ??= string.Empty;
-        return value.IndexOfAny([',', '"', '\r', '\n']) < 0
-            ? value
-            : $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
-    }
 
     private sealed record OperationTransaction(SqliteConnection Connection, SqliteTransaction Transaction);
 }
