@@ -313,9 +313,9 @@ right, names 645 items and names none wrongly; before package 37 the same path n
 Wired into `LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second,
 carried-inventory panel needs its own region split nothing attempts yet) and
 `StashScanCaptureHandoff` (see `docs/STASH_SCAN.md`). `LootScanRecommendationSource` hands each
-named item to the decision engine with the catalog facts the companion holds (trader price,
-24-hour flea average, squares) and leaves absent what it does not hold (the flea fee, the
-player's needs, the raid phase), so today a scan is valued and not yet decided. The older
+named item to the decision engine with what the companion holds: prices and the flea fee, the
+profile's pins and item rules, outstanding quest and hideout needs, and the raid phase and risk.
+What is decided from that, and what is still unread, is in `docs/LOOT_SCAN.md`. The older
 benchmark (`GridRecognitionCorpusBenchmarkTests`) still runs the builder over a local,
 never-committed screenshot corpus and scores it against optional
 `<screenshot>.expected.json` sidecars, which is where the first real screenshots should go.

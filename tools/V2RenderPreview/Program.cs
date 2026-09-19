@@ -666,9 +666,13 @@ internal static class Program
                     services,
                     lootFrame,
                     StringOption(args, "--icon-cache"),
-                    StringOption(args, "--loot-scan-now"));
+                    StringOption(args, "--loot-scan-now"),
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"));
                 DrainUntilComplete(scan);
-                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(scan.Result));
+                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
+                    scan.Result.Result,
+                    controls: scan.Result.Controls));
                 Pump(20);
             }
 

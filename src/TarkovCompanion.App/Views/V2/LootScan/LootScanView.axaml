@@ -210,6 +210,24 @@
       <Setter Property="VerticalAlignment" Value="Bottom" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
+    <!-- #282: pin, wishlist and item rule. Outline when off, filled when on. -->
+    <Style Selector="Button.loot-choice">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="MinHeight" Value="28" />
+    </Style>
+    <Style Selector="Button.loot-choice.on">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="ComboBox.loot-picker">
+      <Setter Property="MinWidth" Value="132" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="TextBlock.loot-strong">
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
@@ -257,7 +275,8 @@
         </Border>
 
         <Border Grid.Column="1" Classes="v2-pane">
-          <ItemsControl ItemsSource="{Binding Filters}" VerticalAlignment="Center"
+          <StackPanel Spacing="8" VerticalAlignment="Center">
+          <ItemsControl ItemsSource="{Binding Filters}"
                         AutomationProperties.Name="{DynamicResource V2.String.LootScan.Filters}">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="8" /></ItemsPanelTemplate>
@@ -274,6 +293,22 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          <!-- #282: the two inputs only the player has. Changing either decides the scan again.
+               Under the chips rather than in the status pane, where they squeezed its text
+               into a column at 1920. -->
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasControls}">
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding PhaseLabel}" />
+            <ComboBox Classes="loot-picker" ItemsSource="{Binding PhaseChoices}"
+                      SelectedItem="{Binding SelectedPhase}"
+                      AutomationProperties.AutomationId="v2-loot-scan-phase"
+                      AutomationProperties.Name="{Binding PhaseLabel}" />
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding RiskLabel}" />
+            <ComboBox Classes="loot-picker" ItemsSource="{Binding RiskChoices}"
+                      SelectedItem="{Binding SelectedRisk}"
+                      AutomationProperties.AutomationId="v2-loot-scan-risk"
+                      AutomationProperties.Name="{Binding RiskLabel}" />
+          </StackPanel>
+          </StackPanel>
         </Border>
       </Grid>
 
@@ -360,6 +395,20 @@
                       </Grid>
                       <!-- Package 37: a refusal says why where it can be read, not inside the expander. -->
                       <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" IsVisible="{Binding IsReview}" TextWrapping="Wrap" />
+                      <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanSetItemChoices}">
+                        <Button Classes="loot-choice" Classes.on="{Binding IsPinned}" Content="{Binding PinLabel}"
+                                Command="{Binding TogglePinCommand}"
+                                AutomationProperties.AutomationId="v2-loot-scan-pin" />
+                        <Button Classes="loot-choice" Classes.on="{Binding IsWishlisted}" Content="{Binding WishlistLabel}"
+                                Command="{Binding ToggleWishlistCommand}"
+                                AutomationProperties.AutomationId="v2-loot-scan-wishlist" />
+                        <Button Classes="loot-choice" Classes.on="{Binding IsAlwaysTake}" Content="{Binding AlwaysTakeLabel}"
+                                Command="{Binding ToggleAlwaysTakeCommand}"
+                                AutomationProperties.AutomationId="v2-loot-scan-always-take" />
+                        <Button Classes="loot-choice" Classes.on="{Binding IsAlwaysLeave}" Content="{Binding AlwaysLeaveLabel}"
+                                Command="{Binding ToggleAlwaysLeaveCommand}"
+                                AutomationProperties.AutomationId="v2-loot-scan-always-leave" />
+                      </StackPanel>
                       <TextBlock Classes="v2-body" Text="{Binding PlacementLabel}" IsVisible="{Binding HasPlacement}" />
                       <TextBlock Classes="v2-body" Text="{Binding DropSummary}" IsVisible="{Binding HasSwap}" TextWrapping="Wrap" />
                       <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
