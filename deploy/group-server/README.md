@@ -37,6 +37,41 @@ The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.Gro
 supplies the reusable group key, which the relay receives before hashing it into a room id. The
 operator/admin credential and optional registered-room state remain separate configuration.
 
+## HTTP security headers, and telling the relay where the tunnel is
+
+Every response carries the relay's security headers: a Content-Security-Policy with
+`frame-ancestors 'none'`, `nosniff`, `no-referrer`, a locked-down Permissions-Policy, and
+`Cache-Control: no-store` unless a route (the update feed, the catalog) says it may be cached. That
+needs no configuration. The tablet and admin pages are served under a policy built from the page
+itself, which allows exactly the inline script and style they ship and nothing else inline.
+
+Refusing requests that did not arrive over HTTPS needs one setting, because the relay listens on
+plain HTTP and cannot tell a request that came through the tunnel over HTTPS from one that did not.
+Tell it which address the tunnel connects from:
+
+```ini
+# /etc/systemd/system/tarkov-group.service.d/transport.conf
+[Service]
+Environment=TARKOV_RELAY_TRUSTED_FORWARDERS=<the address cloudflared connects from>
+```
+
+With it set the relay accepts a request only if it came from that address carrying exactly one
+`X-Forwarded-Proto: https` (and no `Forwarded` header and no chained `X-Forwarded-For`), or over
+loopback with no forwarded header at all, which is what the updater's health probe sends. Anything
+else is a 403, and answers that came through the tunnel carry HSTS. Without it the relay applies
+the headers but refuses nothing and sends no HSTS, and says so in its log at startup. A value that
+is set but names no usable address refuses all forwarded traffic rather than falling back to open.
+
+After setting it, look at both sides:
+
+```
+wget -S -qO- http://127.0.0.1:8090/health 2>&1 | grep -i 'x-frame\|content-security'
+curl -sI https://tarkov.mannerow.net/health | grep -i 'strict-transport'
+```
+
+A client that sends its own `X-Forwarded-For` reaches the relay with a chain
+(`theirs, cloudflare's`) and is refused; a player behind a proxy that does this will see a 403.
+
 ## Updating
 
 It updates itself, every half hour, and that is the point: a relay that could not fetch its own

@@ -85,6 +85,11 @@
   .driving { border-color: rgba(34, 211, 238, .45); }
   .floors { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .floors button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  /* An author display rule outranks the hidden attribute, and the pairing steps and the map
+     surface are shown and hidden with it, so this keeps hidden meaning hidden. */
+  [hidden] { display: none !important; }
+  .sectionGap { margin-top: 16px; }
+  .pairingCode { font-size: 28px; font-family: monospace; letter-spacing: .08em; }
 </style>
 </head>
 <body>
@@ -107,20 +112,20 @@
         <button type="button" id="pairingGo" class="primary">Pair</button>
       </div>
     </div>
-    <div id="pairingWaiting" style="display:none">
+    <div id="pairingWaiting" hidden>
       <p class="quiet">Waiting for the desktop…</p>
     </div>
-    <div id="pairingVerify" style="display:none">
+    <div id="pairingVerify" hidden>
       <p>Confirm this matches the desktop before it is approved:</p>
-      <p style="font-size:28px;font-family:monospace;letter-spacing:.08em" id="pairingCodeDisplay"></p>
+      <p class="pairingCode" id="pairingCodeDisplay"></p>
     </div>
-    <div id="pairingDone" style="display:none">
+    <div id="pairingDone" hidden>
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
     </div>
-    <div id="pairingError" class="bad" style="display:none"></div>
+    <div id="pairingError" class="bad" hidden></div>
   </section>
 
-  <section id="surface" style="display:none">
+  <section id="surface" hidden>
     <div class="modes" id="deviceModes">
       <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
       <button type="button" data-mode="Control" aria-pressed="false">Control</button>
@@ -140,7 +145,7 @@
     </div>
     <p class="attribution" id="attribution"></p>
 
-    <h2 style="margin-top:16px">Marks</h2>
+    <h2 class="sectionGap">Marks</h2>
     <div class="modes" id="markKind">
       <button type="button" data-kind="Ping" aria-pressed="true">Ping</button>
       <button type="button" data-kind="Waypoint" aria-pressed="false">Waypoint</button>
@@ -151,7 +156,7 @@
     </div>
     <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
 
-    <h2 style="margin-top:16px">Look something up</h2>
+    <h2 class="sectionGap">Look something up</h2>
     <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
     <div class="form">
       <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
@@ -355,11 +360,11 @@
   // ---------------------------------------------------------------------------------------
   function setStage(stage, message) {
     for (const id of ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]) {
-      $(id).style.display = id === stage ? "" : "none";
+      $(id).hidden = id !== stage;
     }
-    $("pairingError").style.display = "none";
+    $("pairingError").hidden = true;
     if (message) {
-      $("pairingError").style.display = "";
+      $("pairingError").hidden = false;
       $("pairingError").textContent = message;
     }
   }
@@ -811,7 +816,7 @@
 
   function renderSurface() {
     const surface = live?.surface;
-    $("surface").style.display = live ? "" : "none";
+    $("surface").hidden = !live;
     const message = $("mapMessage");
     if (!surface) {
       message.style.display = "";
@@ -1062,7 +1067,7 @@
       return;
     }
 
-    $("surface").style.display = "";
+    $("surface").hidden = false;
     renderLiveStatus();
     pollLiveFrames();
     pollSurface();

@@ -164,6 +164,10 @@ builder.Services.AddSingleton(provider => new RelayMapSurfaceStore(
     provider.GetRequiredService<TimeProvider>()));
 
 var app = builder.Build();
+// v2r-fin-relay (#278): the first middleware, so every response, refusals and 404s included, carries
+// the security headers and every request's transport is checked. See RelayHttpSecurityOptions for
+// why HTTPS enforcement waits for TARKOV_RELAY_TRUSTED_FORWARDERS and the headers do not.
+app.UseRelayHttpSecurity(RelayHttpSecurityOptions.FromEnvironment(app.Logger));
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
