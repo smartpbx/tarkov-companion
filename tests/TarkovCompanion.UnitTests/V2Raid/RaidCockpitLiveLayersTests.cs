@@ -6,6 +6,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.UnitTests.PlayerTime;
 
 namespace TarkovCompanion.UnitTests.V2Raid;
 
@@ -173,6 +174,33 @@ public sealed class RaidCockpitLiveLayersTests
         // Oldest faintest, as V1 draws them: the history arrives newest first.
         var opacities = on.Objects.Select(item => on.Styles[item.Id].Opacity).ToArray();
         Assert.True(opacities[0] > opacities[1]);
+    }
+
+    /// <summary>
+    /// The map's own labels read the player's clock. The position is 11:59:55 UTC, which a UTC label
+    /// would print as-is and a wall clock at UTC-4 reads as 07:59:55; the trail's raid began at
+    /// 02:00 UTC on the 18th, which is still the evening of the 17th there.
+    /// </summary>
+    [Fact]
+    public void The_map_labels_read_the_players_clock_not_utc()
+    {
+        using var pin = PlayerClock.Pin();
+        var visited = new[]
+        {
+            new RaidTrail(
+                Guid.NewGuid(),
+                new DateTimeOffset(2026, 9, 18, 2, 0, 0, TimeSpan.Zero),
+                [Position(10, 10, 0, 0), Position(20, 20, 0, 0)]),
+        };
+
+        var built = RaidCockpitViewModel.BuildLiveLayers(
+            Inputs(player: Position(30, 40, heading: 120, secondsAgo: 5), visited: visited, showsVisited: true),
+            Model(),
+            NowUtc);
+
+        var marker = Assert.Single(built.Objects, item => item.Kind == MapSceneObjectKind.LastKnownPosition);
+        Assert.Equal("You · 07:59:55 · facing 120°", marker.Label);
+        Assert.Contains(built.Objects, item => item.Label == "Raid on 09/17/2026");
     }
 
     [Fact]

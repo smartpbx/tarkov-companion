@@ -168,6 +168,44 @@ public sealed class TarkovTrackerIntegrationTests
         Assert.Equal(requestCount, context.Handler.Paths.Count);
     }
 
+    /// <summary>
+    /// The reset is stored at 17:00 UTC and shown on the player's own clock, in a zone that is never
+    /// UTC so a UTC-only CI box cannot satisfy it by coincidence.
+    /// </summary>
+    [Fact]
+    public async Task ThePausedMessageNamesTheResetOnThePlayersClock()
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+        using var zone = LocalTime.UseZone(
+            TimeZoneInfo.CreateCustomTimeZone("Test/UTC-4", TimeSpan.FromHours(-4), "UTC-4", "UTC-4"));
+        try
+        {
+            await using var context = await Context.CreateAsync(quotaExhausted: true);
+            await context.Integration.ConnectAsync(context.Scope, TestToken, CancellationToken.None);
+            var first = await context.Integration.RefreshPreviewAsync(
+                context.Scope,
+                TarkovTrackerRefreshKind.Manual,
+                CancellationToken.None);
+            Assert.Equal(Now.AddHours(1), first.Status.NextEligibleRefreshUtc);
+
+            var blocked = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                context.Integration.RefreshPreviewAsync(
+                    context.Scope,
+                    TarkovTrackerRefreshKind.Manual,
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "TarkovTracker refresh is paused until 09/10/2026 13:00 by quota or failure backoff.",
+                blocked.Message);
+            Assert.DoesNotContain("+00:00", blocked.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
+    }
+
     [Fact]
     public async Task FeatureOfflineAndUnavailableStorageStatesNeverCallApi()
     {
