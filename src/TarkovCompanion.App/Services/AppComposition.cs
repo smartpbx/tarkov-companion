@@ -681,6 +681,9 @@ public static class AppComposition
         services.AddSingleton<LootScanDecisionService>();
         services.AddSingleton<LootScanCaptureHandoff>();
         services.AddSingleton<StashScanCaptureHandoff>();
+        // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
+        // item. Every intent but Loot and Stash used to be acknowledged and dropped.
+        services.AddSingleton<IntelCaptureHandoff>();
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());
