@@ -344,7 +344,10 @@ wrong screen. What they do show is measured in `docs/research/EFT_SCREENSHOT_FAC
   the text header is what tells them apart. The nine frames hold one backpack in one scroll
   position, six times, and no raid. A reader tuned on that has been tested on nothing, and one
   that mistook the rig for the bag would claim fits that do not exist. The header anchor cannot
-  be measured on the build host either: the packaged OCR provider is Windows only.
+  be measured on the build host either: the packaged OCR provider is Windows only. Whoever
+  writes the reader has a second job: the Loot Scan planner answers LEAVE when a carried grid
+  has no room, which is only true of a whole read. The panel cut the measured bag's last row
+  and the rig and pockets would be unread, so "no room" from such a read has to be a review.
   *Wanted:* in-raid loot screens with a container open; at least three different backpacks and
   two rigs; the carried panel scrolled and unscrolled; a full bag and a part-full one; 1920x1080
   as well as 3840x1080; and an OCR run on Windows over them for the headers.
