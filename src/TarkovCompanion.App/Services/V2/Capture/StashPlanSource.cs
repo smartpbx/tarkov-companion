@@ -100,9 +100,12 @@ public sealed class StashPlanSource(
                     evaluatedUtc,
                     cancellationToken)
                 .ConfigureAwait(false);
+            // A case the scan opened and read into is in use, whatever the catalog files it under.
             var kind = specialistKind(itemId) is var named and not StashSpecialistIntelligenceKind.None
                 ? named
-                : KindFor(read?.Category);
+                : tile.NestedContainerPath is not null
+                    ? StashSpecialistIntelligenceKind.Gear
+                    : KindFor(read?.Category);
             RecommendationResult? recommendation = null;
             if (read is not null && (kind == StashSpecialistIntelligenceKind.None || IsHeldByChoice(read)))
             {

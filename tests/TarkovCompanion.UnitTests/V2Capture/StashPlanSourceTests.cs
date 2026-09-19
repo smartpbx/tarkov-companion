@@ -103,6 +103,19 @@ public sealed class StashPlanSourceTests
     }
 
     [Fact]
+    public async Task ACaseTheScanOpenedIsInUseWhateverTheCatalogFilesItUnder()
+    {
+        // The source lists an Ammunition case as "barter" before "container".
+        var opened = Tile(0, 0, "gpu", 2, 1) with { NestedContainerPath = "stash/case" };
+
+        var sorted = await SortAsync([opened]);
+
+        var item = Assert.Single(sorted.Plan.Items);
+        Assert.Equal(StashPlanGroup.Review, item.Group);
+        Assert.Contains("stash.specialist.gear-unresolved", item.ReasonCodes);
+    }
+
+    [Fact]
     public async Task GearThePlayerPinnedIsKeptWithoutWaitingForASpecialist()
     {
         var sorted = await SortAsync(
