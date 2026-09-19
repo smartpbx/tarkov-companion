@@ -333,6 +333,38 @@ policies on the labelled cells and on composed cells side by side.
 These are menu screens. They do not settle hover or selection highlights over a raid container,
 freshly looted found-in-raid state, or which panel is the container on the in-raid loot screen.
 
+### What is not built, and the pixels it is waiting for (2026-09-19)
+
+Two things #273 asks for, and the limb and gear-slot reading #305 asks for, are not built. Each
+was looked at against the real frames first, and in each case the frames are too few or the
+wrong screen. What they do show is measured in `docs/research/EFT_SCREENSHOT_FACTS.md`.
+
+- **The carried grid.** The carried panel is a scrolling column of separate grids (rig pouches,
+  pockets, special slots, backpack), and a rig and a backpack look alike to a line detector;
+  the text header is what tells them apart. The nine frames hold one backpack in one scroll
+  position, six times, and no raid. A reader tuned on that has been tested on nothing, and one
+  that mistook the rig for the bag would claim fits that do not exist. The header anchor cannot
+  be measured on the build host either: the packaged OCR provider is Windows only.
+  *Wanted:* in-raid loot screens with a container open; at least three different backpacks and
+  two rigs; the carried panel scrolled and unscrolled; a full bag and a part-full one; 1920x1080
+  as well as 3840x1080; and an OCR run on Windows over them for the headers.
+- **Rotated items.** All 360 labelled items sit in the catalog's own footprint, so there is no
+  rotated item to measure against. *Wanted:* any stash or container frame with rotated items,
+  labelled.
+- **Limb health (#305).** The in-raid HUD silhouette is refused on measurement (its outline peaks
+  at 83). The Gear tab draws no limb health. *Wanted:* the HEALTH tab, healthy and with genuine
+  injuries, a blacked limb, and over a dark and a bright scene; and one in-raid HUD frame of a
+  genuine injury over a dark background, which the 261 in-raid frames do not contain.
+- **Gear-slot occupancy (#305).** Measured and clearly separable on one loadout (an empty slot's
+  brightest pixel is 56 to 64, an occupied one's 209 to 255), and not built: eight occupied
+  slots and three empty ones from one loadout are a measurement, not a threshold, and the frozen
+  V2 contract has limb regions and no gear slots to report into. *Wanted:* Gear tabs with other
+  loadouts, each slot both ways, a dark item in every slot, and 1920x1080.
+- **The vitals strip (#305).** Total health, hydration and energy are drawn bright (peak 224)
+  on the Gear tab, so they are the legible kind of text. Not read, because OCR of them has not
+  been measured. *Wanted:* an OCR run on Windows over these same nine frames, which needs no
+  new screenshots.
+
 Wired into `LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second,
 carried-inventory panel needs its own region split nothing attempts yet) and
 `StashScanCaptureHandoff` (see `docs/STASH_SCAN.md`). `LootScanRecommendationSource` hands each
