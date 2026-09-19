@@ -130,6 +130,81 @@ public sealed class KeepListPlannerTests
         Assert.False(KeepPlan.NoData.HasData);
     }
 
+    [Fact]
+    public async Task Quest_need_is_split_into_what_must_be_found_in_raid_and_the_rest_per_quest()
+    {
+        var inputs = Inputs(
+            Profile(),
+            quests:
+            [
+                new("t1", "o1", "item-a", 3, true),
+                new("t1", "o2", "item-a", 2, false),
+                new("t2", "o3", "item-a", 4, false),
+            ]);
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var entry = Assert.Single(plan.Entries);
+        Assert.Equal(
+            [("t1", 5, 3, 2), ("t2", 4, 0, 4)],
+            entry.QuestNeeds.Select(need => (need.TaskId, need.Remaining, need.FoundInRaid, need.NotFoundInRaid)));
+        Assert.Equal(9, entry.QuestRemaining);
+        Assert.Equal(3, entry.QuestFoundInRaid);
+    }
+
+    [Fact]
+    public async Task Progress_recorded_against_a_found_in_raid_objective_comes_off_the_found_in_raid_part()
+    {
+        var inputs = Inputs(
+            Profile(progress: new Dictionary<string, int> { ["o1"] = 2 }),
+            quests:
+            [
+                new("t1", "o1", "item-a", 3, true),
+                new("t1", "o2", "item-a", 2, false),
+            ]);
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var need = Assert.Single(Assert.Single(plan.Entries).QuestNeeds);
+        Assert.Equal((3, 1), (need.Remaining, need.FoundInRaid));
+    }
+
+    [Fact]
+    public async Task The_hideout_total_counts_every_level_and_the_remaining_only_those_above_the_built_one()
+    {
+        var levels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["workbench"] = 1 };
+        var inputs = Inputs(
+            Profile(levels: levels),
+            hideout:
+            [
+                new("workbench", 1, "item-bolts", 2),
+                new("workbench", 2, "item-bolts", 3),
+                new("workbench", 3, "item-bolts", 4),
+            ]);
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var entry = Assert.Single(plan.Entries);
+        Assert.Equal(7, entry.HideoutRemaining);
+        Assert.Equal(9, entry.HideoutTotalBuild);
+    }
+
+    [Fact]
+    public async Task An_item_the_hideout_no_longer_needs_carries_no_hideout_total()
+    {
+        var levels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["workbench"] = 3 };
+        var inputs = Inputs(
+            Profile(levels: levels),
+            quests: [new("t", "o", "item-bolts", 1, false)],
+            hideout: [new("workbench", 2, "item-bolts", 3)]);
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var entry = Assert.Single(plan.Entries);
+        Assert.Equal(0, entry.HideoutRemaining);
+        Assert.Equal(0, entry.HideoutTotalBuild);
+    }
+
     private static Func<string, CancellationToken, Task<KeepItemFacts>> Resolve(params (string ItemId, string Tier)[] tiers)
     {
         var byId = tiers.ToDictionary(entry => entry.ItemId, entry => entry.Tier, StringComparer.Ordinal);

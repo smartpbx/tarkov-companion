@@ -279,6 +279,92 @@ public sealed class KeepListWorkspaceViewModelTests
         Assert.Equal("No keep-list data cached yet.", viewModel.Status);
     }
 
+    [Fact]
+    public async Task A_quest_that_needs_some_found_in_raid_says_how_many_in_the_reason_and_the_count()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("gunsmith-4", "obj-1", "item-spring", 3, true),
+                new("gunsmith-4", "obj-2", "item-spring", 2, false),
+            ],
+        };
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-spring", "Spring"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)]));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        Assert.Contains("5 for Gunsmith Part 4 (3 found in raid)", row.Reasons);
+        Assert.Equal("Quests 5 · 3 found in raid", row.QuestCountLabel);
+        Assert.True(row.HasCounts);
+        Assert.False(row.HasHideoutCount);
+    }
+
+    [Fact]
+    public async Task A_quest_that_needs_it_all_found_in_raid_says_so_and_one_that_does_not_stays_plain()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("gunsmith-4", "obj-1", "item-spring", 3, true),
+                new("debut", "obj-2", "item-bolts", 2, false),
+            ],
+        };
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-spring", "Spring").WithName("item-bolts", "Bolts"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService(
+            [
+                Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active),
+                Quest("debut", "Debut", RecordedTaskState.Active),
+            ]));
+
+        await viewModel.RefreshAsync();
+
+        var rows = Assert.Single(viewModel.Groups).Items.ToDictionary(row => row.Name);
+        Assert.Contains("3 for Gunsmith Part 4 (found in raid)", rows["Spring"].Reasons);
+        Assert.Equal("Quests 3 · all found in raid", rows["Spring"].QuestCountLabel);
+        Assert.Contains("2 for Debut", rows["Bolts"].Reasons);
+        Assert.Equal("Quests 2", rows["Bolts"].QuestCountLabel);
+    }
+
+    [Fact]
+    public async Task A_hideout_item_shows_what_is_still_needed_against_the_whole_build()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            HideoutRequirements =
+            [
+                new("workbench", 1, "item-bolts", 2),
+                new("workbench", 2, "item-bolts", 3),
+                new("workbench", 3, "item-bolts", 4),
+            ],
+            Stations = [new("workbench", "Workbench", [1, 2, 3])],
+        };
+        var profile = TestProfile(hideoutLevels: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["workbench"] = 1 });
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(profile),
+            new FakeItemRepository().WithName("item-bolts", "Bolts"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([]));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        Assert.Equal("Hideout 7 of 9 for the full build", row.HideoutCountLabel);
+        Assert.False(row.HasQuestCount);
+    }
+
     private static QuestSummaryReadModel Quest(string taskId, string name, RecordedTaskState state, bool isPinned = false) => new(
         taskId,
         name,
