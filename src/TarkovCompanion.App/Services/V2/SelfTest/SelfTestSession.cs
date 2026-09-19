@@ -18,8 +18,28 @@ namespace TarkovCompanion.App.Services.V2.SelfTest;
 /// </remarks>
 public sealed class SelfTestSession
 {
-    /// <summary>How long the screenshot probe waits for the player to press their screenshot key.</summary>
-    public static readonly TimeSpan ScreenshotPatience = TimeSpan.FromSeconds(45);
+    /// <summary>
+    /// How long the screenshot probe keeps waiting, in the background, after the run has finished.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] Was 45 seconds, inside the run, which asked somebody to alt-tab into
+    /// a game and press a key before a countdown they could not see ran out — Clayton's report was
+    /// that the probe failed "only because i cant alt tab back to the game and screenshot fast
+    /// enough". Five minutes, and it no longer holds anything open: the other six settle, this one
+    /// says it is waiting, and it resolves itself whenever the screenshot happens.
+    /// </remarks>
+    public static readonly TimeSpan ScreenshotPatience = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How far back a screenshot already on disk still counts as evidence.
+    /// </summary>
+    /// <remarks>
+    /// Ten minutes is inside one raid. A shot from then went through the same folder, the same
+    /// name, the same parser and the same clocks as one taken now, so it answers the question, and
+    /// during a session one nearly always exists — which is the difference between a probe that
+    /// usually passes on its own and one that always needs somebody to do something.
+    /// </remarks>
+    public static readonly TimeSpan ScreenshotLookBack = TimeSpan.FromMinutes(10);
 
     /// <summary>The whole run's ceiling, so a hung service cannot leave Setup testing forever.</summary>
     public static readonly TimeSpan Deadline = TimeSpan.FromSeconds(75);
@@ -69,10 +89,13 @@ public sealed class SelfTestSession
             (reading, took) => SelfTestProbes.Logs(reading, _clock.GetUtcNow(), took, _culture),
             report,
             token);
+        // The screenshot probe's fast half: a shot already on disk settles it outright, and costs a
+        // folder listing. Only when there is none does anything wait, and then it waits out of the
+        // way of the rest of the run.
         var screenshots = MeasureAsync(
             SelfTestProbes.ScreenshotsId,
             "Screenshots",
-            inner => _readings.WatchScreenshotAsync(ScreenshotPatience, inner),
+            inner => _readings.RecentScreenshotAsync(ScreenshotLookBack, inner),
             (reading, took) => SelfTestProbes.Screenshots(reading, took, _culture),
             report,
             token);
@@ -107,7 +130,78 @@ public sealed class SelfTestSession
 
         var capabilities = await Task.WhenAll(folders, logs, screenshots, gameData, database, relay, tablet)
             .ConfigureAwait(false);
+
+        // Nothing already on disk answered it, so it goes on waiting — on its own, outside the
+        // run's deadline, and outside this method's return.
+        var shot = capabilities.Single(capability => capability.Id == SelfTestProbes.ScreenshotsId);
+        // Unknown means the fast half found nothing it could measure: no recent screenshot, or one
+        // taken outside a raid. Facts distinguish that from a folder that cannot be looked at at
+        // all, which reports Unknown with nothing behind it and is not worth waiting on — there
+        // would be nothing to watch.
+        if (shot.Outcome == SelfTestOutcome.Unknown && shot.Facts.Count > 0)
+        {
+            var waiting = SelfTestCapability.WaitingFor(
+                SelfTestProbes.ScreenshotsId,
+                "Screenshots",
+                string.Create(
+                    _culture,
+                    $"Waiting for a screenshot — take one in a raid any time in the next {ScreenshotPatience.TotalMinutes:0} minutes."),
+                shot.Facts);
+            capabilities = [.. capabilities.Select(capability =>
+                capability.Id == SelfTestProbes.ScreenshotsId ? waiting : capability)];
+            report?.Invoke(waiting);
+            // Linked to the caller only. The run's own deadline exists so a hung service cannot
+            // leave Setup testing forever, and this is not a hung service — it is a player who has
+            // not taken a screenshot yet.
+            Settling = SettleScreenshotAsync(report, cancellationToken);
+        }
+
         return new(startedUtc, _clock.GetElapsedTime(startedAt), capabilities);
+    }
+
+    /// <summary>
+    /// The screenshot probe's own continuation, still running after <see cref="RunAsync"/> returned.
+    /// </summary>
+    /// <remarks>
+    /// Null when a screenshot already on disk settled it, which is the usual case. Awaiting it is
+    /// optional: the answer arrives through the same <c>report</c> callback the run used.
+    /// </remarks>
+    public Task<SelfTestCapability>? Settling { get; private set; }
+
+    private async Task<SelfTestCapability> SettleScreenshotAsync(
+        Action<SelfTestCapability>? report,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = _clock.GetTimestamp();
+        SelfTestCapability capability;
+        try
+        {
+            var reading = await _readings.WatchScreenshotAsync(ScreenshotPatience, cancellationToken).ConfigureAwait(false);
+            capability = SelfTestProbes.Screenshots(reading, _clock.GetElapsedTime(startedAt), _culture);
+        }
+        catch (OperationCanceledException)
+        {
+            capability = new(
+                SelfTestProbes.ScreenshotsId,
+                "Screenshots",
+                SelfTestOutcome.Unknown,
+                "Stopped before a screenshot arrived.",
+                [],
+                _clock.GetElapsedTime(startedAt));
+        }
+        catch (Exception exception)
+        {
+            capability = new(
+                SelfTestProbes.ScreenshotsId,
+                "Screenshots",
+                SelfTestOutcome.Unknown,
+                $"Could not be tested: {exception.Message}",
+                [new(exception.GetType().Name, "the exception this probe raised")],
+                _clock.GetElapsedTime(startedAt));
+        }
+
+        report?.Invoke(capability);
+        return capability;
     }
 
     private async Task<SelfTestCapability> MeasureAsync<TReading>(

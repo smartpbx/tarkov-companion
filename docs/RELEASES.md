@@ -70,6 +70,37 @@ Consequences accepted with it:
 - Public-good Sigstore records artifact digests and the source workflow identity in its
   transparency log. For a public source repository that is already public information.
 
+## What the version means
+
+Every build has one version, `MAJOR.MINOR.BUILD`, for example `2.0.1140`.
+
+| Part | Meaning |
+| --- | --- |
+| Major | The **product generation**. `2` is the V2 workspace. It changes when the product does, not when a release does. |
+| Minor | Nothing yet. It is `0` because nothing has earned a minor, and it stays `0` until something does. |
+| Build | The number of the Windows verification run that built it. A later run is always a newer build. |
+
+The number is decided in exactly one place. `PRODUCT_VERSION` at the repository root holds
+`MAJOR.MINOR`, and `scripts/build-version.sh <run>` appends the run number. Everything else reads
+the result: the workflow's `TARKOV_BUILD_VERSION`, the assemblies, `BUILD_INFO.txt`,
+`update.json`, the zip's name (`TarkovCompanion-v<version>-win-x64.zip`), the relay's `/health`,
+the Velopack installer and its feed. A build nobody stamped reads the same file through
+`Directory.Build.props` and calls itself `2.0.0-dev`. To move the major or minor, edit that one
+file.
+
+Builds before 2026-09-18 were numbered `1.0.<run>`. That `1.0` meant nothing: it was typed out twelve
+times (nine in the Windows workflow, three in the packaging script) and never revisited, so the
+V2 builds installed as 1.0.x. Records of those builds elsewhere on this page (run 608, the `1.0.650` floor example) are
+left as they were. An installed `1.0.x` updates to `2.0.x` by itself, because versions are
+compared as semantic versions and any `2.0` is newer than any `1.0`; for the same reason a
+machine on `2.0.x` is never offered a `1.0.y`, however large `y` is. A relay's minimum version
+and floor, where set, are lower bounds and need no change.
+
+Windows verification asserts the agreement rather than assuming it. The extracted and the
+installed `BUILD_INFO.txt`, the running application's own report from `--self-test`
+(`build.version`), the launch probe and the staged update feed are each compared with
+`TARKOV_BUILD_VERSION`, and the job refuses to start those comparisons with an empty value.
+
 ## What a release is
 
 A release is one **signed manifest** (`release-manifest.json`) naming every file with its role,
@@ -474,7 +505,7 @@ the files after the process has exited.
 | --- | --- |
 | Feed | `https://tarkov.mannerow.net/updates/rough/releases.win.json` |
 | Installer, run once | `https://tarkov.mannerow.net/updates/rough/TarkovCompanionDesktop-win-Setup.exe` |
-| Version | `1.0.<Windows verification run number>`, so a later run is always a newer build |
+| Version | `2.0.<Windows verification run number>`; see [What the version means](#what-the-version-means) |
 | Program | `%LOCALAPPDATA%\TarkovCompanionDesktop`, replaced by an update |
 | Data | `%LOCALAPPDATA%\TarkovCompanion`, never touched by an update |
 | Try another feed | set `TARKOV_UPDATE_FEED` to an `https://` folder or a local folder |

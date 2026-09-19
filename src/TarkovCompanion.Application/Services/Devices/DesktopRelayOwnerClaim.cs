@@ -55,10 +55,16 @@ public static class DesktopRelayOwnerClaim
 {
     private static readonly TimeSpan OfferLifetime = TimeSpan.FromMinutes(2);
 
-    // The protocol's own hard cap (HandshakeChallenge requires SessionExpiresUtc - IssuedUtc <=
-    // ProtocolBounds.MaximumSessionLifetime). Resuming an expired owner session is not implemented
-    // yet, the same deferred scope as tablet session resume after reload (see the package PR).
-    private static readonly TimeSpan SessionLifetime = ProtocolBounds.MaximumSessionLifetime;
+    // Just inside the protocol's hard cap (HandshakeChallenge requires SessionExpiresUtc -
+    // IssuedUtc <= ProtocolBounds.MaximumSessionLifetime), not exactly on it.
+    //
+    // [V2 rough package 48] It used to ask for exactly the maximum, which left no room for the two
+    // clocks to differ: the relay derives a CSRF lifetime from this expiry minus its own now, so a
+    // desktop a second ahead of the relay asked it for one second more than its own browser-session
+    // bound. The relay now clamps that itself, and this stops riding the boundary in the first
+    // place. Resuming an expired owner session is still not implemented.
+    private static readonly TimeSpan SessionLifetime =
+        ProtocolBounds.MaximumSessionLifetime - TimeSpan.FromMinutes(5);
 
     // {1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: bstr(32)} ... {-3: bstr(32)}, the same CTAP2
     // canonical COSE_Key layout DevicePublicKey requires (HandshakeContracts.cs).

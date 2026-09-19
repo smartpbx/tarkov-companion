@@ -81,7 +81,8 @@ public sealed class CompanionPairingMailboxTests
         var registered = mailbox.RegisterOffer(futureOffer, "TESTCODE66", "192.0.2.61");
 
         Assert.False(registered.Succeeded);
-        Assert.Equal("pairing-rejected", registered.Code);
+        // Named since package 48: the desktop has to tell a clock difference from a bad code.
+        Assert.Equal("offer-future-dated", registered.Code);
     }
 
     [Fact]

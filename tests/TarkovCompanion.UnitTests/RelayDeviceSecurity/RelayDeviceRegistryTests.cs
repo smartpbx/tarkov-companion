@@ -47,7 +47,9 @@ public sealed class RelayDeviceRegistryTests
         Assert.True(recovered.Succeeded);
         Assert.True(registry.CanAuthenticate);
         Assert.False(replay.Succeeded);
-        Assert.Equal("recovery-rejected", replay.Code);
+        // Named since package 48: a consumed grant is not the same refusal as a malformed claim,
+        // a mismatched grant, or a relay that already has a live owner.
+        Assert.Equal("owner-already-live", replay.Code);
     }
 
     [Fact]

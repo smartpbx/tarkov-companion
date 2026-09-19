@@ -401,14 +401,96 @@
                     <TextBlock Classes="v2-heading-2" Text="Your devices" AutomationProperties.HeadingLevel="2" />
                     <TextBlock Classes="v2-label" Text="{Binding DevicesSummary}" />
                   </StackPanel>
+                  <!-- Kept for the automation id that used to open the window; inside this
+                       section the flow below is the surface, so it is not a second entry point. -->
                   <Button Grid.Column="1" Classes="v2-team-primary" VerticalAlignment="Center"
                           AutomationProperties.AutomationId="v2-team-pair-tablet"
                           ToolTip.Tip="{Binding PairTabletTooltip}" ToolTip.ShowOnDisabled="True"
-                          Content="Pair a tablet" Command="{Binding PairTabletCommand}"
-                          IsEnabled="{Binding CanPairDevice}" />
+                          Content="Pair a tablet" Command="{Binding Pairing.StartPairingCommand}"
+                          IsEnabled="{Binding Pairing.CanStartPairing}" />
                 </Grid>
                 <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
+
+                <!-- V2 rough package 48 (#290, #292): pairing lives here now, not in a popout
+                     window. Claim, then add a device, then the list — in the order they happen. -->
+                <Border Classes="v2-team-row" IsVisible="{Binding Pairing.NeedsClaim}">
+                  <StackPanel Spacing="8">
+                    <TextBlock Classes="v2-body v2-team-strong" Text="Claim this relay" />
+                    <!-- What an admin key is and who sets it, said where it is asked for. -->
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-admin-key-help"
+                               Text="{Binding Pairing.AdminKeyHelp}" />
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <TextBox Text="{Binding Pairing.AdminKeyInput}" PasswordChar="•"
+                               AutomationProperties.AutomationId="v2-team-admin-key"
+                               ToolTip.Tip="{Binding Pairing.AdminKeyHelp}"
+                               PlaceholderText="Admin key" />
+                      <Button Grid.Column="1" Classes="v2-team-primary" Content="Claim"
+                              AutomationProperties.AutomationId="v2-team-claim-relay"
+                              Command="{Binding Pairing.ClaimRelayCommand}"
+                              IsEnabled="{Binding !Pairing.IsClaimingRelay}" />
+                    </Grid>
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-claim-message"
+                               Text="{Binding Pairing.RelayClaimMessage}"
+                               IsVisible="{Binding Pairing.HasRelayClaimMessage}" />
+                  </StackPanel>
+                </Border>
+
+                <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-team-claimed"
+                           Text="{Binding Pairing.RelayClaimMessage}"
+                           IsVisible="{Binding Pairing.IsClaimedByThisDesktop}" />
+
+                <Border Classes="v2-team-row" IsVisible="{Binding CanPairDevice}">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="v2-body v2-team-strong" Text="Add a device" />
+
+                    <StackPanel Spacing="8" IsVisible="{Binding Pairing.IsIdle}">
+                      <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-team-pairing-blocked"
+                                 Text="{Binding Pairing.StartPairingBlockedReason}"
+                                 IsVisible="{Binding !Pairing.CanStartPairing}" />
+                      <Button Classes="v2-team-primary" HorizontalAlignment="Left" Content="Start pairing"
+                              AutomationProperties.AutomationId="v2-team-start-pairing"
+                              Command="{Binding Pairing.StartPairingCommand}"
+                              IsEnabled="{Binding Pairing.CanStartPairing}" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingTablet}">
+                      <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                 Text="On the tablet, open the relay's /tablet page and enter this code:" />
+                      <!-- Read across a desk, which is where the tablet is. -->
+                      <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
+                                 AutomationProperties.AutomationId="v2-team-pairing-code"
+                                 Text="{Binding Pairing.PairingCode}" />
+                      <TextBlock Classes="v2-label" Text="Waiting for the tablet…" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingApproval}">
+                      <TextBlock Classes="v2-label" TextWrapping="Wrap">
+                        <Run Text="{Binding Pairing.RequestedDisplayName}" /><Run Text=" wants to pair. Approve it only if the tablet shows this code:" />
+                      </TextBlock>
+                      <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
+                                 AutomationProperties.AutomationId="v2-team-verification-code"
+                                 Text="{Binding Pairing.VerificationCode}" />
+                      <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Classes="v2-team-primary" Content="Approve"
+                                AutomationProperties.AutomationId="v2-team-approve-pairing"
+                                Command="{Binding Pairing.ApproveCommand}" IsEnabled="{Binding !Pairing.IsBusy}" />
+                        <Button Classes="v2-team-plain" Content="Deny"
+                                AutomationProperties.AutomationId="v2-team-deny-pairing"
+                                Command="{Binding Pairing.DenyCommand}" IsEnabled="{Binding !Pairing.IsBusy}" />
+                      </StackPanel>
+                    </StackPanel>
+
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-pairing-status"
+                               Text="{Binding Pairing.StatusMessage}"
+                               IsVisible="{Binding Pairing.HasStatusMessage}" />
+                  </StackPanel>
+                </Border>
 
                 <!-- V2 rough package 24 (#407): a paired device asking to drive this desktop, and
                      the one action that takes control back once one is. -->
