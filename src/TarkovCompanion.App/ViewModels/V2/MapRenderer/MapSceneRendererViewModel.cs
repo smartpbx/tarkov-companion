@@ -378,6 +378,22 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     public bool HasFloorSourceNote => _floorSourceNote.Length > 0;
 
+    /// <summary>
+    /// The floor ladder, folded into the one line that says where you are.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported from a Customs raid: the block in the plan's top-left
+    /// corner is about 500x130 pixels of chrome sitting on artwork. Five floor buttons, two
+    /// arrows and two lines of text were most of it, for a control pressed a handful of times a
+    /// raid. They are behind this now; the arrows beside it still change floor in one press, so
+    /// nothing costs more than it did.
+    /// </remarks>
+    public string FloorSummaryLabel => Floors.Count == 0 || SelectedFloor is null
+        ? string.Empty
+        : $"{SelectedFloor.Name} · " +
+          $"{_presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected))} of " +
+          $"{_presentation.Number(Floors.Count)}";
+
     public bool CanGoUpAFloor => StepTarget(1) is not null;
     public bool CanGoDownAFloor => StepTarget(-1) is not null;
     public string FloorUpLabel => Text("Map.Action.FloorUp");
@@ -403,6 +419,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The two-or-three-word form drawn over the plan; the full notice is its tooltip.</summary>
     public string DenseSceneChip { get; private set; } = string.Empty;
     public bool HasDenseSceneNotice => !string.IsNullOrWhiteSpace(DenseSceneNotice);
+
+    /// <summary>Whether anything about the scene is worth a chip over the plan (package 46).</summary>
+    /// <remarks>
+    /// Narrower than <see cref="HasDenseSceneNotice"/>: a scene whose only notice is how many
+    /// pages the list beside the map has draws nothing on the map, because that is not something
+    /// about the map. The sentence is still the chip's tooltip wherever a chip is drawn, and the
+    /// list's own pager says how many pages it has.
+    /// </remarks>
+    public bool HasDenseSceneChip => DenseSceneChip.Length > 0;
     public string ModeFallbackNotice => _scene.View.Mode switch
     {
         MapSceneMode.Flat2D => string.Empty,
@@ -1641,14 +1666,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         DenseSceneNotice = messages.Count == 0
             ? string.Empty
             : string.Join("; ", messages) + ". " + Text("Map.Dense.Suffix");
-        // What actually draws over the plan: two or three words. The sentences above stay as its
-        // tooltip and its accessible name, so nothing is lost, it just is not painted on the map.
-        DenseSceneChip = messages.Count switch
+        // [V2 rough package 46] What actually draws over the plan, and only for the conditions
+        // that change what is on it. "2 map notes" counted the sentences in the tooltip — a
+        // number about the notice rather than about the map, which is why he asked what it
+        // meant. Each chip now names its own condition, and list paging, which changes only how
+        // the list beside the map is read, no longer puts anything on the plan at all; it stays
+        // in the tooltip, and the list's own pager already says how many pages it has.
+        var chips = new List<string>(3);
+        if (pointCount > MaximumPointMarkers)
         {
-            0 => string.Empty,
-            1 when outsideBounds > 0 => Format("Map.Dense.Chip.Outside", _presentation.Number(outsideBounds)),
-            _ => Format("Map.Dense.Chip.Many", _presentation.Number(messages.Count)),
-        };
+            chips.Add(Format("Map.Dense.Chip.Grouped", _presentation.Number(pointCount)));
+        }
+
+        if (geometryCount > MaximumGeometryObjects)
+        {
+            chips.Add(Format("Map.Dense.Chip.Shapes", _presentation.Number(geometryCount - MaximumGeometryObjects)));
+        }
+
+        if (outsideBounds > 0)
+        {
+            chips.Add(Format("Map.Dense.Chip.Outside", _presentation.Number(outsideBounds)));
+        }
+
+        DenseSceneChip = string.Join(" · ", chips);
     }
 
     private bool CanRenderMode(MapSceneMode mode) => mode switch
@@ -1930,6 +1970,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(ShowsEmptyMap));
             OnPropertyChanged(nameof(DenseSceneNotice));
             OnPropertyChanged(nameof(DenseSceneChip));
+            OnPropertyChanged(nameof(HasDenseSceneChip));
             OnPropertyChanged(nameof(HasDenseSceneNotice));
             RaiseListChanged();
         }
@@ -1971,6 +2012,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                  {
                      nameof(FloorLayers), nameof(IsStacked), nameof(HasFloorStack), nameof(ShowsFlatBackground),
                      nameof(StackStatus), nameof(HasStackStatus), nameof(FloorPositionLabel),
+                     nameof(FloorSummaryLabel),
                      nameof(CanGoUpAFloor), nameof(CanGoDownAFloor),
                  })
         {

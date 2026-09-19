@@ -163,6 +163,19 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
+    <!-- [V2 rough package 46] The folded floor ladder: which floor you are on, and the rungs
+         behind it. -->
+    <Style Selector="Button.v2-map-floor-summary">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Button.v2-map-floor-summary Path.v2-icon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+    </Style>
   </UserControl.Styles>
 
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" x:Name="RendererScroll">
@@ -195,55 +208,72 @@
         </ItemsControl>
         <!-- V2 rough package 39: a floor ladder, not a drop-down. A building is read top floor
              first, and on Interchange or Labs the floor you want is one press away rather than
-             behind an opened list. The up/down pair steps the ladder without aiming at a name. -->
+             behind an opened list. The up/down pair steps the ladder without aiming at a name.
+             [V2 rough package 46] Folded, because on Customs the five rungs, the two arrows and
+             the two lines under them were most of a 516x133 block sitting on the artwork. The
+             arrows stay out here, so a floor is still one press away in either direction; the
+             named rungs and everything the ladder had to say are behind the one button that
+             already had to be there to say which floor you are on. -->
         <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasFloorFilters}"
                     AutomationProperties.AccessibilityView="Control"
                     AutomationProperties.Name="{Binding FloorLabel}">
-          <ItemsControl ItemsSource="{Binding Floors}"
-                        AutomationProperties.AutomationId="v2-map-floor-picker"
-                        AutomationProperties.Name="{Binding FloorLabel}">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="0" /></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
-                <ToggleButton Classes="v2-segment" IsChecked="{Binding IsSelected, Mode=OneWay}"
-                              AutomationProperties.AutomationId="{Binding AutomationId}"
-                              AutomationProperties.Name="{Binding Name}"
-                              Content="{Binding Name}" Command="{Binding SelectCommand}" />
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-          <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorUpCommand}"
-                  IsEnabled="{Binding CanGoUpAFloor}"
-                  AutomationProperties.AutomationId="v2-map-floor-up"
-                  AutomationProperties.Name="{Binding FloorUpLabel}" ToolTip.Tip="{Binding FloorUpLabel}">
-            <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
-          </Button>
           <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorDownCommand}"
                   IsEnabled="{Binding CanGoDownAFloor}"
                   AutomationProperties.AutomationId="v2-map-floor-down"
                   AutomationProperties.Name="{Binding FloorDownLabel}" ToolTip.Tip="{Binding FloorDownLabel}">
             <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
           </Button>
+          <Button Classes="v2-target v2-map-floor-summary"
+                  AutomationProperties.AutomationId="v2-map-floor-position"
+                  AutomationProperties.Name="{Binding FloorSummaryLabel}"
+                  ToolTip.Tip="{Binding FloorLabel}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock VerticalAlignment="Center" Text="{Binding FloorSummaryLabel}" />
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronDown}" />
+            </StackPanel>
+            <Button.Flyout>
+              <Flyout Placement="BottomEdgeAlignedLeft">
+                <StackPanel Spacing="8" MaxWidth="420">
+                  <ItemsControl ItemsSource="{Binding Floors}"
+                                AutomationProperties.AutomationId="v2-map-floor-picker"
+                                AutomationProperties.Name="{Binding FloorLabel}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="0" LineSpacing="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:MapSceneRendererFloorViewModel">
+                        <ToggleButton Classes="v2-segment" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                                      AutomationProperties.Name="{Binding Name}"
+                                      Content="{Binding Name}" Command="{Binding SelectCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding FloorPositionLabel}" />
+                  <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="v2-map-stack-status"
+                             AutomationProperties.AccessibilityView="Control"
+                             AutomationProperties.Name="{Binding StackStatus}"
+                             Text="{Binding StackStatus}" />
+                  <!-- [V2 rough package 46] Why this floor is the one on screen, beside the
+                       rungs that change it. -->
+                  <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorSourceNote}" TextWrapping="Wrap"
+                             AutomationProperties.AutomationId="v2-map-floor-source"
+                             AutomationProperties.AccessibilityView="Control"
+                             AutomationProperties.Name="{Binding FloorSourceNote}"
+                             Text="{Binding FloorSourceNote}" />
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
+          <Button Classes="v2-target v2-icon-btn" Command="{Binding FloorUpCommand}"
+                  IsEnabled="{Binding CanGoUpAFloor}"
+                  AutomationProperties.AutomationId="v2-map-floor-up"
+                  AutomationProperties.Name="{Binding FloorUpLabel}" ToolTip.Tip="{Binding FloorUpLabel}">
+            <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
+          </Button>
         </StackPanel>
         </WrapPanel>
-        <!-- Which floor of how many, and what the stack did, on their own line: a five-floor
-             ladder already fills the pill's width and these were being clipped beside it. -->
-        <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorFilters}" TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="v2-map-floor-position"
-                   Text="{Binding FloorPositionLabel}" />
-        <!-- [V2 rough package 46] And why it is that floor, where the floors are chosen. -->
-        <TextBlock Classes="v2-label" IsVisible="{Binding HasFloorSourceNote}" TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="v2-map-floor-source"
-                   AutomationProperties.AccessibilityView="Control"
-                   AutomationProperties.Name="{Binding FloorSourceNote}"
-                   Text="{Binding FloorSourceNote}" />
-        <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="v2-map-stack-status"
-                   AutomationProperties.AccessibilityView="Control"
-                   AutomationProperties.Name="{Binding StackStatus}"
-                   Text="{Binding StackStatus}" />
         <TextBlock Classes="v2-body" IsVisible="{Binding ShowsModeFallback}"
                    AutomationProperties.AutomationId="v2-map-mode-fallback"
                    AutomationProperties.AccessibilityView="Control"
@@ -257,8 +287,10 @@
                    Text="{Binding RendererNotice}" TextWrapping="Wrap" />
         <!-- V2 rough package 20: a small chip, not the four-sentence paragraph this used to paint
              across the plan. The full wording is the tooltip and the accessible name, so a screen
-             reader and a hovering player still get all of it. -->
-        <Border Classes="v2-map-chip" HorizontalAlignment="Left" IsVisible="{Binding HasDenseSceneNotice}"
+             reader and a hovering player still get all of it.
+             [Package 46] And each chip names its own condition rather than counting the sentences
+             behind it. "2 map notes" was a number about the notice, not about the map. -->
+        <Border Classes="v2-map-chip" HorizontalAlignment="Left" IsVisible="{Binding HasDenseSceneChip}"
                 ToolTip.Tip="{Binding DenseSceneNotice}"
                 AutomationProperties.AutomationId="v2-map-live-polite"
                 AutomationProperties.AccessibilityView="Control"

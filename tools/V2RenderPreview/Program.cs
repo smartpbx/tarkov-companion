@@ -470,6 +470,20 @@ internal static class Program
                     ", ",
                     raid.ArtworkVariants.Select(item => item.Key + (item.IsSelected ? "*" : string.Empty))));
 
+                // [V2 rough package 46] How much of the map card the floating pill in its
+                // top-left corner covers, which is artwork nobody can see.
+                if (window.GetVisualDescendants()
+                        .OfType<Avalonia.Controls.Border>()
+                        .FirstOrDefault(border => border.Classes.Contains("v2-map-float")) is { } pill &&
+                    raid.Renderer is { } pillRenderer)
+                {
+                    var card = pillRenderer.CanvasWidth * pillRenderer.CanvasHeight;
+                    var covered = pill.Bounds.Width * pill.Bounds.Height;
+                    Console.WriteLine(
+                        $"Top-left block: {pill.Bounds.Width:F0}x{pill.Bounds.Height:F0} = {covered:F0} px, " +
+                        $"{(card > 0 ? covered / card : 0):P1} of the map card");
+                }
+
                 // [V2 rough package 46] The two numbers the aspect-ratio bug lives between: the
                 // rectangle the plan is actually drawn into, and the artwork's own pixels. A
                 // render that looks plausible can still be stretched by a per-cent nobody sees.
