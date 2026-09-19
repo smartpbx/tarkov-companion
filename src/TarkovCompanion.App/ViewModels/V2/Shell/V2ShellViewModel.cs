@@ -1617,6 +1617,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
+        // Every navigation funnels through here, which is what makes this the one place worth
+        // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
+        // a breadcrumb naming the destination is the difference between "it died" and "it died
+        // going to Plan".
+        CrashBreadcrumbs.Drop("navigate", CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
@@ -1669,32 +1674,71 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route = Router.Current.Location.Route;
         if (route == V2Routes.Stash && _stashScan is not null)
         {
-            _ = _stashScan.LoadAsync();
+            Load("stash", _stashScan.LoadAsync);
         }
         else if (route == V2Routes.Debrief && _debrief is not null)
         {
-            _ = _debrief.LoadAsync();
+            Load("debrief", _debrief.LoadAsync);
         }
         else if (route == V2Routes.Plan && _plan is not null)
         {
-            _ = _plan.LoadAsync();
+            Load("plan", _plan.LoadAsync);
         }
         else if (route == V2Routes.Hideout && _hideout is not null)
         {
-            _ = _hideout.LoadAsync();
+            Load("hideout", _hideout.LoadAsync);
         }
         else if (route == V2Routes.Keep && _keep is not null)
         {
-            _ = _keep.LoadAsync();
+            Load("keep", _keep.LoadAsync);
         }
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {
-            _ = _team.LoadAsync();
+            Load("team", _team.LoadAsync);
         }
         else if (route == V2Routes.Setup)
         {
             _homeOverviewLoaded = false;
             LoadHomeOverview(_runtime.Current);
+        }
+    }
+
+    /// <summary>
+    /// Starts a workspace load and watches it, rather than dropping the task on the floor.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these used to be <c>_ = workspace.LoadAsync();</c>. A load that faulted outside
+    /// the workspace's own catch — <c>TeamWorkspaceViewModel</c> had no catch at all — left a blank
+    /// pane, no message on it, and nothing anywhere saying why: the discarded task's exception
+    /// reached only <see cref="TaskScheduler.UnobservedTaskException"/>, whenever the collector got
+    /// round to it, if ever.
+    ///
+    /// Still not awaited, and deliberately so. Navigation must not wait for a database read, and a
+    /// workspace that is slow to fill is a workspace filling in, not a frozen window. What changes
+    /// is that the failure is now recorded where a player's log will show it, and that it fails
+    /// alone: every workspace here has its own Reload, and returning to the route reloads it, so a
+    /// pane that failed is recoverable without restarting the application.
+    /// </remarks>
+    private void Load(string surface, Func<Task> load) => _ = ObserveWorkspaceLoad(surface, load);
+
+    /// <summary>Awaits a workspace load and records whatever it throws.</summary>
+    /// <remarks>
+    /// Internal so it can be tested on its own. Building a whole shell to prove that a discarded
+    /// task's exception reaches the log would need a dozen real services, and the claim is about
+    /// this method and nothing else.
+    /// </remarks>
+    internal static async Task ObserveWorkspaceLoad(string surface, Func<Task> load)
+    {
+        try
+        {
+            await load().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write($"workspace-fault/{surface}", $"load: {exception}");
         }
     }
 

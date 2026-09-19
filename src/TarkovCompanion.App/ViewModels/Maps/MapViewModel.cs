@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -3011,6 +3012,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _selectionLoad?.Dispose();
         _selectionLoad = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var cancellationToken = _selectionLoad.Token;
+        // Dropped before the load, not logged after it. Choosing a map is what killed the
+        // process on 2026-09-19 — a native fault inside the drawing's rasteriser, which raises
+        // no managed exception and so reached none of the handlers. A line written first is the
+        // only record such a run leaves.
+        CrashBreadcrumbs.Drop("map", $"loading {location.Id}/{variant.Key}");
         try
         {
             if (persist)
@@ -3086,6 +3092,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Status = $"{Status} · No floor named \"{asked}\" on this map";
             }
+
+            CrashBreadcrumbs.Drop("map", $"loaded {location.Id}/{variant.Key}");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3093,6 +3101,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception)
         {
             Status = $"Map unavailable: {exception.Message}";
+            WorkspaceFault.Record("map", $"load {location.Id}/{variant.Key}", exception);
         }
         finally
         {
