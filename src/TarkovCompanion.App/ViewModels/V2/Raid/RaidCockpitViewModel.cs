@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -1606,6 +1607,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
             if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
             {
+                // Before the call, because the call is what died on 2026-09-19: rasterising a
+                // drawing faults natively, raising no managed exception for any handler to see.
+                CrashBreadcrumbs.Drop("map-asset", $"reading svg {assetCacheKey}");
                 var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)

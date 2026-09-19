@@ -23,6 +23,22 @@ Nothing needs administrator rights and nothing is written to Program Files.
 A portable install (`portable.flag` beside the executable) puts all of them under `Data\`
 next to the application instead.
 
+**What is in `Logs`.**
+
+| File | What is in it |
+| --- | --- |
+| `startup.log` | The file to ask for. Lifecycle, unhandled exceptions, workspace faults, and one `[previous-run-died]` entry whenever the run before this one was killed rather than closed. Consecutive identical lines are collapsed with a count. Rolled at 2 MB, one previous kept as `.1`. |
+| `breadcrumbs.log` | What the application was *about to do*, written before it does it — one line per navigation, per map load, per SVG read. Closed on every write, so it survives a process that is killed outright. Rolled at 512 KB. |
+| `breadcrumbs.running` | Present while a run is in progress; removed when it reaches its own shutdown. Finding one at startup is what makes the next launch report the previous one as died. |
+
+The breadcrumb file exists because a native fault cannot be caught. On 2026-09-19 an access
+violation inside Skia (`0xc0000005`, in `sk_canvas_draw_picture`, rasterising a map drawing)
+killed the application outright: no managed exception was raised, so the
+`AppDomain.UnhandledException`, `TaskScheduler.UnobservedTaskException` and dispatcher handlers
+that `CrashLog` subscribes to never ran, and `startup.log` held two and a half minutes of silence
+and then the next launch. Breadcrumbs do not catch anything; they are written first, so a run that
+dies still names what it was doing.
+
 **Where it does not keep things.** It never writes inside the game's folders except to move
 old screenshots to the recycle bin, and only when that is switched on.
 
