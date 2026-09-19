@@ -65,18 +65,38 @@ public sealed class ContainerGridDetector
         var check = new PixelCancellationCheck(cancellationToken);
         var luminance = ReadLuminance(image, ref check);
 
+        // Cells are 63 pixels on a 1080-tall frame (StashGrid.PitchInHeights). That was one
+        // measurement until 2026-09-18; nine real 3840x1080 screenshots now agree with it to the
+        // pixel. A character screen shows gear slots, pockets, a backpack and the stash at that
+        // same pitch and at different phases, and the open search below walked from one panel
+        // into the next through its 8% tolerance: in 8 of those 9 frames it returned one lattice
+        // across several panels, with cells 65 by 63 or 304 by 42, or at half the pitch. Held to
+        // the known pitch within two pixels a run cannot leave its own panel. The open search is
+        // kept for a frame drawn at a scale nobody has measured.
+        return DetectAtPitch(luminance, image, StashGrid.PitchInHeights * image.Height, ref check, cancellationToken)
+            ?? DetectAtPitch(luminance, image, null, ref check, cancellationToken);
+    }
+
+    private static ContainerGridSpec? DetectAtPitch(
+        byte[] luminance,
+        CapturedImage image,
+        double? knownPitch,
+        ref PixelCancellationCheck check,
+        CancellationToken cancellationToken)
+    {
         // No screen draws a cell this small: 1280x720 draws them 42 pixels across.
         var minimumPitch = Math.Max(12, Math.Min(image.Width, image.Height) / 40);
         var columns = SelectRegularRun(
             FindLinePositions(luminance, image.Width, image.Height, vertical: true, 0, image.Height, ref check),
             minimumPitch,
-            cancellationToken);
+            cancellationToken,
+            knownPitch);
         if (columns.Lines.Count < 3)
         {
             return null;
         }
 
-        var rows = FindRows(luminance, image, columns, minimumPitch, null, ref check, cancellationToken);
+        var rows = FindRows(luminance, image, columns, minimumPitch, knownPitch, ref check, cancellationToken);
         if (rows.Lines.Count < 3)
         {
             return null;
@@ -85,11 +105,12 @@ public sealed class ContainerGridDetector
         var refined = SelectRegularRun(
             FindLinePositions(luminance, image.Width, image.Height, vertical: true, rows.Lines[0], rows.Lines[^1] + 1, ref check),
             minimumPitch,
-            cancellationToken);
+            cancellationToken,
+            knownPitch);
         if (refined.Lines.Count >= 3 && (refined.Lines[0] != columns.Lines[0] || refined.Lines[^1] != columns.Lines[^1]))
         {
             columns = refined;
-            var again = FindRows(luminance, image, columns, minimumPitch, null, ref check, cancellationToken);
+            var again = FindRows(luminance, image, columns, minimumPitch, knownPitch, ref check, cancellationToken);
             if (again.Lines.Count >= 3)
             {
                 rows = again;
@@ -165,6 +186,18 @@ public sealed class ContainerGridDetector
     /// at the stretch of the other axis between <paramref name="crossFrom"/> and
     /// <paramref name="crossTo"/>.
     /// </summary>
+    /// <summary>
+    /// The lines found along one axis with how many pixels of each were seen, for the measurement
+    /// tests to report what a real frame actually offers the lattice search.
+    /// </summary>
+    internal static IReadOnlyList<(int Position, int Strength)> DescribeLines(CapturedImage image, bool vertical, int crossFrom, int crossTo)
+    {
+        var check = new PixelCancellationCheck(CancellationToken.None);
+        return FindLinePositions(ReadLuminance(image, ref check), image.Width, image.Height, vertical, crossFrom, crossTo, ref check)
+            .Select(line => (line.Position, line.Strength))
+            .ToArray();
+    }
+
     /// <summary>A found line and how many pixels of it were seen.</summary>
     private readonly record struct GridLine(int Position, int Strength);
 
@@ -302,6 +335,11 @@ public sealed class ContainerGridDetector
         var positions = lines.Select(line => line.Position).ToArray();
         var best = RegularRun.None;
         var bestSpacing = 0;
+        if (requiredPitch is { } fixedPitch)
+        {
+            return SelectRunAtKnownPitch(lines, positions, fixedPitch, cancellationToken);
+        }
+
         for (var first = 0; first < positions.Length; first++)
         {
             for (var second = first + 1; second < positions.Length; second++)
@@ -316,10 +354,6 @@ public sealed class ContainerGridDetector
                 }
 
                 var tolerance = Math.Max(2, (int)Math.Round(spacing * 0.08));
-                if (requiredPitch is { } pitch && Math.Abs(spacing - pitch) > Math.Max(2, pitch * 0.08))
-                {
-                    continue;
-                }
 
                 var run = new List<int> { positions[first] };
                 var assumed = new List<int>();
@@ -385,6 +419,105 @@ public sealed class ContainerGridDetector
         }
 
         return best;
+    }
+
+    /// <summary>
+    /// The run at a pitch that is already known: every line is looked for where the first line
+    /// and the pitch say it must be, and nowhere else.
+    /// </summary>
+    /// <remarks>
+    /// The open search re-anchors on each line it matches, which is how it measures a pitch it
+    /// does not know. With the pitch known that same freedom is a fault. On a real frame with a
+    /// case window open over the character screen, a run that began on the window's frame, 6
+    /// pixels above the case's rows, stepped at 65 instead of 63, caught up with the real rows
+    /// after three lines, collected all their strength, and was then laid back down at the
+    /// window frame's phase: every row 7 pixels out and not one item named.
+    /// </remarks>
+    private static RegularRun SelectRunAtKnownPitch(
+        IReadOnlyList<GridLine> lines,
+        int[] positions,
+        double pitch,
+        CancellationToken cancellationToken)
+    {
+        var tolerance = Math.Max(1, (int)Math.Round(pitch * 0.03));
+        var best = RegularRun.None;
+        for (var first = 0; first < positions.Length; first++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var strengths = new List<int> { lines[first].Strength };
+            var lastStep = 0;
+            var firstStep = 0;
+            foreach (var direction in new[] { 1, -1 })
+            {
+                var misses = 0;
+                for (var step = direction; misses <= MaximumMissingLines; step += direction)
+                {
+                    var expected = (int)Math.Round(positions[first] + (step * pitch));
+                    if (expected < positions[0] - tolerance || expected > positions[^1] + tolerance)
+                    {
+                        break;
+                    }
+
+                    if (TryFindClosest(positions, expected - tolerance - 1, expected, tolerance, out var match))
+                    {
+                        strengths.Add(lines[match].Strength);
+                        misses = 0;
+                        lastStep = direction > 0 ? step : lastStep;
+                        firstStep = direction < 0 ? step : firstStep;
+                    }
+                    else
+                    {
+                        misses++;
+                    }
+                }
+            }
+
+            var longest = strengths.Max();
+            var seen = strengths.Where(strength => strength * 2 >= longest).Sum(strength => (long)strength);
+            if (strengths.Count >= 3 && seen > best.Seen)
+            {
+                var run = Enumerable.Range(firstStep, lastStep - firstStep + 1)
+                    .Select(step => (int)Math.Round(positions[first] + (step * pitch)))
+                    .ToArray();
+                best = new(FitToPitch(run, positions, pitch, tolerance), strengths.Count, seen);
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// Lays a run on the exact pitch, at the phase most of its found lines agree on.
+    /// </summary>
+    /// <remarks>
+    /// The stash panel's outer border is drawn a pixel outside the lattice its cells sit on. A
+    /// run that began on that border put every column one pixel left on seven of nine real
+    /// frames, and one pixel is enough to change an icon's fingerprint: those frames named 3 to
+    /// 7 items where the correctly placed lattice names 11 to 13. The median phase is outvoted
+    /// by no single line.
+    /// </remarks>
+    private static IReadOnlyList<int> FitToPitch(IReadOnlyList<int> run, IReadOnlyList<int> found, double pitch, int tolerance)
+    {
+        var first = run[0];
+        var steps = (int)Math.Round((run[^1] - first) / pitch);
+        var phases = new List<double>();
+        foreach (var position in found)
+        {
+            var step = Math.Round((position - first) / pitch);
+            if (step >= 0 && step <= steps && Math.Abs(position - (first + (step * pitch))) <= tolerance)
+            {
+                phases.Add(position - (step * pitch));
+            }
+        }
+
+        if (phases.Count == 0)
+        {
+            return run;
+        }
+
+        phases.Sort();
+        var origin = phases[phases.Count / 2];
+        return Enumerable.Range(0, steps + 1).Select(step => (int)Math.Round(origin + (step * pitch))).ToArray();
     }
 
     private static bool TryFindClosest(

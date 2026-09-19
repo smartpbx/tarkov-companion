@@ -339,8 +339,16 @@ public sealed class GridPixelReconstructionBuilder(
                 }
                 else if (component.Count == boundingWidth * boundingHeight)
                 {
-                    footprints.Add(new(minRow, minColumn, boundingWidth, boundingHeight));
+                    // Only when something is in it. On a real panel the line between two empty
+                    // cells stands about 15 luminance over a hatched background, under the
+                    // border probe's threshold, so a run of empty cells joins into one block
+                    // with no border inside it. That is still nothing, not an item.
+                    if (component.Any(cell => occupied[cell.Row, cell.Column]))
+                    {
+                        footprints.Add(new(minRow, minColumn, boundingWidth, boundingHeight));
+                    }
                 }
+
                 else
                 {
                     foreach (var (r, c) in component.Where(cell => occupied[cell.Row, cell.Column]))
