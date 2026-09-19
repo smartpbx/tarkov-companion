@@ -364,10 +364,22 @@ thumbprint. The claim route is rate limited per source and relay-wide
 
     {"claimed": true, "ownerDeviceId": "…"}
 
-From the desktop app: Setup → Team & Devices → Companion pairing → "Claim this relay". The admin
-key is typed once and never stored; the panel checks status first so a relay already claimed by
-another desktop is reported without spending this desktop's own rate-limit budget on an attempt
-that can only fail.
+From the desktop app: **Team → Devices → "Claim this relay"** (package 48 moved this out of its own
+popout window and into the workspace; the panel names `TARKOV_RELAY_ADMIN_KEY` where it asks for the
+key). The admin key is typed once and never stored; the panel checks status first so a relay already
+claimed by another desktop is reported without spending this desktop's own rate-limit budget on an
+attempt that can only fail.
+
+The route answers **501 before it reads the admin key** when `TARKOV_RELAY_OWNER_RECOVERY_SECRET` is
+unset, because without it no owner can ever be recovered. The desktop reports that as its own state
+rather than as a refusal to retry — nothing a person does at the keyboard fixes it, only the
+operator setting the secret.
+
+Refusals name their cause rather than sharing one code: `claim-not-completed`,
+`claim-grant-mismatch`, `owner-already-live`, `recovery-grant-rejected`. An establishment is
+timestamped on the desktop, so it is compared against the relay's clock with the protocol's
+one-minute skew allowance — requiring the two clocks to agree exactly refused every claim from a
+desktop a fraction of a second ahead (package 48).
 
 Once claimed, the owner registers each paired tablet on the relay too (separately from the
 desktop's own local `DesktopCompanionAuthority` record of it), bearer-authenticated with the

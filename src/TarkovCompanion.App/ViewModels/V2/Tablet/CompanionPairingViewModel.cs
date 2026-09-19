@@ -80,6 +80,20 @@ public enum RelayOwnerClaimState
     NotClaimed,
     ClaimedByThisDesktop,
     ClaimedByAnotherDesktop,
+
+    /// <summary>
+    /// The relay refuses to be claimed at all, because its operator has not configured an
+    /// owner-recovery secret.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] This is the state that produced the complaint. `/admin/relay/claim`
+    /// answers 501 before it even looks at the admin key when
+    /// <c>TARKOV_RELAY_OWNER_RECOVERY_SECRET</c> is unset, so no desktop can ever become owner and
+    /// no amount of retrying or re-typing the admin key changes anything. It has to be named
+    /// separately from a wrong key and from a transient refusal, because only the relay's operator
+    /// can fix it.
+    /// </remarks>
+    NotConfiguredForClaiming,
 }
 
 public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
@@ -172,6 +186,99 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     }
 
     public bool HasControlRequest => !string.IsNullOrEmpty(ControlRequestMessage);
+
+    /// <summary>
+    /// What an admin key is, where it comes from, and what claiming does — said where it is asked
+    /// for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] The box used to say only "Type the relay's admin key to make this
+    /// desktop its owner", which assumes the reader already knows there is such a thing and that
+    /// they are the person who set it. One line, naming the variable, because the answer to "what
+    /// is the admin key" is a variable name on a server.
+    /// </remarks>
+    public static string AdminKeyHelp =>
+        "The admin key is the secret the relay's operator set as TARKOV_RELAY_ADMIN_KEY. Claiming " +
+        "makes this desktop the relay's owner, which is what lets it pair devices at all. The key " +
+        "is used once and never stored.";
+
+    /// <summary>The message for a relay whose operator has not configured claiming at all.</summary>
+    public const string NotConfiguredForClaimingMessage =
+        "This relay is not configured for claiming. Its operator must set " +
+        "TARKOV_RELAY_OWNER_RECOVERY_SECRET and restart it; until then no desktop can become its " +
+        "owner and no device can be paired.";
+
+    /// <summary>Whether starting a pairing ceremony can succeed, as last known from this desktop.</summary>
+    /// <remarks>
+    /// Ownership is a fact about this process, not about the relay's disk: the owner session
+    /// credential lives in memory (see <c>RelayMarksBridge.SetOwnerCredential</c>), so after a
+    /// desktop restart this correctly reads false until the relay is claimed again.
+    /// </remarks>
+    public bool CanStartPairing => CanPair && RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
+
+    /// <summary>Why "Start pairing" is unavailable, or null when it is.</summary>
+    public string? StartPairingBlockedReason => CanStartPairing
+        ? null
+        : !CanPair
+            ? UnavailableReason
+            : RelayClaimState switch
+            {
+                // Short here on purpose: the claim card directly above is already showing the
+                // whole message, and saying it twice reads as two different problems.
+                RelayOwnerClaimState.NotConfiguredForClaiming =>
+                    "This relay cannot be claimed yet — see above.",
+                RelayOwnerClaimState.ClaimedByAnotherDesktop =>
+                    "Another desktop owns this relay, so it cannot pair devices for this one.",
+                _ => "Claim this relay first: enter its admin key above and press Claim.",
+            };
+
+    /// <summary>Puts this view model into one named state so a render can photograph it.</summary>
+    /// <remarks>
+    /// [V2 rough package 48] The pairing panel has four states worth looking at and three refusal
+    /// messages, and none of them can be reached in a render without a relay and a tablet. This is
+    /// the seam <c>tools/V2RenderPreview</c> uses; it sets only what the panel shows and never
+    /// touches the authority, the coordinator or the relay.
+    /// </remarks>
+    /// <summary>
+    /// Set only by <see cref="PresentForPreview"/>, so a render on Linux can draw a panel that in
+    /// production needs Windows and a configured relay. Nothing else assigns it, and no production
+    /// path can reach it.
+    /// </summary>
+    private bool _previewAvailability;
+
+    internal void PresentForPreview(
+        RelayOwnerClaimState claimState,
+        CompanionPairingStage stage,
+        string? pairingCode = null,
+        string? verificationCode = null,
+        string? requestedDisplayName = null,
+        string? statusMessage = null,
+        string? claimMessage = null,
+        IReadOnlyList<PairedDeviceRowViewModel>? devices = null)
+    {
+        _previewAvailability = true;
+        OnPropertyChanged(nameof(CanPair));
+        OnPropertyChanged(nameof(CanClaimRelay));
+        OnPropertyChanged(nameof(NeedsClaim));
+
+        if (devices is not null)
+        {
+            Devices = devices;
+            OnPropertyChanged(nameof(Devices));
+            OnPropertyChanged(nameof(HasNoDevices));
+        }
+
+        RelayClaimState = claimState;
+        RelayClaimMessage = claimMessage;
+        Stage = stage;
+        PairingCode = pairingCode;
+        QrPayload = pairingCode is null ? null : $"tarkov-companion://pair?code={pairingCode}";
+        VerificationCode = verificationCode;
+        RequestedDisplayName = requestedDisplayName;
+        StatusMessage = statusMessage;
+        OnPropertyChanged(nameof(CanStartPairing));
+        OnPropertyChanged(nameof(StartPairingBlockedReason));
+    }
 
     public string? ControlHolderMessage
     {
@@ -274,7 +381,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
-    public bool CanPair => _coordinator is not null && _relay is not null;
+    public bool CanPair => _previewAvailability || (_coordinator is not null && _relay is not null);
 
     public string UnavailableReason => CanPair
         ? string.Empty
@@ -356,7 +463,16 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public ICommand ClaimRelayCommand { get; }
 
-    public bool CanClaimRelay => _identitySigner is not null && _relay is not null;
+    public bool CanClaimRelay => _previewAvailability || (_identitySigner is not null && _relay is not null);
+
+    /// <summary>
+    /// Whether the claim card still has anything to ask for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] An empty admin-key box sitting above a working pairing flow is noise,
+    /// and worse than noise: it suggests there is something still to type when there is not.
+    /// </remarks>
+    public bool NeedsClaim => CanClaimRelay && RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop;
 
     /// <summary>Typed once to claim the relay; never persisted, and cleared as soon as the attempt finishes.</summary>
     public string AdminKeyInput
@@ -373,6 +489,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             if (SetProperty(ref _relayClaimState, value))
             {
                 OnPropertyChanged(nameof(IsClaimedByThisDesktop));
+                OnPropertyChanged(nameof(NeedsClaim));
+                OnPropertyChanged(nameof(CanStartPairing));
+                OnPropertyChanged(nameof(StartPairingBlockedReason));
             }
         }
     }
@@ -458,6 +577,13 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                     _relayMarksBridge?.SetOwnerCredential(credential.SessionId, credential.Credential, credential.ExpiresUtc);
                 }
             }
+            else if (response.StatusCode == HttpStatusCode.NotImplemented)
+            {
+                // Refused before the admin key was read, so re-typing it cannot help and neither
+                // can waiting: the relay's operator has to set the secret.
+                RelayClaimState = RelayOwnerClaimState.NotConfiguredForClaiming;
+                RelayClaimMessage = NotConfiguredForClaimingMessage;
+            }
             else if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 RelayClaimMessage = "That admin key was not accepted.";
@@ -538,6 +664,28 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             return;
         }
 
+        // Checked before an invitation is minted, not after the relay has refused it. A device
+        // paired to a relay this desktop does not own can never live-sync (RelayMarksBridge has no
+        // owner credential to route its frames with), so starting the ceremony here would produce
+        // a tablet that pairs and then does nothing.
+        if (RelayClaimState == RelayOwnerClaimState.NotConfiguredForClaiming)
+        {
+            StatusMessage = NotConfiguredForClaimingMessage;
+            return;
+        }
+
+        if (RelayClaimState == RelayOwnerClaimState.ClaimedByAnotherDesktop)
+        {
+            StatusMessage = "Another desktop owns this relay, so it cannot pair devices for this one.";
+            return;
+        }
+
+        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop)
+        {
+            StatusMessage = "Claim this relay first: enter its admin key above and press Claim.";
+            return;
+        }
+
         ResetCeremony();
         IsBusy = true;
         StatusMessage = null;
@@ -546,14 +694,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             var invitation = await _coordinator.CreateInvitationAsync(Now()).ConfigureAwait(true);
             _attemptId = invitation.Offer.AttemptId;
             _offer = invitation.Offer;
-            var registered = await PostAsync(
+            var registered = await PostForStatusAsync(
                 "v2/companion/pairing/offers",
                 invitation.Offer,
                 new KeyValuePair<string, string>("Tarkov-Pairing-Code", invitation.PairingCode),
                 _ceremony!.Token).ConfigureAwait(true);
-            if (!registered)
+            if (registered.Status is not HttpStatusCode.OK and not HttpStatusCode.NoContent)
             {
-                StatusMessage = "The relay would not accept a new pairing invitation. Try again shortly.";
+                StatusMessage = DescribeOfferRefusal(registered);
                 Stage = CompanionPairingStage.Idle;
                 return;
             }
@@ -829,6 +977,72 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private Task<bool> PostAsync<T>(string routePrefix, T value, PairingAttemptId attemptId, CancellationToken cancellationToken)
         where T : class =>
         PostAsync($"{routePrefix}/{attemptId.Value:D}", value, cancellationToken);
+
+    /// <summary>
+    /// The same post, but reporting what the relay actually said.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] A bool could only ever produce one message for every refusal, which
+    /// is how "Try again shortly" came to be shown for a state that retrying could not fix.
+    /// </remarks>
+    private async Task<RelayRefusal> PostForStatusAsync<T>(
+        string path,
+        T value,
+        KeyValuePair<string, string> header,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(value));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+        request.Headers.Add(header.Key, header.Value);
+        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
+        var body = response.IsSuccessStatusCode
+            ? string.Empty
+            : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+        return new RelayRefusal(response.StatusCode, body.Trim().Trim('"'));
+    }
+
+    /// <summary>What the relay said when it refused: its status, and the code in its body.</summary>
+    internal sealed record RelayRefusal(HttpStatusCode Status, string Code);
+
+    /// <summary>
+    /// The relay's own refusal code, said in words, and never with a retry suggestion attached to a
+    /// state that retrying cannot change.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] The one message this replaced — "The relay would not accept a new
+    /// pairing invitation. Try again shortly." — was true of every cause and useful for one. The
+    /// relay's code is appended where it is not already the whole message, so the next occurrence
+    /// is diagnosable from the screen instead of from its journal.
+    /// </remarks>
+    internal static string DescribeOfferRefusal(RelayRefusal refusal) => refusal.Status switch
+    {
+        HttpStatusCode.TooManyRequests =>
+            "The relay is rate-limiting pairing attempts. Try again in a minute.",
+        _ => refusal.Code switch
+        {
+            "offer-future-dated" or "offer-expired" =>
+                "This desktop's clock and the relay's disagree by too much to pair. Check the time " +
+                "on both, then start pairing again.",
+            "pairing-code-malformed" =>
+                "The relay could not read the pairing code this desktop generated. This desktop and " +
+                "the relay are probably different builds; update the relay.",
+            "attempt-duplicate" =>
+                "That invitation already exists on the relay. Press Start pairing to make a new one.",
+            "invitation-limit" =>
+                "The relay is already holding as many pairing invitations as it allows. Wait for " +
+                "them to expire, or revoke a device, then start pairing again.",
+            "" =>
+                "The relay refused the invitation without saying why.",
+            var code when code.Contains(' ', StringComparison.Ordinal) =>
+                // A sentence rather than a code: the relay could not read the invitation at all,
+                // which is what a relay older than this desktop looks like.
+                $"The relay could not read this invitation ({code}) — it is probably an older build " +
+                "than this desktop. Update the relay.",
+            var code => $"The relay refused the invitation: {code}.",
+        },
+    };
 
     private async Task<bool> PostAsync<T>(string path, T value, CancellationToken cancellationToken)
         where T : class

@@ -36,6 +36,10 @@
     <!-- The OCR probe's atomic report write is proven by interrupting a write partway through,
          which needs its internal writer seam. -->
     <InternalsVisibleTo Include="TarkovCompanion.UnitTests" />
+    <!-- [V2 rough package 48] The render tool drives the pairing panel's four states through
+         CompanionPairingViewModel.PresentForPreview; none of them can be reached in a render
+         without a relay and a tablet. -->
+    <InternalsVisibleTo Include="TarkovCompanion.V2RenderPreview" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" />
