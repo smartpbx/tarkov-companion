@@ -14,15 +14,26 @@ namespace TarkovCompanion.Application.Services.StashScan;
 /// the stash was discarded as "origin unresolved".
 /// </para>
 /// <para>
-/// A packed stash does not need names to be recognisable. The pattern of rectangles across a few
-/// shared rows is as good as a fingerprint, so this compares footprints cell by cell at every
-/// candidate offset and accepts an offset only when every compared cell agrees, at least
-/// <see cref="MinimumSharedFootprints"/> whole items are shared, and no other offset does as well.
-/// A tie is left unplaced: the assembler's own guidance then asks for more overlap.
+/// A packed stash does not need names to be recognisable: the pattern of rectangles across a few
+/// shared rows is as good as a fingerprint.
 /// </para>
 /// <para>
-/// A rectangle touching the first or last row of either frame is not compared. The viewport cuts
-/// items there, and a cut item read as a smaller one is a disagreement that is not real.
+/// The first version compared whole footprints and left out every rectangle touching the first or
+/// last row of a screenshot, because the viewport cuts items there. That suited the painted scans
+/// it was measured on, which overlapped by four rows. On a real burst (2026-09-18, seven stash
+/// screens) the player scrolled nearly a full screen each time: neighbouring screens shared two or
+/// three rows, all of them edge rows, and one screen of seven was placed.
+/// </para>
+/// <para>
+/// What a viewport cut cannot corrupt is smaller than a footprint: whether a cell is occupied,
+/// and whether the side it shares with the next cell is a border. A rifle cut in half still has
+/// the same borders along the rows that are showing. So each frame is reduced to those bits, and
+/// an offset is judged by the share of compared bits that agree. It is accepted only when at
+/// least <see cref="MinimumComparedBits"/> bits were compared (about two rows), at least
+/// <see cref="MinimumAgreement"/> of them agree, and every other offset is at least
+/// <see cref="MinimumLeadOverRival"/> behind. The reader misjudges a few borders in a hundred on real
+/// pixels, so exact agreement cannot be asked for; a run of identical one-cell items agrees with
+/// itself at several offsets, which the rival test leaves unplaced rather than guesses.
 /// </para>
 /// <para>
 /// The result is only ever an origin hint of partial completeness. Identity alignment still runs
@@ -32,7 +43,19 @@ namespace TarkovCompanion.Application.Services.StashScan;
 /// </remarks>
 public sealed class StashLayoutAligner
 {
-    public const int MinimumSharedFootprints = 3;
+    /// <summary>The fewest occupancy and border bits an offset must be judged on: about two rows.</summary>
+    public const int MinimumComparedBits = 40;
+
+    /// <summary>The share of compared bits that must agree at the accepted offset.</summary>
+    public const double MinimumAgreement = 0.93;
+
+    /// <summary>How far ahead of every other offset the best one must be to be believed.</summary>
+    /// <remarks>
+    /// A margin and not a cap: a real stash has rows of identical one-cell items - magazines,
+    /// bandages - that agree with themselves nearly as well one row off, so the same screen taken
+    /// twice was refused under a cap of 0.85 while agreeing almost perfectly with itself.
+    /// </remarks>
+    public const double MinimumLeadOverRival = 0.07;
 
     private static readonly ProducerIdentity Producer = new("Tarkov Companion stash layout aligner", "stash-layout-aligner-1");
 
@@ -110,12 +133,12 @@ public sealed class StashLayoutAligner
         StashFrameLayout layout,
         IReadOnlyList<(StashFrameLayout Layout, GridCellAddress Origin)> placed)
     {
-        var absolute = new Dictionary<(int Row, int Column), StashLayoutCell>();
+        var absolute = new Dictionary<(int Row, int Column, StashLayoutBit Bit), bool>();
         foreach (var (other, origin) in placed)
         {
-            foreach (var (cell, value) in other.Cells)
+            foreach (var (key, value) in other.Bits)
             {
-                absolute.TryAdd((origin.Row + cell.Row, origin.Column + cell.Column), value);
+                absolute.TryAdd((origin.Row + key.Row, origin.Column + key.Column, key.Bit), value);
             }
         }
 
@@ -124,64 +147,53 @@ public sealed class StashLayoutAligner
             return null;
         }
 
-        var lastRow = absolute.Keys.Max(cell => cell.Row);
-        GridCellAddress? best = null;
-        var bestShared = 0;
-        var tied = false;
+        var lastRow = absolute.Keys.Max(key => key.Row);
+        int? bestRow = null;
+        var bestAgreement = 0d;
+        var bestStanding = double.MinValue;
+        var rivalStanding = double.MinValue;
         for (var row = 0; row <= lastRow && row <= GridGeometry.MaxRows - layout.Rows; row++)
         {
-            var shared = SharedFootprints(layout, absolute, row);
-            if (shared < MinimumSharedFootprints)
+            var agree = 0;
+            var compared = 0;
+            foreach (var (key, value) in layout.Bits)
+            {
+                if (absolute.TryGetValue((row + key.Row, key.Column, key.Bit), out var existing))
+                {
+                    compared++;
+                    if (existing == value)
+                    {
+                        agree++;
+                    }
+                }
+            }
+
+            if (compared < MinimumComparedBits)
             {
                 continue;
             }
 
-            if (shared > bestShared)
+            // Offsets are ranked on agreement less what a sample that small could owe to chance:
+            // on a real pair the same screen taken twice agreed on 347 of 367 bits, and an offset
+            // eleven rows away agreed on 43 of 48.
+            var agreement = agree / (double)compared;
+            var standing = agreement - (1 / Math.Sqrt(compared));
+            if (standing > bestStanding)
             {
-                best = new GridCellAddress(row, 0);
-                bestShared = shared;
-                tied = false;
+                rivalStanding = bestStanding;
+                bestStanding = standing;
+                bestAgreement = agreement;
+                bestRow = row;
             }
-            else if (shared == bestShared)
+            else if (standing > rivalStanding)
             {
-                tied = true;
+                rivalStanding = standing;
             }
         }
 
-        return tied ? null : best;
-    }
-
-    /// <summary>Whole items the two layouts agree on at this offset, or -1 when any cell disagrees.</summary>
-    private static int SharedFootprints(
-        StashFrameLayout layout,
-        IReadOnlyDictionary<(int Row, int Column), StashLayoutCell> absolute,
-        int originRow)
-    {
-        var sharedAnchors = 0;
-        foreach (var (cell, value) in layout.Cells)
-        {
-            if (!absolute.TryGetValue((originRow + cell.Row, cell.Column), out var existing))
-            {
-                continue;
-            }
-
-            if (value.Uncertain || existing.Uncertain)
-            {
-                continue;
-            }
-
-            if (value != existing)
-            {
-                return -1;
-            }
-
-            if (value is { Occupied: true, OffsetRow: 0, OffsetColumn: 0 })
-            {
-                sharedAnchors++;
-            }
-        }
-
-        return sharedAnchors;
+        return bestRow is { } found && bestAgreement >= MinimumAgreement && bestStanding - rivalStanding >= MinimumLeadOverRival
+            ? new GridCellAddress(found, 0)
+            : null;
     }
 
     private static StashScanCaptureFrame WithOrigin(StashScanCaptureFrame frame, GridCellAddress origin, DateTimeOffset alignedUtc)
@@ -220,24 +232,29 @@ public sealed class StashLayoutAligner
     }
 }
 
-/// <summary>What one cell of a frame holds, as far as its shape goes.</summary>
-internal readonly record struct StashLayoutCell(bool Occupied, int Width, int Height, int OffsetRow, int OffsetColumn, bool Uncertain);
+/// <summary>The three things about a cell a viewport cut leaves intact.</summary>
+internal enum StashLayoutBit
+{
+    Occupied,
+    BorderToTheRight,
+    BorderBelow,
+}
 
-/// <summary>A frame reduced to rectangles: every cell is empty or a known part of one footprint.</summary>
+/// <summary>A frame reduced to occupancy and border bits, in its own lattice coordinates.</summary>
 internal sealed class StashFrameLayout
 {
-    private StashFrameLayout(int rows, int columns, Dictionary<(int Row, int Column), StashLayoutCell> cells)
+    private StashFrameLayout(int rows, int columns, Dictionary<(int Row, int Column, StashLayoutBit Bit), bool> bits)
     {
         Rows = rows;
         Columns = columns;
-        Cells = cells;
+        Bits = bits;
     }
 
     public int Rows { get; }
 
     public int Columns { get; }
 
-    public IReadOnlyDictionary<(int Row, int Column), StashLayoutCell> Cells { get; }
+    public IReadOnlyDictionary<(int Row, int Column, StashLayoutBit Bit), bool> Bits { get; }
 
     public static StashFrameLayout? From(StashScanCaptureFrame frame)
     {
@@ -247,32 +264,42 @@ internal sealed class StashFrameLayout
             return null;
         }
 
-        var cells = new Dictionary<(int Row, int Column), StashLayoutCell>(rows * columns);
+        // Which footprint, if any, owns each cell.
+        var owner = new int[rows, columns];
+        var index = 0;
         foreach (var cell in grid.Cells)
         {
+            index++;
             var (width, height) = StashFootprints.Of(grid, cell);
-            var uncertain = cell.Anchor.Row == 0 || cell.Anchor.Row + height >= rows;
-            for (var row = 0; row < height; row++)
+            for (var row = cell.Anchor.Row; row < Math.Min(rows, cell.Anchor.Row + height); row++)
             {
-                for (var column = 0; column < width; column++)
+                for (var column = cell.Anchor.Column; column < Math.Min(columns, cell.Anchor.Column + width); column++)
                 {
-                    cells[(cell.Anchor.Row + row, cell.Anchor.Column + column)] =
-                        new(true, width, height, row, column, uncertain);
+                    owner[row, column] = index;
                 }
             }
         }
 
+        var bits = new Dictionary<(int Row, int Column, StashLayoutBit Bit), bool>(rows * columns * 3);
         for (var row = 0; row < rows; row++)
         {
             for (var column = 0; column < columns; column++)
             {
-                // An empty cell on an edge row is as unreliable as an item there: a cut item's
-                // remainder can read as flat.
-                cells.TryAdd((row, column), new(false, 0, 0, 0, 0, row == 0 || row == rows - 1));
+                bits[(row, column, StashLayoutBit.Occupied)] = owner[row, column] != 0;
+                if (column + 1 < columns)
+                {
+                    bits[(row, column, StashLayoutBit.BorderToTheRight)] = owner[row, column] != owner[row, column + 1];
+                }
+
+                // The side below the last row is the viewport's, not the stash's.
+                if (row + 1 < rows)
+                {
+                    bits[(row, column, StashLayoutBit.BorderBelow)] = owner[row, column] != owner[row + 1, column];
+                }
             }
         }
 
-        return new(rows, columns, cells);
+        return new(rows, columns, bits);
     }
 }
 
