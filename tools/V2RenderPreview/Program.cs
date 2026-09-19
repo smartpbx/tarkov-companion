@@ -219,6 +219,23 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
+            if (shell?.SetupWorkspace is { } setupPage)
+            {
+                if (args.Contains("--show-paths"))
+                {
+                    setupPage.Paths.ToggleCommand.Execute(null);
+                }
+
+                if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
+                    && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
+                {
+                    setupPage.OpenSection(openedTarget, openedAnchor);
+                }
+
+                Pump(20);
+            }
+
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)

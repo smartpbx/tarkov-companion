@@ -2158,6 +2158,31 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// <summary>Where the player's data is, and whether an update can touch it.</summary>
     public string UpdateDataFolder { get; }
 
+    /// <summary>[#292] The waiting build's release notes as plain lines, or empty.</summary>
+    public string UpdateNotes
+    {
+        get => _updateNotes;
+        private set
+        {
+            if (SetProperty(ref _updateNotes, value))
+            {
+                OnPropertyChanged(nameof(HasUpdateNotes));
+            }
+        }
+    }
+
+    public bool HasUpdateNotes => _updateNotes.Length > 0;
+
+    /// <summary>[#292] Whether the last check could not reach the feed, so "nothing newer" is not known.</summary>
+    public bool LastUpdateCheckFailed
+    {
+        get => _lastUpdateCheckFailed;
+        private set => SetProperty(ref _lastUpdateCheckFailed, value);
+    }
+
+    private string _updateNotes = string.Empty;
+    private bool _lastUpdateCheckFailed;
+
     /// <summary>The newer build the feed offers, or that there is not one.</summary>
     public string AvailableBuild
     {
@@ -2370,6 +2395,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     private void Apply(UpdateProgress progress)
     {
+        // [#292] What is new in the waiting build, and whether the last check could not reach the feed.
+        UpdateNotes = TarkovCompanion.App.Services.V2.Setup.SetupUpdateNotes.Plain(progress.Notes);
+        LastUpdateCheckFailed = progress.Failed;
         UpdateStatus = progress.Status;
         CanDownloadUpdate = progress.CanDownload;
         CanRestartForUpdate = progress.CanApply;
