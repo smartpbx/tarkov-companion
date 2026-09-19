@@ -6,6 +6,7 @@ using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.SelfTest;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
@@ -712,6 +713,10 @@ public static class AppComposition
             provider.GetRequiredService<ICaptureResultHandoff>(),
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
+        // [fin-recognition] #282: pin, wishlist, item rule, raid phase and risk, set from the
+        // Loot Scan workspace and read back by the scan.
+        services.AddSingleton<LootScanWorkspaceControls>();
+        services.AddSingleton<ILootScanWorkspaceControls>(provider => provider.GetRequiredService<LootScanWorkspaceControls>());
         services.AddSingleton<V2ShellCaptureBridge>();
         // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
         // paired device in Control mode moving it back. Refs #407.

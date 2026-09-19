@@ -48,8 +48,45 @@ public sealed class LootScanCaptureHandoff(
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly ILogger<LootScanCaptureHandoff> _logger = logger ?? NullLogger<LootScanCaptureHandoff>.Instance;
 
+    private readonly Lock _lastGate = new();
+    private LootScanFrame? _lastFrame;
+
     /// <summary>Raised after a Loot-intent capture is evaluated. Never raised for other intents.</summary>
     public event EventHandler<LootScanResult>? LootScanEvaluated;
+
+    /// <summary>
+    /// Decides the last scanned frame again, against the profile and raid context as they are now.
+    /// </summary>
+    /// <remarks>
+    /// Pinning an item or changing the raid phase changes the answer and not the picture. The
+    /// frame's reading is pixel-free and already held, so it is evaluated again as it stands.
+    /// Nothing happens where no frame has been scanned or no profile is active.
+    /// </remarks>
+    public async Task<bool> ReevaluateLastAsync(CancellationToken cancellationToken)
+    {
+        LootScanFrame? frame;
+        lock (_lastGate)
+        {
+            frame = _lastFrame;
+        }
+
+        if (frame is null || _profileContext.Current.ActiveProfile is not { } profile)
+        {
+            return false;
+        }
+
+        try
+        {
+            var result = await EvaluateAsync(frame, profile, cancellationToken).ConfigureAwait(false);
+            LootScanEvaluated?.Invoke(this, result);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not decide the last loot scan again.");
+            return false;
+        }
+    }
 
     public async ValueTask<CaptureHandoffResult> AcceptAsync(
         CaptureHandoffRequest request,
@@ -104,6 +141,11 @@ public sealed class LootScanCaptureHandoff(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(profile);
+        lock (_lastGate)
+        {
+            _lastFrame = request;
+        }
+
         var scope = new InventoryProfileScope(
             profile.Context.Identity.ProfileId,
             profile.Context.Identity.Generation,

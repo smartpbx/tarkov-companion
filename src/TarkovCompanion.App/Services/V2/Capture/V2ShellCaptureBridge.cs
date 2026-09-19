@@ -31,6 +31,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly LootScanCaptureHandoff _lootScanHandoff;
     private readonly WorkspaceOrigin _origin;
     private readonly ILogger<V2ShellCaptureBridge> _logger;
+    private readonly ILootScanWorkspaceControls? _lootScanControls;
+    private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
     private long _intentRevision;
     private ScanIntent _armedIntent = ScanIntent.Auto;
@@ -44,8 +46,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ICaptureSessionService captureSessions,
         LootScanCaptureHandoff lootScanHandoff,
         WorkspaceOrigin origin,
-        ILogger<V2ShellCaptureBridge>? logger = null)
+        ILogger<V2ShellCaptureBridge>? logger = null,
+        ILootScanWorkspaceControls? lootScanControls = null)
     {
+        _lootScanControls = lootScanControls;
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _captureSessions = captureSessions ?? throw new ArgumentNullException(nameof(captureSessions));
         _lootScanHandoff = lootScanHandoff ?? throw new ArgumentNullException(nameof(lootScanHandoff));
@@ -145,7 +149,18 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
     private void OnLootScanEvaluated(object? sender, LootScanResult result)
     {
-        var viewModel = new LootScanViewModel(result);
+        // The same frame decided again, after a pin or a change of raid phase, keeps the player
+        // on the item they were looking at instead of jumping back to the top of the list.
+        var previous = _lootScan;
+        var viewModel = new LootScanViewModel(
+            result,
+            controls: _lootScanControls,
+            select: previous is not null &&
+                    previous.Result.CaptureSessionId == result.CaptureSessionId &&
+                    string.Equals(previous.Result.ArtifactId, result.ArtifactId, StringComparison.Ordinal)
+                ? previous.SelectedDecision?.SourceAnchor
+                : null);
+        _lootScan = viewModel;
         lock (_gate)
         {
             // The frame that reached handoff is the only capture this session's single-review
