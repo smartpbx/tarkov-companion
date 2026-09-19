@@ -813,6 +813,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 camera.Zoom * factor,
                 camera.BearingDegrees,
                 camera.PitchDegrees))));
+        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     public void RequestPan(double viewportDeltaX, double viewportDeltaY)
@@ -842,6 +843,27 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     }
 
     /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
+    /// <summary>
+    /// The player moved the camera themselves — a drag they finished, or a zoom they asked for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as "when I zoom in and then try to pan, it snaps back to
+    /// where it was". The clamp was not the cause: it already divides the viewport's half-extent
+    /// by the camera's zoom, so zooming in allows strictly more pan, and a rebuild already reuses
+    /// the current view rather than re-fitting. What snapped the map back is that V1 was still
+    /// following the player. V1 turns its own following off when somebody pans V1's canvas
+    /// (<c>ReportManualPan</c>), and nothing turned it off when they panned the V2 renderer, so
+    /// the next screenshot re-centred the camera on the player a beat after the drag. At zoom 1
+    /// that is nearly invisible, because the fit already shows the whole map; at zoom 2 or 3 it
+    /// is exactly the snap he describes.
+    ///
+    /// Raised at the gesture boundary rather than from the camera change, because the follow
+    /// moves the camera through the same reducer and must not be mistaken for the player doing
+    /// it. Fit does not raise it either: fitting is how you ask for the whole map back, and V1
+    /// treats it as re-arming the follow.
+    /// </remarks>
+    public event EventHandler? CameraMovedByPlayer;
+
     public void BeginPan()
     {
         _panStartCamera = _scene.View.Camera;
@@ -893,6 +915,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             // synchronously, so the committed camera replaces the drag offset within the same
             // frame and the plan does not flash back to where the drag started.
             Request(new(MapSceneViewChangeKind.SetCamera, Camera: camera));
+            CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
         }
 
         SetPanOffset(0, 0);
@@ -942,6 +965,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         Request(new(
             MapSceneViewChangeKind.SetCamera,
             Camera: Clamp(new(moved.X, moved.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
+        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)

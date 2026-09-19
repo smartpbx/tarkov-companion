@@ -794,6 +794,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (Renderer is { } renderer)
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
+            renderer.CameraMovedByPlayer -= CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
             renderer.PropertyChanged -= RendererPropertyChanged;
         }
@@ -1207,6 +1208,20 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// next rebuild that produces one, rather than being dropped.
     /// </remarks>
     private void PlayerFollowRequested(object? sender, EventArgs e) => FollowPlayer();
+
+    /// <summary>
+    /// A drag or a zoom the player did themselves stops V1 following them.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as the map snapping back after zooming in and panning.
+    /// V1 already does this for its own canvas — panning is a deliberate act and the next
+    /// screenshot should not undo it — and nothing said it for the V2 renderer, so every
+    /// screenshot pulled the camera back onto the player a beat after the drag. Invisible at the
+    /// fitted zoom, where the whole map is on screen either way; at zoom 2 or 3 it is a snap.
+    ///
+    /// Recoverable the same way it is in V1: Follow and Fit both turn following back on.
+    /// </remarks>
+    private void CameraMovedByPlayer(object? sender, EventArgs e) => _map.ReportManualPan();
 
     private void FollowPlayer()
     {
@@ -1761,6 +1776,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 styleResolver: StyleFor,
                 floorElevationResolver: FloorElevation);
             renderer.ViewChangeRequested += ViewChangeRequested;
+            renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
