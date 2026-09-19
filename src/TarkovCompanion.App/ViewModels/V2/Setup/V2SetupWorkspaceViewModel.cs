@@ -135,6 +135,19 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
 
     public bool HasSelfTest => SelfTest is not null;
 
+    /// <summary>[#269] The profile list Game &amp; Profile opens with, or null in a shell built without one.</summary>
+    public SetupProfilesViewModel? Profiles { get; private set; }
+
+    public bool HasProfiles => Profiles is not null;
+
+    /// <summary>Hands this page the profile list after construction, for the reason <see cref="AttachSelfTest"/> gives.</summary>
+    public void AttachProfiles(SetupProfilesViewModel profiles)
+    {
+        Profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
+        OnPropertyChanged(nameof(Profiles));
+        OnPropertyChanged(nameof(HasProfiles));
+    }
+
     /// <summary>
     /// Hands this page the self-test after construction.
     /// </summary>

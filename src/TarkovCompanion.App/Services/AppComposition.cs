@@ -328,10 +328,21 @@ public static class AppComposition
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
 
-        services.AddSingleton<IPlayerProfileService>(provider => new JsonFilePlayerProfileService(
+        // [#269] profile.json stays the first profile's progress; every other profile gets its own file
+        // under profiles/, and IPlayerProfileService hands each caller the active profile's file.
+        services.AddSingleton(provider => new JsonFilePlayerProfileService(
             provider.GetRequiredService<JsonProfileOptions>(),
             timeProvider,
             provider.GetRequiredService<SqliteConnectionFactory>()));
+        services.AddSingleton<IPlayerProfileService>(provider => new ProfileScopedPlayerProfileService(
+            provider.GetRequiredService<JsonFilePlayerProfileService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            Path.Combine(paths.Config, "profiles"),
+            path => new JsonFilePlayerProfileService(
+                new JsonProfileOptions(path),
+                timeProvider,
+                provider.GetRequiredService<SqliteConnectionFactory>()),
+            provider.GetService<ILogger<ProfileScopedPlayerProfileService>>()));
         services.AddSingleton(provider => new ProjectQuestProgressJson(
             provider.GetRequiredService<ProjectQuestProgressJsonOptions>(),
             timeProvider));
@@ -726,6 +737,16 @@ public static class AppComposition
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#269] What Setup › Game & Profile drives: create, switch, archive, restore. A first profile
+        // waits for the V1 one to be seeded, so V1 progress always has a profile to belong to.
+        services.AddSingleton(provider => new ProfileManagementService(
+            provider.GetRequiredService<ProfileContextService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            timeProvider,
+            provider.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync));
+        services.AddSingleton(provider => new SetupProfilesViewModel(
+            provider.GetRequiredService<ProfileManagementService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

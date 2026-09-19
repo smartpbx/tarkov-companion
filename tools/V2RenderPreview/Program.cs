@@ -219,6 +219,19 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#269] Profiles made through the real management service, so Setup > Game & Profile
+            // renders the list a player would have: the first profile, a PvE one made active, and an
+            // archived one behind "Show archived".
+            if (shell is not null && args.Contains("--profiles-demo"))
+            {
+                var management = services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileManagementService>();
+                management.CreateAsync("Old wipe", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pvp, "Wipe 2", default).GetAwaiter().GetResult();
+                var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
+                management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
+                management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
