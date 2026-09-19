@@ -21,7 +21,6 @@ public sealed record GridPixelReconstructionOptions
     public GridPixelReconstructionOptions(
         IconCandidateSeparationPolicy separationPolicy,
         int maximumQuantityOcrCalls = 64,
-        IconCandidateSeparationPolicy? shortlistPolicy = null,
         double minimumPixelCorrelation = DefaultMinimumPixelCorrelation,
         double minimumPixelCorrelationMargin = DefaultMinimumPixelCorrelationMargin)
     {
@@ -29,7 +28,6 @@ public sealed record GridPixelReconstructionOptions
         MaximumQuantityOcrCalls = maximumQuantityOcrCalls >= 0
             ? maximumQuantityOcrCalls
             : throw new ArgumentOutOfRangeException(nameof(maximumQuantityOcrCalls));
-        ShortlistPolicy = shortlistPolicy ?? DefaultShortlistPolicy;
         MinimumPixelCorrelation = minimumPixelCorrelation is > 0 and <= 1
             ? minimumPixelCorrelation
             : throw new ArgumentOutOfRangeException(nameof(minimumPixelCorrelation));
@@ -55,20 +53,11 @@ public sealed record GridPixelReconstructionOptions
     /// <summary>The exact-hash policy, used only when a reference's pixels cannot be read.</summary>
     public IconCandidateSeparationPolicy SeparationPolicy { get; }
 
-    /// <summary>How the difference hash picks the few references worth comparing pixel by pixel.</summary>
-    public IconCandidateSeparationPolicy ShortlistPolicy { get; }
-
     public double MinimumPixelCorrelation { get; }
 
     public double MinimumPixelCorrelationMargin { get; }
 
     public int MaximumQuantityOcrCalls { get; }
-
-    public static IconCandidateSeparationPolicy DefaultShortlistPolicy { get; } = new(
-        "grid-recognition-icon-shortlist-1",
-        maximumCandidateDistanceBits: 24,
-        minimumRunnerUpGapBits: 1,
-        maximumReturnedCandidates: IconCandidateSeparationPolicy.MaximumReturnedCandidatesLimit);
 
     public static IconCandidateSeparationPolicy DefaultSeparationPolicy { get; } = new(
         "grid-recognition-icon-separation-1",
@@ -348,7 +337,6 @@ public sealed class GridPixelReconstructionBuilder(
                         footprints.Add(new(minRow, minColumn, boundingWidth, boundingHeight));
                     }
                 }
-
                 else
                 {
                     foreach (var (r, c) in component.Where(cell => occupied[cell.Row, cell.Column]))
@@ -482,16 +470,22 @@ public sealed class GridPixelReconstructionBuilder(
             IconFingerprintAlgorithms.DifferenceHashLuminance9X8Bits,
             SkiaPerceptualIconMatcher.ComputeDifferenceHash(cropped));
         var evidence = shaped.Select(reference => reference.Evidence).ToArray();
-        var shortlist = _separator.Separate(query, evidence, options.ShortlistPolicy, cancellationToken).Candidates;
         var described = IconPixelDescriptor.Create(cropped, footprint.Width, footprint.Height);
 
+        // Every reference of this shape is compared, not the nearest hashes. The hash shortlist
+        // was a way to avoid decoding references, and on real screenshots it cost answers: of
+        // 360 labelled items, 27 were never compared with their own reference because 32 other
+        // icons hashed nearer, and the one wrong name a 0.85 floor would have produced came from
+        // exactly that (an FTX slug whose true reference was not shortlisted, so the ordinary
+        // slug stood unopposed). A shape holds at most about 2,500 references and a comparison
+        // is a dot product; the cost is decoding each reference once a session, which
+        // IconReferenceIndex keeps.
         var scores = new Dictionary<string, (IconReference Reference, double Score)>(StringComparer.Ordinal);
         if (described is not null)
         {
-            foreach (var candidate in shortlist)
+            foreach (var reference in shaped)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var reference = byKey[candidate.Evidence.Key];
                 if (await references.DescribeAsync(reference, cancellationToken).ConfigureAwait(false) is not { } descriptor)
                 {
                     continue;
