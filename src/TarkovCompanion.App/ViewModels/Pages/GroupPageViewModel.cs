@@ -1,6 +1,7 @@
 using System.Globalization;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -245,7 +246,7 @@ public sealed class GroupPageViewModel : PageViewModel
 
         if (group.MyScavLockedUntil is { } until && until > DateTimeOffset.UtcNow)
         {
-            parts.Add($"Scav available at {until.ToLocalTime():t}");
+            parts.Add($"Scav available at {LocalTime.ShortTime(until)}");
         }
 
         return parts.Count == 0 ? string.Empty : string.Join(" · ", parts);

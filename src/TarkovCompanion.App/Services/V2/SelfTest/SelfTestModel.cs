@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -136,7 +137,9 @@ public sealed record SelfTestSummary(
         var text = new StringBuilder(capacity: 2_000);
         text.Append("## Tarkov Companion self-test").AppendLine();
         text.AppendLine();
-        text.Append(string.Create(culture, $"Started {StartedUtc:yyyy-MM-dd HH:mm:ss} UTC · ")).Append(Headline(culture)).AppendLine();
+        // Every time in this text is the player's own clock. The offset is named once, here, because
+        // the text is pasted to someone in another zone who has to know which clock it means.
+        text.Append(string.Create(culture, $"Started {LocalTime.SortableSeconds(StartedUtc)} ({LocalTime.Offset(StartedUtc)}) · ")).Append(Headline(culture)).AppendLine();
         foreach (var capability in Capabilities)
         {
             text.AppendLine();
