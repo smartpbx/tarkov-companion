@@ -1024,9 +1024,8 @@ public sealed class QuestsPageViewModel : PageViewModel
             return;
         }
 
-        var when = reading.LastObservedUtc?.ToLocalTime();
-        var heard = when is { } moment
-            ? $"The game last reported a quest at {moment:HH:mm}"
+        var heard = reading.LastObservedUtc is { } observed
+            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
             : "The game has reported quests";
         var what = reading.Recorded == 1
             ? "; 1 updated this board"
