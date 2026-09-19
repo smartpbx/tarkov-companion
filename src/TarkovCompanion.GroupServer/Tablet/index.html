@@ -141,11 +141,9 @@
     <p class="attribution" id="attribution"></p>
 
     <h2 style="margin-top:16px">Marks</h2>
-    <div class="modes" id="markKind">
-      <button type="button" data-kind="Ping" aria-pressed="true">Ping</button>
-      <button type="button" data-kind="Waypoint" aria-pressed="false">Waypoint</button>
-      <button type="button" id="markArm" aria-pressed="false">Tap the map to mark</button>
-    </div>
+    <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
+         means, the way right-click and shift+right-click do on the desktop. -->
+    <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
     <div class="form">
       <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
     </div>
@@ -623,8 +621,6 @@
   // session's own credential instead (#407).
   // ---------------------------------------------------------------------------------------
   let live = null;
-  let markKind = "Ping";
-  let markArmed = false;
   let mode = "Follow";
   const FRAME_LIFETIME_MS = 60_000;
   const CONTROL_LEASE = "00:02:00";
@@ -793,6 +789,9 @@
         context.fillText(item.label, px + 8 * scale, py - 7 * scale);
       }
     }
+
+    // [V2 rough package 46] Last, so it is over everything: what the finger just did.
+    drawFlashes();
   }
 
   // In Control the desktop's own layer state is the truth; in Independent this tablet keeps its
@@ -1263,8 +1262,9 @@
     };
   };
 
-  function addMark(x, y) {
+  function addMark(x, y, kind) {
     if (!live?.authorityEpoch || !live.surface) return;
+    const markKind = kind ?? "Ping";
     const label = $("markLabel").value.trim() || null;
     sendCommand({
       type: "upsertMark",
@@ -1366,12 +1366,33 @@
   }
 
   // ---------------------------------------------------------------------------------------
-  // Touch. A drag pans, two fingers pinch, a tap marks or selects. In Follow the map is the
-  // desktop's, so moving it is a mode change rather than a silent divergence.
+  // Touch. A drag pans, two fingers pinch, a tap pings, a long press makes a waypoint, and a
+  // long press on a mark takes it away. In Follow the map is the desktop's, so moving it is a
+  // mode change rather than a silent divergence.
+  //
+  // [V2 rough package 46] Clayton: "it should be drag and pinch to move around the map, and tap
+  // to ping, maybe long press to waypoint." The whole difficulty is telling those apart, because
+  // panning and pinching are what a finger does most and a stray ping on every pan would be
+  // worse than no pinging at all. Three numbers decide it, and they are deliberate:
+  //
+  //   SLOP_PX (12 CSS px)  How far the finger may wander and still be a press rather than a
+  //                        drag. Measured from where it went down, not summed along the path,
+  //                        so a slow finger's jitter cannot add up to a drag. A thumb on glass
+  //                        moves 3-6 px while holding still; 12 is above that and well under
+  //                        the ~40 px a deliberate pan covers before it looks like one.
+  //   TAP_MS (350)         Longer than this and it is not a tap, even if the finger never moved.
+  //   HOLD_MS (500)        A press this long, still inside the slop, is a long press. It fires
+  //                        on the timer rather than on release, so the mark appears under the
+  //                        finger while it is still down — the feedback a pointer would give.
+  //
+  // A second finger cancels the press outright: a pinch is never a tap, however still it ends.
   // ---------------------------------------------------------------------------------------
   const pointers = new Map();
   let gesture = null;
-  let moved = 0;
+  let press = null;
+  const SLOP_PX = 12;
+  const TAP_MS = 350;
+  const HOLD_MS = 500;
 
   const localCamera = () => {
     if (mode === "Follow") return null;
@@ -1379,11 +1400,42 @@
     return camera;
   };
 
+  function cancelPress() {
+    if (press?.timer) clearTimeout(press.timer);
+    press = null;
+  }
+
   canvas.addEventListener("pointerdown", (event) => {
     canvas.setPointerCapture(event.pointerId);
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    moved = 0;
-    gesture = pointers.size === 2 ? pinchState() : null;
+    if (pointers.size === 2) {
+      gesture = pinchState();
+      cancelPress();
+      return;
+    }
+
+    if (pointers.size > 1) {
+      cancelPress();
+      return;
+    }
+
+    gesture = null;
+    press = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      startedAt: performance.now(),
+      held: false,
+      timer: null,
+    };
+    press.timer = setTimeout(() => {
+      if (!press) return;
+      press.held = true;
+      press.timer = null;
+      handleLongPress(press);
+    }, HOLD_MS);
   });
 
   function pinchState() {
@@ -1397,7 +1449,16 @@
     const dx = event.clientX - previous.x;
     const dy = event.clientY - previous.y;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    moved += Math.abs(dx) + Math.abs(dy);
+    if (press && press.pointerId === event.pointerId) {
+      press.clientX = event.clientX;
+      press.clientY = event.clientY;
+      // Straight-line distance from where it went down. Summing every step would let a finger
+      // that never left a 2 px circle cross any threshold by holding still long enough.
+      if (Math.hypot(event.clientX - press.startX, event.clientY - press.startY) > SLOP_PX) {
+        cancelPress();
+      }
+    }
+
     const view = localCamera();
     if (!view) return;
     const project = projection();
@@ -1416,12 +1477,22 @@
   });
 
   function endPointer(event) {
+    const wasPress = press && press.pointerId === event.pointerId ? press : null;
+    const held = wasPress?.held === true;
+    const quick = wasPress !== null && performance.now() - wasPress.startedAt <= TAP_MS;
     pointers.delete(event.pointerId);
     if (pointers.size < 2) gesture = null;
+    if (wasPress) cancelPress();
     if (pointers.size > 0) return;
-    if (moved < 8) {
-      handleTap(event);
-    } else {
+    if (held) {
+      // The long press already did its work while the finger was down; letting go does nothing,
+      // and in particular does not also pan.
+      return;
+    }
+
+    if (quick) {
+      handleTap(wasPress);
+    } else if (event.type !== "pointercancel") {
       sendNavigate();
     }
   }
@@ -1429,27 +1500,87 @@
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
 
-  function handleTap(event) {
+  /// Where a press landed, in canvas pixels and in plan units.
+  function pressTarget(at) {
     const project = projection();
-    if (!project || !live?.surface) return;
+    if (!project || !live?.surface) return null;
     const box = canvas.getBoundingClientRect();
     const ratio = Math.min(2, window.devicePixelRatio || 1);
-    const px = (event.clientX - box.left) * ratio;
-    const py = (event.clientY - box.top) * ratio;
+    const px = (at.clientX - box.left) * ratio;
+    const py = (at.clientY - box.top) * ratio;
     const [x, y] = project.toPlan(px, py);
-    if (markArmed) {
-      addMark(x, y);
+    return { project, px, py, x, y, hit: objectAt(project, px, py) };
+  }
+
+  // A tap: something under the finger is a selection, bare map is a ping. Same rule as the
+  // desktop's right-click, where what is under the pointer wins.
+  function handleTap(at) {
+    const target = at ? pressTarget(at) : null;
+    if (!target) return;
+    if (target.hit) {
+      selectObject(target.hit);
       return;
     }
 
-    const hit = objectAt(project, px, py);
-    if (hit) {
-      selectObject(hit);
+    addMark(target.x, target.y, "Ping");
+    flash(target.px, target.py, COLOURS.Ping);
+    $("modeNote").textContent = "Pinged.";
+  }
+
+  // A long press: a mark under the finger is removed, bare map gets a numbered waypoint.
+  function handleLongPress(at) {
+    const target = pressTarget(at);
+    if (!target) return;
+    const mark = target.hit ? markFor(target.hit) : null;
+    if (mark) {
+      removeMark(mark);
+      flash(target.px, target.py, "#c77b6b");
+      $("modeNote").textContent = `Removed ${mark.kind.toLowerCase()}.`;
       return;
     }
 
-    if (mode === "Follow") {
-      $("modeNote").textContent = "This map is the desktop's. Switch to Control or Independent to move it.";
+    if (target.hit) {
+      // Something that is not ours is under the finger. Removal beats placement, so a long
+      // press here does nothing rather than dropping a waypoint on top of an extract.
+      $("modeNote").textContent = `"${target.hit.label}" is not a mark, so there is nothing to remove.`;
+      return;
+    }
+
+    addMark(target.x, target.y, "Waypoint");
+    flash(target.px, target.py, COLOURS.Waypoint);
+    $("modeNote").textContent = "Waypoint added.";
+  }
+
+  /// The mark behind a drawn object, when the object is one of ours.
+  function markFor(item) {
+    const id = String(item.id ?? "");
+    if (!id.startsWith("mark:")) return null;
+    const markId = id.slice("mark:".length);
+    return (live?.marks ?? []).find((mark) => mark.markId?.value === markId) ?? null;
+  }
+
+  // There is no pointer on a tablet, so a press that did something has to say so where the
+  // finger is. One ring, drawn straight onto the canvas and cleared on the next frame.
+  let flashes = [];
+  function flash(px, py, colour) {
+    flashes.push({ px, py, colour, until: performance.now() + 450 });
+    drawMap();
+    setTimeout(drawMap, 60);
+    setTimeout(drawMap, 480);
+  }
+
+  function drawFlashes() {
+    const now = performance.now();
+    flashes = flashes.filter((item) => item.until > now);
+    for (const item of flashes) {
+      const life = Math.max(0, (item.until - now) / 450);
+      context.beginPath();
+      context.arc(item.px, item.py, 26 + (1 - life) * 26, 0, Math.PI * 2);
+      context.strokeStyle = item.colour;
+      context.globalAlpha = life;
+      context.lineWidth = 4;
+      context.stroke();
+      context.globalAlpha = 1;
     }
   }
 
@@ -1552,22 +1683,6 @@
   for (const button of document.querySelectorAll("#deviceModes button")) {
     button.addEventListener("click", () => requestMode(button.dataset.mode));
   }
-
-  for (const button of document.querySelectorAll("#markKind button[data-kind]")) {
-    button.addEventListener("click", () => {
-      for (const other of document.querySelectorAll("#markKind button[data-kind]")) {
-        other.setAttribute("aria-pressed", String(other === button));
-      }
-
-      markKind = button.dataset.kind;
-    });
-  }
-
-  $("markArm").addEventListener("click", () => {
-    markArmed = !markArmed;
-    $("markArm").setAttribute("aria-pressed", String(markArmed));
-    $("markArm").textContent = markArmed ? "Tap the map now" : "Tap the map to mark";
-  });
 
   // The relay's own /search is gone: item lookups belong on the paired desktop, which has the
   // catalogue and knows which quests and hideout modules are asking for the item (#407).

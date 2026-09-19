@@ -5,7 +5,16 @@ using System.Xml.Linq;
 
 namespace TarkovCompanion.Infrastructure.Maps;
 
-internal static class SvgMapRasterizer
+/// <summary>
+/// Turns one cached map drawing into one PNG.
+/// </summary>
+/// <remarks>
+/// Public because it has two callers now, not one: the asset cache in this assembly, and the
+/// application's own rasteriser child process, which exists so that a native fault inside Skia
+/// takes a two-second child rather than the running companion. See
+/// <see cref="OutOfProcessSvgRasterizer"/> for why that child exists at all.
+/// </remarks>
+public static class SvgMapRasterizer
 {
     /// <summary>How large the rasterised map may be along its longer side.</summary>
     /// <remarks>
@@ -19,6 +28,47 @@ internal static class SvgMapRasterizer
     /// whole map panel, which is what "the factory map drawing is super low res" was.
     /// </remarks>
     private const int MaximumPreviewDimension = 4096;
+
+    /// <summary>How much memory one preview's pixels may take.</summary>
+    /// <remarks>
+    /// 4096 x 4096 at four bytes a pixel is 64 MiB, so this cannot be exceeded by the dimension
+    /// budget above on its own. It is here because the two numbers are independent: raising the
+    /// dimension budget, or adding a colour type with more bytes per pixel, would otherwise
+    /// silently quadruple what a single rasterisation asks the native allocator for. Skia does
+    /// not raise a managed exception when an allocation inside a draw fails; it dereferences what
+    /// it could not allocate, which arrives as an access violation.
+    /// </remarks>
+    private const long MaximumPreviewBytes = 64L * 1024 * 1024;
+
+    /// <summary>How many elements the document may contain.</summary>
+    /// <remarks>
+    /// The upstream drawings are hand-authored and small — Reserve, one of the larger ones, is
+    /// 89 KB with 228 paths across six layers. Four figures of slack over that is generous and
+    /// still refuses a document built to exhaust the rasteriser. Validated before Skia sees it,
+    /// because what Skia does with a document it cannot handle is not throw.
+    /// </remarks>
+    private const int MaximumElements = 200_000;
+
+    /// <summary>How deeply the document may nest.</summary>
+    /// <remarks>
+    /// Playback of a recorded picture recurses, and a deeply nested document is the cheapest way
+    /// to run a native stack out. The upstream maps nest a handful deep.
+    /// </remarks>
+    private const int MaximumDepth = 64;
+
+    /// <summary>
+    /// Only one rasterisation in this process at a time.
+    /// </summary>
+    /// <remarks>
+    /// The per-asset gates in <see cref="TarkovDevMapAssetCache"/> keep one map's previews in
+    /// order; they do nothing about two different maps, which is how three 64 MiB surfaces came
+    /// to be allocated, drawn and PNG-encoded at once. Serialised here instead, at the one place
+    /// that touches Skia, so no caller can reintroduce the overlap by adding a call site.
+    ///
+    /// The cost is latency on a cold multi-floor map and nothing at all afterwards, because the
+    /// cache no longer rasterises a preview it already has.
+    /// </remarks>
+    private static readonly SemaphoreSlim Rasterizations = new(1, 1);
 
     public static Task CreatePreviewAsync(
         string svgPath,
@@ -35,10 +85,51 @@ internal static class SvgMapRasterizer
         cancellationToken.ThrowIfCancellationRequested();
         var document = LoadAndValidateSvg(svgPath);
         SelectVisibleLayer(document, visibleLayer);
+        await Rasterizations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            // On a worker, always. Every line below the await in this method used to run on
+            // whichever thread called it, and all of the expensive part — parse, a 64 MiB
+            // surface, the draw, the snapshot, the PNG encode — is above the first await. A
+            // caller reaching this from the interface thread froze the window for the duration,
+            // once per floor.
+            var encoded = await Task.Run(() => Render(document, cancellationToken), cancellationToken)
+                .ConfigureAwait(false);
+            await using var output = new FileStream(
+                previewPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                81920,
+                FileOptions.Asynchronous | FileOptions.WriteThrough);
+            await output.WriteAsync(encoded, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Rasterizations.Release();
+        }
+    }
+
+    /// <summary>
+    /// Draws the validated document and hands back the encoded PNG.
+    /// </summary>
+    /// <remarks>
+    /// Everything Skia owns is created and released inside this one call, and nothing native
+    /// outlives it. That is not tidiness: <see cref="SKSvg"/> owns the
+    /// <see cref="SKPicture"/> it returns and disposes it with itself, and the instance used to
+    /// be a bare local that was never read again after <c>Load</c> returned — unreachable, and
+    /// therefore collectable, while the picture built from it was still being drawn. The fault
+    /// reported on 2026-09-19 was an access violation inside <c>sk_canvas_draw_picture</c>,
+    /// which is what drawing a picture whose native handle has been released looks like. Whether
+    /// or not that was the cause on the day, it is not a race worth leaving open: the owner is
+    /// disposed deterministically, after the draw, and kept alive until then.
+    /// </remarks>
+    private static byte[] Render(XDocument document, CancellationToken cancellationToken)
+    {
         using var svgStream = new MemoryStream();
         document.Save(svgStream, SaveOptions.DisableFormatting);
         svgStream.Position = 0;
-        var svg = new SKSvg();
+        using var svg = new SKSvg();
         var picture = svg.Load(svgStream)
             ?? throw new InvalidDataException("The cached SVG map could not be rendered.");
         var bounds = picture.CullRect;
@@ -53,28 +144,33 @@ internal static class SvgMapRasterizer
         var scale = Math.Min(
             MaximumPreviewDimension / (double)bounds.Width,
             MaximumPreviewDimension / (double)bounds.Height);
-        var width = Math.Max(1, (int)Math.Ceiling(bounds.Width * scale));
-        var height = Math.Max(1, (int)Math.Ceiling(bounds.Height * scale));
-        using var surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul))
+        var width = Math.Clamp((int)Math.Ceiling(bounds.Width * scale), 1, MaximumPreviewDimension);
+        var height = Math.Clamp((int)Math.Ceiling(bounds.Height * scale), 1, MaximumPreviewDimension);
+        var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+        var pixelBytes = (long)width * height * info.BytesPerPixel;
+        if (pixelBytes > MaximumPreviewBytes)
+        {
+            throw new InvalidDataException(
+                $"A {width} by {height} map preview needs more than the {MaximumPreviewBytes / (1024 * 1024)} MB allowed.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        using var surface = SKSurface.Create(info)
             ?? throw new InvalidOperationException("A map preview surface could not be created.");
         surface.Canvas.Clear(SKColors.Transparent);
         surface.Canvas.Scale((float)scale);
         surface.Canvas.Translate(-bounds.Left, -bounds.Top);
         surface.Canvas.DrawPicture(picture);
         surface.Canvas.Flush();
+        // The picture's owner must still be reachable here. Without this the only reference to
+        // it is a local the compiler is free to treat as dead from the moment Load returned.
+        GC.KeepAlive(svg);
         cancellationToken.ThrowIfCancellationRequested();
 
         using var image = surface.Snapshot();
         using var data = image.Encode(SKEncodedImageFormat.Png, 100)
             ?? throw new InvalidOperationException("The SVG map preview could not be encoded.");
-        await using var output = new FileStream(
-            previewPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            81920,
-            FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await data.AsStream().CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+        return data.ToArray();
     }
 
     private static XDocument LoadAndValidateSvg(string svgPath)
@@ -111,7 +207,44 @@ internal static class SvgMapRasterizer
             throw new InvalidDataException("The cached SVG map contains an external resource reference.");
         }
 
+        ValidateShape(root);
         return document;
+    }
+
+    /// <summary>
+    /// Refuses a document too large or too deep to hand to Skia, before Skia is handed it.
+    /// </summary>
+    /// <remarks>
+    /// The check is here rather than downstream because downstream cannot refuse. An allocation
+    /// Skia cannot satisfy during playback is not reported as an exception; a recursion it cannot
+    /// finish is not reported at all. Both arrive as a native fault in a process that has already
+    /// stopped running managed code.
+    /// </remarks>
+    private static void ValidateShape(XElement root)
+    {
+        var elements = 1;
+        var depth = 0;
+        foreach (var element in root.Descendants())
+        {
+            if (++elements > MaximumElements)
+            {
+                throw new InvalidDataException(
+                    $"The cached SVG map has more than the {MaximumElements} elements allowed.");
+            }
+
+            var elementDepth = 0;
+            for (var parent = element.Parent; parent is not null; parent = parent.Parent)
+            {
+                elementDepth++;
+            }
+
+            depth = Math.Max(depth, elementDepth);
+            if (depth > MaximumDepth)
+            {
+                throw new InvalidDataException(
+                    $"The cached SVG map nests deeper than the {MaximumDepth} levels allowed.");
+            }
+        }
     }
 
     private static void SelectVisibleLayer(XDocument document, string? visibleLayer)

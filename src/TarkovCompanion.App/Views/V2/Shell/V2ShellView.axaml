@@ -218,6 +218,41 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- [V2 rough package 46] The rail's own collapse control: quiet, in the corner it collapses
+         towards, and never wider than the collapsed rail. -->
+    <Style Selector="Button.v2-rail-collapse">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+    <Style Selector="Button.v2-rail-collapse:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border.v2-shell-rail-edge">
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="0,0,1,0" />
+    </Style>
+    <Style Selector="Button.v2-nav-launcher">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Width" Value="18" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="Opacity" Value="0.7" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-nav-launcher:pointerover">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Button.v2-nav-launcher Path.v2-icon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+    </Style>
     <Style Selector="Button.v2-rail-gear">
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -474,13 +509,25 @@
 
       <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
         <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
-        <Border Grid.Column="0" Width="168" Classes="v2-shell-rail" Padding="0" IsVisible="{Binding UsesRailNavigation}"
+        <!-- [V2 rough package 46] The rail's width is the player's choice now: labelled, icons
+             only, or gone. Nothing here is unreachable when it is gone — the launcher over the
+             workspace's corner carries the same destinations, and Ctrl+B brings it back. -->
+        <Border Grid.Column="0" Width="{Binding NavigationRailWidth}" Classes="v2-shell-rail" Padding="0"
+                IsVisible="{Binding ShowsNavigationRail}"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.LandmarkType="Navigation"
                 AutomationProperties.Name="{Binding NavigationRegionName}">
-          <Grid RowDefinitions="*,Auto">
-            <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,12"
+          <Grid RowDefinitions="Auto,*,Auto">
+            <Button Grid.Row="0" Classes="v2-target v2-rail-collapse" HorizontalAlignment="Right" Margin="0,8,8,0"
+                    AutomationProperties.AutomationId="v2-shell-navigation-rail-toggle"
+                    AutomationProperties.Name="{Binding NavigationRailToggleName}"
+                    AutomationProperties.ItemStatus="{Binding NavigationRailStateLabel}"
+                    ToolTip.Tip="{Binding NavigationRailToggleName}"
+                    Command="{Binding CycleNavigationRailCommand}">
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+            </Button>
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,4,0,12"
                             AutomationProperties.AutomationId="v2-shell-navigation-rail">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
@@ -489,19 +536,21 @@
                             AutomationProperties.AutomationId="{Binding AutomationId}"
                             AutomationProperties.Name="{Binding Label}"
                             AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                            ToolTip.Tip="{Binding Label}"
                             Command="{Binding NavigateCommand}">
                       <StackPanel Orientation="Horizontal" Spacing="14">
                         <ContentControl Content="{Binding}" ContentTemplate="{StaticResource V2RailIconTemplate}"
                                         VerticalAlignment="Center"
                                         AutomationProperties.AccessibilityView="Raw" />
-                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Label}" VerticalAlignment="Center"
+                                   IsVisible="{Binding ShowsLabel}" />
                       </StackPanel>
                     </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
-            <Button Grid.Row="1" Classes="v2-target v2-rail-gear"
+            <Button Grid.Row="2" Classes="v2-target v2-rail-gear"
                     Classes.selected="{Binding SetupDestination.IsCurrent}"
                     AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                     AutomationProperties.Name="{Binding SetupDestination.Label}"
@@ -512,6 +561,46 @@
                               AutomationProperties.AccessibilityView="Raw" />
             </Button>
           </Grid>
+        </Border>
+
+        <!-- [V2 rough package 46] The way back while the rail is away: an 18px edge where the rail
+             was, holding one button. Deliberately the same shape as the Raid panel's own handle on
+             the other side, and deliberately not floating over the workspace — a button over the
+             page's top-left corner sat on top of the section tabs. Its flyout is the same
+             destinations, so hiding the rail never hides a place. -->
+        <Border Grid.Column="0" Classes="v2-shell-rail-edge" IsVisible="{Binding ShowsNavigationLauncher}">
+        <Button Classes="v2-target v2-nav-launcher" VerticalAlignment="Top" Margin="0,8,0,0"
+                AutomationProperties.AutomationId="v2-shell-navigation-launcher"
+                AutomationProperties.Name="{Binding NavigationLauncherLabel}"
+                ToolTip.Tip="{Binding NavigationLauncherLabel}">
+          <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedLeft">
+              <StackPanel Spacing="4" MinWidth="180">
+                <ItemsControl ItemsSource="{Binding PrimaryDestinations}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
+                      <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                              Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                              AutomationProperties.Name="{Binding Label}"
+                              AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                              Content="{Binding Label}" Command="{Binding NavigateCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Classes="v2-target v2-destination"
+                        AutomationProperties.Name="{Binding SetupDestination.Label}"
+                        Content="{Binding SetupDestination.Label}" Command="{Binding SetupDestination.NavigateCommand}" />
+                <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        Classes="v2-target v2-destination"
+                        AutomationProperties.AutomationId="v2-shell-navigation-show-rail"
+                        AutomationProperties.Name="{Binding ShowNavigationRailLabel}"
+                        Content="{Binding ShowNavigationRailLabel}" Command="{Binding ShowNavigationRailCommand}" />
+              </StackPanel>
+            </Flyout>
+          </Button.Flyout>
+          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+        </Button>
         </Border>
 
         <Grid Grid.Column="1" ColumnDefinitions="*,Auto"
