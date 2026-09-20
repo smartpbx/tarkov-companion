@@ -1,0 +1,26 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupDatabaseStatusView"
+             x:DataType="vm:SetupDatabaseStatusViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- #292 task 3: the database's migration state and its newest verified backup, both read from
+       SqliteMigrationRunner rather than reimplemented here. -->
+  <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-database-status">
+    <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding HeadingLabel}" />
+    <TextBlock Classes="v2-label" Text="{Binding VersionLine}"
+               AutomationProperties.AutomationId="v2-setup-database-version" />
+    <TextBlock Classes="v2-label" Text="{Binding BackupLine}"
+               AutomationProperties.AutomationId="v2-setup-database-backup" />
+    <WrapPanel Classes="v2-toolbar">
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-back-up-now"
+              IsEnabled="{Binding !IsBackingUp}"
+              Content="{Binding BackUpNowLabel}" Command="{Binding BackUpNowCommand}" />
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-open-backup-folder"
+              IsEnabled="{Binding CanOpenBackupFolder}"
+              Content="{Binding OpenBackupFolderLabel}" Click="OnOpenBackupFolder" />
+    </WrapPanel>
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding StatusMessage}"
+               AutomationProperties.AutomationId="v2-setup-database-status-message"
+               AutomationProperties.LiveSetting="Polite" />
+  </StackPanel>
+</UserControl>

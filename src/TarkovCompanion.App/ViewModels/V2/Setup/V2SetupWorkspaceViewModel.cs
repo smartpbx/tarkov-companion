@@ -268,6 +268,21 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasSettingsAdmin));
     }
 
+    /// <summary>#292 task 3: the database's migration state and verified backup, in Data. Null in
+    /// a shell built without one.</summary>
+    public SetupDatabaseStatusViewModel? DatabaseStatus { get; private set; }
+
+    public bool HasDatabaseStatus => DatabaseStatus is not null;
+
+    /// <summary>Hands this page the database status panel, for the reason AttachSelfTest gives.</summary>
+    public void AttachDatabaseStatus(SetupDatabaseStatusViewModel databaseStatus)
+    {
+        DatabaseStatus = databaseStatus ?? throw new ArgumentNullException(nameof(databaseStatus));
+        DatabaseStatus.RefreshAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+        OnPropertyChanged(nameof(DatabaseStatus));
+        OnPropertyChanged(nameof(HasDatabaseStatus));
+    }
+
     /// <summary>[#292] Whether file paths show in full. Off at every launch; nothing remembers it.</summary>
     public SetupPathDisclosureViewModel Paths { get; }
 
@@ -451,6 +466,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             if (value == V2SetupSection.Data)
             {
                 Admin?.Data.Refresh();
+                // #292 task 3: the database's migration state and backup, read fresh each visit.
+                if (DatabaseStatus is { } databaseStatus)
+                {
+                    databaseStatus.RefreshAsync().ContinueWith(_ => { }, TaskScheduler.Default);
+                }
             }
             else if (value == V2SetupSection.Displays)
             {

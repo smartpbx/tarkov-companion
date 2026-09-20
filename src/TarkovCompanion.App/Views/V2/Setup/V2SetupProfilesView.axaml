@@ -43,29 +43,58 @@
         <DataTemplate x:DataType="vm:SetupProfileRowViewModel">
           <Border Classes="v2-profile-row" Classes.active="{Binding IsActive}"
                   AutomationProperties.Name="{Binding AutomationName}">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-              <StackPanel Grid.Column="0" Spacing="2">
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <TextBlock Classes="v2-body" Text="{Binding Name}" FontWeight="SemiBold" />
-                  <TextBlock Classes="v2-profile-badge" Text="{Binding StatusLabel}" IsVisible="{Binding HasStatus}" />
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Grid.Column="0" Spacing="2">
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Classes="v2-body" Text="{Binding Name}" FontWeight="SemiBold" />
+                    <TextBlock Classes="v2-profile-badge" Text="{Binding StatusLabel}" IsVisible="{Binding HasStatus}" />
+                  </StackPanel>
+                  <TextBlock Classes="v2-label" Text="{Binding Summary}" />
                 </StackPanel>
-                <TextBlock Classes="v2-label" Text="{Binding Summary}" />
-              </StackPanel>
-              <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Center">
-                <Button Classes="v2-target" IsVisible="{Binding CanSwitch}"
-                        AutomationProperties.AutomationId="v2-setup-profile-switch"
-                        Content="{Binding SwitchLabel}"
-                        Command="{Binding SwitchCommand}" CommandParameter="{Binding}" />
-                <Button Classes="v2-target" IsVisible="{Binding CanArchive}"
-                        AutomationProperties.AutomationId="v2-setup-profile-archive"
-                        Content="{Binding ArchiveLabel}"
-                        Command="{Binding ArchiveCommand}" CommandParameter="{Binding}" />
-                <Button Classes="v2-target" IsVisible="{Binding CanRestore}"
-                        AutomationProperties.AutomationId="v2-setup-profile-restore"
-                        Content="{Binding RestoreLabel}"
-                        Command="{Binding RestoreCommand}" CommandParameter="{Binding}" />
-              </WrapPanel>
-            </Grid>
+                <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Center">
+                  <Button Classes="v2-target" IsVisible="{Binding CanSwitch}"
+                          AutomationProperties.AutomationId="v2-setup-profile-switch"
+                          Content="{Binding SwitchLabel}"
+                          Command="{Binding SwitchCommand}" CommandParameter="{Binding}" />
+                  <Button Classes="v2-target" IsVisible="{Binding !IsEditing}"
+                          AutomationProperties.AutomationId="v2-setup-profile-edit"
+                          Content="{Binding EditLabel}"
+                          Command="{Binding BeginEditCommand}" />
+                  <Button Classes="v2-target" IsVisible="{Binding CanArchive}"
+                          AutomationProperties.AutomationId="v2-setup-profile-archive"
+                          Content="{Binding ArchiveLabel}"
+                          Command="{Binding ArchiveCommand}" CommandParameter="{Binding}" />
+                  <Button Classes="v2-target" IsVisible="{Binding CanRestore}"
+                          AutomationProperties.AutomationId="v2-setup-profile-restore"
+                          Content="{Binding RestoreLabel}"
+                          Command="{Binding RestoreCommand}" CommandParameter="{Binding}" />
+                </WrapPanel>
+              </Grid>
+              <!-- #292 task 3: mode and wipe label, editable after creation. -->
+              <Grid IsVisible="{Binding IsEditing}" ColumnDefinitions="*,*,Auto,Auto" ColumnSpacing="10">
+                <ComboBox Grid.Column="0" ItemsSource="{Binding Modes}" SelectedItem="{Binding EditMode}" MinWidth="120"
+                          AutomationProperties.AutomationId="v2-setup-profile-edit-mode"
+                          AutomationProperties.Name="{Binding EditModeFieldLabel}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SetupProfileModeOption">
+                      <TextBlock Text="{Binding Label}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
+                <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding EditWipe}"
+                         AutomationProperties.AutomationId="v2-setup-profile-edit-wipe"
+                         AutomationProperties.Name="{Binding EditWipeFieldLabel}" />
+                <Button Grid.Column="2" Classes="v2-target primary"
+                        AutomationProperties.AutomationId="v2-setup-profile-save-edit"
+                        Content="{Binding SaveEditLabel}"
+                        Command="{Binding SaveEditCommand}" CommandParameter="{Binding}" />
+                <Button Grid.Column="3" Classes="v2-target"
+                        AutomationProperties.AutomationId="v2-setup-profile-cancel-edit"
+                        Content="{Binding CancelEditLabel}"
+                        Command="{Binding CancelEditCommand}" />
+              </Grid>
+            </StackPanel>
           </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>

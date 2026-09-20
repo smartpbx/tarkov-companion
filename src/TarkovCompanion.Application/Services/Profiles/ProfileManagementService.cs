@@ -75,6 +75,28 @@ public sealed class ProfileManagementService(
     public Task<ProfileRuntimeContextSnapshot> SwitchAsync(Guid profileId, CancellationToken cancellationToken) =>
         runtime.SwitchAsync(profileId, cancellationToken);
 
+    /// <summary>
+    /// Corrects a profile's game mode and wipe label after creation (#292 task 3: Setup > Game &amp;
+    /// Profile's create form asks for both once; this is the only other place that can change them).
+    /// </summary>
+    /// <exception cref="ArgumentException">The mode is Unknown or the wipe label is blank or too long.</exception>
+    public async Task<ProfileRuntimeContextSnapshot> UpdateAsync(
+        Guid profileId,
+        ProfileGameMode mode,
+        string wipe,
+        CancellationToken cancellationToken)
+    {
+        if (mode == ProfileGameMode.Unknown)
+        {
+            throw new ArgumentException("Choose PvP, PvE or Seasonal.", nameof(mode));
+        }
+
+        var trimmedWipe = string.IsNullOrWhiteSpace(wipe) ? DefaultWipe : wipe.Trim();
+        await profiles.UpdateModeAndWipeAsync(profileId, mode, new WipeSeason(trimmedWipe), cancellationToken)
+            .ConfigureAwait(false);
+        return await runtime.RefreshAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<ProfileRuntimeContextSnapshot> ArchiveAsync(Guid profileId, CancellationToken cancellationToken)
     {
         await profiles.ArchiveAsync(profileId, cancellationToken).ConfigureAwait(false);

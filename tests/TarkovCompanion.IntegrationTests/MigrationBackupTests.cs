@@ -122,6 +122,64 @@ public sealed class MigrationBackupTests
         Assert.Empty((await new SqliteMigrationRunner(scratch.Factory).ApplyAsync(CancellationToken.None)).FromNewerBuild);
     }
 
+    // #292 task 3: Setup > Data reads GetStatusAsync/BackUpNowAsync rather than reimplementing
+    // the migration/backup logic above.
+    [Fact]
+    public async Task A_fresh_database_reports_no_version_and_no_backup()
+    {
+        await using var scratch = new Scratch();
+        var runner = new SqliteMigrationRunner(scratch.Factory);
+
+        var status = await runner.GetStatusAsync(CancellationToken.None);
+
+        Assert.Null(status.CurrentVersion);
+        Assert.Null(status.LastAppliedUtc);
+        Assert.Null(status.LastVerifiedBackupPath);
+    }
+
+    [Fact]
+    public async Task StatusReportsTheNewestAppliedMigration()
+    {
+        await using var scratch = new Scratch();
+        await new SqliteMigrationRunner(scratch.Factory).ApplyAsync(CancellationToken.None);
+
+        var status = await new SqliteMigrationRunner(scratch.Factory).GetStatusAsync(CancellationToken.None);
+
+        Assert.NotNull(status.CurrentVersion);
+        Assert.NotNull(status.LastAppliedUtc);
+        Assert.Equal(SqliteMigrationLedger.Entries[^1].Id, status.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task BackUpNowMakesAVerifiedCopyStatusThenReports()
+    {
+        await using var scratch = new Scratch();
+        await new SqliteMigrationRunner(scratch.Factory).ApplyAsync(CancellationToken.None);
+        var runner = new SqliteMigrationRunner(scratch.Factory);
+
+        var backupPath = await runner.BackUpNowAsync(CancellationToken.None);
+        var status = await runner.GetStatusAsync(CancellationToken.None);
+
+        Assert.True(File.Exists(backupPath));
+        Assert.Equal(backupPath, status.LastVerifiedBackupPath);
+        Assert.Equal(new FileInfo(backupPath).Length, status.LastVerifiedBackupBytes);
+        Assert.NotNull(status.LastVerifiedBackupUtc);
+    }
+
+    [Fact]
+    public async Task BackUpNowIsAlsoKeptUnderTheSameTwoBackupRetention()
+    {
+        await using var scratch = new Scratch();
+        await new SqliteMigrationRunner(scratch.Factory).ApplyAsync(CancellationToken.None);
+        var runner = new SqliteMigrationRunner(scratch.Factory);
+
+        await runner.BackUpNowAsync(CancellationToken.None);
+        await runner.BackUpNowAsync(CancellationToken.None);
+        await runner.BackUpNowAsync(CancellationToken.None);
+
+        Assert.Equal(2, Directory.GetFiles(scratch.Directory, $"{Scratch.Stem}.pre-*.db").Length);
+    }
+
     private sealed class Scratch : IAsyncDisposable
     {
         public const string Stem = "companion";

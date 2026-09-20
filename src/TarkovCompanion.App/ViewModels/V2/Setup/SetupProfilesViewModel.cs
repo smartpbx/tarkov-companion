@@ -10,12 +10,18 @@ namespace TarkovCompanion.App.ViewModels.V2.Setup;
 /// <summary>One profile in the list Setup › Game &amp; Profile offers.</summary>
 public sealed class SetupProfileRowViewModel : BindableViewModel
 {
+    private bool _isEditing;
+    private SetupProfileModeOption _editMode;
+    private string _editWipe;
+
     internal SetupProfileRowViewModel(
         ProfileRecord record,
         bool isActive,
+        IReadOnlyList<SetupProfileModeOption> modes,
         ParameterCommand<SetupProfileRowViewModel> switchTo,
         ParameterCommand<SetupProfileRowViewModel> archive,
-        ParameterCommand<SetupProfileRowViewModel> restore)
+        ParameterCommand<SetupProfileRowViewModel> restore,
+        ParameterCommand<SetupProfileRowViewModel> saveEdit)
     {
         Id = record.Context.Identity.ProfileId;
         Name = record.Name;
@@ -30,7 +36,56 @@ public sealed class SetupProfileRowViewModel : BindableViewModel
         SwitchCommand = switchTo;
         ArchiveCommand = archive;
         RestoreCommand = restore;
+
+        // #292 task 3: mode and wipe label are set at creation and were unreachable after that.
+        Modes = modes;
+        _editMode = modes.FirstOrDefault(option => option.Mode == record.Context.Mode) ?? modes[0];
+        _editWipe = Wipe;
+        BeginEditCommand = new DelegateCommand(() => IsEditing = true);
+        CancelEditCommand = new DelegateCommand(() =>
+        {
+            IsEditing = false;
+            EditMode = _editMode;
+            EditWipe = Wipe;
+        });
+        SaveEditCommand = saveEdit;
     }
+
+    public IReadOnlyList<SetupProfileModeOption> Modes { get; }
+
+    public bool IsEditing
+    {
+        get => _isEditing;
+        private set => SetProperty(ref _isEditing, value);
+    }
+
+    public SetupProfileModeOption EditMode
+    {
+        get => _editMode;
+        set => SetProperty(ref _editMode, value ?? Modes[0]);
+    }
+
+    public string EditWipe
+    {
+        get => _editWipe;
+        set => SetProperty(ref _editWipe, value ?? string.Empty);
+    }
+
+    public ICommand BeginEditCommand { get; }
+
+    public ICommand CancelEditCommand { get; }
+
+    public ICommand SaveEditCommand { get; }
+
+    public string EditLabel => V2ShellText.Get("V2.Setup.Profiles.Edit");
+
+    public string SaveEditLabel => V2ShellText.Get("V2.Setup.Profiles.SaveEdit");
+
+    public string CancelEditLabel => V2ShellText.Get("V2.Setup.Profiles.CancelEdit");
+
+    public string EditModeFieldLabel => V2ShellText.Get("V2.Setup.Profiles.ModeLabel");
+
+    public string EditWipeFieldLabel => V2ShellText.Get("V2.Setup.Profiles.WipeLabel");
 
     public Guid Id { get; }
 
@@ -93,6 +148,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     private readonly ParameterCommand<SetupProfileRowViewModel> _switchRow;
     private readonly ParameterCommand<SetupProfileRowViewModel> _archiveRow;
     private readonly ParameterCommand<SetupProfileRowViewModel> _restoreRow;
+    private readonly ParameterCommand<SetupProfileRowViewModel> _saveEditRow;
     private string _activeTitle = string.Empty;
     private string _activeDetail = string.Empty;
     private string _scopeLine = string.Empty;
@@ -118,6 +174,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
         _switchRow = new(row => Run(row, service.SwitchAsync, "V2.Setup.Profiles.Switched"));
         _archiveRow = new(row => Run(row, service.ArchiveAsync, "V2.Setup.Profiles.ArchivedDone"));
         _restoreRow = new(row => Run(row, service.RestoreAsync, "V2.Setup.Profiles.Restored"));
+        _saveEditRow = new(SaveEdit);
         CreateCommand = new AsyncDelegateCommand(CreateAsync);
         _onChanged = change => _post(() => Apply(change.Snapshot));
         _service.Changed += _onChanged;
@@ -308,6 +365,26 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
         }
     }
 
+    private async void SaveEdit(SetupProfileRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Apply(await _service
+                .UpdateAsync(row.Id, row.EditMode.Mode, row.EditWipe, CancellationToken.None)
+                .ConfigureAwait(true));
+            Say(V2ShellText.Format("V2.Setup.Profiles.Edited", CultureInfo.CurrentCulture, row.Name), isError: false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Fail(exception);
+        }
+    }
+
     private void Fail(Exception exception) =>
         // The domain's own refusals (archive the active profile, a blank name) are already written for
         // the player; anything else is shown as-is rather than swallowed.
@@ -335,7 +412,7 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
                 }
             }
 
-            Profiles.Add(new(record, isActive, _switchRow, _archiveRow, _restoreRow));
+            Profiles.Add(new(record, isActive, Modes, _switchRow, _archiveRow, _restoreRow, _saveEditRow));
         }
 
         HasArchived = archived > 0;

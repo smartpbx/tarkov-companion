@@ -21,6 +21,24 @@ public sealed record MigrationOutcome(
     public static MigrationOutcome Nothing { get; } = new([], [], null);
 }
 
+/// <summary>
+/// What the database is at right now, for Setup > Data (#292 task 3). Read-only: nothing here
+/// opens for write or changes what is on disk.
+/// </summary>
+/// <param name="CurrentVersion">The newest migration id recorded in <c>schema_migrations</c>, or
+/// null if the database has never been migrated (a fresh install, or no database file yet).</param>
+/// <param name="LastAppliedUtc">When that migration ran.</param>
+/// <param name="LastVerifiedBackupPath">The newest backup file that still passes SQLite integrity
+/// verification, or null if none exists yet.</param>
+/// <param name="LastVerifiedBackupUtc">That file's own last-write time.</param>
+/// <param name="LastVerifiedBackupBytes">That file's size.</param>
+public sealed record SqliteMigrationStatus(
+    string? CurrentVersion,
+    DateTimeOffset? LastAppliedUtc,
+    string? LastVerifiedBackupPath,
+    DateTimeOffset? LastVerifiedBackupUtc,
+    long? LastVerifiedBackupBytes);
+
 public sealed class SqliteMigrationException : Exception
 {
     public SqliteMigrationException(
@@ -189,6 +207,62 @@ public sealed class SqliteMigrationRunner
                 backupPath,
                 new AggregateException(failure, restoreFailure));
         }
+    }
+
+    /// <summary>
+    /// What Setup > Data shows (#292 task 3): the applied version, when, and the newest backup
+    /// that still verifies. Never opens the database for write.
+    /// </summary>
+    public async Task<SqliteMigrationStatus> GetStatusAsync(CancellationToken cancellationToken)
+    {
+        var databasePath = Path.GetFullPath(_connectionFactory.DatabasePath);
+        string? currentVersion = null;
+        DateTimeOffset? lastAppliedUtc = null;
+        if (File.Exists(databasePath))
+        {
+            await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+            if (await HasMigrationTableAsync(connection, cancellationToken).ConfigureAwait(false))
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = "SELECT version, applied_utc FROM schema_migrations ORDER BY applied_utc DESC, version DESC LIMIT 1;";
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    currentVersion = reader.GetString(0);
+                    lastAppliedUtc = DateTimeOffset.Parse(
+                        reader.GetString(1),
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                }
+            }
+        }
+
+        var backupPath = await FindNewestVerifiedBackupAsync(databasePath).ConfigureAwait(false);
+        long? backupBytes = null;
+        DateTimeOffset? backupUtc = null;
+        if (backupPath is not null)
+        {
+            var info = new FileInfo(backupPath);
+            backupBytes = info.Length;
+            backupUtc = info.LastWriteTimeUtc;
+        }
+
+        return new SqliteMigrationStatus(currentVersion, lastAppliedUtc, backupPath, backupUtc, backupBytes);
+    }
+
+    /// <summary>
+    /// Makes a verified backup right now, the same way a destructive migration already does
+    /// (<c>VACUUM INTO</c> then SQLite integrity verification), rather than waiting for one to be
+    /// pending. Kept under the same retention <see cref="PruneBackups"/> already enforces, so
+    /// pressing "Back up now" repeatedly cannot grow the folder without bound.
+    /// </summary>
+    public async Task<string> BackUpNowAsync(CancellationToken cancellationToken)
+    {
+        var databasePath = Path.GetFullPath(_connectionFactory.DatabasePath);
+        await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var backupPath = await BackUpAndVerifyAsync(connection, "manual", cancellationToken).ConfigureAwait(false);
+        PruneBackups(databasePath, backupPath);
+        return backupPath;
     }
 
     /// <summary>Returns embedded upgrade/rollback SQL for deterministic migration fixtures.</summary>
