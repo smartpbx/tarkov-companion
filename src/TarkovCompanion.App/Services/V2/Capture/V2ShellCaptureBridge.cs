@@ -46,6 +46,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly WorkspaceOrigin _origin;
     private readonly ILogger<V2ShellCaptureBridge> _logger;
     private readonly ILootScanWorkspaceControls? _lootScanControls;
+    private readonly ShellCaptureContextSource? _contextSource;
+    private readonly ManualImageIntake? _manualIntake;
+    private readonly FleaCaptureHandoff? _fleaHandoff;
+    private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
     private long _intentRevision;
@@ -63,9 +67,21 @@ public sealed class V2ShellCaptureBridge : IDisposable
         IntelCaptureHandoff intelHandoff,
         WorkspaceOrigin origin,
         ILogger<V2ShellCaptureBridge>? logger = null,
-        ILootScanWorkspaceControls? lootScanControls = null)
+        ILootScanWorkspaceControls? lootScanControls = null,
+        ShellCaptureContextSource? contextSource = null,
+        ManualImageIntake? manualIntake = null,
+        FleaCaptureHandoff? fleaHandoff = null)
     {
+        _fleaHandoff = fleaHandoff;
+        if (fleaHandoff is not null)
+        {
+            fleaHandoff.ListingsRead += OnFleaListingsRead;
+        }
+
+        _manualIntake = manualIntake;
         _lootScanControls = lootScanControls;
+        _contextSource = contextSource;
+        contextSource?.Bind(shell?.Router ?? throw new ArgumentNullException(nameof(shell)));
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _captureSessions = captureSessions ?? throw new ArgumentNullException(nameof(captureSessions));
         _lootScanHandoff = lootScanHandoff ?? throw new ArgumentNullException(nameof(lootScanHandoff));
@@ -79,11 +95,134 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.ReviewRequested += OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated += OnLootScanEvaluated;
         _intelHandoff.ItemIdentified += OnItemIdentified;
+        _shell.ManualImageRequested += OnManualImageRequested;
+        _shell.CaptureCandidateChosen += OnCaptureCandidateChosen;
+        Push();
+    }
+
+    /// <summary>
+    /// A picture the player pasted, dropped or picked, read under the intent selected in the panel.
+    /// </summary>
+    /// <remarks>
+    /// Whatever is already armed and waiting takes the picture, exactly as it would take the
+    /// game's next screenshot. With nothing waiting, the selected intent is armed first, so
+    /// "Loot decision, then choose a picture" is one step and not two.
+    /// </remarks>
+    private async void OnManualImageRequested(object? sender, V2ManualImage image)
+    {
+        try
+        {
+            if (_manualIntake is null)
+            {
+                _shell.ReportManualImage("Pictures cannot be read here");
+                return;
+            }
+
+            var waiting = _captureSessions.Snapshot.Sessions.Any(session =>
+                !session.IsTerminal && !session.IntentClaimed && !session.CancellationRequested);
+            if (!waiting)
+            {
+                long revision;
+                lock (_gate)
+                {
+                    revision = _intentRevision;
+                }
+
+                try
+                {
+                    OnCaptureArmRequested(this, new(image.Intent, new StateRevision(revision), V2NavigationContext.ThisDesktop));
+                }
+                catch (InvalidOperationException)
+                {
+                    _shell.ReportManualImage("The last capture is still being read");
+                    return;
+                }
+            }
+
+            var origin = image.Origin switch
+            {
+                V2ManualImageOrigin.Paste => ManualImageOrigin.Paste,
+                V2ManualImageOrigin.Drop => ManualImageOrigin.Drop,
+                _ => ManualImageOrigin.Picker,
+            };
+            var outcome = image switch
+            {
+                { FilePath: { } path } => await _manualIntake.SubmitFileAsync(path, origin, CancellationToken.None).ConfigureAwait(false),
+                { Pixels: { } pixels } => await _manualIntake.SubmitImageAsync(pixels, origin, CancellationToken.None).ConfigureAwait(false),
+                _ => new ManualImageOutcome(false, "There was no picture to read"),
+            };
+            _shell.ReportManualImage(outcome.Message);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not take in a picture the player chose.");
+            _shell.ReportManualImage("That picture could not be read");
+        }
+    }
+
+    /// <summary>A photographed flea screen: its rows open in Intel &gt; Flea, and the review says how many paid.</summary>
+    private void OnFleaListingsRead(object? sender, FleaScanResult scan)
+    {
+        var viewModel = new TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel(scan);
+        _fleaScan = viewModel;
+        lock (_gate)
+        {
+            _attention = null;
+            _review = new V2CaptureReview(
+                scan.SessionId,
+                scan.ArtifactId,
+                0,
+                ScanIntent.Flea,
+                RecognizedContext.Flea,
+                scan.ObservedUtc,
+                $"{scan.ItemName ?? "Flea offers"} · {viewModel.SummaryLabel}",
+                "Screenshot · flea rows",
+                false);
+        }
+
+        _shell.ShowFleaScan(viewModel);
+        Push();
+    }
+
+    /// <summary>The player says the capture was a different candidate: Intel opens on that one.</summary>
+    private void OnCaptureCandidateChosen(object? sender, V2CaptureCandidate candidate)
+    {
+        lock (_gate)
+        {
+            if (_review is not { } review || review.Candidates.All(offered => offered.CanonicalId != candidate.CanonicalId))
+            {
+                return;
+            }
+
+            _review = new V2CaptureReview(
+                review.SessionId,
+                review.ArtifactId,
+                review.CaptureOrdinal,
+                review.AnalyzedAs,
+                review.DetectedContext,
+                review.CapturedUtc,
+                $"{candidate.DisplayName} · chosen by you",
+                review.Provenance,
+                false)
+            {
+                Candidates = review.Candidates,
+                ChosenCandidateId = candidate.CanonicalId,
+            };
+        }
+
+        _shell.ShowScannedItem(candidate.CanonicalId);
         Push();
     }
 
     private void OnCaptureArmRequested(object? sender, V2CaptureArmRequest request)
     {
+        if (!CaptureIntentSupport.IsSupported(request.Intent))
+        {
+            // The picker shows these disabled. Whatever else asks is told no rather than given
+            // a session that ends in silence.
+            throw new InvalidOperationException($"Nothing reads a {request.Intent} capture yet.");
+        }
+
         lock (_gate)
         {
             if (request.BasedOnRevision.Value != _intentRevision)
@@ -145,10 +284,38 @@ public sealed class V2ShellCaptureBridge : IDisposable
             }
         }
 
-        // Review/Correct/KeepCurrentIntent/ArmSelectedIntent: the result is already visible on
-        // its destination route, and re-analysing a frame as a *different* intent is something
-        // #271's coordinator has no action for — its five are Use detected, Use armed, Redecode,
-        // Retry and Cancel. Acknowledged rather than rejected, since nothing failed.
+        // [f920 capture] "Review result" opens the result: the Loot page, or the item in Intel.
+        // It used to be acknowledged and dropped, like "Correct result", which is gone: a wrong
+        // item is put right from the candidate list the review now shows.
+        if (request.Resolution == V2CaptureResolutionKind.Review)
+        {
+            string? itemId;
+            ScanIntent? analyzedAs;
+            lock (_gate)
+            {
+                itemId = _review?.ChosenCandidateId;
+                analyzedAs = _review?.AnalyzedAs;
+            }
+
+            if (itemId is not null)
+            {
+                _shell.ShowScannedItem(itemId);
+            }
+            else if (analyzedAs == ScanIntent.Flea && _fleaScan is { } fleaScan)
+            {
+                _shell.ShowFleaScan(fleaScan);
+            }
+            else if (_lootScan is { } lootScan)
+            {
+                _shell.ShowLootScanResult(lootScan);
+            }
+
+            _shell.CloseCaptureAfterReview();
+        }
+
+        // KeepCurrentIntent / ArmSelectedIntent belong to a device race, which this bridge never
+        // raises, and re-analysing a frame as a different intent is something #271's coordinator
+        // has no action for.
     }
 
     /// <summary>
@@ -161,6 +328,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// </remarks>
     private CaptureContextMetadata ContextFrom(string requestingDevice)
     {
+        // One builder for the arm, the watcher and manual intake, so they cannot disagree.
+        if (_contextSource is not null)
+        {
+            return _contextSource.Describe(requestingDevice);
+        }
+
         var context = _shell.Router.Context;
         return new(
             activeWorkspace: context.WorkspaceId ?? _shell.Router.Current.Location.Route.Value,
@@ -244,7 +417,18 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 $"{identification.Best.DisplayName} · {identification.Best.Confidence.Value:P0} sure{alternates}",
                 identification.DiagnosticCode is { } code
                     ? $"Screenshot · {code}"
-                    : "Screenshot");
+                    : "Screenshot",
+                canCorrect: false)
+            {
+                Candidates =
+                [
+                    .. new[] { identification.Best }
+                        .Concat(identification.Alternates)
+                        .Take(6)
+                        .Select(item => new V2CaptureCandidate(item.CanonicalId, item.DisplayName, item.Confidence.Value)),
+                ],
+                ChosenCandidateId = identification.Best.CanonicalId,
+            };
         }
 
         _shell.ShowScannedItem(identification.Best.CanonicalId);
@@ -345,5 +529,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.ReviewRequested -= OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated -= OnLootScanEvaluated;
         _intelHandoff.ItemIdentified -= OnItemIdentified;
+        if (_fleaHandoff is not null)
+        {
+            _fleaHandoff.ListingsRead -= OnFleaListingsRead;
+        }
+
+        _shell.ManualImageRequested -= OnManualImageRequested;
+        _shell.CaptureCandidateChosen -= OnCaptureCandidateChosen;
     }
 }

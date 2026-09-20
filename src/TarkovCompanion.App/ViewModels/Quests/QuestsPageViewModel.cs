@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -758,7 +759,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         if (_initialized && snapshot.Data.UpdatedUtc != _lastRuntimeDataUtc)
         {
             _lastRuntimeDataUtc = snapshot.Data.UpdatedUtc;
-            _ = RefreshAsync();
+            RefreshAsync().Observe("quests", "refresh after new game data");
         }
     }
 
@@ -1007,7 +1008,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
 
         UpdateGameLogStatus(reading);
-        _ = RefreshAsync(CancellationToken.None);
+        RefreshAsync(CancellationToken.None).Observe("quests", "refresh");
     }
 
     private void UpdateGameLogStatus(QuestLogProgressReading? reading)

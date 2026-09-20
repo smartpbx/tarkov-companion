@@ -181,6 +181,25 @@ public sealed class TarkovDevMapTests
     }
 
     [Fact]
+    public async Task TheLastMapOnScreenIsRememberedAcrossLaunchesWithoutDisturbingAMapsOwnChoices()
+    {
+        using var directory = new TemporaryDirectory();
+        var settingsPath = Path.Combine(directory.Path, "map-defaults.json");
+        var location = CreateLocationWithAssets();
+        var service = new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath));
+
+        Assert.Null(await service.LastMapAsync(CancellationToken.None));
+
+        await service.ChooseAsync(location, "two-dimensional", CancellationToken.None);
+        await service.RememberLastMapAsync("reserve", CancellationToken.None);
+        await service.RememberLastMapAsync("factory", CancellationToken.None);
+        var relaunched = new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath));
+
+        Assert.Equal("factory", await relaunched.LastMapAsync(CancellationToken.None));
+        Assert.Equal("two-dimensional", (await relaunched.SelectAsync(location, CancellationToken.None))?.Key);
+    }
+
+    [Fact]
     public async Task CorruptMapDefaultsFallBackAndCanBeReplacedSafely()
     {
         using var directory = new TemporaryDirectory();
@@ -392,6 +411,41 @@ public sealed class TarkovDevMapTests
         Assert.True(File.Exists(second.Asset!.LocalPath));
         Assert.True(File.Exists(third.Asset!.LocalPath));
         Assert.Equal(2, Directory.EnumerateFiles(directory.Path, "*.metadata.json").Count());
+    }
+
+    /// <summary>
+    /// A full cache makes room for more than the one asset that filled it.
+    /// </summary>
+    /// <remarks>
+    /// Evicting to exactly the bound meant the next download was over it again, and every download
+    /// after that re-read the whole cache directory to evict one more entry. A map is two hundred
+    /// downloads. An eighth is given back at a time, oldest first.
+    /// </remarks>
+    [Fact]
+    public async Task AFullAssetCacheGivesBackAnEighthOfItsBoundOldestFirst()
+    {
+        using var directory = new TemporaryDirectory();
+        var time = new MutableTimeProvider(DateTimeOffset.UnixEpoch);
+        var handler = new QueueHttpMessageHandler(
+            [.. Enumerable.Range(0, 17).Select(index => (Func<HttpRequestMessage, HttpResponseMessage>)(_ => ImageResponse([(byte)index])))]);
+        var options = new MapAssetCacheOptions(directory.Path, TimeSpan.FromDays(1), TimeSpan.FromSeconds(1), 1024)
+        {
+            MaximumCacheEntries = 16,
+            MaximumCacheBytes = 1024 * 1024,
+        };
+        var cache = new TarkovDevMapAssetCache(new HttpClient(handler), options, time);
+        var assets = new List<CachedMapAsset>();
+        for (var index = 0; index < 17; index++)
+        {
+            var result = await cache.GetAsync(
+                new Uri($"https://assets.tarkov.dev/maps/synthetic/{index}.png"), null, null, CancellationToken.None);
+            assets.Add(result.Asset!);
+            time.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        Assert.Equal(14, Directory.EnumerateFiles(directory.Path, "*.metadata.json").Count());
+        Assert.All(assets.Take(3), asset => Assert.False(File.Exists(asset.LocalPath)));
+        Assert.All(assets.Skip(3), asset => Assert.True(File.Exists(asset.LocalPath)));
     }
 
     [Fact]

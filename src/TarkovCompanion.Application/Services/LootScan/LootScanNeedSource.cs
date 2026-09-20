@@ -66,7 +66,37 @@ public sealed class LootScanNeedSource(
             stations = new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
-        return new(profile, _aggregation, board, stations);
+        return new(profile, _aggregation, board, stations, await ReadBroadObjectivesAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>More interchangeable items than this and an objective is "any of a category".</summary>
+    internal const int BroadObjectiveItems = 8;
+
+    /// <summary>
+    /// The objectives that accept any of many items: "hand over 50 barter items".
+    /// </summary>
+    /// <remarks>
+    /// The catalog lists every item such an objective accepts as its own row. One of them, five
+    /// quests down the chain, made nearly every item in the game a "future quest" take, so a scan
+    /// of a toolbox said TAKE to all of it and the advice meant nothing. Once the player is on
+    /// that quest it is a real reason to pick up what fits it; before then it is not a reason
+    /// to pick up any one thing in particular.
+    /// </remarks>
+    private async Task<IReadOnlySet<(string TaskId, string ObjectiveId)>> ReadBroadObjectivesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var rows = await _requirements.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            return rows
+                .GroupBy(row => (row.TaskId, row.ObjectiveId))
+                .Where(group => group.Select(row => row.ItemId).Distinct(StringComparer.Ordinal).Count() > BroadObjectiveItems)
+                .Select(group => group.Key)
+                .ToHashSet();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return new HashSet<(string, string)>();
+        }
     }
 }
 
@@ -83,13 +113,16 @@ public sealed class LootScanNeedSnapshot
     private readonly IReadOnlyDictionary<string, QuestSummaryReadModel>? _board;
     private readonly IReadOnlyDictionary<string, string> _stations;
     private readonly Dictionary<string, int> _steps = new(StringComparer.Ordinal);
+    private readonly IReadOnlySet<(string TaskId, string ObjectiveId)> _broadObjectives;
 
     internal LootScanNeedSnapshot(
         PlayerProfile profile,
         ProfileNeedAggregationService aggregation,
         IReadOnlyList<QuestSummaryReadModel>? board,
-        IReadOnlyDictionary<string, string> stations)
+        IReadOnlyDictionary<string, string> stations,
+        IReadOnlySet<(string TaskId, string ObjectiveId)>? broadObjectives = null)
     {
+        _broadObjectives = broadObjectives ?? new HashSet<(string, string)>();
         _profile = profile;
         _aggregation = aggregation;
         _board = board?
@@ -110,11 +143,18 @@ public sealed class LootScanNeedSnapshot
         foreach (var quest in outstanding.Quests)
         {
             var task = _board?.GetValueOrDefault(quest.Requirement.TaskId);
+            var stepsAhead = StepsAhead(quest.Requirement.TaskId);
+            if (stepsAhead > 0 && _broadObjectives.Contains((quest.Requirement.TaskId, quest.Requirement.ObjectiveId)))
+            {
+                // "Any fifty of these" on a quest the player is not on yet. See ReadBroadObjectivesAsync.
+                continue;
+            }
+
             needs.Add(new(
                 $"quest.{quest.Requirement.TaskId}.{quest.Requirement.ObjectiveId}",
                 task?.Name ?? "a quest",
                 RecommendationNeedPurpose.Quest,
-                StepsAhead(quest.Requirement.TaskId),
+                stepsAhead,
                 quest.Remaining,
                 quest.Requirement.FoundInRaidRequired,
                 status,

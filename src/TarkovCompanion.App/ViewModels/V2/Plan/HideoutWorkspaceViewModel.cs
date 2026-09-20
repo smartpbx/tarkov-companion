@@ -1,9 +1,13 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Planning;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
 
@@ -46,18 +50,29 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
 
     public int MissingItemCount { get; }
 
+    /// <summary>Items of the next level with no holding recorded: to check, not known to be missing.</summary>
+    public int UnknownItemCount { get; init; }
+
     public string NextLevelSummary => !HasNextLevel
         ? "Fully built."
         : CanBuildNow
             ? $"Level {NextLevel} · you have everything"
-            : $"Level {NextLevel} · missing {MissingItemCount} item(s)";
+            : $"Level {NextLevel} · {Shortfall}";
 
     /// <summary>The short state chip on the station card: ready, how much is missing, or maxed.</summary>
     public string StateLabel => !HasNextLevel
         ? "Max level"
         : CanBuildNow
             ? "Ready"
-            : $"{MissingItemCount} missing";
+            : Shortfall;
+
+    /// <summary>"3 missing", "2 to check", or both. An item nobody counted is not said to be missing.</summary>
+    private string Shortfall => (MissingItemCount, UnknownItemCount) switch
+    {
+        (_, 0) => $"{MissingItemCount} missing",
+        (0, _) => $"{UnknownItemCount} to check",
+        _ => $"{MissingItemCount} missing · {UnknownItemCount} to check",
+    };
 
     public bool IsReady => HasNextLevel && CanBuildNow;
 
@@ -84,8 +99,11 @@ public sealed record HideoutRequirementRowViewModel(
     string Remaining,
     bool IsSatisfied)
 {
-    /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure.</summary>
+    /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure; "? / 5" where no holding is recorded.</summary>
     public string ProgressLabel => $"{Owned} / {Required}";
+
+    /// <summary>Whether a holding is recorded for the item. False is "to check", not "missing".</summary>
+    public bool IsHeldKnown { get; init; } = true;
 
     /// <summary>The cheapest barter, where one beats buying the item and the player's loyalty allows it; empty otherwise.</summary>
     public string CheapestRoute { get; init; } = string.Empty;
@@ -94,11 +112,12 @@ public sealed record HideoutRequirementRowViewModel(
 }
 
 /// <summary>One item still short across the next level of every station, with the totals behind it.</summary>
-public sealed record HideoutRollupRowViewModel(string ItemName, int Need, int Have)
+public sealed record HideoutRollupRowViewModel(string ItemName, int Need, int? Have)
 {
-    public int Remaining => Math.Max(0, Need - Have);
+    public int Remaining => HeldCount.Remaining(Need, Have);
 
-    public string ProgressLabel => $"{Have:N0} / {Need:N0}";
+    /// <summary>"2 / 5", or "? / 5" where no holding is recorded. Unknown is never written as 0.</summary>
+    public string ProgressLabel => Have is { } have ? $"{have:N0} / {Need:N0}" : $"? / {Need:N0}";
 }
 
 /// <summary>
@@ -206,7 +225,22 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
     public bool HasRollup => _rollup.Count > 0;
 
-    public string RollupHeading => _rollup.Count == 1 ? "1 item still needed" : $"{_rollup.Count:N0} items still needed";
+    /// <summary>"3 items still needed", "5 items to check", or both: a holding nobody recorded is not known to be short.</summary>
+    public string RollupHeading
+    {
+        get
+        {
+            var unknown = _rollup.Count(row => row.Have is null);
+            var needed = _rollup.Count - unknown;
+            static string Items(int count) => count == 1 ? "1 item" : $"{count:N0} items";
+            return (needed, unknown) switch
+            {
+                (_, 0) => $"{Items(needed)} still needed",
+                (0, _) => $"{Items(unknown)} to check",
+                _ => $"{Items(needed)} still needed · {Items(unknown)} to check",
+            };
+        }
+    }
 
     /// <summary>"26 stations", the station list's heading figure.</summary>
     public string StationCountLabel => Stations.Count == 1 ? "1 station" : $"{Stations.Count:N0} stations";
@@ -227,11 +261,18 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
+    /// <summary>Shown in the pane when the hideout could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
+            LoadFaultInjection.ThrowIfInjected("hideout");
             var stations = await _requirements.GetStationsAsync(cancellationToken).ConfigureAwait(true);
+            LoadFault.Clear();
             if (stations.Count == 0)
             {
                 Stations = [];
@@ -247,20 +288,22 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             _ownedItemCounts = profile.OwnedItemCounts;
             _traderLevels = profile.TraderLevels;
             _allRequirements = await _requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(true);
-            var byStation = _allRequirements
-                .GroupBy(requirement => requirement.StationId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
+            var plans = HideoutPlanner.Plan(stations, profile.HideoutStationLevels, _allRequirements, _ownedItemCounts);
+            // Read before anything on the page changes, so the stations, the rollup and the
+            // selection below all change in one go rather than the list first and the rest a
+            // moment later. Off the interface thread: it looks up a name per short item (#453).
+            var rollup = await OffInterfaceThread.Run(() => BuildRollupAsync(plans, cancellationToken), cancellationToken).ConfigureAwait(true);
 
             var selectedStationId = _selected?.StationId;
-            Stations = stations
-                .Select(station => Describe(station, profile.HideoutStationLevels, byStation))
+            Stations = plans
+                .Select(Describe)
                 .OrderByDescending(station => station.HasNextLevel && !station.CanBuildNow)
                 .ThenByDescending(station => station.HasNextLevel)
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
             Status = $"{StationCountLabel} · {buildable} ready to build now";
-            Rollup = await BuildRollupAsync(cancellationToken).ConfigureAwait(true);
+            Rollup = rollup;
 
             // The detail pane is the page's primary content, so something is always selected
             // once stations exist: the previous choice if it survived, else the first station.
@@ -274,6 +317,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             Stations = [];
             Items = [];
             Status = "Hideout data isn't available yet.";
+            LoadFault.Show("The hideout did not load", "Nothing is lost. Retry reads it again.");
             WorkspaceFault.Record("hideout", "refresh", exception);
         }
     }
@@ -306,36 +350,56 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                     string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
                     requirement.TargetLevel == station.NextLevel)
                 .ToArray();
-            var routes = await HideoutBarterRoutes
-                .ComputeAsync(_barters, _traders, _itemRepository, wanted, _traderLevels, cancellationToken)
-                .ConfigureAwait(true);
-            var rows = new List<HideoutRequirementRowViewModel>(wanted.Length);
-            foreach (var requirement in wanted)
-            {
-                var item = await _itemRepository.GetAsync(requirement.ItemId, cancellationToken).ConfigureAwait(true);
-                var owned = _ownedItemCounts.GetValueOrDefault(requirement.ItemId);
-                var remaining = Math.Max(0, requirement.Required - owned);
-                rows.Add(new(
-                    item?.Name ?? requirement.ItemId,
-                    Count(requirement.Required),
-                    Count(owned),
-                    remaining == 0 ? "Complete" : Count(remaining),
-                    remaining == 0)
+            // Off the interface thread as a whole. Routing prices every input of every barter in
+            // the catalog, one query each, before it can compare them, and the rows then look up
+            // a name apiece; none of it touches anything the view is bound to.
+            var ownedCounts = _ownedItemCounts;
+            var traderLevels = _traderLevels;
+            var rows = await OffInterfaceThread.Run(
+                async () =>
                 {
-                    CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
-                });
-            }
+                    var routes = await HideoutBarterRoutes
+                        .ComputeAsync(_barters, _traders, _itemRepository, wanted, traderLevels, cancellationToken)
+                        .ConfigureAwait(false);
+                    var built = new List<HideoutRequirementRowViewModel>(wanted.Length);
+                    foreach (var requirement in wanted)
+                    {
+                        var item = await _itemRepository.GetAsync(requirement.ItemId, cancellationToken).ConfigureAwait(false);
+                        var owned = HeldCount.Of(ownedCounts, requirement.ItemId);
+                        var remaining = HeldCount.Remaining(requirement.Required, owned);
+                        built.Add(new(
+                            item?.Name ?? requirement.ItemId,
+                            Count(requirement.Required),
+                            owned is { } known ? Count(known) : "?",
+                            remaining == 0 ? "Complete" : Count(remaining),
+                            remaining == 0)
+                        {
+                            CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                            IsHeldKnown = owned is not null,
+                        });
+                    }
+
+                    return built;
+                },
+                cancellationToken).ConfigureAwait(true);
 
             Items = rows
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-            var outstanding = Items.Count(row => !row.IsSatisfied);
+            // An item nobody counted is not known to be needed. The rows under this line read "?",
+            // and "4 of 4 still needed" above them said what they did not.
+            var unknown = Items.Count(row => !row.IsHeldKnown);
+            var outstanding = Items.Count(row => !row.IsSatisfied && row.IsHeldKnown);
             Detail = Items.Count == 0
                 ? $"Level {station.NextLevel} needs no items."
-                : outstanding == 0
-                    ? $"Level {station.NextLevel} · you have everything"
-                    : $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed";
+                : (outstanding, unknown) switch
+                {
+                    (0, 0) => $"Level {station.NextLevel} · you have everything",
+                    (_, 0) => $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed",
+                    (0, _) => $"Level {station.NextLevel} · {unknown} of {Items.Count} to check",
+                    _ => $"Level {station.NextLevel} · {outstanding} still needed · {unknown} to check",
+                };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -398,35 +462,17 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         }
     }
 
-    /// <summary>
-    /// What is still short across every station's next level. Required amounts are summed per item
-    /// before the player's holding is taken off, because one pile of bolts serves whichever station
-    /// is built first, not each of them in turn.
-    /// </summary>
-    private async Task<IReadOnlyList<HideoutRollupRowViewModel>> BuildRollupAsync(CancellationToken cancellationToken)
+    /// <summary>What is still short across every station's next level, named; the sums are <see cref="HideoutPlanner.Shortfall"/>.</summary>
+    private async Task<IReadOnlyList<HideoutRollupRowViewModel>> BuildRollupAsync(
+        IReadOnlyList<HideoutStationPlan> plans,
+        CancellationToken cancellationToken)
     {
-        var totals = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var station in Stations.Where(row => row.HasNextLevel))
+        var shortfalls = HideoutPlanner.Shortfall(plans, _ownedItemCounts);
+        var rows = new List<HideoutRollupRowViewModel>(shortfalls.Count);
+        foreach (var shortfall in shortfalls)
         {
-            foreach (var requirement in _allRequirements.Where(requirement =>
-                string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
-                requirement.TargetLevel == station.NextLevel))
-            {
-                totals[requirement.ItemId] = totals.GetValueOrDefault(requirement.ItemId) + requirement.Required;
-            }
-        }
-
-        var rows = new List<HideoutRollupRowViewModel>(totals.Count);
-        foreach (var (itemId, need) in totals)
-        {
-            var have = _ownedItemCounts.GetValueOrDefault(itemId);
-            if (have >= need)
-            {
-                continue;
-            }
-
-            var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
-            rows.Add(new(item?.Name ?? itemId, need, have));
+            var item = await _itemRepository.GetAsync(shortfall.ItemId, cancellationToken).ConfigureAwait(true);
+            rows.Add(new(item?.Name ?? shortfall.ItemId, shortfall.Need, shortfall.Have));
         }
 
         return
@@ -437,39 +483,24 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         ];
     }
 
-    private HideoutStationRowViewModel Describe(
-        HideoutStationSummary station,
-        IReadOnlyDictionary<string, int> builtLevels,
-        IReadOnlyDictionary<string, HideoutItemRequirement[]> requirementsByStation)
-    {
-        var built = builtLevels.GetValueOrDefault(station.StationId);
-        var next = station.Levels.Where(level => level > built).DefaultIfEmpty(0).Min();
-        var hasNext = next > 0;
-        var maximum = station.Levels.Count == 0 ? 0 : station.Levels.Max();
-        var nextLevelRequirements = hasNext && requirementsByStation.TryGetValue(station.StationId, out var all)
-            ? all.Where(requirement => requirement.TargetLevel == next).ToArray()
-            : [];
-        var missing = nextLevelRequirements
-            .Count(requirement => _ownedItemCounts.GetValueOrDefault(requirement.ItemId) < requirement.Required);
-
-        return new(
-            station.StationId,
-            station.Name,
-            maximum == 0 ? $"Level {built}" : $"Level {built} of {maximum}",
-            hasNext,
-            next,
-            canBuildNow: hasNext && missing == 0,
-            missingItemCount: missing,
-            select: stationId =>
-            {
-                var found = Stations.FirstOrDefault(row => row.StationId == stationId);
-                Select(found);
-            })
+    private HideoutStationRowViewModel Describe(HideoutStationPlan plan) => new(
+        plan.StationId,
+        plan.Name,
+        plan.MaximumLevel == 0 ? $"Level {plan.BuiltLevel}" : $"Level {plan.BuiltLevel} of {plan.MaximumLevel}",
+        plan.HasNextLevel,
+        plan.NextLevel,
+        canBuildNow: plan.CanBuildNow,
+        missingItemCount: plan.MissingItemCount,
+        select: stationId =>
         {
-            BuiltLevel = built,
-            MaximumLevel = maximum,
-        };
-    }
+            var found = Stations.FirstOrDefault(row => row.StationId == stationId);
+            Select(found);
+        })
+    {
+        BuiltLevel = plan.BuiltLevel,
+        MaximumLevel = plan.MaximumLevel,
+        UnknownItemCount = plan.UnknownItemCount,
+    };
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 }

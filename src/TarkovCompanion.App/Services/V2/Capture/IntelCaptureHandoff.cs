@@ -62,7 +62,24 @@ public sealed class IntelCaptureHandoff(ILogger<IntelCaptureHandoff>? logger = n
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!Intents.Contains(request.EffectiveIntent) || request.Analysis.Identified.Count == 0)
+        return Intents.Contains(request.EffectiveIntent)
+            ? AcceptItemAsync(request, cancellationToken)
+            : ValueTask.FromResult(CaptureHandoffResult.Accepted);
+    }
+
+    /// <summary>Publishes the item a frame was read as, whatever intent it arrived under.</summary>
+    /// <remarks>
+    /// An unarmed screenshot of one item's inspect screen is detected as an item, and intake
+    /// turns a detected item into the Loot intent. The composite sends that here, since a frame
+    /// with one named item and no lattice has nothing for the Loot Scan to decide.
+    /// </remarks>
+    public ValueTask<CaptureHandoffResult> AcceptItemAsync(
+        CaptureHandoffRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.Analysis.Identified.Count == 0)
         {
             return ValueTask.FromResult(CaptureHandoffResult.Accepted);
         }

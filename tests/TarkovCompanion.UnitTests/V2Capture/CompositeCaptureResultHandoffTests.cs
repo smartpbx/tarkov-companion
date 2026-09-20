@@ -59,6 +59,24 @@ public sealed class CompositeCaptureResultHandoffTests
         Assert.Equal(intent, published.EffectiveIntent);
     }
 
+    /// <summary>
+    /// Intake turns a detected item screen into the Loot intent. One named item and no lattice
+    /// is not a container, and used to reach the Loot Scan as an empty grid.
+    /// </summary>
+    [Fact]
+    public async Task AnUnarmedItemScreenHandedOffAsLootStillOpensIntel()
+    {
+        var intel = new IntelCaptureHandoff();
+        CaptureItemIdentification? published = null;
+        intel.ItemIdentified += (_, identification) => published = identification;
+
+        await (await CompositeAsync(intel)).AcceptAsync(
+            Request(ScanIntent.Loot, Identified("5447a9cd4bdc2dbd208b4567", "M4A1", 0.86)),
+            CancellationToken.None);
+
+        Assert.Equal("5447a9cd4bdc2dbd208b4567", published?.Best.CanonicalId);
+    }
+
     [Fact]
     public async Task AnIntelCaptureThatIdentifiedNothingOpensNothing()
     {

@@ -370,6 +370,35 @@ key). The admin key is typed once and never stored; the panel checks status firs
 claimed by another desktop is reported without spending this desktop's own rate-limit budget on an
 attempt that can only fail.
 
+The claim is kept (2026-09-20, #289). The session the relay issues is stored in the desktop's
+protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
+panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
+
+The admin key is typed once per machine, not once per day (2026-09-20, #289). A session still lives
+twelve hours and an owner two idle, and the owner-recovery rule is unchanged for anybody holding
+only the admin key: it never replaces an owner the relay still counts as live. What the relay can
+now do is recognise the key holder. The owner's public key is on record from the first claim
+(`relay-devices.json`); `POST /v2/companion/relay/possession/challenge` hands out a single-use
+nonce, and `POST /v2/companion/relay/owner/resume` takes the same self-pairing body as the claim
+route, built around that nonce and signed by the desktop's identity key. A body whose signing key
+is the one on record is accepted at any time — expired, idle or live — replaces that owner's own
+session, and keeps every paired device; any other key gets `owner-key-mismatch` (or
+`owner-unknown`, `challenge-rejected`) and is left with the admin key. The desktop does this at
+startup and whenever its session is refused, and after "Forget this relay" on pressing Claim.
+
+A paired tablet comes back the same way. It signs the relay's nonce (hashed under
+`TarkovCompanion.PairedDevice/v2/relay-resume-door`, never bare) with its device key at
+`POST /v2/companion/relay/resume/requests?deviceKeyId=…`; the relay checks that against the key it
+holds for that device and refuses `device-unknown`, `device-revoked` or `proof-rejected`. A ticket
+is all it gives: the owner sees it on its next frames read (`resumeRequests`), opens an ordinary
+pairing offer, answers the ticket with the offer's code
+(`POST …/resume/requests/{ticket}/offer`), and the pairing handshake runs with the code entry and
+the six-digit comparison left out, both long-term keys being already pinned. A revoke now also
+marks a device that had merely expired, so going quiet is not a way around being revoked.
+`POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
+reaches the relay, and an owner registering a tablet whose device key is already known replaces
+that tablet's old record.
+
 The route answers **501 before it reads the admin key** when `TARKOV_RELAY_OWNER_RECOVERY_SECRET` is
 unset, because without it no owner can ever be recovered. The desktop reports that as its own state
 rather than as a refusal to retry — nothing a person does at the keyboard fixes it, only the
@@ -436,7 +465,19 @@ reviewed asset served to anybody who asked would be a redistribution its licence
 Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
 at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
 the scene and never learns which map it is. The artwork is uploaded only when its content hash
-changes, and a tablet that sees a scene older than twenty seconds says the desktop is offline.
+changes.
+
+Whether the desktop is there is the relay's to say, not the map's age (2026-09-20, #407): every
+answer to a map read, found or not, carries `X-Relay-Owner-Seen-Ms`, the time since the owner last
+made any authenticated call, and the desktop reads its queue every two seconds. A desktop sitting
+still on one map publishes nothing, and a tablet judging by the scene's timestamp called that
+offline after twenty seconds; it now says so after fifteen seconds of owner silence, and falls
+back to the timestamp only against a relay that sends no such header. The map is memory-only on
+the relay, so each owner read of `/v2/companion/relay/frames` also carries
+`map: {held, revision, artworkSha256}`, and a desktop that finds the relay holding nothing (a
+restart, or a map published before the claim) or holding another picture uploads again.
+`POST /v2/companion/relay/frames/reset` clears a queue that reported `requiresReconnect` and
+answers `{after}`, the cursor to read from next; without it the flag never cleared.
 
 **The read is held, not polled.** `GET /v2/companion/relay/map?since=<revision>&wait=<seconds>`
 waits until the desktop publishes something newer than the revision the tablet already has, or

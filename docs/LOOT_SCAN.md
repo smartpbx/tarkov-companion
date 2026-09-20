@@ -25,8 +25,9 @@ was shown as unpinned and weighed on price.
 | Flea fee and net | `FleaMarketFee`, from the item's base price and the two rates in the items payload. | Rates or base price not synced. |
 | How readily another copy is had | Trader buy offers and the last listing count, from the item's retained source row. | The payload carries no listing count for a flea item. |
 | Raid phase | The raid clock the way the rest of the app counts it, in thirds. The player can pick it instead. | Not in a raid, or the map's length for this side is unknown. |
+| Event state (Safe, Allergic, Untested) | `LootScanEventStateSource`: the running events in `IEventCatalog` and the results the Events page wrote into the active profile. An Allergic result in any running event wins. | No running event lists the item: a settled "outside every event". The event folder cannot be read: not claimed. |
 | Risk | The player's setting in the workspace, "Normal" until changed, kept for the session. | Never. |
-| Carried grid | `LootScanFrame.CarriedGrid`. | Always, today. Nothing in the capture pipeline reads the backpack yet. |
+| Carried grid | `CaptureAnalysis.CarriedGrid`, carried to `LootScanFrame.CarriedGrid`. | Always, today. Nothing in the capture pipeline reads the backpack yet, so a wanted item reads "TAKE?" with what is missing. |
 
 ## How near a quest is
 
@@ -34,6 +35,19 @@ A quest the player is on, or has pinned, is current. Any other is as many steps 
 longest chain of unfinished prerequisites in front of it, and at least one. The engine ignores
 a quest beyond its five-step horizon, so on a fresh wipe the whole game is not a reason to take.
 A quest that is not on the board has no distance and is treated as beyond the horizon.
+
+An objective that accepts any of more than eight items ("hand over 50 barter items") counts only
+once the player is on that quest. The catalog lists every accepted item as its own row, and one
+such objective five quests ahead made nearly every item in the game a "future quest" take.
+
+## Reaching the page
+
+An armed intent is claimed by the next capture, and intake refuses a capture whose context
+differs from the armed one. `CaptureIntakeContext.For` therefore submits an arriving frame in
+the armed session's own context; before it did, the shell armed as "this-desktop" and the
+watcher submitted as "desktop", so an armed Loot intent followed by the game's screenshot key
+was refused every time. With nothing armed, a container screen detected during a raid is
+measured as loot, and one named item with no lattice opens Intel instead of an empty scan.
 
 ## The flea fee
 

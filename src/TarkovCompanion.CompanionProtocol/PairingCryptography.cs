@@ -285,6 +285,84 @@ public static class PairingCryptography
         }
     }
 
+    /// <summary>
+    /// Whether a device-key assertion is this key's ES256 signature over exactly this challenge:
+    /// the WebAuthn signed data (authenticator data, then the SHA-256 of the client data), DER.
+    /// </summary>
+    /// <remarks>
+    /// [#289] The relay's check that a returning device still holds the key it paired with. It is
+    /// the same signature the desktop's own proof verifier checks, over a challenge the relay
+    /// chose; which origin and relying party the assertion names stays the desktop's business.
+    /// </remarks>
+    public static bool VerifyDeviceAssertion(
+        DevicePublicKey deviceKey,
+        WebAuthnAssertion assertion,
+        string expectedChallengeBase64Url)
+    {
+        ArgumentNullException.ThrowIfNull(deviceKey);
+        ArgumentNullException.ThrowIfNull(assertion);
+        if (deviceKey.Algorithm != DeviceKeyAlgorithm.WebAuthnEs256 ||
+            !string.Equals(assertion.CredentialIdBase64Url, deviceKey.CredentialIdBase64Url, StringComparison.Ordinal) ||
+            !assertion.ClientDataMatches(expectedChallengeBase64Url))
+        {
+            return false;
+        }
+
+        try
+        {
+            var authenticatorData = ProtocolGuard.DecodeBase64Url(assertion.AuthenticatorDataBase64Url, nameof(assertion));
+            var clientData = ProtocolGuard.DecodeBase64Url(assertion.ClientDataJsonBase64Url, nameof(assertion));
+            var signature = ProtocolGuard.DecodeBase64Url(assertion.SignatureBase64Url, nameof(assertion));
+            byte[] signedData = [.. authenticatorData, .. SHA256.HashData(clientData)];
+            var (x, y) = P256Point(deviceKey);
+            using var key = ECDsa.Create(new ECParameters
+            {
+                Curve = ECCurve.NamedCurves.nistP256,
+                Q = new ECPoint { X = x, Y = y },
+            });
+            return key.VerifyData(signedData, signature, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        }
+        catch (Exception exception) when (exception is CryptographicException or ArgumentException or FormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether a device key and a desktop identity key are the same P-256 point. A desktop
+    /// registers its own identity key as its relay device key, re-encoded from SPKI to COSE, so
+    /// this is how a relay ties the key that signed a handshake to the key it has on record.
+    /// </summary>
+    public static bool IsSameKey(DevicePublicKey deviceKey, DesktopIdentityKey desktopIdentityKey)
+    {
+        ArgumentNullException.ThrowIfNull(deviceKey);
+        ArgumentNullException.ThrowIfNull(desktopIdentityKey);
+        try
+        {
+            var spki = ProtocolGuard.P256SubjectPublicKeyInfo(
+                desktopIdentityKey.SubjectPublicKeyInfoBase64Url,
+                nameof(desktopIdentityKey));
+            using var ecdsa = ECDsa.Create();
+            ecdsa.ImportSubjectPublicKeyInfo(spki, out _);
+            var point = ecdsa.ExportParameters(false).Q;
+            var (x, y) = P256Point(deviceKey);
+            return point.X is not null && point.Y is not null &&
+                   CryptographicOperations.FixedTimeEquals(point.X, x) &&
+                   CryptographicOperations.FixedTimeEquals(point.Y, y);
+        }
+        catch (Exception exception) when (exception is CryptographicException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    // DevicePublicKey has already checked the 77-byte CTAP2 layout these offsets come from.
+    private static (byte[] X, byte[] Y) P256Point(DevicePublicKey deviceKey)
+    {
+        var cose = ProtocolGuard.DecodeBase64Url(deviceKey.CosePublicKeyBase64Url, nameof(deviceKey));
+        return (cose.AsSpan(10, 32).ToArray(), cose.AsSpan(45, 32).ToArray());
+    }
+
     /// <summary>The raw 32-byte P-256 ECDH secret (the shared point's x coordinate).</summary>
     public static byte[] DeriveP256SharedSecret(ECDiffieHellman localKey, EphemeralPublicKey remoteKey)
     {

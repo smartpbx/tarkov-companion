@@ -58,7 +58,11 @@ public sealed class DelegateCommand(Action execute) : ICommand
 
     public bool CanExecute(object? parameter) => true;
 
-    public void Execute(object? parameter) => execute();
+    public void Execute(object? parameter)
+    {
+        UiActivity.CommandStarted(execute);
+        execute();
+    }
 }
 
 /// <summary>A command that acts on the row it was invoked from.</summary>
@@ -99,6 +103,7 @@ public sealed class AsyncDelegateCommand(Func<Task> execute) : ICommand
         }
 
         _isRunning = true;
+        UiActivity.CommandStarted(execute);
         CanExecuteChanged?.Invoke(this, EventArgs.Empty);
         try
         {
@@ -392,6 +397,15 @@ public sealed class RaidPageViewModel : PageViewModel
 
     /// <summary>Walking a finished raid back across the map, when one has been opened.</summary>
     public RaidReplayViewModel Replay { get; }
+
+    /// <summary>The raid clock every V2 surface shows, e.g. "20:56 left"; empty outside a raid. See <see cref="RaidTimeRemaining.ClockText"/>.</summary>
+    public string Clock
+    {
+        get => _clockText;
+        private set => SetProperty(ref _clockText, value);
+    }
+
+    private string _clockText = string.Empty;
 
     /// <summary>How long is left, as the game would draw it.</summary>
     public string TimeLeft
@@ -841,6 +855,7 @@ public sealed class RaidPageViewModel : PageViewModel
         {
             TimeLeft = "Unknown";
             TimeLeftDetail = "No raid in progress";
+            Clock = string.Empty;
             return;
         }
 
@@ -851,6 +866,7 @@ public sealed class RaidPageViewModel : PageViewModel
             nowUtc);
         TimeLeft = remaining.Display;
         TimeLeftDetail = remaining.Detail;
+        Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
     }
 
     /// <summary>
@@ -1502,7 +1518,7 @@ public sealed class ScannerPageViewModel : PageViewModel
         if (scan.Succeeded && scan.ObservedUtc != _lastHistoryScanUtc)
         {
             _lastHistoryScanUtc = scan.ObservedUtc;
-            _ = LoadHistoryAsync();
+            LoadHistoryAsync().Observe("scanner", "load history");
         }
 
         HasResult = scan.Succeeded;
@@ -1965,8 +1981,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
         ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
         SaveGameFoldersCommand = new AsyncDelegateCommand(SaveGameFoldersAsync);
-        _ = LoadRetentionAsync();
-        _ = LoadGameFoldersAsync();
+        LoadRetentionAsync().Observe("settings", "load retention");
+        LoadGameFoldersAsync().Observe("settings", "load game folders");
     }
 
     private readonly IEftPathOverrideStore? _gameFolders;
@@ -3185,10 +3201,42 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// </remarks>
     private async Task InitializeSurfaceAsync(string surface, Func<Task> initialize)
     {
+        _startupLoaders[surface] = initialize;
         if (await LoadSurfaceAsync(surface, initialize, _logger).ConfigureAwait(true) is { } failed)
         {
             StartupFaults = [.. StartupFaults, failed];
         }
+    }
+
+    private readonly Dictionary<string, Func<Task>> _startupLoaders = new(StringComparer.Ordinal);
+
+    /// <summary>Loads again whichever pages failed at startup, and forgets the ones that now work.</summary>
+    /// <remarks>
+    /// What the shell's banner runs. Only the failed pages: the others loaded, and reloading the
+    /// map because Hideout failed would be a second problem made out of the first.
+    /// </remarks>
+    public async Task RetryStartupFaultsAsync() =>
+        StartupFaults = await RetryFailedSurfacesAsync(StartupFaults, _startupLoaders, _logger).ConfigureAwait(true);
+
+    /// <summary>Runs each failed page's load again and returns the ones that failed again.</summary>
+    /// <remarks>Static and internal for the same reason <see cref="LoadSurfaceAsync"/> is.</remarks>
+    internal static async Task<IReadOnlyList<string>> RetryFailedSurfacesAsync(
+        IReadOnlyList<string> failed,
+        IReadOnlyDictionary<string, Func<Task>> loaders,
+        ILogger logger)
+    {
+        var stillFailed = new List<string>(failed.Count);
+        foreach (var surface in failed)
+        {
+            // A page with no loader cannot be retried, and dropping it would claim it had loaded.
+            if (!loaders.TryGetValue(surface, out var load)
+                || await LoadSurfaceAsync(surface, load, logger).ConfigureAwait(true) is not null)
+            {
+                stillFailed.Add(surface);
+            }
+        }
+
+        return stillFailed;
     }
 
     /// <summary>
@@ -3204,8 +3252,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// </remarks>
     internal static async Task<string?> LoadSurfaceAsync(string surface, Func<Task> load, ILogger logger)
     {
+        UiActivity.LoadStarted("startup/" + surface);
+        UiActivity.Step("startup/" + surface);
         try
         {
+            LoadFaultInjection.ThrowIfInjected("startup/" + surface);
             await load().ConfigureAwait(true);
             return null;
         }
@@ -3216,6 +3267,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 "Startup of the {Surface} page failed. The rest of the application continues; that page is empty until it is reloaded.",
                 surface);
             return surface;
+        }
+        finally
+        {
+            UiActivity.LoadFinished("startup/" + surface);
+            UiActivity.Step("startup/" + surface + ":done");
         }
     }
 

@@ -140,10 +140,18 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 return;
             }
 
-            await _sink.PublishMapSurfaceAsync(
+            var carried = await _sink.PublishMapSurfaceAsync(
                 TabletMapSurfaceJson.Serialize(surface),
                 artwork?.Bytes,
                 cancellationToken).ConfigureAwait(false);
+            if (!carried)
+            {
+                // [#407] Nothing took it: no relay, or the relay is not claimed yet. Recording it
+                // as published made every later identical scene a "no change", so the map that was
+                // open when the relay was finally claimed never reached a tablet.
+                return;
+            }
+
             _publishedContent = content;
             // Package 41's self-test asks when this desktop last put a scene on the relay, and
             // which one, so these follow the publish that actually happened. A tick that

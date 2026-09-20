@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -361,7 +362,7 @@ public sealed class EventsPageViewModel : PageViewModel
         _knownItemCount = snapshot.Data.ItemCount;
         if (snapshot.Data.ItemCount > 0)
         {
-            _ = LoadAsync();
+            LoadAsync().Observe("events", "reload");
         }
     }
 

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Windows.Input;
@@ -233,6 +234,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     {
         try
         {
+            LoadFaultInjection.ThrowIfInjected("debrief");
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
             Raids = raids
                 .Select(raid => new DebriefRaidRowViewModel(
@@ -265,6 +267,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             Raids = [];
             MapStats = [];
             Status = $"Raid history unavailable: {exception.Message}";
+            WorkspaceFault.Record("debrief", "load", exception);
             RaiseAll();
         }
     }
@@ -389,6 +392,25 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             .Where(raid => raid.MapId is { Length: > 0 })
             .GroupBy(raid => raid.MapId!, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(group => group.Count());
+        // One query per raid, so read off the interface thread and all at once: a player with a
+        // few hundred raids was paying a few hundred queries on the dispatcher every time Debrief
+        // loaded, and the Setup overview reloads Debrief on a timer (#453).
+        var loadSecondsByRaid = await OffInterfaceThread.Run(
+            async () =>
+            {
+                var measured = new Dictionary<Guid, double>();
+                foreach (var raid in raids.Where(raid => raid.MapId is { Length: > 0 }))
+                {
+                    if (await ReadLoadSecondsAsync(raid.Id, cancellationToken).ConfigureAwait(false) is { } seconds)
+                    {
+                        measured[raid.Id] = seconds;
+                    }
+                }
+
+                return measured;
+            },
+            cancellationToken).ConfigureAwait(true);
+
         var rows = new List<DebriefMapStatRowViewModel>();
         foreach (var group in byMap)
         {
@@ -398,14 +420,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 .Select(raid => raid.EndedUtc!.Value - raid.StartedUtc!.Value)
                 .ToArray();
 
-            var loadTimes = new List<double>();
-            foreach (var raid in raidsOnMap)
-            {
-                if (await ReadLoadSecondsAsync(raid.Id, cancellationToken).ConfigureAwait(true) is { } seconds)
-                {
-                    loadTimes.Add(seconds);
-                }
-            }
+            var loadTimes = raidsOnMap
+                .Where(raid => loadSecondsByRaid.ContainsKey(raid.Id))
+                .Select(raid => loadSecondsByRaid[raid.Id])
+                .ToList();
 
             rows.Add(new(
                 MapLabel(group.Key),

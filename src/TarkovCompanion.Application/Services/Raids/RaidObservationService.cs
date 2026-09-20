@@ -40,6 +40,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScanUseCase? _scanUseCase;
     private readonly ICaptureSessionService? _captureSessions;
     private readonly IProfileRuntimeContextService? _profileRuntimeContext;
+    private readonly ICaptureContextSource? _captureContext;
     private readonly ScreenshotRetentionService? _retention;
     private readonly IScreenshotRetentionStore? _retentionSettings;
     private readonly RaidActivityCoordinator _coordinator;
@@ -85,8 +86,12 @@ public sealed class RaidObservationService : IAsyncDisposable
         IScreenshotRetentionStore? retentionSettings = null,
         ICaptureSessionService? captureSessions = null,
         IProfileRuntimeContextService? profileRuntimeContext = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        // Last, so no positional caller moves. Where the shell is, it says which workspace,
+        // plan, selection and prior scan a screenshot was taken beside.
+        ICaptureContextSource? captureContext = null)
     {
+        _captureContext = captureContext;
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
         _screenshotWatcher = screenshotWatcher;
@@ -665,15 +670,19 @@ public sealed class RaidObservationService : IAsyncDisposable
             {
                 var current = _stateStore.Current;
                 var activeProfile = _profileRuntimeContext?.Current.ActiveProfile;
-                var context = new CaptureContextMetadata(
-                    activeWorkspace: null,
-                    activeProfile: activeProfile?.Context.Identity.ProfileId.ToString("D"),
-                    activeMap: current.Raid.MapId,
-                    activePlan: null,
-                    selectedEntity: null,
-                    priorScan: null,
-                    initiatingDevice: "desktop",
-                    profileContext: activeProfile?.Context);
+                // A screenshot that answers an armed request is submitted in that request's
+                // own context; intake refuses any other. See CaptureIntakeContext.
+                var context = CaptureIntakeContext.For(
+                    _captureSessions,
+                    _captureContext?.Describe() ?? new CaptureContextMetadata(
+                        activeWorkspace: null,
+                        activeProfile: activeProfile?.Context.Identity.ProfileId.ToString("D"),
+                        activeMap: current.Raid.MapId,
+                        activePlan: null,
+                        selectedEntity: null,
+                        priorScan: null,
+                        initiatingDevice: "desktop",
+                        profileContext: activeProfile?.Context));
                 var receipt = await _captureSessions.EnqueueAsync(
                         new(
                             CaptureDeliveryKind.WatchedFile,
