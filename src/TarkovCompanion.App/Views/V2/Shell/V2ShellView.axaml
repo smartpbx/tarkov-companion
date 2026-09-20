@@ -296,7 +296,7 @@
               AutomationProperties.Name="{Binding AppName}">
         <!-- Left to right like the concepts: name, map, mode, raid clock, data freshness; then
              search/setup/capture and the status pill at the far right. -->
-        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="16">
+        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
             <TextBlock Classes="v2-heading-3" FontSize="20" Text="{Binding AppName}" />
             <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
@@ -360,12 +360,22 @@
                        AutomationProperties.AccessibilityView="Raw" />
             </StackPanel>
           </Button>
+          <!-- #292 task 4: the real chrome's one entry to the command palette (Ctrl+K also
+               opens it). Small and tidy on purpose - the owner rejected the old scaffold strip's
+               Back/Forward/address/Pin/Copy/Commands row as "100x worse" than V1, and that stays
+               reachable only under the developer mode flag (see ShowsScaffoldChrome). This is the
+               one piece of it the real chrome keeps, as a single icon button rather than a row. -->
           <Button Grid.Column="12" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-shell-topbar-palette" ToolTip.Tip="{Binding PaletteTooltip}"
+                  AutomationProperties.Name="{Binding PaletteTooltip}" Command="{Binding PaletteCommand}">
+            <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Search}" />
+          </Button>
+          <Button Grid.Column="13" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-shell-capture" ToolTip.Tip="{Binding CaptureLabel}"
                   AutomationProperties.Name="{Binding CaptureLabel}" Command="{Binding CaptureCommand}">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Camera}" />
           </Button>
-          <Button Grid.Column="13" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
+          <Button Grid.Column="14" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-shell-health"
                   AutomationProperties.Name="{Binding HealthLabel}" Command="{Binding HealthCommand}">
             <Border Classes="v2-status-pill" Classes.v2-availability-ready="{Binding SurfaceIsReady}">
