@@ -910,6 +910,21 @@ internal static class Program
                 Pump(20);
             }
 
+            // [f920 capture] The same workspace decided by the composed application from a
+            // seeded profile: an active quest, a pin, an Allergic event result. See SeededLootScan.
+            if (shell is not null && args.Contains("--loot-seeded"))
+            {
+                SeededLootScan.Run(
+                    services,
+                    viewModel,
+                    DrainUntilComplete,
+                    Pump,
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"),
+                    StringOption(args, "--seed-database"));
+                Pump(20);
+            }
+
             // Package 37: the same workspace over a picture the shipped recognizer actually read.
             if (shell is not null && StringOption(args, "--loot-scan-frame") is { } lootFrame)
             {
