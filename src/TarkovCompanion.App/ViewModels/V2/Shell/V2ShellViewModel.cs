@@ -175,7 +175,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // [Issue 379] Setup's per-map quest objective coverage, same reasoning again.
         QuestCoverageViewModel? questCoverage = null,
         // [Issue 318] Setup's per-map loot-spawn coverage, same reasoning again.
-        LootCoverageViewModel? lootCoverage = null)
+        LootCoverageViewModel? lootCoverage = null,
+        // Package 33 (#287): the Intel landing page's four real sections, same reasoning again.
+        IIntelLandingService? intelLanding = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -197,7 +199,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             hideout,
             keep,
             team,
-            options.DeveloperMode)
+            options.DeveloperMode,
+            intelLanding)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         if (selfTest is not null && SetupWorkspace is not null)
@@ -257,7 +260,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         HideoutWorkspaceViewModel? hideout = null,
         KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
-        bool developerMode = false)
+        bool developerMode = false,
+        IIntelLandingService? intelLanding = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -276,7 +280,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             hideout,
             keep,
             team,
-            developerMode)
+            developerMode,
+            intelLanding)
     {
     }
 
@@ -298,7 +303,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         HideoutWorkspaceViewModel? hideout = null,
         KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
-        bool developerMode = false)
+        bool developerMode = false,
+        IIntelLandingService? intelLanding = null)
     {
         _lifetimeToken = _lifetime.Token;
         _developerMode = developerMode;
@@ -311,6 +317,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _team = team;
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
+        _intelLanding = intelLanding ?? NullIntelLandingService.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
         Legacy = legacy;
         RaidCockpit = raidCockpit;
@@ -2059,6 +2066,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
 
         RefreshIntelIfNeeded();
+        RefreshIntelLandingIfNeeded();
         RaisePresentationChanged();
         if (announceBackgroundChange && (readinessChanged || recoveryChanged) &&
             Router.Current.FocusTarget is { } focusedTarget && HasRenderedFocusTarget(focusedTarget))
@@ -2164,7 +2172,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             new(
                 V2ShellText.Get("V2.Shell.Intel.Flea"),
                 V2ShellText.Get(result.FleaEligible ? "V2.Shell.Intel.FleaAllowed" : "V2.Shell.Intel.FleaNotAllowed")),
-            new(V2ShellText.Get("V2.Shell.Intel.Need"), NeedValueLabel(result.Value)),
+            new(V2ShellText.Get("V2.Shell.Intel.Need"), NeedValueLabel(result)),
         };
 
         if (result.Kind == V2IntelKind.Key)
@@ -2214,15 +2222,19 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             ? V2ShellText.Format("V2.Shell.Intel.PriceValue", CultureInfo.CurrentCulture, roubles, channel)
             : V2ShellText.Get("V2.Shell.Intel.PriceUnknown");
 
-    private static string NeedValueLabel(V2IntelValueFacts? value) =>
-        value is null || (value.TrackedQuestsNeedingIt == 0 && value.QuestsNeedingIt == 0 && value.HideoutCount == 0)
+    // Package 33 (#287): the tracked-quest count reads result.Keep, not result.Value, for the
+    // same reason V2ShellViewModel.IntelWorkspace.cs's need summary does (see the remark there) —
+    // result.Value.TrackedQuestsNeedingIt/QuestsNeedingIt read zero for every item this workspace
+    // tried against the seed database, including one a direct SQL check confirmed a real quest
+    // needs, while the hideout count from that same source was correct.
+    private static string NeedValueLabel(V2ItemIntelResult result)
+    {
+        var tracked = result.Keep?.Quests.Count ?? 0;
+        var hideout = result.Value?.HideoutCount ?? 0;
+        return tracked == 0 && hideout == 0
             ? V2ShellText.Get("V2.Shell.Intel.NeedNone")
-            : V2ShellText.Format(
-                "V2.Shell.Intel.NeedValue",
-                CultureInfo.CurrentCulture,
-                value.TrackedQuestsNeedingIt,
-                Math.Max(0, value.QuestsNeedingIt - value.TrackedQuestsNeedingIt),
-                value.HideoutCount);
+            : V2ShellText.Format("V2.Shell.Intel.NeedValue", CultureInfo.CurrentCulture, tracked, 0, hideout);
+    }
 
     private static string OpensValueLabel(V2IntelKeyFacts? key) => key switch
     {

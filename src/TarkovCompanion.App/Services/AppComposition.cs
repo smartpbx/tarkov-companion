@@ -458,6 +458,10 @@ public static class AppComposition
         // service already exist; this is the first caller to read them together for a single
         // item id instead of a whole legacy page.
         services.AddSingleton<IItemIntelService, ItemIntelService>();
+        // Package 33 (#287, the lookup half): the Intel landing page's four real sections need
+        // only what is already registered above, plus the catalog's own value ranking.
+        services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();
+        services.AddSingleton<IIntelLandingService, IntelLandingService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.

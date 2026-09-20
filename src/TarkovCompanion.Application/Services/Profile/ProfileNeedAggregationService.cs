@@ -184,6 +184,103 @@ public sealed class ProfileNeedAggregationService
 
         return new(quests, hideout);
     }
+
+    /// <summary>
+    /// Every item the player's active work actually asks for right now: quests they are on or
+    /// have pinned, and the very next level of each hideout station that is not yet built.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately narrower than <see cref="GetItemNeed"/> summed over the whole catalog, which
+    /// is every outstanding quest in the game on a fresh wipe. This is for a landing page that
+    /// has to say something true and short, so it only counts a quest the player is tracked on
+    /// and only the one hideout level directly ahead of a station, not every level still to come.
+    /// </remarks>
+    /// <summary>
+    /// Roubles, Dollars and Euros. The hideout and a few barters price themselves in these, so
+    /// they turn up as "needed" everywhere a real item is needed nowhere in particular — the
+    /// catalog has no distinct currency category to filter them by (they read as "Uncategorised"),
+    /// so the three ids are named directly, the same set <c>GridPixelReconstructionBuilder</c>
+    /// uses to tell currency apart from a stackable item.
+    /// </summary>
+    private static readonly HashSet<string> CurrencyItemIds = new(StringComparer.Ordinal)
+    {
+        "5449016a4bdc2d6f028b456f",
+        "5696686a4bdc2da3298b456a",
+        "569668774bdc2da2298b4568",
+    };
+
+    /// <param name="trackedTaskIds">Active or pinned quests. Empty counts nothing from quests.</param>
+    public IReadOnlyList<ActiveProfileNeedRow> GetActiveProfileNeeds(
+        PlayerProfile profile,
+        IReadOnlySet<string> trackedTaskIds)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        ArgumentNullException.ThrowIfNull(trackedTaskIds);
+
+        var questItems = new Dictionary<string, int>(StringComparer.Ordinal);
+        var questsByItem = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var requirement in _questRequirements.Where(x =>
+                     !CurrencyItemIds.Contains(x.ItemId) &&
+                     trackedTaskIds.Contains(x.TaskId) && !profile.CompletedTaskIds.Contains(x.TaskId)))
+        {
+            var progress = profile.ObjectiveProgress.GetValueOrDefault(requirement.ObjectiveId);
+            var remaining = Math.Max(0, requirement.Required - progress);
+            if (remaining <= 0)
+            {
+                continue;
+            }
+
+            questItems[requirement.ItemId] = questItems.GetValueOrDefault(requirement.ItemId) + remaining;
+            if (!questsByItem.TryGetValue(requirement.ItemId, out var tasks))
+            {
+                tasks = new(StringComparer.Ordinal);
+                questsByItem[requirement.ItemId] = tasks;
+            }
+
+            tasks.Add(requirement.TaskId);
+        }
+
+        var hideoutItems = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var group in _hideoutRequirements.GroupBy(x => x.StationId, StringComparer.Ordinal))
+        {
+            var nextLevel = profile.HideoutStationLevels.GetValueOrDefault(group.Key) + 1;
+            foreach (var requirement in group.Where(x => x.TargetLevel == nextLevel && !CurrencyItemIds.Contains(x.ItemId)))
+            {
+                var owned = profile.OwnedItemCounts.GetValueOrDefault(requirement.ItemId);
+                var remaining = Math.Max(0, requirement.Required - owned);
+                if (remaining <= 0)
+                {
+                    continue;
+                }
+
+                hideoutItems[requirement.ItemId] = hideoutItems.GetValueOrDefault(requirement.ItemId) + remaining;
+            }
+        }
+
+        var itemIds = new HashSet<string>(questItems.Keys, StringComparer.Ordinal);
+        itemIds.UnionWith(hideoutItems.Keys);
+        return itemIds
+            .Select(itemId => new ActiveProfileNeedRow(
+                itemId,
+                questItems.GetValueOrDefault(itemId),
+                hideoutItems.GetValueOrDefault(itemId),
+                questsByItem.TryGetValue(itemId, out var tasks) ? tasks.Count : 0))
+            .OrderByDescending(row => row.Total)
+            .ThenBy(row => row.ItemId, StringComparer.Ordinal)
+            .ToArray();
+    }
+}
+
+/// <summary>
+/// One item an active quest or the next hideout level still needs, summed across every source.
+/// </summary>
+public sealed record ActiveProfileNeedRow(
+    string ItemId,
+    int OutstandingQuestItems,
+    int OutstandingHideoutItems,
+    int TrackedQuestsNeedingIt)
+{
+    public int Total => OutstandingQuestItems + OutstandingHideoutItems;
 }
 
 /// <summary>One quest objective that still wants an item, and how many of it.</summary>
