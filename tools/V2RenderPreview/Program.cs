@@ -968,6 +968,12 @@ internal static class Program
                 Pump(20);
             }
 
+            // [f920 capture] #284: Intel > Flea over a photographed flea screen. See FleaScanDemo.
+            if (shell is not null && StringOption(args, "--flea-scan-demo") is { } fleaScanItem)
+            {
+                FleaScanDemo.Run(services, DrainUntilComplete, Pump, fleaScanItem, StringOption(args, "--loot-scan-flea-rates"));
+            }
+
             // Package 37: the same workspace over a picture the shipped recognizer actually read.
             if (shell is not null && StringOption(args, "--loot-scan-frame") is { } lootFrame)
             {

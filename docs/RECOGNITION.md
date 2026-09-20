@@ -206,7 +206,11 @@ recommendation -> metadata persistence -> result publication. It dispatches:
 - single items to canonical lookup, cached item/price lookup, and `IRecommendationEngine`;
 - extract lists only against the current raid map's canonical extracts;
 - mixed containers to grid detection, occupied-cell OCR, quantities, valuation, and partial totals;
-- visible flea rows to local parsing only.
+- visible flea rows to local parsing only. In V2 an armed Flea intent (or a screen the anchor
+  detector reads as the flea) runs `FleaRecognitionService` from `CaptureRecognitionPipeline`; the
+  rows ride on `CaptureAnalysis.FleaListings` to `FleaCaptureHandoff`, and Intel > Flea shows each
+  beside the best trader price and the 24-hour average after its fee. It reads the screenshot the
+  player took and asks the market nothing.
 
 `LatestScanResultPublisher` is the runtime/UI seam. `SqliteScanEventRepository` writes UTC
 metadata, candidate evidence, recommendation, source geometry, and diagnostics to
