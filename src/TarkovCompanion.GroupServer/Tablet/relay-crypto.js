@@ -339,10 +339,33 @@
     return base64UrlEncode(new Uint8Array(await crypto.subtle.digest("SHA-256", input)));
   }
 
+  // The desktop reads its relay queue every two seconds whether or not anything is happening, so
+  // the relay's "last heard from the owner" is what says the desktop is there. Several missed
+  // reads, not one: a laptop on wifi drops a request now and then.
+  const OWNER_SILENT_MS = 15_000;
+  // Only for a relay too old to report the owner: the age of the map it last published, which is
+  // wrong for a desktop sitting still on one map (it publishes nothing) and is all there is.
+  const SURFACE_STALE_MS = 20_000;
+
+  /// Whether the tablet should say the desktop is there. `ownerSeenMs` is the relay's
+  /// X-Relay-Owner-Seen-Ms header (null from an older relay), `publishedUtc` the map's own stamp.
+  function desktopOnline({ ownerSeenMs, publishedUtc, nowMs }) {
+    if (ownerSeenMs !== null && ownerSeenMs !== undefined && ownerSeenMs !== "") {
+      const silentFor = Number(ownerSeenMs);
+      if (Number.isFinite(silentFor)) return silentFor < OWNER_SILENT_MS;
+    }
+
+    if (!publishedUtc) return false;
+    const age = nowMs - Date.parse(publishedUtc);
+    return Number.isFinite(age) && age < SURFACE_STALE_MS;
+  }
+
   return {
     PAYLOAD_KIND,
     DIRECTION,
     DEVICE_DOOR_DOMAIN,
+    OWNER_SILENT_MS,
+    desktopOnline,
     ecdsaP1363ToDer,
     deviceDoorChallenge,
     RELAY_AAD_DOMAIN,

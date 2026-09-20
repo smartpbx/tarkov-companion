@@ -217,6 +217,28 @@ check(
   (await crypto.deviceDoorChallenge("BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc")) === "-q2dGLxQOuZDew4Vnle_BxIkC34nnaISB0d_sTTFdzc",
 );
 
+// --- "The desktop is offline" (#407) -------------------------------------------------------------
+// The false alarm: a desktop sitting still on one map publishes nothing, so its map is minutes
+// old while the relay heard from it a second ago.
+const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+check(
+  "an old map from a desktop the relay just heard from is online",
+  crypto.desktopOnline({ ownerSeenMs: "1200", publishedUtc: tenMinutesAgo, nowMs: Date.now() }) === true,
+);
+check(
+  "a fresh map from a desktop the relay has not heard from is offline",
+  crypto.desktopOnline({ ownerSeenMs: "45000", publishedUtc: new Date().toISOString(), nowMs: Date.now() }) === false,
+);
+check(
+  "no map at all, desktop just heard from: online (it has no map open yet)",
+  crypto.desktopOnline({ ownerSeenMs: "0", publishedUtc: null, nowMs: Date.now() }) === true,
+);
+check(
+  "an older relay that does not report the owner falls back to the map's age",
+  crypto.desktopOnline({ ownerSeenMs: null, publishedUtc: tenMinutesAgo, nowMs: Date.now() }) === false &&
+    crypto.desktopOnline({ ownerSeenMs: null, publishedUtc: new Date().toISOString(), nowMs: Date.now() }) === true,
+);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);

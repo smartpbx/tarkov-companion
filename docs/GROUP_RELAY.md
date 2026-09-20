@@ -465,7 +465,19 @@ reviewed asset served to anybody who asked would be a redistribution its licence
 Why not a sealed frame, when everything else after pairing is one? A relay payload root is bounded
 at 64 KiB and a rasterized plan is megabytes. The relay holds this one opaquely: it never parses
 the scene and never learns which map it is. The artwork is uploaded only when its content hash
-changes, and a tablet that sees a scene older than twenty seconds says the desktop is offline.
+changes.
+
+Whether the desktop is there is the relay's to say, not the map's age (2026-09-20, #407): every
+answer to a map read, found or not, carries `X-Relay-Owner-Seen-Ms`, the time since the owner last
+made any authenticated call, and the desktop reads its queue every two seconds. A desktop sitting
+still on one map publishes nothing, and a tablet judging by the scene's timestamp called that
+offline after twenty seconds; it now says so after fifteen seconds of owner silence, and falls
+back to the timestamp only against a relay that sends no such header. The map is memory-only on
+the relay, so each owner read of `/v2/companion/relay/frames` also carries
+`map: {held, revision, artworkSha256}`, and a desktop that finds the relay holding nothing (a
+restart, or a map published before the claim) or holding another picture uploads again.
+`POST /v2/companion/relay/frames/reset` clears a queue that reported `requiresReconnect` and
+answers `{after}`, the cursor to read from next; without it the flag never cleared.
 
 **The read is held, not polled.** `GET /v2/companion/relay/map?since=<revision>&wait=<seconds>`
 waits until the desktop publishes something newer than the revision the tablet already has, or

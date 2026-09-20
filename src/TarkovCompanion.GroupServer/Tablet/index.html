@@ -689,9 +689,8 @@
   // and it is the only thing a tablet that just follows ever sends, so it is also what tells
   // the desktop this tablet is still here.
   const RESYNC_MS = 5 * 60_000;
-  // The desktop republishes its map about once a second while a raid is running. Twice that,
-  // and a tablet says the desktop is gone rather than showing a map that stopped being true.
-  const SURFACE_STALE_MS = 20_000;
+  // Whether the desktop is there is RelayFrameCrypto.desktopOnline's call, from what the relay
+  // says about when it last heard from it; the thresholds live beside it.
   // Matches the relay's own cap (RelayMapSurfaceStore.MaximumWait). Asking for more is clamped
   // there; asking for less would just mean more round trips saying nothing happened.
   const HOLD_SECONDS = 20;
@@ -1021,10 +1020,16 @@
         return false;
       }
 
+      // How long ago the relay heard from the desktop, which reads its queue every two seconds
+      // whatever else it is doing. An older relay does not say, and the map's own age is all
+      // there is to go on, as before.
+      const ownerSeen = response.headers.get("X-Relay-Owner-Seen-Ms");
       if (response.status === 404) {
         live.surface = null;
         live.mapRevision = null;
-        live.connected = false;
+        // No map is not the same as no desktop: it may simply not have one open yet.
+        live.desktopOnline = RelayFrameCrypto.desktopOnline({ ownerSeenMs: ownerSeen, publishedUtc: null, nowMs: Date.now() });
+        live.connected = live.desktopOnline;
         renderLiveStatus();
         renderSurface();
         return false;
@@ -1033,8 +1038,14 @@
       if (!response.ok) return false;
       const revision = response.headers.get("X-Relay-Map-Revision");
       const surface = await response.json();
-      const age = Date.now() - Date.parse(surface.publishedUtc);
-      live.connected = age < SURFACE_STALE_MS;
+      // [#407] Not the age of the map: a desktop sitting still on one map publishes nothing, and
+      // twenty seconds into that this said "The desktop is offline" over a live link.
+      live.desktopOnline = RelayFrameCrypto.desktopOnline({
+        ownerSeenMs: ownerSeen,
+        publishedUtc: surface.publishedUtc,
+        nowMs: Date.now(),
+      });
+      live.connected = live.desktopOnline;
       live.surface = surface;
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
@@ -1424,10 +1435,27 @@
           }
 
           // The relay dropped or restarted this queue, so something was missed: ask the desktop
-          // where things are rather than showing a state that stopped being true.
+          // where things are rather than showing a state that stopped being true. The relay is
+          // told the gap has been seen, or it says "reconnect" on every read from here on and
+          // this asked for a full resync every second and a half for the life of the session.
           if (batch.requiresReconnect && batch.frames.length === 0) {
-            live.afterDeliveryId = 0;
-            requestResync();
+            let cursor = 0;
+            let cleared = false;
+            try {
+              const reset = await relayCall("/v2/companion/relay/frames/reset", { method: "POST" });
+              if (reset.ok) {
+                cursor = Number((await reset.json()).after) || 0;
+                cleared = true;
+              }
+            } catch {
+              // An older relay has no such route; the throttle below is what is left.
+            }
+
+            live.afterDeliveryId = cursor;
+            if (cleared || Date.now() - (live.reconnectResyncAt || 0) > 30_000) {
+              live.reconnectResyncAt = Date.now();
+              requestResync();
+            }
           }
 
           if (batch.frames.length > 0) {
