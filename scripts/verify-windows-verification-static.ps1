@@ -126,6 +126,8 @@ Require-Text $Workflow '$DemoReplay.complete' 'demo-replay line reading the fiel
 
 # The page gallery's interface-fault gate.
 Require-Text $Gallery '$env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog' 'per-launch UI warning capture'
+Require-Text $Gallery 'windowShown = $false' 'a window shown is recorded apart from a shot finishing'
+Require-Text $Gallery 'the shot did not finish: ' 'a truncated shot is reported as itself, not as no window'
 Require-Text $Gallery 'warning capture was not armed' 'unarmed-capture failure'
 Require-Text $Gallery 'interface faults: ' 'interface-fault failure'
 Require-Text $Gallery 'UIAutomationClient' 'packaged-shell UI Automation client'
