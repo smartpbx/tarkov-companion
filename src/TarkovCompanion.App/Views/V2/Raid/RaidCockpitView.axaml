@@ -873,7 +873,10 @@
 
           <!-- [Issue 318] The spawn the player tapped, and the one action that leaves the map: a
                waypoint at it. The renderer selects a spawn either way, but its own details panel is
-               hidden on this page, so without this card nothing said what had been selected. -->
+               hidden on this page, so without this card nothing said what had been selected.
+               Shown only with a renderer: with none, the inner card's IsVisible binding has no
+               source and falls back to visible, which drew an empty card under Spawn areas. -->
+          <Panel IsVisible="{Binding HasRenderer}">
           <Panel DataContext="{Binding Renderer}">
           <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section"
                   IsVisible="{Binding HasLootSelection}"
@@ -900,10 +903,12 @@
             </ContentControl>
           </Border>
           </Panel>
+          </Panel>
 
           <!-- Collapsed: the value-basis/tier/floor loot filter used to be its own always-open
                card in the map renderer's own side panel (now hidden in this embedding). It is a
                refinement on the High-value loot layer, not something every raid needs open. -->
+          <Panel IsVisible="{Binding HasRenderer}">
           <Panel DataContext="{Binding Renderer}">
           <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section" Padding="4"
                   IsVisible="{Binding HasHighValueLoot}">
@@ -962,6 +967,7 @@
             </ContentControl>
           </Expander>
           </Border>
+          </Panel>
           </Panel>
         </StackPanel>
       </ScrollViewer>

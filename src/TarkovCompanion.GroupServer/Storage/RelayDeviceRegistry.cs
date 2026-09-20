@@ -161,6 +161,116 @@ public sealed class RelayDeviceRegistry
         }
     }
 
+    /// <summary>
+    /// The same desktop claiming again, recognised by the key it claimed with: no admin key, at
+    /// any time, and it replaces that owner's own earlier session and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// [#289] An owner session lives twelve hours and an owner two idle, so every morning the
+    /// relay wanted its admin key typed again, and <see cref="RecoverOwnerAsync"/> then wiped every
+    /// paired tablet along with the old owner. Neither bound is what was wrong: they are what
+    /// stops an admin-key holder displacing a live owner. What was missing is that the relay
+    /// could not tell the owner coming back from a stranger. It can: the owner's public key is on
+    /// record from the first claim, and <paramref name="completedPairing"/> is signed by whoever
+    /// holds the private half — its challenge's signature covers a transcript that contains the
+    /// nonce this relay just issued (the caller has already spent it), so it cannot be a replay.
+    /// A caller whose key is not the one on record is refused here and is left with
+    /// <see cref="RecoverOwnerAsync"/>, exactly as before.
+    /// </remarks>
+    public async ValueTask<RelayMutationResult<RelaySessionCredential>> ResumeOwnerByKeyAsync(
+        PairingAttempt completedPairing,
+        CompanionSurfaceKind surface,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(completedPairing);
+        if (surface is not (CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser))
+        {
+            return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var now = Now();
+            if (!CanAuthenticate)
+            {
+                // Never claimed, or storage that could not be verified: no key is on record.
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-unknown");
+            }
+
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+            }
+
+            // Expired is "has not been heard from", which is the case this exists for. Revoked and
+            // replaced are decisions somebody made, and a key does not undo those.
+            var recorded = _state.Devices
+                .Where(device => device.Role == DeviceAuthorizationRole.Owner &&
+                    device.Status is DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired)
+                .OrderByDescending(device => device.CreatedUtc)
+                .FirstOrDefault();
+            if (recorded is null)
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-unknown");
+            }
+
+            // The key named in the request is the one on record, and it is also the key that
+            // signed: a desktop's relay device key is its identity key, re-encoded.
+            if (recorded.DeviceKey.KeyId != deviceKey.KeyId ||
+                !string.Equals(recorded.DeviceKey.CosePublicKeyBase64Url, deviceKey.CosePublicKeyBase64Url, StringComparison.Ordinal) ||
+                completedPairing.Challenge!.DesktopIdentityKey != completedPairing.Offer.DesktopIdentityKey ||
+                !PairingCryptography.IsSameKey(recorded.DeviceKey, completedPairing.Offer.DesktopIdentityKey))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-key-mismatch");
+            }
+
+            var retainedDevices = _state.Devices.Where(device => device.DeviceId != recorded.DeviceId).ToList();
+            var retainedSessions = _state.Sessions
+                .Where(record => record.Session.DeviceId != recorded.DeviceId)
+                .ToList();
+            if (retainedDevices.Any(device => device.DeviceId == establishment.Assignment.DeviceId) ||
+                retainedSessions.Any(record => CollidesWith(record, establishment)))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("claim-collision");
+            }
+
+            var owner = CreateDevice(deviceKey, establishment, DeviceAuthorizationRole.Owner);
+            var issued = IssueSession(owner, establishment, surface, now);
+            var sessions = MakeRoomForSession(retainedSessions);
+            sessions.Add(issued.Record);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    [owner, .. retainedDevices],
+                    sessions,
+                    AppendAudit(_state.Audit, new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.OwnerRecovered,
+                        now,
+                        "resumed-by-key",
+                        subjectDeviceId: owner.DeviceId,
+                        sessionId: issued.Credential.SessionId))),
+                cancellationToken).ConfigureAwait(false);
+            return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The paired (never owner) device this relay has on record under a key, whatever became of
+    /// it: a caller reads <see cref="RelayDeviceRecord.Status"/> to tell "has been away" from
+    /// "was revoked".
+    /// </summary>
+    public RelayDeviceRecord? FindPairedDeviceByKey(DeviceKeyId keyId) =>
+        CanAuthenticate
+            ? _state.Devices.FirstOrDefault(device =>
+                device.Role != DeviceAuthorizationRole.Owner && device.DeviceKey.KeyId == keyId)
+            : null;
+
     public async ValueTask<RelayAuthenticationResult> AuthenticateAsync(
         DeviceSessionId sessionId,
         string? presentedCredential,
@@ -329,20 +439,37 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("pairing-incomplete");
             }
 
-            if (_state.Devices.Count >= ProtocolBounds.MaxDevices ||
-                HasIdentityCollision(deviceKey, establishment))
+            // [#290] The same tablet pairing again. Its device key never changes, so once this
+            // registry kept an owner's devices across a restart instead of being wiped by every
+            // re-claim, a tablet that had expired, been revoked, or lost its page could never be
+            // registered again: its old record collided with the new one for good. The live owner
+            // presenting a freshly completed pairing for that key is the authority saying the old
+            // record is finished, so it is dropped here rather than left to block its successor.
+            // Never an owner's own record: that one changes hands by recovery alone.
+            var retainedDevices = _state.Devices
+                .Where(existing => existing.Role == DeviceAuthorizationRole.Owner ||
+                    existing.DeviceKey.KeyId != deviceKey.KeyId)
+                .ToList();
+            var retainedIds = retainedDevices.Select(existing => existing.DeviceId).ToHashSet();
+            var retainedSessions = _state.Sessions
+                .Where(record => retainedIds.Contains(record.Session.DeviceId))
+                .ToList();
+            if (retainedDevices.Count >= ProtocolBounds.MaxDevices ||
+                retainedDevices.Any(existing => existing.DeviceId == establishment.Assignment.DeviceId ||
+                    existing.DeviceKey.KeyId == deviceKey.KeyId) ||
+                retainedSessions.Any(record => CollidesWith(record, establishment)))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("device-limit-or-duplicate");
             }
 
             var device = CreateDevice(deviceKey, establishment, role);
             var issued = IssueSession(device, establishment, surface, now);
-            var sessions = MakeRoomForSession(_state.Sessions);
+            var sessions = MakeRoomForSession(retainedSessions);
             sessions.Add(issued.Record);
             await CommitAsync(
                 new RelayRegistryState(
                     true,
-                    [.. _state.Devices, device],
+                    [.. retainedDevices, device],
                     sessions,
                     AppendAudit(_state.Audit, new RelayAuditEvent(
                         Guid.NewGuid(),
@@ -516,7 +643,12 @@ public sealed class RelayDeviceRegistry
 
             var devices = _state.Devices.ToList();
             var index = devices.FindIndex(device => device.DeviceId == targetDeviceId);
-            if (index < 0 || !IsLive(devices[index], now))
+            // [#289] A device that has merely been away is still revoked, and the record says so.
+            // This used to refuse anything not live, which was harmless while a device that had
+            // been away could only come back by pairing again in front of the owner. It can now
+            // come back on its key alone, so "expired" must not be where a revoke gets lost.
+            if (index < 0 ||
+                devices[index].Status is not (DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired))
             {
                 return RelayMutationResult<bool>.Reject("device-not-active");
             }
@@ -529,7 +661,20 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<bool>.Reject("owner-recovery-required");
             }
 
-            devices[index] = Transition(target, DeviceLifecycleStatus.Revoked, now, reason);
+            devices[index] = target.Status == DeviceLifecycleStatus.Active
+                ? Transition(target, DeviceLifecycleStatus.Revoked, now, reason)
+                : new RelayDeviceRecord(
+                    target.DeviceId,
+                    target.DeviceKey,
+                    target.Role,
+                    target.Capabilities,
+                    DeviceLifecycleStatus.Revoked,
+                    target.CreatedUtc,
+                    target.LastUsedUtc,
+                    target.LastKeyEpoch,
+                    target.ExpiresUtc,
+                    now,
+                    lifecycleReason: reason);
             var sessions = _state.Sessions
                 .Select(record => record.Session.DeviceId == targetDeviceId
                     ? EndIfActive(record, DeviceSessionStatus.Revoked, now, reason)
@@ -944,14 +1089,16 @@ public sealed class RelayDeviceRegistry
         HasSessionCollision(establishment);
 
     private bool HasSessionCollision(SessionEstablished establishment) =>
-        _state.Sessions.Any(record =>
-            record.Session.SessionId == establishment.Assignment.SessionId ||
-            record.ChannelId == establishment.Assignment.RelayChannelId ||
-            record.Session.Establishment.ChallengeId == establishment.ChallengeId ||
-            string.Equals(
-                record.Session.TranscriptHashBase64Url,
-                establishment.TranscriptHashBase64Url,
-                StringComparison.Ordinal));
+        _state.Sessions.Any(record => CollidesWith(record, establishment));
+
+    private static bool CollidesWith(RelaySessionRecord record, SessionEstablished establishment) =>
+        record.Session.SessionId == establishment.Assignment.SessionId ||
+        record.ChannelId == establishment.Assignment.RelayChannelId ||
+        record.Session.Establishment.ChallengeId == establishment.ChallengeId ||
+        string.Equals(
+            record.Session.TranscriptHashBase64Url,
+            establishment.TranscriptHashBase64Url,
+            StringComparison.Ordinal);
 
     private static bool TryCompletedPairing(
         PairingAttempt attempt,

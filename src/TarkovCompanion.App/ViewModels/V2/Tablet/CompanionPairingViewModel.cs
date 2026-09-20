@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Windows.Input;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services.V2.Team;
@@ -146,6 +145,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private readonly IDesktopIdentitySigner? _identitySigner;
     private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
+    private readonly RelayOwnerClaimClient? _claimClient;
+    private readonly PairedDeviceResumeService? _resume;
+    private Uri? _relayOrigin;
     private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _ceremony;
@@ -186,10 +188,30 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         _identitySigner = availability.IdentitySigner;
         _relayMarksBridge = relayMarksBridge;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _relayOrigin = availability.RelayOrigin;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
             _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
             _relayMarksBridge?.Configure(origin);
+            if (availability.IdentitySigner is { } signer)
+            {
+                _claimClient = new RelayOwnerClaimClient(_relay, signer, authority, _relayMarksBridge);
+                if (_relayMarksBridge is not null)
+                {
+                    // [#289] The relay ends an owner session after twelve hours, or two idle. The
+                    // bridge asks to be let back in on this desktop's key before it gives the
+                    // claim up, so the admin key is typed once on this machine, not once a day.
+                    var claimClient = _claimClient;
+                    _relayMarksBridge.OwnerReclaim = token => claimClient.ClaimByKeyAsync(Now(), token);
+                }
+            }
+
+            if (_relayMarksBridge is not null)
+            {
+                // [#289, #290] And a tablet already approved here comes back the same way.
+                _resume = new PairedDeviceResumeService(authority, availability.Coordinator, _relayMarksBridge, _relay, _timeProvider);
+                _resume.DeviceResumed += OnDeviceResumed;
+            }
         }
 
         RefreshDevices();
@@ -201,9 +223,19 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         AllowControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: true));
         DenyControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: false));
         TakeBackControlCommand = new AsyncDelegateCommand(TakeBackControlAsync);
+        ForgetRelayCommand = new AsyncDelegateCommand(ForgetRelayAsync);
         if (_relayMarksBridge is not null)
         {
             _relayMarksBridge.CanonicalStateChanged += OnCanonicalStateChanged;
+            _relayMarksBridge.OwnerLinkChanged += OnOwnerLinkChanged;
+            if (_relay is not null)
+            {
+                // [#289] The claim made on an earlier run, picked back up with nobody typing
+                // anything. The bridge's first poll says whether the relay still honours it, and
+                // OnOwnerLinkChanged is where that lands.
+                ApplyOwnerLink(_relayMarksBridge.OwnerLink);
+                RelayLinkRestored = RestoreRelayLinkAsync();
+            }
         }
 
         RefreshControl(_authority.Snapshot.CanonicalState);
@@ -248,7 +280,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     public static string AdminKeyHelp =>
         "The admin key is the secret the relay's operator set as TARKOV_RELAY_ADMIN_KEY. Claiming " +
         "makes this desktop the relay's owner, which is what lets it pair devices at all. The key " +
-        "is used once and never stored.";
+        "is used once and never stored; the claim itself is kept.";
 
     /// <summary>The message for a relay whose operator has not configured claiming at all.</summary>
     public const string NotConfiguredForClaimingMessage =
@@ -258,9 +290,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     /// <summary>Whether starting a pairing ceremony can succeed, as last known from this desktop.</summary>
     /// <remarks>
-    /// Ownership is a fact about this process, not about the relay's disk: the owner session
-    /// credential lives in memory (see <c>RelayMarksBridge.SetOwnerCredential</c>), so after a
-    /// desktop restart this correctly reads false until the relay is claimed again.
+    /// [#289] The owner session is kept in protected storage and picked back up at startup
+    /// (<c>RelayMarksBridge.RestoreAsync</c>), so this reads true after a restart without the admin
+    /// key being typed again — until the relay itself ends that session, or "Forget this relay".
     /// </remarks>
     public bool CanStartPairing => CanPair && RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
 
@@ -306,6 +338,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         DateTimeOffset? codeExpiresUtc = null)
     {
         _previewAvailability = true;
+        _relayOrigin ??= new Uri("https://relay.example");
+        OnPropertyChanged(nameof(ClaimedSummary));
         OnPropertyChanged(nameof(CanPair));
         OnPropertyChanged(nameof(CanClaimRelay));
         OnPropertyChanged(nameof(NeedsClaim));
@@ -660,6 +694,15 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public bool IsClaimedByThisDesktop => RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
 
+    /// <summary>The claimed line: which relay, said whether or not this run did the claiming.</summary>
+    /// <remarks>
+    /// [#289] The line used to be the claim attempt's own message, so a claim picked back up after
+    /// a restart — where nothing was attempted — showed as an empty row.
+    /// </remarks>
+    public string ClaimedSummary => _relayOrigin is { } origin
+        ? $"This desktop owns the relay at {origin.Host}."
+        : "This desktop owns the relay.";
+
     public string? RelayClaimMessage
     {
         get => _relayClaimMessage;
@@ -688,80 +731,29 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     /// </summary>
     private async Task ClaimRelayAsync()
     {
-        if (_relay is null || _identitySigner is null)
+        if (_claimClient is null)
         {
             return;
         }
 
         var adminKey = AdminKeyInput;
         AdminKeyInput = string.Empty;
-        if (string.IsNullOrWhiteSpace(adminKey))
-        {
-            RelayClaimMessage = "Enter the relay's admin key first.";
-            return;
-        }
-
         IsClaimingRelay = true;
         try
         {
-            var material = DesktopRelayOwnerClaim.Build(
-                _identitySigner,
-                _authority.Snapshot.CanonicalState.DesktopDeviceId,
-                Now());
-
-            var status = await GetRelayOwnerStatusAsync(adminKey, _lifetime.Token).ConfigureAwait(true);
-            if (status is { Claimed: true })
+            if (string.IsNullOrWhiteSpace(adminKey))
             {
-                RelayClaimState = string.Equals(status.OwnerDeviceId, OwnDeviceIdHex(material), StringComparison.Ordinal)
-                    ? RelayOwnerClaimState.ClaimedByThisDesktop
-                    : RelayOwnerClaimState.ClaimedByAnotherDesktop;
-                RelayClaimMessage = RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop
-                    ? "This relay is already claimed by this desktop."
-                    : "This relay is already claimed by another desktop.";
+                // [#289] Nothing typed is still worth one try: a desktop that claimed this relay
+                // before (and pressed "Forget this relay", say) is let back in on its key alone.
+                var byKey = await _claimClient.ClaimByKeyAsync(Now(), _lifetime.Token).ConfigureAwait(true);
+                (RelayClaimState, RelayClaimMessage) = byKey.Outcome == RelayClaimOutcome.KeyNotRecognised
+                    ? (RelayClaimState, "Enter the relay's admin key first.")
+                    : DescribeClaim(byKey, RelayClaimState);
                 return;
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, "admin/relay/claim")
-            {
-                Content = new ByteArrayContent(material.ToJsonBody()),
-            };
-            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
-            request.Headers.Add("X-Admin-Key", adminKey);
-            using var response = await _relay.SendAsync(request, _lifetime.Token).ConfigureAwait(true);
-            if (response.IsSuccessStatusCode)
-            {
-                RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
-                RelayClaimMessage = "Claimed. This desktop is now the relay's owner.";
-                var claimedJson = await response.Content.ReadAsStringAsync(_lifetime.Token).ConfigureAwait(true);
-                var credential = JsonSerializer.Deserialize<RelaySessionCredentialResponse>(claimedJson, JsonOptions);
-                if (credential is not null)
-                {
-                    _relayMarksBridge?.SetOwnerCredential(credential.SessionId, credential.Credential, credential.ExpiresUtc);
-                }
-            }
-            else if (response.StatusCode == HttpStatusCode.NotImplemented)
-            {
-                // Refused before the admin key was read, so re-typing it cannot help and neither
-                // can waiting: the relay's operator has to set the secret.
-                RelayClaimState = RelayOwnerClaimState.NotConfiguredForClaiming;
-                RelayClaimMessage = NotConfiguredForClaimingMessage;
-            }
-            else if (response.StatusCode == HttpStatusCode.Unauthorized)
-            {
-                RelayClaimMessage = "That admin key was not accepted.";
-            }
-            else if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                RelayClaimMessage = "Too many claim attempts. Try again in a minute.";
-            }
-            else
-            {
-                RelayClaimMessage = "The relay refused the claim.";
-            }
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
-        {
-            RelayClaimMessage = "Could not reach the group relay.";
+            var result = await _claimClient.ClaimAsync(adminKey, Now(), _lifetime.Token).ConfigureAwait(true);
+            (RelayClaimState, RelayClaimMessage) = DescribeClaim(result, RelayClaimState);
         }
         finally
         {
@@ -769,38 +761,148 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         }
     }
 
-    private async Task<RelayOwnerStatusResponse?> GetRelayOwnerStatusAsync(string adminKey, CancellationToken cancellationToken)
+    /// <summary>What one claim attempt means for the panel: the state it leaves, and what to say.</summary>
+    internal static (RelayOwnerClaimState State, string Message) DescribeClaim(
+        RelayClaimResult result,
+        RelayOwnerClaimState current) => result.Outcome switch
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, "admin/relay/owner");
-        request.Headers.Add("X-Admin-Key", adminKey);
-        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
-        if (!response.IsSuccessStatusCode)
+        RelayClaimOutcome.Claimed =>
+            (RelayOwnerClaimState.ClaimedByThisDesktop, "Claimed. This desktop is now the relay's owner."),
+        RelayClaimOutcome.AlreadyClaimedByThisDesktop =>
+            (RelayOwnerClaimState.ClaimedByThisDesktop, "This relay is already claimed by this desktop."),
+        RelayClaimOutcome.ClaimedByAnotherDesktop =>
+            (RelayOwnerClaimState.ClaimedByAnotherDesktop, "This relay is already claimed by another desktop."),
+        RelayClaimOutcome.NotConfiguredForClaiming =>
+            (RelayOwnerClaimState.NotConfiguredForClaiming, NotConfiguredForClaimingMessage),
+        RelayClaimOutcome.AdminKeyRefused => (current, "That admin key was not accepted."),
+        RelayClaimOutcome.KeyNotRecognised => (current, "This relay does not know this desktop. Enter its admin key."),
+        RelayClaimOutcome.RateLimited => (current, "Too many claim attempts. Try again in a minute."),
+        RelayClaimOutcome.Unreachable => (current, "Could not reach the group relay."),
+        // The relay will not replace an owner it has heard from recently, this desktop included.
+        _ when result.Code == "owner-already-live" =>
+            (current, "The relay still holds an earlier claim. It can be claimed again once that one has been idle for two hours."),
+        _ => (current, result.Code is { Length: > 0 } code
+            ? $"The relay refused the claim: {code}."
+            : "The relay refused the claim."),
+    };
+
+    /// <summary>"Forget this relay": drops the kept claim, here and in protected storage.</summary>
+    public ICommand ForgetRelayCommand { get; }
+
+    private async Task ForgetRelayAsync()
+    {
+        if (_relayMarksBridge is null)
         {
-            return null;
+            return;
         }
 
-        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
-        return JsonSerializer.Deserialize<RelayOwnerStatusResponse>(json, JsonOptions);
+        await _relayMarksBridge.ForgetOwnerAsync(_lifetime.Token).ConfigureAwait(true);
+        RelayClaimState = RelayOwnerClaimState.NotClaimed;
+        RelayClaimMessage = "Forgotten. Press Claim to claim this relay again.";
     }
 
-    // The relay names its owner only by CompanionDeviceId's "N" hex form (RelayCompanionRoutes),
-    // never its device key — comparing that against the id this claim would register is enough to
-    // tell "claimed by this desktop" from "claimed by another" without the relay handing back
-    // anything a passive listener could use.
-    private static string OwnDeviceIdHex(DesktopRelayOwnerClaimMaterial material) =>
-        material.Establishment.Assignment.DeviceId.Value.ToString("N");
+    /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
+    internal Task RelayLinkRestored { get; } = Task.CompletedTask;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    /// <summary>How often the relay's pairing mailbox is asked for the ceremony's next message.</summary>
+    internal TimeSpan MailboxPollInterval
+    {
+        get => _mailboxPollInterval;
+        set
+        {
+            _mailboxPollInterval = value;
+            if (_resume is not null)
+            {
+                _resume.MailboxPollInterval = value;
+            }
+        }
+    }
 
-    private sealed record RelayOwnerStatusResponse(bool Claimed, string? OwnerDeviceId);
+    private TimeSpan _mailboxPollInterval = TimeSpan.FromSeconds(2);
 
-    private sealed record RelaySessionCredentialResponse(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
+    private async Task RestoreRelayLinkAsync()
+    {
+        try
+        {
+            await _relayMarksBridge!.RestoreAsync(_lifetime.Token).ConfigureAwait(true);
+            // Said here as well as through the event: this continuation is already where the
+            // panel lives, so the first answer does not wait on a dispatcher pass.
+            ApplyOwnerLink(_relayMarksBridge.OwnerLink);
+        }
+        catch (OperationCanceledException)
+        {
+            // Closing during startup; nothing was half-applied.
+        }
+    }
+
+    private void OnDeviceResumed(PairedDevice device)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            RefreshDevices();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(RefreshDevices);
+    }
+
+    /// <summary>Completes when no returning tablet is being answered; a test waits on it.</summary>
+    internal Task ResumesSettled => _resume?.WhenIdleAsync() ?? Task.CompletedTask;
+
+    private void OnOwnerLinkChanged(RelayOwnerLinkState link)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            ApplyOwnerLink(link);
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => ApplyOwnerLink(link));
+    }
+
+    /// <summary>Says what the bridge has learned about this desktop's owner session.</summary>
+    internal void ApplyOwnerLink(RelayOwnerLinkState link)
+    {
+        switch (link)
+        {
+            case RelayOwnerLinkState.Verified:
+                RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
+                if (RelayClaimMessage is null || RelayClaimMessage == UnreachableClaimMessage)
+                {
+                    RelayClaimMessage = null;
+                }
+
+                break;
+            case RelayOwnerLinkState.Restored:
+                // Kept from an earlier run. Shown as claimed straight away: the relay has not
+                // refused it, and a panel that asked for the admin key for the two seconds before
+                // the first poll answered would be asking for something it does not need.
+                RelayClaimState = RelayOwnerClaimState.ClaimedByThisDesktop;
+                break;
+            case RelayOwnerLinkState.Unreachable:
+                RelayClaimMessage = UnreachableClaimMessage;
+                break;
+            case RelayOwnerLinkState.Rejected:
+                RelayClaimState = RelayOwnerClaimState.NotClaimed;
+                RelayClaimMessage = "Another desktop has claimed this relay since. Enter the admin key to claim it back.";
+                break;
+        }
+    }
+
+    private const string UnreachableClaimMessage = "Could not reach the group relay. Still trying.";
 
     public void Dispose()
     {
         if (_relayMarksBridge is not null)
         {
             _relayMarksBridge.CanonicalStateChanged -= OnCanonicalStateChanged;
+            _relayMarksBridge.OwnerLinkChanged -= OnOwnerLinkChanged;
+        }
+
+        if (_resume is not null)
+        {
+            _resume.DeviceResumed -= OnDeviceResumed;
+            _resume.Dispose();
         }
 
         _ceremony?.Cancel();
@@ -904,7 +1006,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 // Transient; the next poll tries again until the ceremony is cancelled or completes.
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(true);
+            await Task.Delay(MailboxPollInterval, cancellationToken).ConfigureAwait(true);
         }
     }
 
@@ -917,6 +1019,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
         try
         {
+            // This request came out of the relay's mailbox, which is where the code was resolved.
+            await _coordinator.AcknowledgeRelayResolvedCodeAsync(_attemptId, Now(), cancellationToken)
+                .ConfigureAwait(true);
             var approval = await _coordinator.BindRequestAsync(request, CompanionProtocolVersion.Current, Now())
                 .ConfigureAwait(true);
             _approval = approval;
@@ -947,24 +1052,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         IsBusy = true;
         try
         {
-            var grant = new PairingDeviceGrant(
-                DeviceAuthorizationRole.Member,
-                [
-                    DeviceCapability.FollowDesktop,
-                    DeviceCapability.RequestControl,
-                    DeviceCapability.ShowOnDesktop,
-                    DeviceCapability.ManageOwnMarks,
-                    DeviceCapability.RequestCaptureIntent,
-                ],
-                [
-                    DeviceCapability.FollowDesktop,
-                    DeviceCapability.ShowOnDesktop,
-                    DeviceCapability.ManageOwnMarks,
-                    DeviceCapability.RequestCaptureIntent,
-                ],
-                Now().AddDays(90),
-                CompanionTransportKind.EndToEndRelay,
-                CompanionSurfaceKind.TabletLandscape);
+            var grant = PairedTabletGrant.Create(Now());
             _grant = grant;
             var challenge = await _coordinator.ApproveAsync(
                 _attemptId,
@@ -1008,7 +1096,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 // Transient; keep polling.
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken).ConfigureAwait(true);
+            await Task.Delay(MailboxPollInterval, cancellationToken).ConfigureAwait(true);
         }
     }
 
@@ -1025,6 +1113,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 .ConfigureAwait(true);
             await PostAsync("v2/companion/pairing/established", session.Establishment, _attemptId, cancellationToken)
                 .ConfigureAwait(true);
+            RelayDeviceRegistration? registration = null;
             if (_relayMarksBridge is not null && _offer is not null && _request is not null &&
                 _challenge is not null && _approval is not null && _grant is not null)
             {
@@ -1033,7 +1122,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 // route the new tablet's opaque frames, and delivers its starting canonical
                 // snapshot. Best-effort: a relay that is unreachable or not yet claimed leaves the
                 // pairing itself intact — only live sync for this device is unavailable.
-                await _relayMarksBridge.RegisterPairedDeviceAsync(
+                registration = await _relayMarksBridge.RegisterPairedDeviceAsync(
                     _attemptId,
                     _offer,
                     _approval.NonceReveal.DesktopNonceBase64Url,
@@ -1046,13 +1135,25 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                     cancellationToken).ConfigureAwait(true);
             }
 
-            StatusMessage = $"Paired \"{RequestedDisplayName}\".";
+            // A pairing the relay would not register is a tablet that pairs and then shows
+            // nothing, which used to be reported as a plain success.
+            StatusMessage = registration is { Registered: false } refused
+                ? $"Paired \"{RequestedDisplayName}\", but the relay would not carry it ({refused.Code}). Update the relay."
+                : $"Paired \"{RequestedDisplayName}\".";
             RefreshDevices();
             ResetCeremony();
         }
         catch (UnauthorizedAccessException)
         {
             StatusMessage = "The tablet's device-key proof did not verify. It was not paired.";
+            ResetCeremony();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not OperationCanceledException)
+        {
+            // This runs from a poll nobody awaits, so anything that escaped here left the panel on
+            // "Completing" for good while the tablet timed out on its own.
+            StatusMessage = "Pairing could not be completed. Start pairing again.";
+            RefreshDevices();
             ResetCeremony();
         }
     }
@@ -1087,6 +1188,15 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         {
             await _authority.RevokeDeviceAsync(row.Device.DeviceId, Now(), "Revoked from the pairing panel.")
                 .ConfigureAwait(true);
+            if (_relayMarksBridge is not null)
+            {
+                // [#290] And on the relay, and out of protected storage: a revoked tablet's keys
+                // are gone from this desktop and its relay session stops authenticating, so it
+                // cannot go on reading the map it was just cut off from.
+                await _relayMarksBridge.RevokePairedDeviceAsync(row.Device.DeviceId, _lifetime.Token)
+                    .ConfigureAwait(true);
+            }
+
             RefreshDevices();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

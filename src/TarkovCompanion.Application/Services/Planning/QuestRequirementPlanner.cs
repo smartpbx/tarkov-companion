@@ -64,7 +64,7 @@ public static class QuestRequirementPlanner
                     : (int)Math.Ceiling(Math.Max(
                         1m,
                         (alternatives.Max(target => target.TargetCount) ?? objective.TargetCount ?? 1m) - (objective.RecordedCount ?? 0m)));
-                var have = ids.Sum(id => owned.GetValueOrDefault(id));
+                var have = HeldCount.OfAny(owned, ids);
                 var key = (ids[0], handling);
                 rows[key] = rows.TryGetValue(key, out var existing)
                     ? existing with { Need = carried ? existing.Need : existing.Need + need }

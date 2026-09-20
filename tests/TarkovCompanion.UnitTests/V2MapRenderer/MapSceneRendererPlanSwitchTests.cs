@@ -58,6 +58,42 @@ public sealed class MapSceneRendererPlanSwitchTests
         Assert.NotEqual(factoryAspect, view.Aspect, 2);
     }
 
+    /// <summary>
+    /// The owner's own sequence, in both directions, with the shapes the app really draws.
+    /// </summary>
+    /// <remarks>
+    /// "Flipping back to factory after fixing the customs map now has factory skewed, it expanded to
+    /// match the ratio of the customs map." The shapes are the two plan rectangles the Raid page
+    /// hands the renderer at 1920x1080 (card 1344x865: Customs is drawn 1300.0x660.9, Factory
+    /// 759.9x821.0, read from a render). A map reached by switching has to land in exactly the
+    /// rectangle the same map gets when it is the first one opened, to within a pixel.
+    /// </remarks>
+    [Theory]
+    [InlineData("customs", "factory")]
+    [InlineData("factory", "customs")]
+    public void A_map_reached_by_switching_is_drawn_where_it_is_when_opened_first(string from, string to)
+    {
+        var renderer = Renderer(Scene(from, $"{from}-plan", RealPlan(from)));
+        var view = new BoundView(renderer);
+        var openedFirst = Renderer(Scene(to, $"{to}-plan", RealPlan(to)));
+
+        renderer.Present(Scene(to, $"{to}-plan", RealPlan(to), revision: 2));
+
+        var aspect = RealPlan(to).Width / RealPlan(to).Height;
+        Assert.True(
+            Math.Abs(view.Width - (view.Height * aspect)) < 1,
+            $"{to} is {aspect:F4} wide-to-tall but after {from} the view was told {view.Width:F1}x{view.Height:F1}");
+        Assert.True(
+            Math.Abs(view.Left - openedFirst.MapLeft) < 1 && Math.Abs(view.Top - openedFirst.MapTop) < 1 &&
+            Math.Abs(view.Width - openedFirst.MapWidth) < 1 && Math.Abs(view.Height - openedFirst.MapHeight) < 1,
+            $"after {from}, {to} was put at {view.Left:F1},{view.Top:F1} {view.Width:F1}x{view.Height:F1}; " +
+            $"opened first it is at {openedFirst.MapLeft:F1},{openedFirst.MapTop:F1} {openedFirst.MapWidth:F1}x{openedFirst.MapHeight:F1}");
+    }
+
+    private static MapSceneBounds RealPlan(string location) => location == "customs"
+        ? new(0, 0, 196.691, 100)
+        : new(0, 0, 92.561, 100);
+
     [Fact]
     public void A_different_artwork_of_the_same_map_redraws_at_its_own_shape()
     {
@@ -187,6 +223,10 @@ public sealed class MapSceneRendererPlanSwitchTests
 
             renderer.PropertyChanged += Changed;
         }
+
+        public double Left => _shown[nameof(MapSceneRendererViewModel.MapLeft)];
+
+        public double Top => _shown[nameof(MapSceneRendererViewModel.MapTop)];
 
         public double Width => _shown[nameof(MapSceneRendererViewModel.MapWidth)];
 
