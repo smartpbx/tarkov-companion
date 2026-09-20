@@ -1,4 +1,5 @@
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Gear;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Profile;
@@ -13,19 +14,23 @@ public sealed record LoadoutItemFacts(
     double? WeightKg,
     string? Caliber,
     IReadOnlySet<string> CompatibleWeaponItemIds,
-    IReadOnlySet<string> CompatibleParentItemIds);
+    IReadOnlySet<string> CompatibleParentItemIds,
+    GearFacts? Gear = null);
 
 public sealed class LoadoutIntelligenceService
 {
     private readonly IReadOnlyDictionary<string, LoadoutItemFacts> _catalog;
     private readonly AmmoIntelligenceService _ammoIntelligenceService;
+    private readonly AmmoKitWarningPolicy _ammoKitWarningPolicy;
 
     public LoadoutIntelligenceService(
         IEnumerable<LoadoutItemFacts> catalog,
-        AmmoIntelligenceService ammoIntelligenceService)
+        AmmoIntelligenceService ammoIntelligenceService,
+        AmmoKitWarningPolicy? ammoKitWarningPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(ammoIntelligenceService);
+        _ammoKitWarningPolicy = ammoKitWarningPolicy ?? AmmoKitWarningPolicy.Default;
 
         _catalog = catalog.ToDictionary(x => x.ItemId, StringComparer.Ordinal);
         _ammoIntelligenceService = ammoIntelligenceService;
@@ -76,21 +81,23 @@ public sealed class LoadoutIntelligenceService
             ? null
             : await _ammoIntelligenceService.GetAsync(selection.AmmunitionItemId, profile, cancellationToken).ConfigureAwait(false);
         var ammoTier = ammo?.Tier ?? "Unknown";
-        long? totalCost = knownItems.Count == selectedIds.Length &&
-            knownItems.All(item => item.ApproximateCostRoubles is not null)
-                ? knownItems.Sum(item => item.ApproximateCostRoubles!.Value)
-                : null;
-        double? totalWeight = knownItems.Count == selectedIds.Length &&
-            knownItems.All(item => item.WeightKg is not null)
-                ? knownItems.Sum(item => item.WeightKg!.Value)
-                : null;
+        // Every occurrence counts: three of the same magazine are three magazines' weight and price.
+        // An id the catalog does not know is one more item with no figures, so it lowers coverage.
+        var priced = knownItems.Where(item => item.ApproximateCostRoubles is not null).ToArray();
+        var weighed = knownItems.Where(item => item.WeightKg is not null).ToArray();
+        var costCoverage = new LoadoutCoverage(priced.Length, selectedIds.Length);
+        var weightCoverage = new LoadoutCoverage(weighed.Length, selectedIds.Length);
+        long? knownCost = priced.Length == 0 ? null : priced.Sum(item => item.ApproximateCostRoubles!.Value);
+        double? knownWeight = weighed.Length == 0 ? null : weighed.Sum(item => item.WeightKg!.Value);
+        long? totalCost = costCoverage.IsComplete ? knownCost : null;
+        double? totalWeight = weightCoverage.IsComplete ? knownWeight : null;
 
         if (ammo is not null && !ammo.ObtainableForProfile)
         {
             warnings.Add("The selected ammunition is not obtainable for the active profile rules.");
         }
 
-        if (ammoTier is "C" or "D" && totalCost is >= 150_000)
+        if (_ammoKitWarningPolicy.Warns(ammoTier, totalCost))
         {
             warnings.Add(FormattableString.Invariant($"{ammoTier}-tier ammunition is weak relative to this {totalCost:N0}-rouble kit."));
         }
@@ -100,7 +107,17 @@ public sealed class LoadoutIntelligenceService
             warnings.Add("Armor is selected without any known plate selection.");
         }
 
-        return new(totalCost, totalWeight, issues.Count == 0, issues, warnings, ammoTier);
+        return new(
+            totalCost,
+            totalWeight,
+            issues.Count == 0,
+            issues,
+            warnings,
+            ammoTier,
+            costCoverage,
+            weightCoverage,
+            knownCost,
+            knownWeight);
     }
 
     private void CheckWeaponAndAmmunition(LoadoutSelection selection, List<string> issues)
