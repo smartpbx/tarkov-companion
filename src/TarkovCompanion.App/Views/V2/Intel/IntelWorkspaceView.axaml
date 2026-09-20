@@ -26,6 +26,12 @@
             <TextBlock Classes="v2-label" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="v2-label" IsVisible="{Binding HasMatchLabel}" Text="{Binding MatchLabel}"
                        TextTrimming="CharacterEllipsis" />
+            <!-- #287 (event state on items): Allergic is a clear chip, Safe/Untested a quiet label. -->
+            <Border Classes="v2-intel-event-chip" HorizontalAlignment="Left"
+                    IsVisible="{Binding EventStateIsAllergic}">
+              <TextBlock Classes="v2-label" Text="{Binding EventStateLabel}" />
+            </Border>
+            <TextBlock Classes="v2-label" IsVisible="{Binding HasQuietEventState}" Text="{Binding EventStateLabel}" />
           </StackPanel>
           <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
             <TextBlock Classes="v2-body" HorizontalAlignment="Right" Text="{Binding PriceLabel}" />
@@ -201,6 +207,14 @@
                                AutomationProperties.AutomationId="v2-shell-intel-heading"
                                AutomationProperties.HeadingLevel="1" Text="{Binding IntelName}" />
                     <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}" Text="{Binding IntelSubtitle}" />
+                    <!-- #287 (event state on items): the top of the detail, same as the row chip. -->
+                    <Border Classes="v2-intel-event-chip" HorizontalAlignment="Left" Margin="0,4,0,0"
+                            IsVisible="{Binding IntelEventStateIsAllergic}"
+                            AutomationProperties.AutomationId="v2-shell-intel-event-state">
+                      <TextBlock Classes="v2-label" Text="{Binding IntelEventStateLabel}" />
+                    </Border>
+                    <TextBlock Classes="v2-label" Margin="0,4,0,0"
+                               IsVisible="{Binding HasQuietIntelEventState}" Text="{Binding IntelEventStateLabel}" />
                   </StackPanel>
                   <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Top"
                           AutomationProperties.AutomationId="v2-shell-intel-close"

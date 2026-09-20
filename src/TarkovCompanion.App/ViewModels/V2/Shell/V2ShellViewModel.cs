@@ -179,7 +179,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // Package 33 (#287): the Intel landing page's four real sections, same reasoning again.
         IIntelLandingService? intelLanding = null,
         // #287 (Crafts & barters tab): same reasoning again.
-        IIntelTradeCatalogService? intelTrade = null)
+        IIntelTradeCatalogService? intelTrade = null,
+        // #287 (event state on items): same reasoning again.
+        IIntelEventStateCatalog? intelEventStates = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -203,7 +205,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             team,
             options.DeveloperMode,
             intelLanding,
-            intelTrade)
+            intelTrade,
+            intelEventStates)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         if (selfTest is not null && SetupWorkspace is not null)
@@ -265,7 +268,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false,
         IIntelLandingService? intelLanding = null,
-        IIntelTradeCatalogService? intelTrade = null)
+        IIntelTradeCatalogService? intelTrade = null,
+        IIntelEventStateCatalog? intelEventStates = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -286,7 +290,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             team,
             developerMode,
             intelLanding,
-            intelTrade)
+            intelTrade,
+            intelEventStates)
     {
     }
 
@@ -310,7 +315,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false,
         IIntelLandingService? intelLanding = null,
-        IIntelTradeCatalogService? intelTrade = null)
+        IIntelTradeCatalogService? intelTrade = null,
+        IIntelEventStateCatalog? intelEventStates = null)
     {
         _lifetimeToken = _lifetime.Token;
         _developerMode = developerMode;
@@ -325,6 +331,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _intel = intel ?? NullItemIntelService.Instance;
         _intelLanding = intelLanding ?? NullIntelLandingService.Instance;
         _intelTrade = intelTrade ?? NullIntelTradeCatalogService.Instance;
+        _intelEventStateCatalog = intelEventStates ?? NullIntelEventStateCatalog.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
         Legacy = legacy;
         RaidCockpit = raidCockpit;

@@ -474,6 +474,9 @@ public static class AppComposition
         services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
         services.AddSingleton<IEventCatalog>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
         services.AddSingleton<IEventAuthoring>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
+        // #287 (event state on items): the Events page's Safe/Allergic/Untested result for every
+        // item in a running event, read as one map for Intel's chips.
+        services.AddSingleton<IIntelEventStateCatalog, IntelEventStateCatalog>();
 
         // The aggregation service takes its requirements as constructor collections, and
         // nothing ever registered one, so it always answered "0 needed". That silently

@@ -541,6 +541,43 @@ internal static class Program
                 }
             }
 
+            // #287 (event state on items): creates an event, marks one item Allergic on it, and
+            // (with --route intel) searches Intel for the same item so its row and detail chip
+            // can be photographed.
+            if (args.Contains("--intel-allergic-demo"))
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Allergy Test";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = "bandage";
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                if (events.Matches.Count > 0)
+                {
+                    events.Matches[0].AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    events.Items[0].MarkAllergicCommand.Execute(null);
+                    Pump(60);
+                }
+
+                // Intel's own event-state map is read no more than once per
+                // IntelEventStateRefreshInterval; this run's own periodic tick may have already
+                // cached an earlier (pre-mark) read during the pumping above, so give one more
+                // full interval before asking Intel to search, rather than photographing a race.
+                Pump(120);
+
+                if (shell is not null)
+                {
+                    shell.SearchText = "bandage";
+                    DrainUntilComplete(shell.SearchAsync());
+                    Pump(120);
+                }
+            }
+
             if (fleaQuery is not null)
             {
                 viewModel.Flea.SearchQuery = fleaQuery;

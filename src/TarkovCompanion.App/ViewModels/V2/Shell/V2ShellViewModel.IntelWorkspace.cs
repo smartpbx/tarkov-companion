@@ -4,6 +4,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Core.Domain.Ammo;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Items;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
@@ -73,12 +74,19 @@ public sealed record V2IntelResultRowViewModel(
     ICommand OpenCommand,
     string Size = "",
     string PerSlotLabel = "",
-    string MatchLabel = "")
+    string MatchLabel = "",
+    // #287: the Events page's Safe/Allergic/Untested result for this item, where it is part of
+    // a currently-running event. Empty for every item outside one, which is the common case and
+    // draws no chip at all.
+    string EventStateLabel = "",
+    bool EventStateIsAllergic = false)
 {
     public string AutomationId => $"v2-intel-result-{ItemId}";
     public string Subtitle => string.IsNullOrEmpty(Size) ? Category : $"{Category} · {Size}";
     public bool HasPerSlot => PerSlotLabel.Length > 0;
     public bool HasMatchLabel => MatchLabel.Length > 0;
+    public bool HasEventState => EventStateLabel.Length > 0;
+    public bool HasQuietEventState => HasEventState && !EventStateIsAllergic;
 }
 
 /// <summary>One armor class's verdict for an ammo round, for the strip in the ballistics card.</summary>
@@ -125,6 +133,14 @@ public sealed partial class V2ShellViewModel
     private readonly IIntelTradeCatalogService _intelTrade;
     private static readonly TimeSpan IntelTradeRefreshInterval = TimeSpan.FromSeconds(30);
     private DateTimeOffset _intelTradeRefreshedUtc = DateTimeOffset.MinValue;
+
+    // #287 (event state on items): every item's Events-page result, for a running event, read as
+    // one map rather than one profile/event-catalog round trip per row (#453's own reasoning).
+    private readonly IIntelEventStateCatalog _intelEventStateCatalog;
+    private static readonly TimeSpan IntelEventStateRefreshInterval = TimeSpan.FromSeconds(2);
+    private IReadOnlyDictionary<string, EventItemState> _intelEventStates = new Dictionary<string, EventItemState>(StringComparer.Ordinal);
+    private DateTimeOffset _intelEventStatesLoadedUtc = DateTimeOffset.MinValue;
+    private bool _intelEventStatesLoading;
 
     /// <summary>
     /// How many hits an Intel search keeps. V1's cards fit a dozen; this list scrolls, and a
@@ -204,7 +220,9 @@ public sealed partial class V2ShellViewModel
                         result.ValuePerSlotRoubles is { } perSlot
                             ? V2ShellText.Format("V2.Shell.Intel.PerSlot", CultureInfo.CurrentCulture, perSlot)
                             : string.Empty,
-                        MatchNote(result));
+                        MatchNote(result),
+                        EventStateLabel(result.Id),
+                        IntelEventState(result.Id) == EventItemState.Allergic);
                 })
                 .ToArray();
         }
@@ -563,6 +581,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelHomeNeededNow), nameof(IntelHomePinned), nameof(IntelHomeRecent), nameof(IntelHomeHighestValue),
             nameof(HasIntelHomeNeededNow), nameof(HasIntelHomePinned), nameof(HasIntelHomeRecent), nameof(HasIntelHomeHighestValue),
             nameof(ShowsIntelHomeEmpty),
+            nameof(HasIntelEventState), nameof(IntelEventStateIsAllergic), nameof(HasQuietIntelEventState), nameof(IntelEventStateLabel),
             nameof(IntelMadeBy), nameof(IntelUsedIn), nameof(HasIntelMadeBy), nameof(HasIntelUsedIn), nameof(ShowsIntelTradeSection),
         })
         {
@@ -652,7 +671,9 @@ public sealed partial class V2ShellViewModel
             row.ValueRoubles is { } roubles ? Roubles(roubles) : V2ShellText.Get("V2.Shell.Intel.NoPrice"),
             string.Equals(row.ItemId, selected, StringComparison.Ordinal),
             new DelegateCommand(() => OpenSuggestedItem(row.ItemId, automationId)),
-            MatchLabel: matchLabel);
+            MatchLabel: matchLabel,
+            EventStateLabel: EventStateLabel(row.ItemId),
+            EventStateIsAllergic: IntelEventState(row.ItemId) == EventItemState.Allergic);
     }
 
     /// <summary>
@@ -775,6 +796,71 @@ public sealed partial class V2ShellViewModel
         return ids;
     }
 
+    // #287 (event state on items): Allergic draws a clear chip, Safe/Untested a quiet one, and an
+    // item outside every running event draws none at all.
+    public bool HasIntelEventState => IntelHasResult && EventStateLabel(IntelItem).Length > 0;
+    public bool IntelEventStateIsAllergic => IntelEventState(IntelItem) == EventItemState.Allergic;
+    public bool HasQuietIntelEventState => HasIntelEventState && !IntelEventStateIsAllergic;
+    public string IntelEventStateLabel => EventStateLabel(IntelItem);
+
+    private EventItemState IntelEventState(string itemId) =>
+        itemId.Length > 0 && _intelEventStates.TryGetValue(itemId, out var state) ? state : EventItemState.Unknown;
+
+    private string EventStateLabel(string itemId) => IntelEventState(itemId) switch
+    {
+        EventItemState.Allergic => V2ShellText.Get("V2.Shell.Intel.Event.Allergic"),
+        EventItemState.Safe => V2ShellText.Get("V2.Shell.Intel.Event.Safe"),
+        EventItemState.Untested => V2ShellText.Get("V2.Shell.Intel.Event.Untested"),
+        _ => string.Empty,
+    };
+
+    /// <summary>Re-reads the profile's event results for the running events, on the same throttle as the landing page.</summary>
+    private void RefreshIntelEventStatesIfNeeded()
+    {
+        if (_intelEventStatesLoading)
+        {
+            return;
+        }
+
+        // Once something is actually known, re-checking is throttled like the landing page.
+        // While nothing is (a brand-new event with nothing recorded against it yet, or simply
+        // not read once since startup), every tick retries rather than waiting out a throttle
+        // window for a state that is sitting right there.
+        var stale = _clock.GetUtcNow() - _intelEventStatesLoadedUtc > IntelEventStateRefreshInterval;
+        if (!stale && _intelEventStates.Count > 0)
+        {
+            return;
+        }
+
+        _intelEventStatesLoading = true;
+        _ = LoadIntelEventStatesAsync();
+    }
+
+    private async Task LoadIntelEventStatesAsync()
+    {
+        IReadOnlyDictionary<string, EventItemState> states;
+        try
+        {
+            states = await _intelEventStateCatalog.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _intelEventStatesLoading = false;
+            return;
+        }
+
+        if (_disposed)
+        {
+            return;
+        }
+
+        _intelEventStates = states;
+        _intelEventStatesLoadedUtc = _clock.GetUtcNow();
+        _intelEventStatesLoading = false;
+        RaiseIntelWorkspaceChanged();
+        RaiseIntelChanged();
+    }
+
     // #287 (Crafts & barters tab): item detail's "Made by"/"Used in" sections, read straight off
     // the tab's own already-loaded, already-priced list — no separate query.
     public string IntelMadeByHeading => V2ShellText.Get("V2.Shell.Intel.Trade.MadeBy");
@@ -791,8 +877,8 @@ public sealed partial class V2ShellViewModel
     public bool ShowsIntelTradeSection => IntelHasResult;
 
     /// <summary>
-    /// One shared tick for everything #287's Crafts &amp; barters tab added beside the landing
-    /// page: the tab's own cache (cheap to ask, expensive only when it has actually gone stale),
+    /// One shared tick for everything #287 added beside the landing page: the trade tab's own
+    /// cache (cheap to ask, expensive only when it has actually gone stale), the event-state map,
     /// and the currently-open item's Made by/Used in, which are a plain in-memory filter over the
     /// trade list and never worth a network/database round trip of their own.
     /// </summary>
@@ -809,6 +895,7 @@ public sealed partial class V2ShellViewModel
             CraftsBartersWorkspace?.RefreshIfStale();
         }
 
+        RefreshIntelEventStatesIfNeeded();
         if (HasIntelSelection)
         {
             OnPropertyChanged(nameof(IntelMadeBy));
@@ -838,4 +925,13 @@ internal sealed class NullIntelTradeCatalogService : IIntelTradeCatalogService
 
     public Task<IReadOnlyList<IntelTradeRow>> GetAllAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<IntelTradeRow>>([]);
+}
+
+/// <summary>The fallback used in tests that build the shell without composing the event-state catalog.</summary>
+internal sealed class NullIntelEventStateCatalog : IIntelEventStateCatalog
+{
+    public static readonly NullIntelEventStateCatalog Instance = new();
+
+    public Task<IReadOnlyDictionary<string, EventItemState>> GetActiveAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyDictionary<string, EventItemState>>(new Dictionary<string, EventItemState>(StringComparer.Ordinal));
 }
