@@ -394,5 +394,12 @@ To see one: `tools/V2RenderPreview --appearance light|dark|high-contrast|system`
 `--color-vision red-green|blue-yellow|mono`, `--text-scale 100..200`,
 `--density compact|comfortable`, `--reduce-motion`.
 
+**Reset, export and import.** #292 task 2 adds one more layer on top, in
+`Application/Services/Setup/SetupSettings{Snapshot,Diff,Export}.cs`: a small bundle of this record
+plus the notification switches and screenshot retention (never the TarkovTracker token or the
+relay's credentials — there is no field for either), a pure diff between two bundles, and a JSON
+file the same shape `JsonFileWorkspacePreferenceStore` uses. Setup shows the diff and asks before
+any of "Reset this section", "Reset everything" or an import touches anything.
+
 Binding the operational primitives to capture and paired-device transitions stays with those feature
 owners, outside #266; this disconnected gallery deliberately contains no commands or protocol state.

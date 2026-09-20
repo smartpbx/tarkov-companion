@@ -170,6 +170,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SetupProfilesViewModel? profiles = null,
         // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
         SetupAdminViewModel? admin = null,
+        // [#292 task 2] Setup's reset/export/import panel, same reasoning again.
+        SetupSettingsAdminViewModel? settingsAdmin = null,
         // [#309] Setup's screenshot-tidy preview and ledger, same reasoning again.
         SetupCleanupViewModel? cleanup = null,
         // [Issue 379] Setup's per-map quest objective coverage, same reasoning again.
@@ -241,6 +243,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (admin is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAdmin(admin);
+        }
+
+        if (settingsAdmin is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachSettingsAdmin(settingsAdmin);
         }
 
         if (cleanup is not null && SetupWorkspace is not null)

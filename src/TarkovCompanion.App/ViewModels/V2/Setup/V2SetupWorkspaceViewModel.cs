@@ -253,6 +253,21 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasAccessibility));
     }
 
+    /// <summary>#292 task 2: "Reset this section", "Reset everything", export and import, shown
+    /// on every section rather than owning one. Null in a shell built without one.</summary>
+    public SetupSettingsAdminViewModel? SettingsAdmin { get; private set; }
+
+    public bool HasSettingsAdmin => SettingsAdmin is not null;
+
+    /// <summary>Hands this page the settings admin panel, for the reason AttachSelfTest gives.</summary>
+    public void AttachSettingsAdmin(SetupSettingsAdminViewModel settingsAdmin)
+    {
+        SettingsAdmin = settingsAdmin ?? throw new ArgumentNullException(nameof(settingsAdmin));
+        SettingsAdmin.SetCurrentSection(Selected);
+        OnPropertyChanged(nameof(SettingsAdmin));
+        OnPropertyChanged(nameof(HasSettingsAdmin));
+    }
+
     /// <summary>[#292] Whether file paths show in full. Off at every launch; nothing remembers it.</summary>
     public SetupPathDisclosureViewModel Paths { get; }
 
@@ -454,6 +469,9 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
                 cleanup.RefreshLedger();
                 cleanup.LoadAsync().ContinueWith(_ => { }, TaskScheduler.Default);
             }
+
+            // #292 task 2: "Reset this section" acts on whichever section is open now.
+            SettingsAdmin?.SetCurrentSection(value);
         }
     }
 
