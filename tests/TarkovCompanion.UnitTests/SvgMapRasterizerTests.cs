@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Infrastructure.Maps;
@@ -186,15 +185,29 @@ public sealed class SvgMapRasterizerTests
             Path.Combine(directory.Path, "any.png")));
     }
 
-    /// <summary>A child that never finishes is stopped at its deadline.</summary>
+    /// <summary>
+    /// A child that never finishes is stopped at its deadline.
+    /// </summary>
+    /// <remarks>
+    /// The stand-in used to be <c>cmd.exe /c pause</c> on Windows, and <c>pause</c> does not pause
+    /// when its output is redirected — which this rasteriser always does, so it can read the
+    /// child's stderr. The child exited in thirty milliseconds with code 0, the call returned
+    /// successfully, and the test failed with "no exception was thrown". That is worse than a
+    /// flake: on the one platform the application actually ships to, this test could not have
+    /// passed for the right reason, because the deadline was never reached.
+    ///
+    /// <c>ping -n 30</c> waits regardless of redirection. And the assertion is on the message
+    /// rather than on a stopwatch: a regression to an unbounded wait still throws, because the
+    /// child eventually exits non-zero — but it says "exit code", not "was stopped". Naming which
+    /// of the two happened is the invariant; how many seconds a loaded runner took is not.
+    /// </remarks>
     [Fact]
     public async Task AChildThatHangsIsStoppedAtItsDeadline()
     {
         using var directory = new TemporaryDirectory();
         var host = OperatingSystem.IsWindows()
-            ? new SvgRasterizerHost("cmd.exe", ["/c", "pause"], TimeSpan.FromMilliseconds(400))
-            : new SvgRasterizerHost("/bin/sh", ["-c", "sleep 30"], TimeSpan.FromMilliseconds(400));
-        var clock = Stopwatch.StartNew();
+            ? new SvgRasterizerHost("cmd.exe", ["/c", "ping", "-n", "30", "127.0.0.1"], TimeSpan.FromMilliseconds(500))
+            : new SvgRasterizerHost("/bin/sh", ["-c", "sleep 30"], TimeSpan.FromMilliseconds(500));
 
         var failure = await Assert.ThrowsAsync<InvalidDataException>(() => RunChildAsync(
             host,
@@ -202,7 +215,7 @@ public sealed class SvgMapRasterizerTests
             Path.Combine(directory.Path, "any.png")));
 
         Assert.Contains("was stopped", failure.Message, StringComparison.Ordinal);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(20), $"Waited {clock.Elapsed} for a 0.4 second deadline.");
+        Assert.DoesNotContain("exit code", failure.Message, StringComparison.Ordinal);
     }
 
     /// <summary>A shell that prints to stderr and exits with the given code.</summary>
