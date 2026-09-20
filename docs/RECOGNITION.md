@@ -262,6 +262,17 @@ Flea parsing reads visible rouble/RUB rows and optional quantities. It never buy
 clicks, types, contacts a market service, or claims that a listing remained available after
 the captured timestamp.
 
+A row is joined by geometry, not by OCR line order. Each price (a number with a rouble sign or
+`RUB`, the two read back together when the engine returned them as separate lines on one visual
+line) is a row; every other line attaches to the price nearest vertically, and to none when two
+prices are equally near or when it lies further than 2.5 line heights from any. A quantity
+("x3", "×3", "qty 3") is taken from the price's own line or an attached one; two different
+quantities on one row read as none. Bounds cover the price and everything attached, and
+`FleaListing.SourceText` keeps the lines a row was joined from, for review. Not yet measured, because
+no real flea screenshot exists in the corpus: the true row pitch (the 2.5 is a guess to be tuned
+on one), how the engine renders the rouble sign when it loses it, and the condition column. A bare
+number is never taken for a price.
+
 ## Icon fallback
 
 Production icon fallback is explicitly unavailable. No licensed runtime-cached icon
