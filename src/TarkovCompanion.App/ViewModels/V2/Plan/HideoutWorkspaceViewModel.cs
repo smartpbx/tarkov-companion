@@ -50,18 +50,29 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
 
     public int MissingItemCount { get; }
 
+    /// <summary>Items of the next level with no holding recorded: to check, not known to be missing.</summary>
+    public int UnknownItemCount { get; init; }
+
     public string NextLevelSummary => !HasNextLevel
         ? "Fully built."
         : CanBuildNow
             ? $"Level {NextLevel} · you have everything"
-            : $"Level {NextLevel} · missing {MissingItemCount} item(s)";
+            : $"Level {NextLevel} · {Shortfall}";
 
     /// <summary>The short state chip on the station card: ready, how much is missing, or maxed.</summary>
     public string StateLabel => !HasNextLevel
         ? "Max level"
         : CanBuildNow
             ? "Ready"
-            : $"{MissingItemCount} missing";
+            : Shortfall;
+
+    /// <summary>"3 missing", "2 to check", or both. An item nobody counted is not said to be missing.</summary>
+    private string Shortfall => (MissingItemCount, UnknownItemCount) switch
+    {
+        (_, 0) => $"{MissingItemCount} missing",
+        (0, _) => $"{UnknownItemCount} to check",
+        _ => $"{MissingItemCount} missing · {UnknownItemCount} to check",
+    };
 
     public bool IsReady => HasNextLevel && CanBuildNow;
 
@@ -88,8 +99,11 @@ public sealed record HideoutRequirementRowViewModel(
     string Remaining,
     bool IsSatisfied)
 {
-    /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure.</summary>
+    /// <summary>"2 / 5": owned against required, the requirement row's right-hand figure; "? / 5" where no holding is recorded.</summary>
     public string ProgressLabel => $"{Owned} / {Required}";
+
+    /// <summary>Whether a holding is recorded for the item. False is "to check", not "missing".</summary>
+    public bool IsHeldKnown { get; init; } = true;
 
     /// <summary>The cheapest barter, where one beats buying the item and the player's loyalty allows it; empty otherwise.</summary>
     public string CheapestRoute { get; init; } = string.Empty;
@@ -98,11 +112,12 @@ public sealed record HideoutRequirementRowViewModel(
 }
 
 /// <summary>One item still short across the next level of every station, with the totals behind it.</summary>
-public sealed record HideoutRollupRowViewModel(string ItemName, int Need, int Have)
+public sealed record HideoutRollupRowViewModel(string ItemName, int Need, int? Have)
 {
-    public int Remaining => Math.Max(0, Need - Have);
+    public int Remaining => HeldCount.Remaining(Need, Have);
 
-    public string ProgressLabel => $"{Have:N0} / {Need:N0}";
+    /// <summary>"2 / 5", or "? / 5" where no holding is recorded. Unknown is never written as 0.</summary>
+    public string ProgressLabel => Have is { } have ? $"{have:N0} / {Need:N0}" : $"? / {Need:N0}";
 }
 
 /// <summary>
@@ -210,7 +225,22 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
     public bool HasRollup => _rollup.Count > 0;
 
-    public string RollupHeading => _rollup.Count == 1 ? "1 item still needed" : $"{_rollup.Count:N0} items still needed";
+    /// <summary>"3 items still needed", "5 items to check", or both: a holding nobody recorded is not known to be short.</summary>
+    public string RollupHeading
+    {
+        get
+        {
+            var unknown = _rollup.Count(row => row.Have is null);
+            var needed = _rollup.Count - unknown;
+            static string Items(int count) => count == 1 ? "1 item" : $"{count:N0} items";
+            return (needed, unknown) switch
+            {
+                (_, 0) => $"{Items(needed)} still needed",
+                (0, _) => $"{Items(unknown)} to check",
+                _ => $"{Items(needed)} still needed · {Items(unknown)} to check",
+            };
+        }
+    }
 
     /// <summary>"26 stations", the station list's heading figure.</summary>
     public string StationCountLabel => Stations.Count == 1 ? "1 station" : $"{Stations.Count:N0} stations";
@@ -335,16 +365,17 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                     foreach (var requirement in wanted)
                     {
                         var item = await _itemRepository.GetAsync(requirement.ItemId, cancellationToken).ConfigureAwait(false);
-                        var owned = ownedCounts.GetValueOrDefault(requirement.ItemId);
-                        var remaining = Math.Max(0, requirement.Required - owned);
+                        var owned = HeldCount.Of(ownedCounts, requirement.ItemId);
+                        var remaining = HeldCount.Remaining(requirement.Required, owned);
                         built.Add(new(
                             item?.Name ?? requirement.ItemId,
                             Count(requirement.Required),
-                            Count(owned),
+                            owned is { } known ? Count(known) : "?",
                             remaining == 0 ? "Complete" : Count(remaining),
                             remaining == 0)
                         {
                             CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                            IsHeldKnown = owned is not null,
                         });
                     }
 
@@ -356,12 +387,19 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-            var outstanding = Items.Count(row => !row.IsSatisfied);
+            // An item nobody counted is not known to be needed. The rows under this line read "?",
+            // and "4 of 4 still needed" above them said what they did not.
+            var unknown = Items.Count(row => !row.IsHeldKnown);
+            var outstanding = Items.Count(row => !row.IsSatisfied && row.IsHeldKnown);
             Detail = Items.Count == 0
                 ? $"Level {station.NextLevel} needs no items."
-                : outstanding == 0
-                    ? $"Level {station.NextLevel} · you have everything"
-                    : $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed";
+                : (outstanding, unknown) switch
+                {
+                    (0, 0) => $"Level {station.NextLevel} · you have everything",
+                    (_, 0) => $"Level {station.NextLevel} · {outstanding} of {Items.Count} still needed",
+                    (0, _) => $"Level {station.NextLevel} · {unknown} of {Items.Count} to check",
+                    _ => $"Level {station.NextLevel} · {outstanding} still needed · {unknown} to check",
+                };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -461,6 +499,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     {
         BuiltLevel = plan.BuiltLevel,
         MaximumLevel = plan.MaximumLevel,
+        UnknownItemCount = plan.UnknownItemCount,
     };
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
@@ -21,9 +22,10 @@ public sealed record PlanExportGroup(
     IReadOnlyList<string> StillNeeded);
 
 /// <summary>One item the whole plan still asks for, wherever it is needed.</summary>
-public sealed record PlanExportItem(string ItemName, string Handling, int Need, int Have)
+/// <param name="Have">The recorded holding, or null where none is recorded; nothing is taken off an unknown.</param>
+public sealed record PlanExportItem(string ItemName, string Handling, int Need, int? Have)
 {
-    public int Short => Math.Max(0, Need - Have);
+    public int Short => HeldCount.Remaining(Need, Have);
 }
 
 /// <summary>
@@ -109,7 +111,13 @@ public sealed record PlanExportDocument(
             foreach (var item in ShoppingList)
             {
                 text.Append(CultureInfo.InvariantCulture, $"- {item.Short:N0}x {item.ItemName} ({item.Handling.ToLower(culture)})");
-                if (item.Have > 0)
+                if (item.Have is null)
+                {
+                    // The full need is listed because nothing is known that would make it less, and
+                    // the line says so: read without it, "5x" claims the player holds none.
+                    text.Append(" · held unknown");
+                }
+                else if (item.Have > 0)
                 {
                     text.Append(CultureInfo.InvariantCulture, $" · {item.Have:N0} of {item.Need:N0} already held");
                 }
@@ -177,7 +185,7 @@ public static class PlanExport
                         .Where(requirement => !requirement.IsSatisfied)
                         .Select(requirement => string.Create(
                             CultureInfo.CurrentCulture,
-                            $"{requirement.Need - requirement.Have:N0}x {requirement.ItemName}")),
+                            $"{HeldCount.Remaining(requirement.Need, requirement.Have):N0}x {requirement.ItemName}")),
                 ]))
             .ToArray();
 

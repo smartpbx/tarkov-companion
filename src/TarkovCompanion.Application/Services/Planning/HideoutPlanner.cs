@@ -42,7 +42,7 @@ public static class HideoutPlanner
                     .Select(requirement => new HideoutLevelNeed(
                         requirement.ItemId,
                         requirement.Required,
-                        owned.GetValueOrDefault(requirement.ItemId)))
+                        HeldCount.Of(owned, requirement.ItemId)))
                     .ToArray()
                 : [];
             plans.Add(new HideoutStationPlan(
@@ -78,7 +78,7 @@ public static class HideoutPlanner
         return
         [
             .. totals
-                .Select(total => new HideoutShortfall(total.Key, total.Value, owned.GetValueOrDefault(total.Key)))
+                .Select(total => new HideoutShortfall(total.Key, total.Value, HeldCount.Of(owned, total.Key)))
                 .Where(shortfall => shortfall.Remaining > 0)
                 .OrderByDescending(shortfall => shortfall.Remaining)
                 .ThenBy(shortfall => shortfall.ItemId, StringComparer.Ordinal),

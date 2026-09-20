@@ -145,7 +145,7 @@ public static class KeepListPlanner
 
             KeepHideoutNeed[] hideoutNeeds = [];
             if (hideoutByItem.TryGetValue(itemId, out var byStation) &&
-                Math.Max(0, byStation.Values.Sum() - profile.OwnedItemCounts.GetValueOrDefault(itemId)) > 0)
+                HeldCount.Remaining(byStation.Values.Sum(), HeldCount.Of(profile.OwnedItemCounts, itemId)) > 0)
             {
                 hideoutNeeds = byStation
                     .Select(x => new KeepHideoutNeed(x.Key, inputs.StationNames.GetValueOrDefault(x.Key, x.Key), x.Value))
@@ -193,7 +193,7 @@ public static class KeepListPlanner
                 keyReason,
                 hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0)
             {
-                Held = profile.OwnedItemCounts.TryGetValue(itemId, out var held) ? held : null,
+                Held = HeldCount.Of(profile.OwnedItemCounts, itemId),
             });
         }
 

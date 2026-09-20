@@ -73,12 +73,17 @@ public sealed record PlanRequirementRowViewModel(
     string ItemName,
     string HandlingLabel,
     int Need,
-    int Have)
+    int? Have)
 {
-    public bool IsSatisfied => Have >= Need;
+    public bool IsSatisfied => HeldCount.Meets(Need, Have);
 
-    /// <summary>"2 / 5": held against needed, the right-hand figure of the row.</summary>
-    public string ProgressLabel => string.Create(CultureInfo.CurrentCulture, $"{Math.Min(Have, Need):N0} / {Need:N0}");
+    /// <summary>Whether any holding is recorded for it. Where none is, the row says so instead of "0".</summary>
+    public bool IsHeldKnown => Have is not null;
+
+    /// <summary>"2 / 5": held against needed, the right-hand figure of the row; "? / 5" where the holding is not recorded.</summary>
+    public string ProgressLabel => Have is { } have
+        ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
+        : string.Create(CultureInfo.CurrentCulture, $"? / {Need:N0}");
 }
 
 /// <summary>
@@ -189,6 +194,32 @@ public static class PlanQuestRules
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
         ];
+    }
+
+    /// <summary>
+    /// "2 still needed", "3 to check", or both: unmet requirements split by whether the shortfall
+    /// is known. Empty where nothing is unmet.
+    /// </summary>
+    /// <remarks>
+    /// A row whose holding nobody recorded is not known to be short. Counting it as "still needed"
+    /// said the same false thing as "0 / 5", once per page instead of once per row. "To check" is
+    /// what the player can actually do about it.
+    /// </remarks>
+    /// <param name="count">How a count is written: "6" by default, "6 items" for the page's rollup.</param>
+    public static string SummariseUnmet(IEnumerable<PlanRequirementRowViewModel> unmet, Func<int, string>? count = null)
+    {
+        ArgumentNullException.ThrowIfNull(unmet);
+        count ??= value => value.ToString("N0", CultureInfo.CurrentCulture);
+        var rows = unmet.ToArray();
+        var needed = rows.Count(row => row.IsHeldKnown);
+        var unknown = rows.Length - needed;
+        return (needed, unknown) switch
+        {
+            (0, 0) => string.Empty,
+            (_, 0) => $"{count(needed)} still needed",
+            (0, _) => $"{count(unknown)} to check",
+            _ => $"{count(needed)} still needed · {count(unknown)} to check",
+        };
     }
 
     private static string HandlingLabel(RequirementHandling handling) => handling switch
