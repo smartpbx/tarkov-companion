@@ -79,6 +79,7 @@ public sealed class KeepListService
         {
             InterchangeableCounts = questNeeds.InterchangeableCounts,
             Reusable = questNeeds.Reusable,
+            LaterPrestigeTierTaskIds = KeepListPlanner.LaterPrestigeTiers(board.Tasks),
         };
         return await KeepListPlanner.PlanAsync(inputs, ResolveItemAsync, cancellationToken).ConfigureAwait(false);
     }

@@ -413,6 +413,19 @@ internal static class Program
 
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
+            // --keep-find <text>: prints the Keep rows whose name contains the text, because the list
+            // is virtualised and 600 rows long, and a row below the first screen cannot be looked at.
+            if (StringOption(args, "--keep-find") is { } keepFind)
+            {
+                var keep = services.GetRequiredService<KeepListWorkspaceViewModel>();
+                DrainUntilComplete(keep.RefreshAsync());
+                foreach (var row in keep.Groups.SelectMany(group => group.Items)
+                             .Where(row => row.Name.Contains(keepFind, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine($"Keep row: {row.Name} | {row.ReasonSummary} | {row.QuestCountLabel} | {row.HeldLabel}");
+                }
+            }
+
             // [#285] --allergy-demo <item query>: an event holding the first matches, the first of
             // them recorded Allergic, before the pages that warn about it are built up below.
             if (StringOption(args, "--allergy-demo") is { } allergyQuery)

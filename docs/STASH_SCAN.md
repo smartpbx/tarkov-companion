@@ -153,7 +153,10 @@ go through the shared capture dialog as one screenshot.
 - **Owned counts.** On Finish, `StashOwnedCountsApplier` writes the named items' counts to
   `PlayerProfile.OwnedItemCounts`, which is what the hideout requirements, quest item needs and
   the Keep verdict read. A scan with any unknown tile or unplaced screenshot only raises counts;
-  only a scan with everything named and placed may lower one; items it did not see are untouched.
+  only a scan with everything named and placed may lower one. Such an exact scan also records 0
+  for an item a quest or hideout level needs that it did not see and that had no count at all, so
+  the planning pages read "0" instead of "?"; a count already recorded for an unseen item is
+  untouched (it may be in a case), and anything short of exact leaves "?" alone.
 
 ### What was measured, and on what
 

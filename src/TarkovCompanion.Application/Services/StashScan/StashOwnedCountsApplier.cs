@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.Application.Services.StashScan;
@@ -8,13 +9,22 @@ public sealed record StashOwnedCountsChange(int Raised, int Lowered, int Unchang
 {
     public static StashOwnedCountsChange None { get; } = new(0, 0, 0, false);
 
+    /// <summary>
+    /// How many needed items an exact scan did not see and therefore recorded as none held.
+    /// Always 0 for a scan that was not exact.
+    /// </summary>
+    public int RecordedNone { get; init; }
+
     public string Summary => (Raised + Lowered) switch
     {
-        0 when Unchanged == 0 => "No named items, so owned counts are unchanged.",
-        0 => "Owned counts already matched.",
+        0 when Unchanged == 0 && RecordedNone == 0 => "No named items, so owned counts are unchanged.",
+        0 when RecordedNone == 0 => "Owned counts already matched.",
         var changed => string.Create(
             CultureInfo.CurrentCulture,
-            $"Owned counts updated for {changed} item{(changed == 1 ? string.Empty : "s")}."),
+            $"Owned counts updated for {changed + RecordedNone} item{(changed + RecordedNone == 1 ? string.Empty : "s")}.") +
+            (RecordedNone > 0
+                ? string.Create(CultureInfo.CurrentCulture, $" {RecordedNone} needed and not seen, so none held.")
+                : string.Empty),
     };
 }
 
@@ -30,12 +40,19 @@ public sealed record StashOwnedCountsChange(int Raised, int Lowered, int Unchang
 /// <para>
 /// A scan's counts are lower bounds whenever any tile is unknown or any screenshot is unplaced -
 /// the missing items may be exactly there - so such a scan only ever raises a count. Only a scan
-/// with every tile named and every screenshot placed may lower one. Items the scan did not see
-/// are never touched either way: they may be in a case, on the character, or below the last
-/// screenshot.
+/// with every tile named and every screenshot placed may lower one.
+/// </para>
+/// <para>
+/// An exact scan also answers for what it did not see: an item a quest or a hideout level asks
+/// for, which no count has ever been recorded for, is recorded as 0. Until then the planning
+/// pages read "?" for it, and "?" after a complete scan was the scan failing to say what it knew.
+/// Only needed items, and only ones with no record: the owned counts are not a list of everything
+/// the player lacks, and a count somebody typed in (three in a case, say) is theirs to change.
+/// Anything short of exact leaves "?" alone, because the item may be exactly where the scan
+/// could not read.
 /// </para>
 /// </remarks>
-public sealed class StashOwnedCountsApplier(IPlayerProfileService profiles)
+public sealed class StashOwnedCountsApplier(IPlayerProfileService profiles, IRequirementCatalog? requirements = null)
 {
     public async Task<StashOwnedCountsChange> ApplyAsync(StashReconstruction reconstruction, CancellationToken cancellationToken)
     {
@@ -71,11 +88,27 @@ public sealed class StashOwnedCountsApplier(IPlayerProfileService profiles)
             owned[itemId] = after;
         }
 
-        if (raised + lowered > 0)
+        var recordedNone = 0;
+        if (exact && requirements is not null)
+        {
+            var quest = await requirements.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            var hideout = await requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var itemId in quest.Select(need => need.ItemId)
+                         .Concat(hideout.Select(need => need.ItemId))
+                         .Distinct(StringComparer.Ordinal))
+            {
+                if (owned.TryAdd(itemId, 0))
+                {
+                    recordedNone++;
+                }
+            }
+        }
+
+        if (raised + lowered + recordedNone > 0)
         {
             await profiles.SaveAsync(profile with { OwnedItemCounts = owned }, cancellationToken).ConfigureAwait(false);
         }
 
-        return new(raised, lowered, unchanged, exact);
+        return new(raised, lowered, unchanged, exact) { RecordedNone = recordedNone };
     }
 }
