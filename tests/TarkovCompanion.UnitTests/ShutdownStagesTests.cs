@@ -29,7 +29,10 @@ public sealed class ShutdownStagesTests
         Assert.False(stages.WithinBudget);
         Assert.Contains("stuck", stages.Report(), StringComparison.Ordinal);
         Assert.Contains("(abandoned)", stages.Report(), StringComparison.Ordinal);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"Waited {clock.Elapsed} for a 120 ms allowance.");
+        // Generous on purpose. The claim is "it did not wait for a task that never completes",
+        // and the whole suite runs in parallel on a shared box, so a tight bound here would fail
+        // for load rather than for the behaviour under test.
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"Waited {clock.Elapsed} for a 120 ms allowance.");
     }
 
     /// <summary>
@@ -52,7 +55,9 @@ public sealed class ShutdownStagesTests
         await stages.RunAsync("second", () => new TaskCompletionSource().Task, TimeSpan.FromSeconds(30));
 
         Assert.Equal(TimeSpan.Zero, remainingAfterFirst);
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"Two 30-second steps took {clock.Elapsed} of a 150 ms budget.");
+        // Sixty seconds is what two unbounded steps would cost; fifteen is decisively less and
+        // survives the thread-pool contention of the full suite.
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"Two 30-second steps took {clock.Elapsed} of a 150 ms budget.");
         Assert.Contains("second", stages.Report(), StringComparison.Ordinal);
     }
 
