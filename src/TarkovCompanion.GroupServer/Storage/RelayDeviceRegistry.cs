@@ -265,6 +265,22 @@ public sealed class RelayDeviceRegistry
     /// it: a caller reads <see cref="RelayDeviceRecord.Status"/> to tell "has been away" from
     /// "was revoked".
     /// </summary>
+    /// <summary>
+    /// When this relay last heard from its owner on any authenticated call, or null with no owner.
+    /// </summary>
+    /// <remarks>
+    /// [#407] The desktop reads its queue every two seconds whether or not anything is happening,
+    /// so this is the honest answer to "is the desktop there". A tablet used to judge that by the
+    /// age of the last published map, and a desktop sitting still on one map publishes nothing.
+    /// </remarks>
+    public DateTimeOffset? OwnerLastSeenUtc()
+    {
+        var owners = _state.Devices
+            .Where(device => device.Role == DeviceAuthorizationRole.Owner && device.Status == DeviceLifecycleStatus.Active)
+            .ToArray();
+        return owners.Length == 0 ? null : owners.Max(device => device.LastUsedUtc);
+    }
+
     public RelayDeviceRecord? FindPairedDeviceByKey(DeviceKeyId keyId) =>
         CanAuthenticate
             ? _state.Devices.FirstOrDefault(device =>

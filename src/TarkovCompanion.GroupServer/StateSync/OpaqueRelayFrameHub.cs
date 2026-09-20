@@ -265,6 +265,21 @@ public sealed class OpaqueRelayFrameHub
         }
     }
 
+    /// <summary>
+    /// The last delivery id this session's queue has issued, or zero with no queue: where a
+    /// reader's cursor belongs once it has asked for <see cref="ResetAfterReconnect"/>.
+    /// </summary>
+    public long LastIssuedDeliveryId(RelayPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        lock (_gate)
+        {
+            return _registry.IsCurrent(principal) && _queues.TryGetValue(principal.SessionId, out var queue)
+                ? queue.LastIssuedDeliveryId
+                : 0;
+        }
+    }
+
     public int Sweep()
     {
         lock (_gate)

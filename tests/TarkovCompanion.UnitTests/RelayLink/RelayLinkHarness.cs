@@ -42,13 +42,15 @@ public sealed class RelayAdminKeyCollection
 internal sealed class LinkRelay : IAsyncDisposable
 {
     public const string AdminKey = "link-tests-admin-key-0123456789";
-    private readonly WebApplication _app;
+    private readonly RelayTestClock _clock;
     private readonly OwnerRecoveryProtector _recovery;
     private readonly string? _previousAdminKey;
+    private WebApplication _app;
 
-    private LinkRelay(WebApplication app, OwnerRecoveryProtector recovery, Uri origin, RelayDeviceRegistry registry, string? previousAdminKey)
+    private LinkRelay(WebApplication app, RelayTestClock clock, OwnerRecoveryProtector recovery, Uri origin, RelayDeviceRegistry registry, string? previousAdminKey)
     {
         _app = app;
+        _clock = clock;
         _recovery = recovery;
         Origin = origin;
         Registry = registry;
@@ -65,12 +67,36 @@ internal sealed class LinkRelay : IAsyncDisposable
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, AdminKey);
         var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x41, 32).ToArray(), clock);
         var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
+        var app = await HostAsync(clock, registry, recovery, "http://127.0.0.1:0");
+        var address = app.Services.GetRequiredService<IServer>().Features
+            .Get<IServerAddressesFeature>()!.Addresses.First();
+        return new LinkRelay(app, clock, recovery, new Uri(address), registry, previous);
+    }
+
+    /// <summary>
+    /// The relay process going down and coming back on the same address. The device registry is
+    /// the one thing it keeps on disk (relay-devices.json), so the same registry is what comes
+    /// back; queues, the pairing mailbox and the published map are memory and are gone.
+    /// </summary>
+    public async Task RestartAsync()
+    {
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+        _app = await HostAsync(_clock, Registry, _recovery, Origin.GetLeftPart(UriPartial.Authority));
+    }
+
+    private static async Task<WebApplication> HostAsync(
+        RelayTestClock clock,
+        RelayDeviceRegistry registry,
+        OwnerRecoveryProtector recovery,
+        string url)
+    {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddSingleton<CompanionPairingMailbox>();
         builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(url);
         var app = builder.Build();
         app.MapRelayCompanionRoutes(
             registry,
@@ -80,9 +106,7 @@ internal sealed class LinkRelay : IAsyncDisposable
             new RelayMapSurfaceStore(registry, clock));
         app.MapCompanionPairingMailboxRoutes();
         await app.StartAsync();
-        var address = app.Services.GetRequiredService<IServer>().Features
-            .Get<IServerAddressesFeature>()!.Addresses.First();
-        return new LinkRelay(app, recovery, new Uri(address), registry, previous);
+        return app;
     }
 
     public async ValueTask DisposeAsync()
@@ -418,6 +442,11 @@ internal sealed class TabletSimulator : IDisposable
 
     /// <summary>What the page does with a reconnect plan's snapshot: it becomes what the tablet holds.</summary>
     public void AdoptSnapshot(CanonicalCompanionState snapshot) => AuthorityEpoch = snapshot.AuthorityEpoch;
+
+    /// <summary>The page's map read: the surface as the desktop published it, and what the relay says beside it.</summary>
+    public Task<HttpResponseMessage> ReadMapRawAsync() => SendAsync(HttpMethod.Get, "v2/companion/relay/map", null);
+
+    public Task<HttpResponseMessage> ReadArtworkRawAsync() => SendAsync(HttpMethod.Get, "v2/companion/relay/map/artwork", null);
 
     public Task<HttpResponseMessage> ReadFramesRawAsync() => SendAsync(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}", null);
 

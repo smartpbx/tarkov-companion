@@ -67,15 +67,23 @@ public sealed record RelayFrameBatchResponse(
     bool RequiresReconnect,
     DateTimeOffset ServerUtc,
     IReadOnlyList<RelayFrameEnvelope> Frames,
-    IReadOnlyList<RelayResumeRequest>? ResumeRequests = null)
+    IReadOnlyList<RelayResumeRequest>? ResumeRequests = null,
+    RelayHeldMap? Map = null)
 {
-    public static RelayFrameBatchResponse From(RelayFrameBatch batch, IReadOnlyList<RelayResumeRequest>? resumeRequests = null) => new(
+    public static RelayFrameBatchResponse From(
+        RelayFrameBatch batch,
+        IReadOnlyList<RelayResumeRequest>? resumeRequests = null,
+        RelayHeldMap? map = null) => new(
         batch.ProtocolVersion.Major,
         batch.RequiresReconnect,
         batch.ServerUtc,
         batch.Frames.Select(RelayFrameEnvelope.From).ToArray(),
-        resumeRequests is { Count: > 0 } ? resumeRequests : null);
+        resumeRequests is { Count: > 0 } ? resumeRequests : null,
+        map);
 }
+
+/// <summary>Where a reader's cursor belongs after it asked the relay to clear a broken queue.</summary>
+public sealed record RelayFrameResetResponse(long After);
 
 /// <summary>A returning paired device waiting on its desktop, as the owner is told about it.</summary>
 public sealed record RelayResumeRequest(Guid TicketId, string DeviceKeyId);
@@ -154,6 +162,12 @@ public static class RelayCompanionRoutes
 
     /// <summary>The revision of the map this answer carries; a tablet sends it back as <c>since</c>.</summary>
     public const string MapRevisionHeader = "X-Relay-Map-Revision";
+
+    /// <summary>
+    /// Milliseconds since this relay last heard from the desktop that owns it. On every answer to
+    /// a map read, found or not, and stamped after any hold, so it is true when it arrives.
+    /// </summary>
+    public const string OwnerSeenHeader = "X-Relay-Owner-Seen-Ms";
 
     /// <summary>How long a tablet says it will hold, before the relay's own bound.</summary>
     public const string WaitQuery = "wait";
@@ -323,7 +337,36 @@ public static class RelayCompanionRoutes
                     .Select(ticket => new RelayResumeRequest(ticket.TicketId, ticket.DeviceKeyId))
                     .ToArray()
                 : null;
-            return Results.Ok(RelayFrameBatchResponse.From(batch, waiting));
+            // [#407] And what this relay holds of the owner's map, so a desktop learns that a
+            // restart emptied it (or that a picture never arrived) on its next read.
+            return Results.Ok(RelayFrameBatchResponse.From(batch, waiting, mapSurfaces?.Describe(principal)));
+        });
+
+        // [#407] The other half of `requiresReconnect`. The hub has always known how to clear a
+        // queue that overflowed, and nothing could ask it to: once a session's queue had dropped
+        // a frame, every read said "reconnect" for as long as the session lived, and a tablet
+        // answered each one with a full resync request, every second and a half.
+        app.MapPost("/v2/companion/relay/frames/reset", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || hub is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var reset = hub.ResetAfterReconnect(principal);
+            // The caller's cursor belongs wherever this queue now is: zero after a relay restart
+            // (there is no queue), the last id issued after an overflow.
+            return reset.Accepted
+                ? Results.Ok(new RelayFrameResetResponse(hub.LastIssuedDeliveryId(principal)))
+                : Results.BadRequest(reset.Code);
         });
 
         // Acknowledges every frame through a delivery id, freeing this session's queue.
@@ -436,6 +479,13 @@ public static class RelayCompanionRoutes
             var entry = HoldFor(request) is var (since, wait)
                 ? await mapSurfaces.WaitAsync(principal, since, wait, cancellationToken).ConfigureAwait(false)
                 : mapSurfaces.Read(principal);
+            if (registry.OwnerLastSeenUtc() is { } seen)
+            {
+                var elapsed = (app.Services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow() - seen;
+                request.HttpContext.Response.Headers[OwnerSeenHeader] =
+                    Math.Max(0, (long)elapsed.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
+            }
+
             if (entry is null)
             {
                 return Results.NotFound();

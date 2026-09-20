@@ -16,6 +16,9 @@ public sealed record RelayMapSurfaceEntry(
     DateTimeOffset PublishedUtc,
     long Revision);
 
+/// <summary>Whether the relay holds the owner's map, and which picture goes with it.</summary>
+public sealed record RelayHeldMap(bool Held, long Revision, string? ArtworkSha256);
+
 public sealed record RelayMapSurfaceResult(bool Accepted, string? Code)
 {
     public static RelayMapSurfaceResult Ok { get; } = new(true, null);
@@ -195,6 +198,31 @@ public sealed class RelayMapSurfaceStore
 
         woken.TrySetResult();
         return RelayMapSurfaceResult.Ok;
+    }
+
+    /// <summary>
+    /// What this relay holds for its owner, as the owner is told on every read of its queue: the
+    /// revision, and the hash of the picture if it has one. Null for anybody but that owner.
+    /// </summary>
+    /// <remarks>
+    /// [#407] This store is memory-only, so a relay restart empties it, and the desktop only
+    /// uploads when something changed. Without being told, a desktop sitting on one map never
+    /// learned its tablets had been looking at nothing since the restart.
+    /// </remarks>
+    public RelayHeldMap? Describe(RelayPrincipal principal)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        if (!CanPublish(principal))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return _entry is { } entry && entry.OwnerDeviceId == principal.DeviceId
+                ? new RelayHeldMap(true, entry.Revision, entry.ArtworkSha256)
+                : new RelayHeldMap(false, 0, null);
+        }
     }
 
     /// <summary>What an authenticated paired session may read, or null when nothing is published.</summary>
