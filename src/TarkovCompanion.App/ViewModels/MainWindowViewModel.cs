@@ -1802,6 +1802,18 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _diagnosticsStatus = "Nothing copied yet.";
     private readonly SelfTestJournal? _selfTest;
 
+    /// <summary>
+    /// Which pages did not load at startup, asked of whoever knows, when a report is built.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than a list because this page is constructed before startup has finished
+    /// failing; a snapshot taken at construction would always be empty. Owned by
+    /// <see cref="MainWindowViewModel"/>, which is the only thing that runs the page loads and so
+    /// the only thing that knows. Left null by a hand-built test graph, and then the report says
+    /// none, which is the truthful answer for a graph that never ran a startup.
+    /// </remarks>
+    public Func<IReadOnlyList<string>>? StartupFaults { get; set; }
+
     /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
     public string DiagnosticsStatus
     {
@@ -1847,7 +1859,8 @@ public sealed class SettingsPageViewModel : PageViewModel
                 snapshot,
                 snapshot.RecentScreenshotNames,
                 CrashLog.FilePath,
-                summary?.ToSupportFacts(CultureInfo.CurrentCulture));
+                summary?.ToSupportFacts(CultureInfo.CurrentCulture),
+                StartupFaults?.Invoke());
             // The clipboard stays on this machine, so it also carries the self-test's own
             // words — the folders, endpoints and reasons that are most of the answer, and the
             // part SupportBundle may not send anywhere.
@@ -2117,7 +2130,8 @@ public sealed class SettingsPageViewModel : PageViewModel
                 snapshot,
                 snapshot.RecentScreenshotNames,
                 CrashLog.FilePath,
-                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture));
+                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture),
+                StartupFaults?.Invoke());
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -2735,6 +2749,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             // The relay does the filing, because a token on every player's disk is not a thing
             // to arrange, and the group session is the one component that already holds the key.
             SendReport = group.ReportProblemAsync,
+            // Asked at the moment a report is built, not now: startup has not run yet, and what
+            // this answers is which of its pages failed. Without it a player whose Hideout page
+            // never filled in sends a report that says "database ready" and stops there.
+            StartupFaults = () => StartupFaults,
         };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
