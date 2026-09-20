@@ -148,6 +148,11 @@ public sealed class V2ShellHostContractTests
     {
         // V2 rough package 17: search and suggestions moved into the Intel workspace view, which
         // binds the same shell view model.
+        //
+        // Package 33 (#287): the generic "Suggested" list (FilteredSuggestionItems/
+        // SuggestionFilters) was replaced by the landing page's four real sections — what the
+        // active profile needs now, pinned items, recently opened items, and the catalog's
+        // highest-value items — so this asserts those bindings instead.
         var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml")) +
             File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Intel", "IntelWorkspaceView.axaml"));
 
@@ -155,8 +160,9 @@ public sealed class V2ShellHostContractTests
         {
             "CaptureIntents", "CaptureProgressItems", "CaptureAttentionActions", "CaptureReviewActions",
             "CaptureReference", "ProfileContextLabel", "LocalTimeLabel", "RaidContextLabel", "PlanContextLabel",
-            "TeamContextLabel", "DeviceContextLabel", "SelectionContextLabel", "FilteredSuggestionItems",
-            "SuggestionFilters", "PersistenceFailure", "RetryPersistenceCommand",
+            "TeamContextLabel", "DeviceContextLabel", "SelectionContextLabel",
+            "IntelHomeNeededNow", "IntelHomePinned", "IntelHomeRecent", "IntelHomeHighestValue",
+            "PersistenceFailure", "RetryPersistenceCommand",
         })
         {
             Assert.Contains($"{{Binding {binding}}}", shell, StringComparison.Ordinal);
