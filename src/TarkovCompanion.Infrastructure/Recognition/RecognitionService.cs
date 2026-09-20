@@ -5,24 +5,6 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 
 public sealed class RecognitionService : IRecognitionService
 {
-    private static readonly string[] UiChromeTerms =
-    [
-        "inspect",
-        "durability",
-        "ergonomics",
-        "weight",
-        "stash",
-        "sorting table",
-        "pockets",
-        "extracts",
-        "exfil",
-        "flea market",
-        "filter by item",
-        "purchase",
-        "price",
-        "trader rating",
-    ];
-
     private readonly OcrCoordinator _coordinator;
     private readonly CanonicalItemResolverCache _resolverCache;
     private readonly OcrTextNormalizer _normalizer;
@@ -94,27 +76,16 @@ public sealed class RecognitionService : IRecognitionService
         // spends from the frame's deadline like the passes that read the lines. It used to run on
         // the caller's token after the passes had spent theirs. The deadline running out keeps the
         // candidates resolved so far and says so; the caller cancelling still throws.
-        var resolved = new List<RecognitionCandidate>();
+        IReadOnlyList<RecognitionCandidate> candidates = [];
         try
         {
             var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var candidate in ResolveOcrCandidates(coordinated.Candidates, resolver, cancellationToken))
-            {
-                resolved.Add(candidate);
-            }
+            candidates = OcrItemCandidates.Rank(coordinated.Candidates, resolver, _normalizer, cancellationToken);
         }
         catch (OperationCanceledException) when (OcrPipelineDeadline.HasExpired(cancellationToken))
         {
             degraded ??= OcrPipelineDeadline.DiagnosticCode;
         }
-
-        var candidates = resolved
-            .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
-            .Select(group => group.OrderByDescending(candidate => candidate.Confidence.Value).First())
-            .OrderByDescending(candidate => candidate.Confidence.Value)
-            .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
-            .Take(5)
-            .ToList();
 
         var result = new RecognitionResult(context, candidates, image.CapturedUtc) { Detail = detail, Hud = hud };
         var diagnostic = degraded ?? (candidates.Count == 0
@@ -151,30 +122,4 @@ public sealed class RecognitionService : IRecognitionService
         $"health-character={coordinated.SupplementalSignals.HealthAndCharacter.DiagnosticCode}; " +
         $"version-strip={coordinated.SupplementalSignals.VersionStrip.DiagnosticCode}; " +
         coordinated.Detection.Evidence;
-
-    private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(
-        OcrResult result,
-        FuzzyCanonicalItemResolver resolver,
-        CancellationToken cancellationToken)
-    {
-        foreach (var line in result.Lines)
-        {
-            // A provider may return thousands of lines, and each is a fuzzy search of the catalog.
-            cancellationToken.ThrowIfCancellationRequested();
-            var normalized = _normalizer.NormalizeForLookup(line.Text);
-            if (normalized.Length < 2 || IsUiChrome(normalized))
-            {
-                continue;
-            }
-
-            var resolution = resolver.Resolve(line.Text, line.Confidence, bounds: line.Bounds);
-            foreach (var candidate in resolution.Candidates)
-            {
-                yield return candidate with { Evidence = $"{candidate.Evidence}; engine={result.Engine}" };
-            }
-        }
-    }
-
-    private static bool IsUiChrome(string normalized) =>
-        UiChromeTerms.Contains(normalized, StringComparer.Ordinal);
 }

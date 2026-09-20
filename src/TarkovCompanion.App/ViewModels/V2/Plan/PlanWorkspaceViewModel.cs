@@ -12,6 +12,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Quests;
@@ -687,9 +688,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var when = reading.LastObservedUtc?.ToLocalTime();
-        var heard = when is { } moment
-            ? $"The game last reported a quest at {moment:HH:mm}"
+        var heard = reading.LastObservedUtc is { } observed
+            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
             : "The game has reported quests";
         var what = reading.Recorded switch
         {
