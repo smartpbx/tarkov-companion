@@ -486,8 +486,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public IReadOnlyList<RaidMapPickerItemViewModel> MapPicker { get; private set; } = [];
     /// <summary>The picker entry for the map currently shown, for a header selector that stays
     /// showing the current map name rather than resetting to a blank picker each time.</summary>
+    /// <remarks>
+    /// The map that was chosen, not the map that has finished loading: the render model arrives
+    /// with the artwork, and until then the selector in the top bar was blank.
+    /// </remarks>
     public RaidMapPickerItemViewModel? SelectedMap =>
-        MapPicker.FirstOrDefault(item => item.MapId == _map.RenderModel?.Location.Id);
+        MapPicker.FirstOrDefault(item => item.MapId == (_map.SelectedLocation?.Id ?? _map.RenderModel?.Location.Id));
 
     public IReadOnlyList<RaidMarkRowViewModel> Marks { get; private set; } = [];
 
@@ -1284,6 +1288,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         [nameof(MapViewModel.GroupPanel)] = [nameof(GroupPanel), nameof(HasGroupPanel)],
         [nameof(MapViewModel.MarkList)] = [nameof(MarkList), nameof(HasMarkList), nameof(HasReachedMarks)],
         [nameof(MapViewModel.Floors)] = [nameof(CanStack)],
+        [nameof(MapViewModel.SelectedLocation)] = [nameof(SelectedMap), nameof(MapTitle)],
     };
 
     /// <summary>The map state that changes what is drawn on the plan, so the scene is rebuilt.</summary>
@@ -1313,6 +1318,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             {
                 OnPropertyChanged(name);
             }
+        }
+
+        if (e.PropertyName is nameof(MapViewModel.Status) && Renderer is null && _map.RenderModel is null)
+        {
+            UnavailableReason = WaitingForMap();
         }
 
         if (e.PropertyName is nameof(MapViewModel.FloorSource) or nameof(MapViewModel.AutoSelectsFloor))
@@ -1746,7 +1756,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var model = _map.RenderModel;
         if (model is null)
         {
-            SetUnavailable("No map is loaded yet.");
+            SetUnavailable(WaitingForMap());
             return;
         }
 
@@ -2828,6 +2838,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         return result;
     }
+
+    /// <summary>
+    /// What to say while there is no map to draw: what V1 is doing about it, in V1's own words.
+    /// </summary>
+    /// <remarks>
+    /// It was "No map is loaded yet." whatever was happening, which on a first launch was the
+    /// whole page for as long as the map list and the first map took to download. V1's status
+    /// already says which of those it is ("Loading the tarkov.dev map catalog…", "Loading Customs
+    /// · interactive…") and, when the list cannot be fetched at all, that and why.
+    /// </remarks>
+    private string WaitingForMap() => string.IsNullOrWhiteSpace(_map.Status) ? "Loading maps…" : _map.Status;
 
     private void SetUnavailable(string reason)
     {

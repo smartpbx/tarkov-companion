@@ -164,6 +164,29 @@ public sealed class MapVariantSelectionService(IMapVariantPreferenceStore prefer
     public Task ChooseHideControlsWhenIdleAsync(bool hide, CancellationToken cancellationToken) =>
         preferenceStore.SetAsync(HideControlsWhenIdleKey, hide ? "on" : "off", cancellationToken);
 
+    /// <summary>The key the last map on screen is remembered under. Not a location id, like the two above.</summary>
+    private const string LastMapKey = "#last-map";
+
+    /// <summary>
+    /// The map that was on screen last, or null when none has been yet.
+    /// </summary>
+    /// <remarks>
+    /// The app opened on Customs every time, whatever had been played. Somebody who runs Reserve
+    /// all week changed map at every launch. A raid starting moves the map as well, so this is
+    /// usually simply the last map played.
+    /// </remarks>
+    public async Task<string?> LastMapAsync(CancellationToken cancellationToken)
+    {
+        var stored = await preferenceStore.GetAsync(LastMapKey, cancellationToken).ConfigureAwait(false);
+        return string.IsNullOrWhiteSpace(stored) ? null : stored;
+    }
+
+    public Task RememberLastMapAsync(string locationId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(locationId);
+        return preferenceStore.SetAsync(LastMapKey, locationId, cancellationToken);
+    }
+
     public async Task<MapVariant?> SelectAsync(MapLocation location, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(location);

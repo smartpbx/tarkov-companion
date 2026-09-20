@@ -181,6 +181,25 @@ public sealed class TarkovDevMapTests
     }
 
     [Fact]
+    public async Task TheLastMapOnScreenIsRememberedAcrossLaunchesWithoutDisturbingAMapsOwnChoices()
+    {
+        using var directory = new TemporaryDirectory();
+        var settingsPath = Path.Combine(directory.Path, "map-defaults.json");
+        var location = CreateLocationWithAssets();
+        var service = new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath));
+
+        Assert.Null(await service.LastMapAsync(CancellationToken.None));
+
+        await service.ChooseAsync(location, "two-dimensional", CancellationToken.None);
+        await service.RememberLastMapAsync("reserve", CancellationToken.None);
+        await service.RememberLastMapAsync("factory", CancellationToken.None);
+        var relaunched = new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath));
+
+        Assert.Equal("factory", await relaunched.LastMapAsync(CancellationToken.None));
+        Assert.Equal("two-dimensional", (await relaunched.SelectAsync(location, CancellationToken.None))?.Key);
+    }
+
+    [Fact]
     public async Task CorruptMapDefaultsFallBackAndCanBeReplacedSafely()
     {
         using var directory = new TemporaryDirectory();
