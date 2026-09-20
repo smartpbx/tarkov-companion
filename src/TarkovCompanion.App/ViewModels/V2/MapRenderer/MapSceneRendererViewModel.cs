@@ -335,6 +335,35 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The one flat picture, drawn only while the stack is not.</summary>
     public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
 
+    /// <summary>The layer whose switch shows and hides <see cref="TrafficHeatImage"/>.</summary>
+    public static readonly MapSceneLayerId TrafficHeatLayerId = new("traffic-prior");
+
+    /// <summary>
+    /// [Issue 286] A host-made picture of a modelled traffic field, stretched over the plan rectangle.
+    /// </summary>
+    /// <remarks>
+    /// A picture rather than scene objects because a field is a few thousand cells and the scene is
+    /// a list of things with names: the layer's objects are its few hotspots, which is what a list
+    /// or a screen reader can say, and this is what the eye reads. Drawn only on the flat plan — a
+    /// floor stack offsets every plate, and one field cannot sit on all of them.
+    /// </remarks>
+    public IImage? TrafficHeatImage { get; private set; }
+
+    public bool ShowsTrafficHeat => TrafficHeatImage is not null && !HasFloorStack &&
+        _scene.Layers.Any(layer => layer.Id == TrafficHeatLayerId) && IsLayerVisible(TrafficHeatLayerId);
+
+    public void SetTrafficHeat(IImage? image)
+    {
+        if (ReferenceEquals(TrafficHeatImage, image))
+        {
+            return;
+        }
+
+        TrafficHeatImage = image;
+        OnPropertyChanged(nameof(TrafficHeatImage));
+        OnPropertyChanged(nameof(ShowsTrafficHeat));
+    }
+
     /// <summary>
     /// What the Layers button says: the word, and how many layers are on.
     /// </summary>
@@ -2080,6 +2109,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         OnPropertyChanged(nameof(ThreeDimensionalFallback));
         OnPropertyChanged(nameof(ShowsModeFallback));
         OnPropertyChanged(nameof(ShowsThreeDimensionalFallback));
+        OnPropertyChanged(nameof(ShowsTrafficHeat));
         if (modes) OnPropertyChanged(nameof(Modes));
         if (floors)
         {

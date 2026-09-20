@@ -388,6 +388,20 @@ internal static class Program
                     setupPage.Paths.ToggleCommand.Execute(null);
                 }
 
+                // [#292 task 2] Exercises the real reset-everything preview against whatever the
+                // seed database actually holds, rather than a static mock of the dialog. Changes
+                // the theme first so the preview has at least one real row to show.
+                if (args.Contains("--settings-reset-preview"))
+                {
+                    if (setupPage.Appearance is { } appearanceForReset)
+                    {
+                        appearanceForReset.Themes.Single(choice => choice.Id == "theme-light").ChooseCommand.Execute(null);
+                        Pump(10);
+                    }
+
+                    setupPage.SettingsAdmin?.ResetAllCommand.Execute(null);
+                }
+
                 if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
                     && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
                 {
@@ -750,6 +764,22 @@ internal static class Program
                             Console.Error.WriteLine($"No map layer '{layerId}'.");
                         }
                         else if (!layer.IsVisible)
+                        {
+                            layer.ToggleCommand.Execute(null);
+                            Pump(10);
+                        }
+                    }
+
+                    Pump(20);
+                }
+
+                // [Issue 286] The other press: a layer the map opens with, switched off.
+                if (StringOption(args, "--map-layers-off") is { } unwanted && raid.Renderer is { } offRenderer)
+                {
+                    foreach (var layerId in unwanted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (offRenderer.Layers.FirstOrDefault(item =>
+                                string.Equals(item.Layer.Id.Value, layerId, StringComparison.OrdinalIgnoreCase)) is { IsVisible: true } layer)
                         {
                             layer.ToggleCommand.Execute(null);
                             Pump(10);
@@ -1218,6 +1248,34 @@ internal static class Program
                 Pump(20);
             }
 
+            // [Issue 286] Press a step of the traffic phase control: auto, early, mid or late.
+            if (StringOption(args, "--traffic-phase") is { } trafficPhase &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel phasedRaid)
+            {
+                phasedRaid.TrafficPhases
+                    .FirstOrDefault(choice => string.Equals(choice.Label, trafficPhase, StringComparison.OrdinalIgnoreCase))
+                    ?.SelectCommand.Execute(null);
+                Pump(40);
+            }
+
+            // [Issue 286] Press an extract's row, so the routes drawn are the ones to it.
+            if (StringOption(args, "--route-extract") is { } routeExtract &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routedRaid)
+            {
+                if (routedRaid.MapExtracts.FirstOrDefault(row =>
+                        row.Name.Contains(routeExtract, StringComparison.OrdinalIgnoreCase)) is { RouteCommand: { } press })
+                {
+                    press.Execute(null);
+                    Pump(40);
+                }
+                else
+                {
+                    Console.Error.WriteLine(
+                        $"No routed extract matches '{routeExtract}'. Routed: " +
+                        string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
+                }
+            }
+
             // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
             // one exit marked offered, the card open. After
             // --raid-demo, because that publishes a new raid and a new raid drops every correction. "return" then undoes the side, to show both states.
@@ -1262,6 +1320,31 @@ internal static class Program
                         .WatchOnMapCommand.Execute(null);
                     // The shell picks the raid's map, opens the replay and navigates: three async steps.
                     Pump(120);
+                }
+
+                // #291 package 2: put the raid list on a search or a filter before the frame, the
+                // same way Plan does, so a render can show what a filtered history looks like.
+                var debriefSearch = StringOption(args, "--debrief-search");
+                var debriefOutcome = StringOption(args, "--debrief-filter-outcome");
+                var debriefSide = StringOption(args, "--debrief-filter-side");
+                if (debriefSearch is not null || debriefOutcome is not null || debriefSide is not null)
+                {
+                    if (debriefSearch is not null)
+                    {
+                        debrief.SearchText = debriefSearch;
+                    }
+
+                    if (debriefOutcome is not null)
+                    {
+                        debrief.OutcomeFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefOutcomeFilter>(debriefOutcome, ignoreCase: true);
+                    }
+
+                    if (debriefSide is not null)
+                    {
+                        debrief.SideFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefSideFilter>(debriefSide, ignoreCase: true);
+                    }
+
+                    Pump(20);
                 }
             }
 
@@ -1483,8 +1566,18 @@ internal static class Program
         }
 
         await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
-        await Raid("woods", TimeSpan.FromDays(1), TimeSpan.FromMinutes(38), null, "Ran the sawmill");
-        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, "Dorms then RUAF roadblock");
+        // The companion's own words for a raid it found closed on restart, so the preview shows an
+        // inferred end beside the hand-typed and observed ones.
+        await Raid(
+            "woods",
+            TimeSpan.FromDays(1),
+            TimeSpan.FromMinutes(38),
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartOutcome,
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartNotes);
+        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, null);
+        // A player's correction, through the same call Debrief's Save button makes, so it is stored
+        // as a correction event and reads as manual.
+        await history.CorrectAsync(newest, "Survived", "Dorms then RUAF roadblock", CancellationToken.None);
         // Re-timed to fall inside the raid they belong to: the demo trail is stamped minutes ago, and
         // the raid above started two hours back.
         var raidStart = now - TimeSpan.FromHours(2);
@@ -1500,6 +1593,34 @@ internal static class Program
                 System.Text.Json.JsonSerializer.Serialize(stamped, json),
                 CancellationToken.None);
         }
+
+        // Scans taken during that raid, written as the runtime writes them (default JSON options):
+        // two items it recognised, one screenshot that showed nothing it could name.
+        var scanned = raidStart + TimeSpan.FromMinutes(6);
+        foreach (var (name, id, value, confidence, action) in new[]
+        {
+            ("Graphics card", "57347ca924597744596b4e71", 232_000L, 0.94, "Take"),
+            ("Salewa first aid kit", "544fb45d4bdc2dee738b4568", 27_500L, 0.81, "Sell"),
+        })
+        {
+            scanned += TimeSpan.FromMinutes(4);
+            await history.RecordEventAsync(
+                newest,
+                "scan",
+                scanned,
+                System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                    true, true, id, name, value, value, action, new(confidence), scanned, "screenshot", "preview")),
+                CancellationToken.None);
+        }
+
+        scanned += TimeSpan.FromMinutes(3);
+        await history.RecordEventAsync(
+            newest,
+            "scan",
+            scanned,
+            System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                true, false, null, null, null, null, null, new(0), scanned, "screenshot", "preview")),
+            CancellationToken.None);
 
         return newest;
     }

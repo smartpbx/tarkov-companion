@@ -49,6 +49,10 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
+    <Style Selector="Border.v2-raid-routed">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
     <Style Selector="Border.v2-raid-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -257,6 +261,66 @@
                       AutomationProperties.AutomationId="v2-raid-replay-forward" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="Close" Command="{Binding Replay.CloseCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-close" />
+            </StackPanel>
+          </Border>
+
+          <!-- [Issue 286] What the heat on the plan is, said on the plan: modelled, from what, through
+               when. One line high and only while the layer is drawn; the legend's ramp is the
+               picture's own (TrafficHeatPicture.Colour), which is why its colours are written out. -->
+          <Border Classes="v2-raid-caption" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0"
+                  Padding="4" Opacity="0.95" IsVisible="{Binding ShowsTrafficBanner}" IsHitTestVisible="False"
+                  AutomationProperties.AutomationId="v2-raid-traffic-banner"
+                  AutomationProperties.Name="{Binding TrafficBannerBasis}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border BorderBrush="{DynamicResource V2.Brush.Warning}" BorderThickness="1" Padding="8,4"
+                      CornerRadius="{DynamicResource V2.Shape.Control}" VerticalAlignment="Center">
+                <TextBlock Classes="v2-label" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
+                           Text="{Binding TrafficBannerTitle}" />
+              </Border>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,6,0">
+                <TextBlock Classes="v2-label" Text="{Binding TrafficBannerBasis}" />
+                <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding TrafficBannerDetail}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-raid-caption" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,34"
+                  Padding="8,6" Opacity="0.95" IsVisible="{Binding ShowsTrafficBanner}"
+                  AutomationProperties.AutomationId="v2-raid-traffic-legend">
+            <StackPanel Spacing="5" Width="232">
+              <!-- The concept's raid-phase scrubber, as the three steps the model has; it belongs to
+                   this layer, so it is here with the legend and goes when the layer does. -->
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ToolTip.Tip="{Binding TrafficPhaseTip}">
+                <TextBlock Classes="v2-label" Text="Phase" VerticalAlignment="Center" />
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding TrafficPhases}"
+                              AutomationProperties.AccessibilityView="Control"
+                              AutomationProperties.Name="Modelled traffic raid phase">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
+                      <ToggleButton Classes="v2-raid-viewcontrol" Padding="4,2" MinHeight="0" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" FontSize="12"
+                                    IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
+                                    Content="{Binding Label}"
+                                    AutomationProperties.AutomationId="{Binding AutomationId}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Grid>
+              <Border Height="8" CornerRadius="4">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                    <GradientStop Offset="0" Color="#33FFC446" />
+                    <GradientStop Offset="0.5" Color="#FFFF7824" />
+                    <GradientStop Offset="1" Color="#FFDC2C22" />
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="v2-label" Text="Lower modelled traffic" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Higher" />
+              </Grid>
             </StackPanel>
           </Border>
 
@@ -615,6 +679,44 @@
             </StackPanel>
           </Border>
 
+          <!-- [Issue 286] The concept's "Lower-contact route" and "Why this route", as one card: the
+               two lines the map draws with how long each is, then the reasons, which are the two
+               routes' own numbers and nothing else. -->
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasSuggestedRoute}"
+                  AutomationProperties.AutomationId="v2-raid-route">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-heading-3" Text="Lower-contact route" />
+              <StackPanel Spacing="0">
+                <TextBlock Classes="v2-body" Text="{Binding RouteTitle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding RouteStartLabel}" />
+              </StackPanel>
+              <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8">
+                <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FF5CF0FF" StrokeThickness="4" StrokeDashArray="2,1.5" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Suggested · lower contact" />
+                <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding PrimaryRouteEstimate}" />
+              </Grid>
+              <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8" IsVisible="{Binding HasAlternativeRoute}">
+                <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FFD7DEE6" StrokeThickness="3" StrokeDashArray="2,1.5" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Direct line · higher contact" />
+                <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding AlternativeRouteEstimate}" />
+              </Grid>
+              <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="Why this route" Margin="0,4,0,0" />
+              <ItemsControl ItemsSource="{Binding RouteReasons}" AutomationProperties.AutomationId="v2-raid-route-reasons">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="v2-label" Opacity="0.75" Text="{Binding RouteCaveat}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding RouteHint}" TextWrapping="Wrap"
+                     IsVisible="{Binding ShowsRouteHint}" AutomationProperties.AutomationId="v2-raid-route-hint" />
+
           <!-- V2 rough package 20: the accent edge is for a card with something in it. While the
                game-data refresh is failing this one is a single muted line, and it should not be
                the loudest thing in the panel. -->
@@ -656,15 +758,27 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:RaidExtractRowViewModel">
+                    <!-- [Issue 286] A row with a planned route is a button: pressing it draws that
+                         extract's routes. A row without one has no command and presses nothing. -->
+                    <Button Classes="v2-raid-rowbutton" Command="{Binding RouteCommand}"
+                            IsHitTestVisible="{Binding HasEstimate}" Focusable="{Binding HasEstimate}"
+                            AutomationProperties.AutomationId="v2-raid-extract-row"
+                            AutomationProperties.Name="{Binding Name}">
                     <Border Classes="v2-raid-row"
                             Classes.v2-raid-offered="{Binding IsOffered}"
+                            Classes.v2-raid-routed="{Binding IsRouted}"
                             Classes.v2-raid-not-offered="{Binding IsNotOffered}">
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                         <Viewbox Width="20" Height="20">
                           <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Exit}" />
                         </Viewbox>
-                        <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Name}"
-                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                        <!-- The estimate sits under the name, not beside it: beside it, "RUAF Roadblock"
+                             read "RUAF R…" at the panel's default width. -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}"
+                                     TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                          <TextBlock Classes="v2-label" Opacity="0.85" Text="{Binding Estimate}" IsVisible="{Binding HasEstimate}" />
+                        </StackPanel>
                         <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
                         <Border Grid.Column="3" Classes="v2-raid-chip" Classes.v2-raid-muted="{Binding IsNotOffered}"
                                 IsVisible="{Binding HasOfferLabel}" VerticalAlignment="Center">
@@ -672,6 +786,7 @@
                         </Border>
                       </Grid>
                     </Border>
+                    </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

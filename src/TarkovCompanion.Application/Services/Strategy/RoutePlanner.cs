@@ -17,6 +17,9 @@ public sealed class RoutePlanner : IRoutePlanner
             return Unavailable(mode, "The requested start or destination is absent from the navigation graph.");
         }
 
+        // Grouped once: scanning every edge for every node visited is fine for a hand-authored
+        // graph of a dozen nodes and takes seconds on the Raid map's grid of a thousand.
+        var outgoing = graph.Edges.ToLookup(edge => edge.FromNodeId, StringComparer.OrdinalIgnoreCase);
         var costs = nodes.Keys.ToDictionary(key => key, _ => double.PositiveInfinity, StringComparer.OrdinalIgnoreCase);
         var previous = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var queue = new PriorityQueue<string, double>();
@@ -35,9 +38,8 @@ public sealed class RoutePlanner : IRoutePlanner
                 break;
             }
 
-            foreach (var edge in graph.Edges.Where(edge =>
-                         string.Equals(edge.FromNodeId, currentId, StringComparison.OrdinalIgnoreCase)
-                         && edge.Phases.Contains(phase)
+            foreach (var edge in outgoing[currentId].Where(edge =>
+                         edge.Phases.Contains(phase)
                          && nodes.ContainsKey(edge.ToNodeId)))
             {
                 var edgeCost = Cost(edge, nodes[edge.ToNodeId], mode);

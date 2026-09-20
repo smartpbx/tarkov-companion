@@ -36,6 +36,16 @@ public sealed class V2AppearanceApplier
     /// <summary>The class the window carries while transitions are suppressed.</summary>
     public const string ReducedMotionClass = "v2-motion-reduced";
 
+    /// <summary>
+    /// The class the window carries while the focus ring draws after a pointer click too.
+    /// </summary>
+    /// <remarks>
+    /// The same reasoning as <see cref="ReducedMotionClass"/>: a `:focus-visible` selector has no
+    /// class to toggle, so an ancestor class is what a style rule can actually key on. See the
+    /// `Window.v2-focus-always` rules in V2PrimitiveStyles.axaml.
+    /// </remarks>
+    public const string FocusAlwaysVisibleClass = "v2-focus-always";
+
     private readonly Avalonia.Application _application;
     private readonly Func<PlatformColorValues?> _readSystemColors;
     private Dictionary<string, object?>? _baseline;
@@ -72,15 +82,17 @@ public sealed class V2AppearanceApplier
         foreach (var window in Windows())
         {
             window.Classes.Set(ReducedMotionClass, wanted.ReduceMotion);
+            window.Classes.Set(FocusAlwaysVisibleClass, wanted.FocusAlwaysVisible);
         }
     }
 
-    /// <summary>Puts the current motion class on a window that opened after the last apply.</summary>
+    /// <summary>Puts the current motion and focus classes on a window opened after the last apply.</summary>
     public void Attach(Window window, WorkspacePreferences preferences)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(preferences);
         window.Classes.Set(ReducedMotionClass, preferences.ReduceMotion);
+        window.Classes.Set(FocusAlwaysVisibleClass, preferences.FocusAlwaysVisible);
     }
 
     private (bool PrefersDark, bool RequestsHighContrast) ReadSystemColors()

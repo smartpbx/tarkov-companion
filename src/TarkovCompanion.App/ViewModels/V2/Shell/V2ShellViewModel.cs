@@ -170,6 +170,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SetupProfilesViewModel? profiles = null,
         // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
         SetupAdminViewModel? admin = null,
+        // [#292 task 2] Setup's reset/export/import panel, same reasoning again.
+        SetupSettingsAdminViewModel? settingsAdmin = null,
         // [#309] Setup's screenshot-tidy preview and ledger, same reasoning again.
         SetupCleanupViewModel? cleanup = null,
         // [Issue 379] Setup's per-map quest objective coverage, same reasoning again.
@@ -221,7 +223,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         if (preferences is not null && SetupWorkspace is not null)
         {
-            SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
+            var appearance = new V2AppearanceSettingsViewModel(preferences);
+            SetupWorkspace.AttachAppearance(appearance);
+            // #292/#315: the Accessibility section reuses this same view model rather than a
+            // second one, and lists exactly the shortcuts the command palette already offers so
+            // the table can never say a gesture the window does not actually handle.
+            SetupWorkspace.AttachAccessibility(new V2SetupAccessibilityViewModel(
+                appearance,
+                [.. Commands
+                    .Where(command => command.Gesture is not null)
+                    .Select(command => new V2SetupShortcutViewModel(V2ShellText.Get(command.LabelKey), command.Gesture!))]));
         }
 
         if (profiles is not null && SetupWorkspace is not null)
@@ -232,6 +243,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (admin is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAdmin(admin);
+        }
+
+        if (settingsAdmin is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachSettingsAdmin(settingsAdmin);
         }
 
         if (cleanup is not null && SetupWorkspace is not null)

@@ -957,6 +957,12 @@ public static class AppComposition
             new SetupReportViewModel(
                 () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
                 (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token))));
+        // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
+        // three stores the sections themselves already read/write, never a fourth of its own.
+        services.AddSingleton(provider => new SetupSettingsAdminViewModel(
+            provider.GetRequiredService<WorkspacePreferenceService>(),
+            provider.GetRequiredService<IScreenshotRetentionStore>(),
+            provider.GetService<NotificationBridge>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

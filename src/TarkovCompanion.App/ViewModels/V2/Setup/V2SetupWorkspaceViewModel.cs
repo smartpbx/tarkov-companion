@@ -16,7 +16,11 @@ public enum V2SetupSection
     TeamDevices,
     Updates,
     Privacy,
-    Appearance,
+
+    /// <summary>Renamed from Appearance by #292/#315: theme, colour vision, text size, density,
+    /// reduced motion, the focus ring and interface scale, gathered under the heading #292's
+    /// acceptance criteria actually ask for.</summary>
+    Accessibility,
     Displays,
     Diagnostics,
 
@@ -134,7 +138,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             new(V2SetupSection.Updates, "V2.Setup.Section.Updates", Select),
             new(V2SetupSection.Privacy, "V2.Setup.Section.Privacy", Select),
             new(V2SetupSection.Notifications, "V2.Setup.Section.Notifications", Select),
-            new(V2SetupSection.Appearance, "V2.Setup.Section.Appearance", Select),
+            new(V2SetupSection.Accessibility, "V2.Setup.Section.Accessibility", Select),
             new(V2SetupSection.Displays, "V2.Setup.Section.Displays", Select),
             new(V2SetupSection.Diagnostics, "V2.Setup.Section.Diagnostics", Select),
             new(V2SetupSection.DataPrivacy, "V2.Setup.Section.DataPrivacy", Select),
@@ -233,6 +237,35 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
         OnPropertyChanged(nameof(Appearance));
         OnPropertyChanged(nameof(HasAppearance));
+    }
+
+    /// <summary>The Accessibility section's own view model: <see cref="Appearance"/> plus the
+    /// keyboard shortcut table, or null in a shell built without one.</summary>
+    public V2SetupAccessibilityViewModel? Accessibility { get; private set; }
+
+    public bool HasAccessibility => Accessibility is not null;
+
+    /// <summary>Hands this page the Accessibility section, for the reason AttachSelfTest gives.</summary>
+    public void AttachAccessibility(V2SetupAccessibilityViewModel accessibility)
+    {
+        Accessibility = accessibility ?? throw new ArgumentNullException(nameof(accessibility));
+        OnPropertyChanged(nameof(Accessibility));
+        OnPropertyChanged(nameof(HasAccessibility));
+    }
+
+    /// <summary>#292 task 2: "Reset this section", "Reset everything", export and import, shown
+    /// on every section rather than owning one. Null in a shell built without one.</summary>
+    public SetupSettingsAdminViewModel? SettingsAdmin { get; private set; }
+
+    public bool HasSettingsAdmin => SettingsAdmin is not null;
+
+    /// <summary>Hands this page the settings admin panel, for the reason AttachSelfTest gives.</summary>
+    public void AttachSettingsAdmin(SetupSettingsAdminViewModel settingsAdmin)
+    {
+        SettingsAdmin = settingsAdmin ?? throw new ArgumentNullException(nameof(settingsAdmin));
+        SettingsAdmin.SetCurrentSection(Selected);
+        OnPropertyChanged(nameof(SettingsAdmin));
+        OnPropertyChanged(nameof(HasSettingsAdmin));
     }
 
     /// <summary>[#292] Whether file paths show in full. Off at every launch; nothing remembers it.</summary>
@@ -407,7 +440,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsTeamDevicesSelected));
             OnPropertyChanged(nameof(IsUpdatesSelected));
             OnPropertyChanged(nameof(IsPrivacySelected));
-            OnPropertyChanged(nameof(IsAppearanceSelected));
+            OnPropertyChanged(nameof(IsAccessibilitySelected));
             OnPropertyChanged(nameof(IsDisplaysSelected));
             OnPropertyChanged(nameof(IsDiagnosticsSelected));
             OnPropertyChanged(nameof(IsProgressSelected));
@@ -436,6 +469,9 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
                 cleanup.RefreshLedger();
                 cleanup.LoadAsync().ContinueWith(_ => { }, TaskScheduler.Default);
             }
+
+            // #292 task 2: "Reset this section" acts on whichever section is open now.
+            SettingsAdmin?.SetCurrentSection(value);
         }
     }
 
@@ -446,7 +482,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool IsTeamDevicesSelected => Selected == V2SetupSection.TeamDevices;
     public bool IsUpdatesSelected => Selected == V2SetupSection.Updates;
     public bool IsPrivacySelected => Selected == V2SetupSection.Privacy;
-    public bool IsAppearanceSelected => Selected == V2SetupSection.Appearance;
+    public bool IsAccessibilitySelected => Selected == V2SetupSection.Accessibility;
     public bool IsDisplaysSelected => Selected == V2SetupSection.Displays;
     public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
     public bool IsProgressSelected => Selected == V2SetupSection.Progress;

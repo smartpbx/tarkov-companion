@@ -363,7 +363,8 @@ The palettes above were unreachable until #266/#315: `V2Appearance.Resolve` had 
 `App.axaml` pinned the theme to Dark, and nothing persisted a choice. Three pieces now close that.
 
 **The record.** `Core/Domain/Personalization/WorkspacePreferences` is one versioned, platform-neutral
-record: theme (System/Light/Dark/HighContrast), colour vision, text scale, density, reduce motion.
+record: theme (System/Light/Dark/HighContrast), colour vision, text scale, density, reduce motion,
+and whether the focus ring stays visible after a pointer click (off by default).
 `Infrastructure/Settings/JsonFileWorkspacePreferenceStore` keeps it in `Config/preferences.json`
 with a `schemaVersion`, writing enum *names* so the file reads as a decision. A file this build
 cannot understand — unparseable, or a newer `schemaVersion` — opens at the default rather than
@@ -372,7 +373,9 @@ being half-applied; every other bad value is snapped to the nearest offered one.
 **The applier.** `App/Services/V2/Appearance/V2AppearanceApplier` runs before the first window
 exists. It sets `Application.RequestedThemeVariant` from `V2Appearance.Resolve`, multiplies the
 type ramp by the text scale, copies the chosen density over `V2.Density.Standard.*` (which every
-style asks for), and puts a `v2-motion-reduced` class on the window. Overrides go into
+style asks for), and puts `v2-motion-reduced` and, when asked, `v2-focus-always` classes on the
+window — the latter is what lets a `:focus` style rule draw the ring after a pointer click, since
+Fluent's own `:focus-visible` never does. Overrides go into
 `Application.Resources`, which shadows the merged token dictionary and leaves the authored file as
 the design system's own record of the sizes — `V2AppearanceResources` reads its baseline from
 there, once, before anything is shadowed.
@@ -390,6 +393,13 @@ different settings and both are kept.
 To see one: `tools/V2RenderPreview --appearance light|dark|high-contrast|system`,
 `--color-vision red-green|blue-yellow|mono`, `--text-scale 100..200`,
 `--density compact|comfortable`, `--reduce-motion`.
+
+**Reset, export and import.** #292 task 2 adds one more layer on top, in
+`Application/Services/Setup/SetupSettings{Snapshot,Diff,Export}.cs`: a small bundle of this record
+plus the notification switches and screenshot retention (never the TarkovTracker token or the
+relay's credentials — there is no field for either), a pure diff between two bundles, and a JSON
+file the same shape `JsonFileWorkspacePreferenceStore` uses. Setup shows the diff and asks before
+any of "Reset this section", "Reset everything" or an import touches anything.
 
 Binding the operational primitives to capture and paired-device transitions stays with those feature
 owners, outside #266; this disconnected gallery deliberately contains no commands or protocol state.
