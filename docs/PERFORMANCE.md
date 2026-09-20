@@ -158,6 +158,15 @@ A failing budget is a prompt to run the harness and find out why, not to raise t
   the data was ready at 8.7-11.1 s, on a box under load and headless. Nothing here has broken that
   seven-to-nine second gap down yet, and it is the first thing to look at for a faster start.
 
+## The interface thread and SQLite (#453)
+
+Microsoft.Data.Sqlite's `...Async` calls are synchronous, so a repository awaited from the dispatcher
+ran on the dispatcher. `SqliteConnectionFactory.OpenAsync` now leaves any thread that is not a pool
+thread, which moves the whole repository call with it; loads that look up one row per item run as a
+whole through `OffInterfaceThread.Run`. Measure with the render tool's `--ui-stalls <ms>` (add
+`--ui-stalls-before-show` to leave first layout out of it): startup's longest dispatcher turn went
+from 2.3-3.1 s to 0.3-0.9 s over three runs each, headless, on a box at load 9.
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

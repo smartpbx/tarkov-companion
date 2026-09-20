@@ -51,7 +51,10 @@ internal static class Program
         var search = StringOption(args, "--search");
         // Package 28: run a Flea lookup, so the Flea workspace can be rendered with results.
         var fleaQuery = StringOption(args, "--flea-query");
-        var options = AppCommandLine.Parse(args) with { Demo = true };
+        // --no-demo: the demo fixture is always mid-raid on Customs, so it can never show what a
+        // first launch shows, which is no raid and no map anybody chose.
+        var demoMode = !args.Contains("--no-demo");
+        var options = AppCommandLine.Parse(args) with { Demo = demoMode };
 
         var rendered = false;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
@@ -63,10 +66,13 @@ internal static class Program
         // startup migrates it forward, and it is deleted with the root afterwards.
         if (StringOption(args, "--seed-database") is { } seedDatabase)
         {
-            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: true).Database;
+            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Database;
             Directory.CreateDirectory(databaseDirectory);
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
+
+        MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
+        MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
         try
         {
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
@@ -80,7 +86,7 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now));
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -189,16 +195,46 @@ internal static class Program
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
-            window.Show();
+            // [#453] --ui-stalls-before-show: start up with no window, so every long turn the meter
+            // reports is a view model holding the interface thread, not the first layout and paint.
+            var showAfterStartup = args.Contains("--ui-stalls-before-show");
+            if (!showAfterStartup)
+            {
+                window.Show();
+            }
+
             // [#294] Whether the V1 shell was built at all. It used to be built on every launch
             // and hidden, so "V2 is the default" was true of what was drawn and false of what was
             // constructed. Printed rather than asserted: this tool reports, the ratchet test in
             // MainWindowShellCompositionTests is what fails.
             Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
-            DrainUntilComplete(viewModel.InitializeAsync());
+            // [#453] --inject-load-fault plan,hideout,keep,startup/hideout: make those loads throw,
+            // so the pane's "did not load" notice and the shell's startup banner can be looked at.
+            if (StringOption(args, "--inject-load-fault") is { } injected)
+            {
+                LoadFaultInjection.Inject(injected.Split(','));
+            }
+
+            // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
+            if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
+            {
+                UiStallMeter.Enable(stallMs);
+            }
+
+            Task? initializing = null;
+            UiStallMeter.Time(() => initializing = viewModel.InitializeAsync());
+            DrainUntilComplete(initializing!);
             if (seeding is not null)
             {
                 DrainUntilComplete(seeding);
+            }
+
+            UiStallMeter.Report("startup");
+            if (showAfterStartup)
+            {
+                window.Show();
+                Pump(20);
+                UiStallMeter.Report("first layout and paint");
             }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
@@ -294,13 +330,15 @@ internal static class Program
 
             if (shell is not null && route is not null)
             {
-                var result = shell.Router.NavigateToAddress(route);
-                if (!result.Succeeded)
+                V2NavigationResult? result = null;
+                UiStallMeter.Time(() => result = shell.Router.NavigateToAddress(route));
+                if (!result!.Succeeded)
                 {
                     throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
                 }
 
                 Pump(20);
+                UiStallMeter.Report($"navigate to {route}");
             }
 
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
@@ -378,12 +416,27 @@ internal static class Program
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;
-                loadout.SearchQuery = loadoutQuery;
-                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
-                if (loadout.Results.Count > 0)
+                // Several entries separated by ';' assign the first result of each, and
+                // "Ammunition=9x18mm PM" names the slot it goes in, so a render can hold a weapon
+                // and a round at once. Without a slot name every entry lands in the chosen slot
+                // and replaces the last: the first attempt at this put a round in Weapon.
+                foreach (var entry in loadoutQuery.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
-                    loadout.Results[0].AssignCommand.Execute(null);
-                    Pump(60);
+                    var query = entry;
+                    if (entry.Split('=', 2, StringSplitOptions.TrimEntries) is [var slotName, var slotQuery] &&
+                        Enum.TryParse<TarkovCompanion.App.ViewModels.LoadoutSlot>(slotName, ignoreCase: true, out var slot))
+                    {
+                        loadout.SelectedSlot = loadout.Slots.First(option => option.Slot == slot);
+                        query = slotQuery;
+                    }
+
+                    loadout.SearchQuery = query;
+                    DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                    if (loadout.Results.Count > 0)
+                    {
+                        loadout.Results[0].AssignCommand.Execute(null);
+                        Pump(60);
+                    }
                 }
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
@@ -442,6 +495,39 @@ internal static class Program
                 Pump(20);
             }
 
+            // Package 33 (#287): --demo (always on here) preloads a "Graphics Card" search so the
+            // fixture-only run has something to show; against --seed-database that default masks
+            // the Intel landing page's real empty/no-search state. This clears it back out.
+            if (shell is not null && args.Contains("--intel-clear-search"))
+            {
+                shell.ClearIntelSearchCommand.Execute(null);
+                Pump(20);
+            }
+
+            // Package 33 (#287): pins one item and opens a second (leaving it "recently opened"),
+            // then returns to the bare Items route, so the landing page's Pinned/Recent sections
+            // can be rendered with real rows instead of only Needed now/Highest value.
+            if (shell is not null && args.Contains("--intel-home-demo"))
+            {
+                shell.SearchText = "bandage";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                if (shell.PinCommand.CanExecute(null))
+                {
+                    shell.PinCommand.Execute(null);
+                }
+
+                shell.SearchText = "screw nuts";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                shell.Router.Navigate(V2Routes.Items, "demo");
+                shell.ClearIntelSearchCommand.Execute(null);
+                // The landing page's own auto-select-first-suggestion fires one more navigation
+                // once its async load resolves (adding that item to Recents in turn); give it
+                // room to settle before anything downstream reads Recents or takes the shot.
+                Pump(80);
+            }
+
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
             // pick a map here the same way the map picker's own SelectCommand does, once the
@@ -456,7 +542,8 @@ internal static class Program
 
                 // A page other than Raid picks its own map (Plan follows its selected map group),
                 // so only a Raid render, or an explicit --map, chooses one here.
-                var picked = mapId is null && options.StartPage is not null
+                // --no-map: leave the page as a first launch finds it, with nobody having chosen anything.
+                var picked = (mapId is null && options.StartPage is not null) || args.Contains("--no-map")
                     ? null
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
@@ -718,6 +805,13 @@ internal static class Program
                     Console.WriteLine($"Bearing: {bearingRenderer.Scene.View.Camera.BearingDegrees:F1}");
                 }
 
+                // Change map inside the run, and say what the view drew and how long it took.
+                if (StringOption(args, "--then-map") is { } thenMaps)
+                {
+                    MapSwitchProbe.FirstPicturePath = StringOption(args, "--then-map-first");
+                    MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
+                }
+
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
                 // that shows no chooser says whether that is a bug or a one-variant map.
                 Console.WriteLine("Artwork: " + string.Join(
@@ -763,10 +857,15 @@ internal static class Program
             // layout has settled at its final requested size, leaving the canvas sized to an
             // earlier, smaller pass. A nudge-and-restore forces one more SizeChanged once
             // everything else (map data, the details-panel toggle) has already settled.
-            window.Width = width - 1;
-            Pump(5);
-            window.Width = width;
-            Pump(10);
+            // Not after --then-map: resizing the card is exactly what used to put a stale plan
+            // rectangle right, so the nudge would hide the fault that option exists to show.
+            if (StringOption(args, "--then-map") is null)
+            {
+                window.Width = width - 1;
+                Pump(5);
+                window.Width = width;
+                Pump(10);
+            }
 
             // [V2 rough package 39] The Raid workspace's context panel is a scroller taller than
             // any screen, so a card further down it cannot be photographed without scrolling to
@@ -839,10 +938,70 @@ internal static class Program
                             RecognizedContext.Item,
                             captureNow,
                             "Graphics card · 82% sure · also Graphics tablet, GPU crate",
-                            "Screenshot · ambiguous_runner_up")),
+                            "Screenshot · ambiguous_runner_up",
+                            canCorrect: false)
+                        {
+                            // [f920 capture] The candidate list that replaced "Correct result".
+                            Candidates =
+                            [
+                                new("demo-graphics-card", "Graphics card", 0.82),
+                                new("demo-graphics-tablet", "Graphics tablet", 0.61),
+                                new("demo-gpu-crate", "GPU crate", 0.44),
+                            ],
+                            ChosenCandidateId = "demo-graphics-card",
+                        }),
                     _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
                 });
                 Pump(20);
+            }
+
+            // [f920 capture] --capture-image <file> [--capture-intent loot|stash|auto]: a picture
+            // handed to the shell the way the file picker hands one over, through the composed
+            // bridge, intake and pipeline. The panel is left open on whatever came of it.
+            if (shell is not null && StringOption(args, "--capture-image") is { } captureImage)
+            {
+                var wanted = Enum.Parse<ScanIntent>(StringOption(args, "--capture-intent") ?? "Auto", ignoreCase: true);
+                shell.CaptureCommand.Execute(null);
+                shell.CaptureIntents.Single(offered => offered.Intent == wanted).SelectCommand.Execute(null);
+                shell.SubmitManualImage(TarkovCompanion.App.ViewModels.V2.Shell.V2ManualImageOrigin.Picker, captureImage, null);
+                var sessions = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureSessionService>();
+                for (var turn = 0; turn < 1200 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal) && !shell.HasCaptureAttention; turn++)
+                {
+                    Pump(1);
+                    Thread.Sleep(25);
+                }
+
+                // --capture-analyse-as-armed presses the button a screen nobody could place offers,
+                // which on this host is every screen: OCR is Windows-only.
+                Pump(40);
+                if (args.Contains("--capture-analyse-as-armed") &&
+                    shell.CaptureAttentionActions.FirstOrDefault(action => action.Resolution == V2CaptureResolutionKind.AnalyzeAsArmed) is { } asArmed)
+                {
+                    asArmed.InvokeCommand.Execute(null);
+                    for (var turn = 0; turn < 2400 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal); turn++)
+                    {
+                        Pump(1);
+                        Thread.Sleep(25);
+                    }
+                }
+
+                // --capture-close shows what the capture left behind instead of the panel.
+                if (args.Contains("--capture-close"))
+                {
+                    if (shell.IsCaptureOpen)
+                    {
+                        shell.CaptureCommand.Execute(null);
+                    }
+
+                    DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>().LoadAsync());
+                }
+
+                Pump(40);
+                Console.WriteLine($"Capture image: {shell.CaptureManualStatus} | armed {shell.CaptureArmedStatus} | route {shell.Router.CurrentAddress}");
+                foreach (var notice in sessions.Snapshot.Notices.TakeLast(8))
+                {
+                    Console.WriteLine($"Capture notice: {notice.Kind} {notice.Code}");
+                }
             }
 
             if (shell is not null && args.Contains("--team-demo"))
@@ -994,6 +1153,12 @@ internal static class Program
                 Pump(20);
             }
 
+            // [f920 capture] #284: Intel > Flea over a photographed flea screen. See FleaScanDemo.
+            if (shell is not null && StringOption(args, "--flea-scan-demo") is { } fleaScanItem)
+            {
+                FleaScanDemo.Run(services, DrainUntilComplete, Pump, fleaScanItem, StringOption(args, "--loot-scan-flea-rates"));
+            }
+
             // Package 37: the same workspace over a picture the shipped recognizer actually read.
             if (shell is not null && StringOption(args, "--loot-scan-frame") is { } lootFrame)
             {
@@ -1092,6 +1257,26 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#453] --hang-demo: the application's own watchdog, on this real dispatcher, against a
+            // dispatcher job that does not return for 2.5 s. Prints what it wrote to the crash log.
+            if (args.Contains("--hang-demo"))
+            {
+                var hangLog = Path.Combine(dataRoot, "hang-demo-logs");
+                CrashLog.Install(hangLog);
+                using var watchdog = UiHangWatchdog.ForApplication(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100));
+                watchdog.Start();
+                Pump(20);
+                Dispatcher.UIThread.Post(() => Thread.Sleep(2500));
+                Pump(40);
+                Console.WriteLine($"Hang demo: {watchdog.HangsRecorded} hang(s) recorded.");
+                foreach (var line in File.ReadAllLines(CrashLog.FilePath!).Where(line => line.Contains("ui-hang", StringComparison.Ordinal)))
+                {
+                    Console.WriteLine("  " + line);
+                }
+
+                CrashLog.Detach();
+            }
+
             SaveFrame(window, outputPath, width, height);
             if (StringOption(args, "--crop") is { } crop)
             {
@@ -1104,6 +1289,7 @@ internal static class Program
         {
             try
             {
+                MapSwitchProbe.UnlinkMapCache(dataRoot, demoMode);
                 Directory.Delete(dataRoot, recursive: true);
             }
             catch (IOException)
@@ -1477,8 +1663,36 @@ internal static class Program
     {
         for (var i = 0; i < turns; i++)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(25);
+        }
+
+        Settle();
+    }
+
+    /// <summary>
+    /// Keeps pumping until the page has stopped reading, or ten seconds have gone.
+    /// </summary>
+    /// <remarks>
+    /// [#453] A fixed number of turns was enough while every database read ran inside the turn
+    /// that asked for it. Reads now happen on the pool and come back in later turns, and the first
+    /// render after that change photographed Keep saying "Loading the keep list…". Settled means
+    /// six turns in a row with no database call in flight, no workspace load unfinished, and
+    /// nothing for the dispatcher to do.
+    /// </remarks>
+    private static void Settle()
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (quiet < 6 && System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        {
+            var turn = System.Diagnostics.Stopwatch.GetTimestamp();
+            UiStallMeter.RunJobs();
+            var idle = System.Diagnostics.Stopwatch.GetElapsedTime(turn) < TimeSpan.FromMilliseconds(2)
+                && TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory.OpenConnectionCount == 0
+                && !UiActivity.IsLoading;
+            quiet = idle ? quiet + 1 : 0;
+            Thread.Sleep(10);
         }
     }
 
@@ -1486,7 +1700,7 @@ internal static class Program
     {
         while (!task.IsCompleted)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(5);
         }
 

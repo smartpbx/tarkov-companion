@@ -60,7 +60,12 @@ public interface ITabletMapSurfaceSink
     /// with the last to decide whether there is anything to send at all, and serializing a
     /// megabyte twice per change to hand over a record would undo the saving.
     /// </param>
-    ValueTask PublishMapSurfaceAsync(
+    /// <returns>
+    /// Whether the carrier took it. False is "nothing is carrying maps right now" (no relay, or
+    /// not claimed yet), and a caller that compares publishes must not count it as one: the map
+    /// that was current when the relay was finally claimed was otherwise never sent.
+    /// </returns>
+    ValueTask<bool> PublishMapSurfaceAsync(
         byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default);
@@ -88,6 +93,9 @@ public enum RelayOwnerLinkState
 /// <summary>What registering a just-paired device on the relay came to.</summary>
 /// <param name="Registered">Whether the relay now routes this device's traffic.</param>
 /// <param name="Code">The relay's own refusal code, or a local reason, when it does not.</param>
+/// <summary>A paired device that proved its key to the relay and is waiting for a fresh session.</summary>
+public sealed record RelayResumeTicket(Guid TicketId, string DeviceKeyId);
+
 public sealed record RelayDeviceRegistration(bool Registered, string Code)
 {
     public static RelayDeviceRegistration Done { get; } = new(true, "registered");
@@ -117,7 +125,11 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     private CancellationTokenSource? _loop;
     private long _afterDeliveryId;
     private string? _publishedArtworkSha;
+    private string? _refusedArtworkSha;
+    private byte[]? _currentSurfaceJson;
+    private TabletMapArtworkBytes? _currentArtwork;
     private RelayOwnerLinkState _ownerLink = RelayOwnerLinkState.None;
+    private readonly HashSet<Guid> _resumeTicketsSeen = [];
 
     public RelayMarksBridge(
         DesktopCompanionAuthority authority,
@@ -173,6 +185,23 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 
     /// <summary>Raised when <see cref="OwnerLink"/> changes, on whatever thread noticed.</summary>
     public event Action<RelayOwnerLinkState>? OwnerLinkChanged;
+
+    /// <summary>
+    /// How this desktop claims the relay again on its identity key, when it can. Asked whenever the
+    /// relay refuses the kept owner session, before that session is given up on.
+    /// </summary>
+    /// <remarks>
+    /// [#289] Set by whoever holds the identity signer (the pairing panel). Without it a refused
+    /// session is dropped and the panel asks for the admin key, which is what every refusal used
+    /// to come to: twelve hours after a claim, or two idle.
+    /// </remarks>
+    public Func<CancellationToken, Task<RelayClaimResult>>? OwnerReclaim { get; set; }
+
+    /// <summary>
+    /// A paired device came back to the relay on its key and is waiting for this desktop to open
+    /// it a session. Raised from the poll, once per ticket.
+    /// </summary>
+    public event Action<RelayResumeTicket>? ResumeRequested;
 
     /// <summary>
     /// Picks the relay link back up after a desktop restart: the stored owner session, and the
@@ -350,11 +379,44 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         ArgumentException.ThrowIfNullOrWhiteSpace(credential);
         lock (_gate)
         {
+            if (_owner?.SessionId != sessionId)
+            {
+                // The relay numbers deliveries per session, from one. A cursor carried over from
+                // the session this replaces would read past everything the new one is sent.
+                _afterDeliveryId = 0;
+            }
+
             _owner = new OwnerCredential(sessionId, credential, expiresUtc);
         }
 
         SetOwnerLink(RelayOwnerLinkState.Verified);
         EnsureLoopStarted();
+    }
+
+    /// <summary>
+    /// Answers a returning device's ticket with the code of the offer just opened for it, as this
+    /// relay's owner. False when the relay would not take it (the ticket lapsed, or no claim).
+    /// </summary>
+    public async Task<bool> AnswerResumeTicketAsync(Guid ticketId, string pairingCode, CancellationToken cancellationToken = default)
+    {
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            return false;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"v2/companion/relay/resume/requests/{ticketId:D}/offer");
+        request.Headers.Add("Tarkov-Pairing-Code", pairingCode);
+        AddBearer(request, owner);
+        using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
     }
 
     /// <summary>
@@ -567,7 +629,24 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            // The relay has ended this owner session (it expired, or another claim replaced it).
+            // [#289] The relay has ended this owner session: it expired (twelve hours, or two
+            // idle), or another claim replaced it. The first is every morning, so before giving
+            // the claim up this desktop asks to be let back in on its key.
+            if (OwnerReclaim is { } reclaim)
+            {
+                var reclaimed = await reclaim(cancellationToken).ConfigureAwait(false);
+                if (reclaimed.Outcome == RelayClaimOutcome.Claimed)
+                {
+                    return; // adopted; the next read is on the new session
+                }
+
+                if (reclaimed.Outcome is RelayClaimOutcome.Unreachable or RelayClaimOutcome.RateLimited)
+                {
+                    SetOwnerLink(RelayOwnerLinkState.Unreachable);
+                    return; // kept, and asked again on the next tick
+                }
+            }
+
             // Holding on to it would only repeat the refusal every two seconds and keep telling
             // the player the relay is claimed when it is not.
             var dropped = false;
@@ -602,6 +681,24 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         SetOwnerLink(RelayOwnerLinkState.Verified);
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var frames = ParseFrameBatch(json);
+        foreach (var ticket in ParseResumeRequests(json))
+        {
+            bool first;
+            lock (_gate)
+            {
+                first = _resumeTicketsSeen.Add(ticket.TicketId);
+                if (_resumeTicketsSeen.Count > 256)
+                {
+                    _resumeTicketsSeen.Clear(); // tickets live five minutes; this is only a de-duplicator
+                    _resumeTicketsSeen.Add(ticket.TicketId);
+                }
+            }
+
+            if (first)
+            {
+                ResumeRequested?.Invoke(ticket);
+            }
+        }
 
         foreach (var (deliveryId, frame) in frames)
         {
@@ -620,6 +717,25 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             using var ackResponse = await relay.SendAsync(ack, cancellationToken).ConfigureAwait(false);
             _ = ackResponse; // best-effort; an unacknowledged delivery is simply re-read next poll
         }
+
+        var status = ParseBatchStatus(json);
+        if (status.RequiresReconnect && frames.Count == 0)
+        {
+            // [#407] The relay dropped something from this queue (or restarted and lost it). What
+            // a tablet sent and the relay dropped is gone either way, and each tablet's own resync
+            // heals its side; what is left to do here is tell the relay the gap has been seen, or
+            // it goes on saying "reconnect" on every read for as long as this session lives.
+            using var reset = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/frames/reset");
+            AddBearer(reset, owner);
+            using var resetResponse = await relay.SendAsync(reset, cancellationToken).ConfigureAwait(false);
+            if (resetResponse.IsSuccessStatusCode)
+            {
+                var resetJson = await resetResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _afterDeliveryId = ParseResetCursor(resetJson);
+            }
+        }
+
+        await ReconcileMapAsync(relay, owner, status.Map, cancellationToken).ConfigureAwait(false);
     }
 
     private bool HasOwner()
@@ -768,7 +884,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     /// always names the hash it expects, so a tablet that has the picture already keeps drawing it
     /// and one that does not fetches it.
     /// </remarks>
-    public async ValueTask PublishMapSurfaceAsync(
+    public async ValueTask<bool> PublishMapSurfaceAsync(
         byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default)
@@ -778,15 +894,30 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         OwnerCredential? owner;
         lock (_gate)
         {
+            // Kept whether or not it can be sent now. What the relay holds is reconciled against
+            // this on every read of the desktop's queue (ReconcileMapAsync), which is how a map
+            // published before the claim, or lost to a relay restart, still reaches the tablets.
+            _currentSurfaceJson = surfaceJson;
+            _currentArtwork = artwork;
             relay = _relay;
             owner = _owner;
         }
 
         if (relay is null || owner is null)
         {
-            return;
+            return false;
         }
 
+        return await UploadMapAsync(relay, owner, surfaceJson, artwork, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> UploadMapAsync(
+        HttpClient relay,
+        OwnerCredential owner,
+        byte[] surfaceJson,
+        TabletMapArtworkBytes? artwork,
+        CancellationToken cancellationToken)
+    {
         using var surfaceRequest = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/map")
         {
             Content = new ByteArrayContent(surfaceJson),
@@ -796,15 +927,25 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var surfaceResponse = await relay.SendAsync(surfaceRequest, cancellationToken).ConfigureAwait(false);
         if (!surfaceResponse.IsSuccessStatusCode)
         {
-            return;
+            return false;
         }
 
         if (artwork is null ||
             string.Equals(_publishedArtworkSha, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return true;
         }
 
+        await UploadArtworkAsync(relay, owner, artwork, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task UploadArtworkAsync(
+        HttpClient relay,
+        OwnerCredential owner,
+        TabletMapArtworkBytes artwork,
+        CancellationToken cancellationToken)
+    {
         using var artworkRequest = new HttpRequestMessage(
             HttpMethod.Post,
             $"v2/companion/relay/map/artwork?sha256={Uri.EscapeDataString(artwork.ContentSha256)}")
@@ -817,6 +958,54 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         if (artworkResponse.IsSuccessStatusCode)
         {
             _publishedArtworkSha = artwork.ContentSha256;
+            _refusedArtworkSha = null;
+        }
+        else if ((int)artworkResponse.StatusCode is >= 400 and < 500)
+        {
+            // The relay will not take this picture (too large, a type it does not serve). Offering
+            // it again on every read would be megabytes every two seconds for the same answer.
+            _refusedArtworkSha = artwork.ContentSha256;
+        }
+    }
+
+    /// <summary>
+    /// Makes what the relay holds match what this desktop last published, from what the relay
+    /// says it holds on each read of the desktop's queue.
+    /// </summary>
+    /// <remarks>
+    /// [#407] The relay keeps the map in memory, and this desktop uploads only on change. So a
+    /// relay restart left every tablet with no map (and, once a scene change brought the scene
+    /// back, no picture behind it, because the picture's hash had not changed here) until the
+    /// player happened to change maps. The same hole swallowed a map published before the relay
+    /// was claimed. An older relay says nothing about what it holds, and nothing is done.
+    /// </remarks>
+    private async Task ReconcileMapAsync(HttpClient relay, OwnerCredential owner, HeldMapWire? held, CancellationToken cancellationToken)
+    {
+        byte[]? surface;
+        TabletMapArtworkBytes? artwork;
+        lock (_gate)
+        {
+            surface = _currentSurfaceJson;
+            artwork = _currentArtwork;
+        }
+
+        if (held is null || surface is null)
+        {
+            return;
+        }
+
+        if (!held.Held)
+        {
+            _publishedArtworkSha = null;
+            await UploadMapAsync(relay, owner, surface, artwork, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (artwork is not null &&
+            !string.Equals(held.ArtworkSha256, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(_refusedArtworkSha, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            await UploadArtworkAsync(relay, owner, artwork, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1173,7 +1362,54 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         return results;
     }
 
+    /// <summary>The returning devices a frame batch names; none from a relay that predates them.</summary>
+    public static IReadOnlyList<RelayResumeTicket> ParseResumeRequests(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<RelayResumeBatchWire>(json, WireJsonOptions)?.ResumeRequests is { } waiting
+                ? waiting.Where(item => item.TicketId != Guid.Empty && !string.IsNullOrEmpty(item.DeviceKeyId)).ToArray()
+                : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record RelayResumeBatchWire(IReadOnlyList<RelayResumeTicket>? ResumeRequests);
+
+    private static BatchStatusWire ParseBatchStatus(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<BatchStatusWire>(json, WireJsonOptions) ?? new BatchStatusWire(false, null);
+        }
+        catch (JsonException)
+        {
+            return new BatchStatusWire(false, null);
+        }
+    }
+
+    private static long ParseResetCursor(string json)
+    {
+        try
+        {
+            return Math.Max(0, JsonSerializer.Deserialize<FrameResetWire>(json, WireJsonOptions)?.After ?? 0);
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
+    private sealed record FrameResetWire(long After);
+
+    private sealed record BatchStatusWire(bool RequiresReconnect, HeldMapWire? Map);
+
+    private sealed record HeldMapWire(bool Held, long Revision, string? ArtworkSha256);
 
     private sealed record RelayFrameBatchWire(int ProtocolVersion, bool RequiresReconnect, DateTimeOffset ServerUtc, IReadOnlyList<RelayFrameEnvelopeWire> Frames);
 

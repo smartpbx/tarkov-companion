@@ -444,7 +444,7 @@
               </TransformGroup>
             </Canvas.RenderTransform>
 
-            <Border Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
+            <Border x:Name="PlanArtwork" Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
                     Width="{Binding MapWidth}" Height="{Binding MapHeight}"
                     Background="{DynamicResource V2.Brush.SurfaceRaised}"
                     BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="1"

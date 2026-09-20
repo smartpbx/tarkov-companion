@@ -108,7 +108,7 @@
       </div>
     </div>
     <div id="pairingWaiting" style="display:none">
-      <p class="quiet">Waiting for the desktop…</p>
+      <p class="quiet" id="pairingWaitingText">Waiting for the desktop…</p>
     </div>
     <div id="pairingVerify" style="display:none">
       <p>Confirm this matches the desktop before it is approved:</p>
@@ -373,13 +373,32 @@
     }
   }
 
-  async function beginPairing(rawCode, deviceName) {
+  // What the ceremony in flight is: a first pairing, where a person compares six digits, or a
+  // paired tablet coming back, where nobody does and the desktop's pinned key stands in for them.
+  let ceremony = { pinnedDesktopKeyId: null, deviceName: "Tablet" };
+
+  async function beginPairing(rawCode, deviceName, options) {
+    ceremony = { pinnedDesktopKeyId: options?.pinnedDesktopKeyId || null, deviceName };
     setStage("pairingWaiting");
+    $("pairingWaitingText").textContent = ceremony.pinnedDesktopKeyId
+      ? "Reconnecting to the desktop…"
+      : "Waiting for the desktop…";
     const code = normalizeCode(rawCode);
     const resolveResponse = await postJson("/v2/companion/pairing/offers/resolve", null, code);
     if (resolveResponse.status === 429) throw new Error("Too many attempts. Wait a few minutes and try again.");
     if (!resolveResponse.ok) throw new Error("That code was not accepted.");
     const offer = await resolveResponse.json();
+    if (ceremony.pinnedDesktopKeyId) {
+      // Nobody compares six digits on the way back in, so this has to be the desktop this tablet
+      // first paired with: the key id is the hash of the key, and that key signs the handshake.
+      const offeredSpki = base64UrlDecode(offer.desktopIdentityKey.subjectPublicKeyInfoBase64Url);
+      if (
+        offer.desktopIdentityKey.keyId.value !== ceremony.pinnedDesktopKeyId ||
+        base64UrlEncode(await sha256(offeredSpki)) !== ceremony.pinnedDesktopKeyId
+      ) {
+        throw new Error("That was not the desktop this tablet is paired with.");
+      }
+    }
 
     const device = await ensureDeviceIdentity();
     const tabletEphemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
@@ -489,7 +508,7 @@
       .toString()
       .padStart(6, "0");
     $("pairingCodeDisplay").textContent = code;
-    setStage("pairingVerify");
+    if (!ceremony.pinnedDesktopKeyId) setStage("pairingVerify");
   }
 
   function bytesEqual(a, b) {
@@ -547,6 +566,13 @@
       throw new Error("The handshake transcript did not match. This pairing was not completed.");
     }
 
+    if (
+      challenge.desktopIdentityKey.subjectPublicKeyInfoBase64Url !==
+      offer.desktopIdentityKey.subjectPublicKeyInfoBase64Url
+    ) {
+      throw new Error("The handshake was signed by a different desktop. This pairing was not completed.");
+    }
+
     const desktopIdentitySpki = base64UrlDecode(challenge.desktopIdentityKey.subjectPublicKeyInfoBase64Url);
     const desktopIdentityKey = await importEcdsaPublicSpki(desktopIdentitySpki);
     const signatureInput = concatBytes(
@@ -566,36 +592,45 @@
     const tabletToDesktopKey = await hkdfSha256(sharedSecret, transcriptHash, "TarkovCompanion.PairedDevice/v2/tablet-to-desktop", 32);
     const desktopToTabletKey = await hkdfSha256(sharedSecret, transcriptHash, "TarkovCompanion.PairedDevice/v2/desktop-to-tablet", 32);
 
-    const rpIdHash = await sha256(textEncoder.encode(location.hostname.toLowerCase()));
-    const counter = await nextSignatureCounter(device);
-    const authenticatorData = concatBytes(rpIdHash, new Uint8Array([0x05]), encodeU32(counter));
-    const clientData = JSON.stringify({
-      type: "webauthn.get",
-      challenge: challenge.transcriptHashBase64Url,
-      origin: location.origin,
-      crossOrigin: false,
-    });
-    const clientDataBytes = textEncoder.encode(clientData);
-    const signedData = concatBytes(authenticatorData, await sha256(clientDataBytes));
-    const deviceRecord = await idbGet("device");
-    const signature = new Uint8Array(
-      await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, deviceRecord.privateKey, signedData),
-    );
-
     const proof = {
       challengeId: { value: challenge.challengeId.value },
-      assertion: {
-        credentialIdBase64Url: device.credentialId,
-        authenticatorDataBase64Url: base64UrlEncode(authenticatorData),
-        clientDataJsonBase64Url: base64UrlEncode(clientDataBytes),
-        signatureBase64Url: base64UrlEncode(signature),
-      },
+      assertion: await signAssertion(device, challenge.transcriptHashBase64Url),
     };
 
     const submitted = await postJson(`/v2/companion/pairing/proofs/${offer.attemptId.value}`, proof);
     if (!submitted.ok) throw new Error("Could not submit the device proof.");
 
     return pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey);
+  }
+
+  /**
+   * The device key's signature over one challenge, in the shape of a WebAuthn get() assertion:
+   * authenticator data, client data naming the challenge and this origin, and an ES256 signature
+   * over the first and the hash of the second — DER, as WebAuthn carries it.
+   */
+  async function signAssertion(device, challengeBase64Url) {
+    const rpIdHash = await sha256(textEncoder.encode(location.hostname.toLowerCase()));
+    const counter = await nextSignatureCounter(device);
+    const authenticatorData = concatBytes(rpIdHash, new Uint8Array([0x05]), encodeU32(counter));
+    const clientDataBytes = textEncoder.encode(
+      JSON.stringify({
+        type: "webauthn.get",
+        challenge: challengeBase64Url,
+        origin: location.origin,
+        crossOrigin: false,
+      }),
+    );
+    const signedData = concatBytes(authenticatorData, await sha256(clientDataBytes));
+    const deviceRecord = await idbGet("device");
+    const raw = new Uint8Array(
+      await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, deviceRecord.privateKey, signedData),
+    );
+    return {
+      credentialIdBase64Url: device.credentialId,
+      authenticatorDataBase64Url: base64UrlEncode(authenticatorData),
+      clientDataJsonBase64Url: base64UrlEncode(clientDataBytes),
+      signatureBase64Url: base64UrlEncode(RelayFrameCrypto.ecdsaP1363ToDer(raw)),
+    };
   }
 
   async function pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey) {
@@ -613,7 +648,13 @@
         // OpaqueRelayFrameHub can route this session's traffic (v2r-relay-owner). Live sync
         // (v2r-tablet-marks-sync) takes over from here in the background; the ceremony itself
         // is done.
-        startLiveSync(attemptId, established, tabletToDesktopKey, desktopToTabletKey);
+        startLiveSync(
+          attemptId,
+          established,
+          tabletToDesktopKey,
+          desktopToTabletKey,
+          challenge.desktopIdentityKey.keyId.value,
+        );
         return;
       }
 
@@ -648,9 +689,8 @@
   // and it is the only thing a tablet that just follows ever sends, so it is also what tells
   // the desktop this tablet is still here.
   const RESYNC_MS = 5 * 60_000;
-  // The desktop republishes its map about once a second while a raid is running. Twice that,
-  // and a tablet says the desktop is gone rather than showing a map that stopped being true.
-  const SURFACE_STALE_MS = 20_000;
+  // Whether the desktop is there is RelayFrameCrypto.desktopOnline's call, from what the relay
+  // says about when it last heard from it; the thresholds live beside it.
   // Matches the relay's own cap (RelayMapSurfaceStore.MaximumWait). Asking for more is clamped
   // there; asking for less would just mean more round trips saying nothing happened.
   const HOLD_SECONDS = 20;
@@ -1100,10 +1140,16 @@
         return false;
       }
 
+      // How long ago the relay heard from the desktop, which reads its queue every two seconds
+      // whatever else it is doing. An older relay does not say, and the map's own age is all
+      // there is to go on, as before.
+      const ownerSeen = response.headers.get("X-Relay-Owner-Seen-Ms");
       if (response.status === 404) {
         live.surface = null;
         live.mapRevision = null;
-        live.connected = false;
+        // No map is not the same as no desktop: it may simply not have one open yet.
+        live.desktopOnline = RelayFrameCrypto.desktopOnline({ ownerSeenMs: ownerSeen, publishedUtc: null, nowMs: Date.now() });
+        live.connected = live.desktopOnline;
         renderLiveStatus();
         renderSurface();
         return false;
@@ -1112,8 +1158,14 @@
       if (!response.ok) return false;
       const revision = response.headers.get("X-Relay-Map-Revision");
       const surface = await response.json();
-      const age = Date.now() - Date.parse(surface.publishedUtc);
-      live.connected = age < SURFACE_STALE_MS;
+      // [#407] Not the age of the map: a desktop sitting still on one map publishes nothing, and
+      // twenty seconds into that this said "The desktop is offline" over a live link.
+      live.desktopOnline = RelayFrameCrypto.desktopOnline({
+        ownerSeenMs: ownerSeen,
+        publishedUtc: surface.publishedUtc,
+        nowMs: Date.now(),
+      });
+      live.connected = live.desktopOnline;
       live.surface = surface;
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
@@ -1169,7 +1221,7 @@
     });
   }
 
-  async function startLiveSync(attemptId, established, tabletToDesktopKey, desktopToTabletKey) {
+  async function startLiveSync(attemptId, established, tabletToDesktopKey, desktopToTabletKey, desktopKeyId) {
     const assignment = established.assignment;
     live = {
       sessionId: assignment.sessionId.value,
@@ -1230,9 +1282,106 @@
     tabletToDesktopKey.fill(0);
     desktopToTabletKey.fill(0);
     live.sessionExpiresUtc = assignment.sessionExpiresUtc;
-    live.deviceName = $("pairingName").value.trim() || "Tablet";
+    live.deviceName = ceremony.deviceName || "Tablet";
     await saveSession();
+    await rememberDesktop(desktopKeyId, live.deviceName);
     beginLive();
+  }
+
+  // [#289, #290] What outlives the session: which desktop this tablet is paired with, by the id of
+  // the key that desktop signs with, and what the tablet is called there. A session runs out in
+  // twelve hours (two, if the tablet was put down); with this the page asks to be let back in on
+  // its own device key, and knows it is the same desktop answering. Forgotten on Unpair, and when
+  // the relay says the desktop revoked this tablet.
+  const PAIRED_KEY = "paired";
+
+  async function rememberDesktop(desktopKeyId, deviceName) {
+    try {
+      await idbSet(PAIRED_KEY, { desktopKeyId, deviceName });
+    } catch {
+      // No storage: the session works, the tablet just pairs by code next time.
+    }
+  }
+
+  let comingBack = null;
+  let comeBackTimer = null;
+
+  /**
+   * Asks to be let back in without a code. Resolves "resumed", "waiting" (the desktop has not
+   * answered: it is off, or not updated yet), or "refused" (this tablet has to be paired again).
+   */
+  function comeBackByKey() {
+    comingBack ||= (async () => {
+      let paired = null;
+      try {
+        paired = await idbGet(PAIRED_KEY);
+      } catch {
+        return "refused";
+      }
+
+      if (!paired?.desktopKeyId) return "refused";
+      setStage("pairingWaiting");
+      $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
+      const device = await ensureDeviceIdentity();
+      const asked = await postJson("/v2/companion/relay/possession/challenge", null);
+      if (!asked.ok) return asked.status === 429 ? "waiting" : "refused"; // an older relay has no such route
+      const issued = await asked.json();
+      const knocked = await postJson(
+        `/v2/companion/relay/resume/requests?deviceKeyId=${encodeURIComponent(device.keyId)}`,
+        {
+          challengeId: { value: issued.challengeId },
+          assertion: await signAssertion(device, await RelayFrameCrypto.deviceDoorChallenge(issued.nonceBase64Url)),
+        },
+      );
+      if (knocked.status === 403) {
+        // Revoked on the desktop, or a relay that has been claimed by somebody else since.
+        await idbDelete(PAIRED_KEY).catch(() => {});
+        return "refused";
+      }
+
+      if (!knocked.ok) return "waiting";
+      const ticket = await knocked.json();
+      const deadline = Math.min(Date.parse(ticket.expiresUtc), Date.now() + 60_000);
+      let code = null;
+      while (!code && Date.now() < deadline) {
+        const answer = await getJson(`/v2/companion/relay/resume/requests/${ticket.ticketId}`);
+        if (!answer) break;
+        code = answer.pairingCode;
+        if (!code) await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      if (!code) return "waiting";
+      pendingApproval = null;
+      await beginPairing(code, paired.deviceName || "Tablet", { pinnedDesktopKeyId: paired.desktopKeyId });
+      $("pairedName").textContent = paired.deviceName || "Tablet";
+      setStage("pairingDone");
+      return "resumed";
+    })().finally(() => {
+      comingBack = null;
+    });
+    return comingBack;
+  }
+
+  /** Comes back by key, and keeps trying while the desktop is simply not there to answer. */
+  async function comeBack(refusedMessage) {
+    clearTimeout(comeBackTimer);
+    let outcome = "waiting";
+    try {
+      outcome = await comeBackByKey();
+    } catch {
+      outcome = "waiting";
+    }
+
+    if (outcome === "resumed" || live) return;
+    if (outcome === "refused") {
+      setStage("pairingIdle", refusedMessage || "This tablet is no longer paired with the desktop. Pair it again.");
+      return;
+    }
+
+    setStage("pairingIdle", "Waiting for the desktop. This tablet reconnects by itself once it is running.");
+    comeBackTimer = setTimeout(() => {
+      if (!live) comeBack(refusedMessage);
+    }, 15_000);
   }
 
   async function saveSession() {
@@ -1274,9 +1423,14 @@
       return false;
     }
 
-    if (!stored?.credential || !stored.tabletToDesktopKey || !stored.desktopToTabletKey) return false;
+    if (!stored?.credential || !stored.tabletToDesktopKey || !stored.desktopToTabletKey) {
+      comeBack();
+      return false;
+    }
+
     if (Date.parse(stored.sessionExpiresUtc) <= Date.now()) {
       await forgetSession();
+      comeBack();
       return false;
     }
 
@@ -1332,15 +1486,26 @@
     }, RESYNC_MS);
   }
 
-  /** The relay no longer accepts this session: revoked from the desktop, or expired. */
-  async function sessionEnded(message) {
+  /**
+   * The relay no longer accepts this session. Expired is the everyday case (twelve hours, or two
+   * with the tablet put down), so the page asks to be let back in on its key before it says
+   * anything about pairing again; the relay's door is what tells expired from revoked.
+   */
+  async function sessionEnded(message, unpaired) {
     if (!live) return;
     live = null;
     mode = "Follow";
     await forgetSession();
     $("surface").style.display = "none";
-    setStage("pairingIdle", message || "This tablet is no longer paired with the desktop. Pair it again.");
     renderLiveStatus();
+    if (unpaired) {
+      clearTimeout(comeBackTimer);
+      await idbDelete(PAIRED_KEY).catch(() => {});
+      setStage("pairingIdle", message);
+      return;
+    }
+
+    await comeBack(message);
   }
 
   // One tab at a time. Two tabs on one kept session would share a sender sequence, and the
@@ -1390,10 +1555,27 @@
           }
 
           // The relay dropped or restarted this queue, so something was missed: ask the desktop
-          // where things are rather than showing a state that stopped being true.
+          // where things are rather than showing a state that stopped being true. The relay is
+          // told the gap has been seen, or it says "reconnect" on every read from here on and
+          // this asked for a full resync every second and a half for the life of the session.
           if (batch.requiresReconnect && batch.frames.length === 0) {
-            live.afterDeliveryId = 0;
-            requestResync();
+            let cursor = 0;
+            let cleared = false;
+            try {
+              const reset = await relayCall("/v2/companion/relay/frames/reset", { method: "POST" });
+              if (reset.ok) {
+                cursor = Number((await reset.json()).after) || 0;
+                cleared = true;
+              }
+            } catch {
+              // An older relay has no such route; the throttle below is what is left.
+            }
+
+            live.afterDeliveryId = cursor;
+            if (cleared || Date.now() - (live.reconnectResyncAt || 0) > 30_000) {
+              live.reconnectResyncAt = Date.now();
+              requestResync();
+            }
           }
 
           if (batch.frames.length > 0) {
@@ -2038,6 +2220,7 @@
     const deviceName = $("pairingName").value.trim() || "Tablet";
     if (!code.trim()) return;
     try {
+      clearTimeout(comeBackTimer);
       pendingApproval = null;
       await beginPairing(code, deviceName);
       $("pairedName").textContent = deviceName;
@@ -2070,7 +2253,7 @@
   });
 
   $("unpair").addEventListener("click", () =>
-    sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again."));
+    sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
 
   setStage("pairingIdle");
   renderMode();

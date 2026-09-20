@@ -149,6 +149,48 @@ public sealed class WorkspaceLoadFailureTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Retry on the shell's banner reloads the pages that failed, and only keeps naming the ones
+    /// that failed again (#453).
+    /// </summary>
+    [Fact]
+    public async Task RetryingStartupFaultsDropsThePagesThatNowLoadAndKeepsTheOnesThatDoNot()
+    {
+        var hideoutAttempts = 0;
+        var mapAttempts = 0;
+        var loaders = new Dictionary<string, Func<Task>>(StringComparer.Ordinal)
+        {
+            ["hideout"] = () =>
+            {
+                hideoutAttempts++;
+                return Task.CompletedTask;
+            },
+            ["map"] = () =>
+            {
+                mapAttempts++;
+                throw new InvalidOperationException("The map catalog is still unreadable.");
+            },
+            ["ammo"] = () => throw new InvalidOperationException("Ammo loaded at startup and must not be run again."),
+        };
+
+        var stillFailed = await MainWindowViewModel.RetryFailedSurfacesAsync(
+            ["hideout", "map", "scanner"],
+            loaders,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        // Hideout now loads; the map failed again; the scanner has no loader and cannot be claimed.
+        Assert.Equal(["map", "scanner"], stillFailed);
+        Assert.Equal(1, hideoutAttempts);
+        Assert.Equal(1, mapAttempts);
+    }
+
+    [Theory]
+    [InlineData(new[] { "hideout" }, "Hideout did not load")]
+    [InlineData(new[] { "hideout", "map" }, "Hideout and Map did not load")]
+    [InlineData(new[] { "hideout", "ammo", "map" }, "Hideout, Ammo and Map did not load")]
+    public void TheBannerNamesThePagesThatDidNotLoad(string[] faults, string expected) =>
+        Assert.Equal(expected, V2ShellViewModel.DescribeStartupFaults(faults));
+
     public void Dispose()
     {
         CrashLog.Detach();

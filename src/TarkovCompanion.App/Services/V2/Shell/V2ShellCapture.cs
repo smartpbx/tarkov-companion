@@ -181,7 +181,20 @@ public sealed record V2CaptureReview
     public string Summary { get; }
     public string Provenance { get; }
     public bool CanCorrect { get; }
+
+    /// <summary>
+    /// [f920 capture] What the capture might have been, the answer first. Two or more and the
+    /// review lists them so the player can say which; "Correct result" used to be a button
+    /// that was acknowledged and dropped.
+    /// </summary>
+    public IReadOnlyList<V2CaptureCandidate> Candidates { get; init; } = [];
+
+    /// <summary>The candidate Intel is showing: the recogniser's answer until the player picks another.</summary>
+    public string? ChosenCandidateId { get; init; }
 }
+
+/// <summary>One catalog item a capture might have been.</summary>
+public sealed record V2CaptureCandidate(string CanonicalId, string DisplayName, double? Confidence);
 
 /// <summary>
 /// The complete read-only capture projection consumed by shell chrome. #271 will own its source.

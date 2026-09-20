@@ -3,7 +3,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
-             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
@@ -132,6 +133,7 @@
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
               </Button>
             </Grid>
+            <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" />
             <StackPanel Spacing="2">
               <TextBlock Classes="v2-body" Text="{Binding Status}" TextWrapping="Wrap"
                          AutomationProperties.AutomationId="v2-plan-status"

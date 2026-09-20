@@ -84,6 +84,43 @@ public sealed class ArmedLootLoopTests
         Assert.Equal("capture_context_changed_since_arm", refused.Code);
     }
 
+    /// <summary>
+    /// A pasted picture with nothing armed: the intent selected in the panel is armed and the
+    /// picture reaches the Loot page by the same intake the watcher uses.
+    /// </summary>
+    [Fact]
+    public async Task APastedPictureIsReadUnderTheSelectedIntentWithoutTheGame()
+    {
+        await using var loop = await Loop.CreateAsync();
+        loop.Shell.CaptureIntents.Single(offered => offered.Intent == ScanIntent.Loot).SelectCommand.Execute(null);
+
+        loop.Shell.SubmitManualImage(
+            V2ManualImageOrigin.Paste,
+            null,
+            new CapturedImage(new byte[16], 2, 2, 8, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, "clipboard-image"));
+        var page = await loop.LootPageAsync();
+
+        Assert.Contains(page.Decisions, card => card.Name == "Salewa");
+        var session = loop.Coordinator.Snapshot.Sessions.Single();
+        Assert.Equal(ScanIntent.Loot, session.Request.Intent);
+        var artifact = Assert.Single(session.Artifacts);
+        Assert.Equal(CaptureDeliveryKind.Paste, artifact.DeliveryKind);
+        Assert.Equal(CaptureSourceKind.ClipboardImage, artifact.SourceKind);
+        Assert.StartsWith("Reading a 2 × 2 picture", loop.Shell.CaptureManualStatus, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task APickedFileThatIsNotAPictureIsRefusedBeforeAnythingIsRead()
+    {
+        await using var loop = await Loop.CreateAsync();
+
+        loop.Shell.SubmitManualImage(V2ManualImageOrigin.Picker, Path.Combine(Path.GetTempPath(), "notes.txt"), null);
+        await Task.Delay(50);
+
+        Assert.Equal("That file is not a picture", loop.Shell.CaptureManualStatus);
+        Assert.DoesNotContain(loop.Coordinator.Snapshot.Sessions, session => session.Artifacts.Length > 0);
+    }
+
     [Fact]
     public async Task WithNothingArmedTheWatcherDescribesWhereThePlayerIs()
     {
@@ -172,7 +209,14 @@ public sealed class ArmedLootLoopTests
                 handoff,
                 origin);
             var context = new ShellCaptureContextSource(store, runtime);
-            var bridge = new V2ShellCaptureBridge(shell, coordinator, handoff, new IntelCaptureHandoff(), origin, contextSource: context);
+            var bridge = new V2ShellCaptureBridge(
+                shell,
+                coordinator,
+                handoff,
+                new IntelCaptureHandoff(),
+                origin,
+                contextSource: context,
+                manualIntake: new ManualImageIntake(coordinator, new NoFiles(), context));
             return new(config, shell, coordinator, context, bridge);
         }
 
@@ -247,6 +291,12 @@ public sealed class ArmedLootLoopTests
                     InventoryGridSurface.CarriedInventory,
                     Lattice(2, 3, 600),
                     [Named(0, 0, "bolts", "Bolts", 1, 1, 600), Named(0, 1, "bolts", "Bolts", 1, 1, 600)])));
+    }
+
+    private sealed class NoFiles : IScreenshotImageLoader
+    {
+        public Task<CapturedImage?> LoadAsync(string path, CancellationToken cancellationToken) =>
+            Task.FromResult<CapturedImage?>(null);
     }
 
     private sealed class EmptyStash(InventoryProfileScope scope, string dataSnapshotId) : IObservedInventoryEvidenceReader

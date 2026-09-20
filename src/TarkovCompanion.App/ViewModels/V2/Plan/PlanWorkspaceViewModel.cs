@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -290,12 +291,12 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool RequirementsReady => HasRequirements && StillNeededCount == 0;
 
-    /// <summary>"All ready", "2 still needed", or empty where the objectives ask for no item.</summary>
+    /// <summary>"All ready", "2 still needed", "3 to check", or empty where the objectives ask for no item.</summary>
     public string RequirementsSummary => !HasRequirements
         ? string.Empty
         : RequirementsReady
             ? "All ready"
-            : $"{StillNeededCount:N0} still needed";
+            : PlanQuestRules.SummariseUnmet(Requirements.Where(row => !row.IsSatisfied));
 
     public bool IsSelected
     {
@@ -787,23 +788,39 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
+    /// <summary>Shown in the pane when the board could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
+            UiActivity.Step("plan:start");
+            LoadFaultInjection.ThrowIfInjected("plan");
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:profile");
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _ownedItems = profile.OwnedItemCounts;
             _missingItems.Clear();
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
-            _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:board");
+            var board = _board;
+            _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:mapnames");
             RebuildSearchIndex();
+            UiActivity.Step("plan:searchindex");
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
+            UiActivity.Step("plan:applyprofile");
             ApplyFilter();
+            UiActivity.Step("plan:applyfilter");
             UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
+            UiActivity.Step("plan:questlayer");
+            LoadFault.Clear();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -814,6 +831,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Groups = [];
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
+            LoadFault.Show("Quests did not load", "Nothing is lost. Retry reads them again.");
             WorkspaceFault.Record("plan", "refresh", exception);
         }
     }
@@ -834,7 +852,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         UpdateGameLogStatus(reading);
-        _ = RefreshAsync(CancellationToken.None);
+        RefreshAsync(CancellationToken.None).Observe("plan", "refresh after the game reported a quest");
     }
 
     private void UpdateGameLogStatus(QuestLogProgressReading? reading)
@@ -1284,10 +1302,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         var unmet = Groups
             .SelectMany(group => group.Requirements.Where(row => !row.IsSatisfied))
-            .Select(row => (row.ItemName, row.HandlingLabel))
-            .Distinct()
-            .Count();
-        RequirementsRollup = unmet == 0 ? string.Empty : $"{CountLabel(unmet, "item")} still needed";
+            .DistinctBy(row => (row.ItemName, row.HandlingLabel));
+        RequirementsRollup = PlanQuestRules.SummariseUnmet(unmet, value => CountLabel(value, "item"));
     }
 
     /// <summary>
@@ -1314,26 +1330,40 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var resolved = false;
-        foreach (var id in unnamed)
+        // Read off the interface thread and applied on it: up to 150 lookups, none of which the
+        // view needs to watch happen. The dictionaries belong to this thread, so only the answers
+        // come back.
+        var repository = _itemRepository;
+        var lookups = await OffInterfaceThread.Run(async () =>
         {
-            try
+            var found = new List<(string Id, string? Name)>(unnamed.Length);
+            foreach (var id in unnamed)
             {
-                if (await _itemRepository.GetAsync(id, CancellationToken.None).ConfigureAwait(true) is { } item)
+                try
                 {
-                    _itemNames[id] = item.Name;
+                    var item = await repository.GetAsync(id, CancellationToken.None).ConfigureAwait(false);
+                    found.Add((id, item?.Name));
                 }
-                else
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    _missingItems.Add(id);
+                    // One unreadable item costs one name, not the panel.
+                    WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
                 }
-
-                resolved = true;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+
+            return found;
+        }).ConfigureAwait(true);
+
+        var resolved = lookups.Count > 0;
+        foreach (var (id, name) in lookups)
+        {
+            if (name is not null)
             {
-                // One unreadable item costs one name, not the panel.
-                WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
+                _itemNames[id] = name;
+            }
+            else
+            {
+                _missingItems.Add(id);
             }
         }
 

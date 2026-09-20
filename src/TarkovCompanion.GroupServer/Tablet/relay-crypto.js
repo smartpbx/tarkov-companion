@@ -311,9 +311,63 @@
     return textDecoder.decode(plaintext);
   }
 
+  // WebCrypto signs ECDSA as the two 32-byte integers side by side (IEEE P1363). A WebAuthn
+  // assertion carries them as an ASN.1 DER SEQUENCE of two INTEGERs, which is what the desktop's
+  // proof verifier and the relay's door both check, so every device-key signature this page sends
+  // goes through here. Sent raw, the proof never verified and no browser could ever pair.
+  function derInteger(bytes) {
+    let start = 0;
+    while (start < bytes.length - 1 && bytes[start] === 0) start += 1;
+    const trimmed = bytes.slice(start);
+    const padded = trimmed[0] & 0x80 ? concatBytes(new Uint8Array([0]), trimmed) : trimmed;
+    return concatBytes(new Uint8Array([0x02, padded.length]), padded);
+  }
+
+  function ecdsaP1363ToDer(signature) {
+    if (signature.length !== 64) throw new Error("A P-256 signature is two 32-byte integers.");
+    const body = concatBytes(derInteger(signature.slice(0, 32)), derInteger(signature.slice(32)));
+    return concatBytes(new Uint8Array([0x30, body.length]), body);
+  }
+
+  const DEVICE_DOOR_DOMAIN = "TarkovCompanion.PairedDevice/v2/relay-resume-door";
+
+  /// What a returning device signs for the relay (RelayPossessionChallenges.DeviceDoorChallenge):
+  /// a hash of the relay's nonce under its own label, never the bare nonce. A device-key
+  /// assertion over a bare 32-byte value is what the desktop accepts as a handshake proof.
+  async function deviceDoorChallenge(nonceBase64Url) {
+    const input = concatBytes(textEncoder.encode(DEVICE_DOOR_DOMAIN), base64UrlDecode(nonceBase64Url));
+    return base64UrlEncode(new Uint8Array(await crypto.subtle.digest("SHA-256", input)));
+  }
+
+  // The desktop reads its relay queue every two seconds whether or not anything is happening, so
+  // the relay's "last heard from the owner" is what says the desktop is there. Several missed
+  // reads, not one: a laptop on wifi drops a request now and then.
+  const OWNER_SILENT_MS = 15_000;
+  // Only for a relay too old to report the owner: the age of the map it last published, which is
+  // wrong for a desktop sitting still on one map (it publishes nothing) and is all there is.
+  const SURFACE_STALE_MS = 20_000;
+
+  /// Whether the tablet should say the desktop is there. `ownerSeenMs` is the relay's
+  /// X-Relay-Owner-Seen-Ms header (null from an older relay), `publishedUtc` the map's own stamp.
+  function desktopOnline({ ownerSeenMs, publishedUtc, nowMs }) {
+    if (ownerSeenMs !== null && ownerSeenMs !== undefined && ownerSeenMs !== "") {
+      const silentFor = Number(ownerSeenMs);
+      if (Number.isFinite(silentFor)) return silentFor < OWNER_SILENT_MS;
+    }
+
+    if (!publishedUtc) return false;
+    const age = nowMs - Date.parse(publishedUtc);
+    return Number.isFinite(age) && age < SURFACE_STALE_MS;
+  }
+
   return {
     PAYLOAD_KIND,
     DIRECTION,
+    DEVICE_DOOR_DOMAIN,
+    OWNER_SILENT_MS,
+    desktopOnline,
+    ecdsaP1363ToDer,
+    deviceDoorChallenge,
     RELAY_AAD_DOMAIN,
     RELAY_CREDENTIAL_AAD_DOMAIN,
     base64UrlEncode,

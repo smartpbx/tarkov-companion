@@ -463,10 +463,10 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Single(shell.SuggestionItems, item => item.Kind == V2ShellSuggestionKind.Planned).OpenCommand.Execute(null);
         await WaitUntilAsync(() => !shell.IntelIsLoading);
 
-        // Two outstanding for quests plus one for the hideout.
+        // Two outstanding for quests (Keep) plus one for the hideout (Value).
         Assert.Equal("Keep 3", shell.IntelVerdictHeadline);
         Assert.Contains(shell.IntelNeedLines, line => line.IsActive && line.Text == "1 needed for your active quests");
-        Assert.Contains(shell.IntelNeedLines, line => !line.IsActive && line.Text == "0 later quests need it");
+        Assert.Contains(shell.IntelNeedLines, line => line.IsActive && line.Text == "1 needed for hideout upgrades");
         Assert.Equal("Best sale: Flea market", shell.IntelBestSaleLabel);
         Assert.True(shell.IntelHasPrices);
         Assert.Equal("Mechanic", shell.IntelTraderCaption);
@@ -596,7 +596,8 @@ public sealed class V2ShellViewModelTests : IDisposable
                             null,
                             null,
                             [new("Mechanic", 200_000), new("Therapist", 100_000)],
-                            DateTimeOffset.UnixEpoch))
+                            DateTimeOffset.UnixEpoch),
+                        Keep: new V2IntelKeepFacts([new V2IntelQuestNeedRow("Bitcoin farm", 2, false)], []))
                     : V2ItemIntelResult.NotFound(itemId));
     }
 

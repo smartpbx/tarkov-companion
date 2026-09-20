@@ -202,5 +202,6 @@ internal sealed class SelfTestDemoReadings(bool waitsForScreenshot = false) : IS
         "0012_task_wiki_link",
         "0013_task_objective_task_scoped_keys",
         "0015_flea_market_settings",
+        "0016_restore_task_objective_items",
     ];
 }

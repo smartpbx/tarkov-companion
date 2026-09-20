@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -224,7 +225,7 @@ public sealed class AmmoPageViewModel : PageViewModel
             return;
         }
 
-        _ = LoadAsync();
+        LoadAsync().Observe("ammo", "reload");
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);

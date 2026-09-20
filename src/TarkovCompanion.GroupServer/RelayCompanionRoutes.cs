@@ -57,14 +57,41 @@ public sealed record RelaySessionCredentialResponse(
         credential.ExpiresUtc);
 }
 
-public sealed record RelayFrameBatchResponse(int ProtocolVersion, bool RequiresReconnect, DateTimeOffset ServerUtc, IReadOnlyList<RelayFrameEnvelope> Frames)
+/// <param name="ResumeRequests">
+/// [#289] Only ever filled for the owner: paired devices that have proved their key and are
+/// waiting for this desktop to open them a fresh session. It rides on the read the desktop already
+/// makes every two seconds rather than costing a second one. An older desktop ignores it.
+/// </param>
+public sealed record RelayFrameBatchResponse(
+    int ProtocolVersion,
+    bool RequiresReconnect,
+    DateTimeOffset ServerUtc,
+    IReadOnlyList<RelayFrameEnvelope> Frames,
+    IReadOnlyList<RelayResumeRequest>? ResumeRequests = null,
+    RelayHeldMap? Map = null)
 {
-    public static RelayFrameBatchResponse From(RelayFrameBatch batch) => new(
+    public static RelayFrameBatchResponse From(
+        RelayFrameBatch batch,
+        IReadOnlyList<RelayResumeRequest>? resumeRequests = null,
+        RelayHeldMap? map = null) => new(
         batch.ProtocolVersion.Major,
         batch.RequiresReconnect,
         batch.ServerUtc,
-        batch.Frames.Select(RelayFrameEnvelope.From).ToArray());
+        batch.Frames.Select(RelayFrameEnvelope.From).ToArray(),
+        resumeRequests is { Count: > 0 } ? resumeRequests : null,
+        map);
 }
+
+/// <summary>Where a reader's cursor belongs after it asked the relay to clear a broken queue.</summary>
+public sealed record RelayFrameResetResponse(long After);
+
+/// <summary>A returning paired device waiting on its desktop, as the owner is told about it.</summary>
+public sealed record RelayResumeRequest(Guid TicketId, string DeviceKeyId);
+
+/// <summary>What the relay hands a caller to sign: see <see cref="RelayPossessionChallenges"/>.</summary>
+public sealed record RelayPossessionChallengeResponse(Guid ChallengeId, string NonceBase64Url, DateTimeOffset ExpiresUtc);
+
+public sealed record RelayResumeTicketResponse(Guid TicketId, DateTimeOffset ExpiresUtc, string? PairingCode);
 
 /// <summary>
 /// <see cref="Frame"/> is embedded as the exact bytes <see cref="CompanionProtocolJson"/> writes for
@@ -93,10 +120,20 @@ public sealed class RelayOwnerClaimGate
     private readonly byte[] _sourceHashKey = RandomNumberGenerator.GetBytes(32);
 
     public RelayOwnerClaimGate(TimeProvider timeProvider)
+        : this(timeProvider, perSourceLimit: 5, globalLimit: 20)
+    {
+    }
+
+    /// <summary>
+    /// The same two-level admission with other numbers. The key-possession routes have their own
+    /// gate so that nobody hammering them — they need no secret to reach — can use up the budget
+    /// an operator's admin-key claim depends on, and the other way round.
+    /// </summary>
+    public RelayOwnerClaimGate(TimeProvider timeProvider, int perSourceLimit, int globalLimit)
     {
         ArgumentNullException.ThrowIfNull(timeProvider);
-        _perSource = new RelayRateLimiter(timeProvider, limit: 5, window: TimeSpan.FromMinutes(1));
-        _global = new RelayRateLimiter(timeProvider, limit: 20, window: TimeSpan.FromMinutes(1), maximumPartitions: 1);
+        _perSource = new RelayRateLimiter(timeProvider, limit: perSourceLimit, window: TimeSpan.FromMinutes(1));
+        _global = new RelayRateLimiter(timeProvider, limit: globalLimit, window: TimeSpan.FromMinutes(1), maximumPartitions: 1);
     }
 
     public RelayRateDecision Admit(IPAddress? remoteAddress)
@@ -126,6 +163,12 @@ public static class RelayCompanionRoutes
     /// <summary>The revision of the map this answer carries; a tablet sends it back as <c>since</c>.</summary>
     public const string MapRevisionHeader = "X-Relay-Map-Revision";
 
+    /// <summary>
+    /// Milliseconds since this relay last heard from the desktop that owns it. On every answer to
+    /// a map read, found or not, and stamped after any hold, so it is true when it arrives.
+    /// </summary>
+    public const string OwnerSeenHeader = "X-Relay-Owner-Seen-Ms";
+
     /// <summary>How long a tablet says it will hold, before the relay's own bound.</summary>
     public const string WaitQuery = "wait";
 
@@ -143,6 +186,10 @@ public static class RelayCompanionRoutes
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(claimGate);
+        // One process, one set of outstanding nonces and tickets: both are memory-only by design.
+        var timeProvider = app.Services.GetService<TimeProvider>() ?? TimeProvider.System;
+        var resumeTickets = new RelayResumeTickets(timeProvider);
+        MapKeyPossessionRoutes(app, registry, resumeTickets, timeProvider);
 
         // Claims the relay's owner with the admin key (ABUSE-PAIRED-OWNER-RECOVERY-EXPOSURE: this
         // route refuses outright, before the admin key is even checked, unless an operator secret
@@ -285,7 +332,41 @@ public static class RelayCompanionRoutes
             }
 
             var batch = hub.Read(principal, after.GetValueOrDefault());
-            return Results.Ok(RelayFrameBatchResponse.From(batch));
+            var waiting = principal.Role == DeviceAuthorizationRole.Owner
+                ? resumeTickets.Unanswered()
+                    .Select(ticket => new RelayResumeRequest(ticket.TicketId, ticket.DeviceKeyId))
+                    .ToArray()
+                : null;
+            // [#407] And what this relay holds of the owner's map, so a desktop learns that a
+            // restart emptied it (or that a picture never arrived) on its next read.
+            return Results.Ok(RelayFrameBatchResponse.From(batch, waiting, mapSurfaces?.Describe(principal)));
+        });
+
+        // [#407] The other half of `requiresReconnect`. The hub has always known how to clear a
+        // queue that overflowed, and nothing could ask it to: once a session's queue had dropped
+        // a frame, every read said "reconnect" for as long as the session lived, and a tablet
+        // answered each one with a full resync request, every second and a half.
+        app.MapPost("/v2/companion/relay/frames/reset", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null || hub is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var reset = hub.ResetAfterReconnect(principal);
+            // The caller's cursor belongs wherever this queue now is: zero after a relay restart
+            // (there is no queue), the last id issued after an overflow.
+            return reset.Accepted
+                ? Results.Ok(new RelayFrameResetResponse(hub.LastIssuedDeliveryId(principal)))
+                : Results.BadRequest(reset.Code);
         });
 
         // Acknowledges every frame through a delivery id, freeing this session's queue.
@@ -398,6 +479,13 @@ public static class RelayCompanionRoutes
             var entry = HoldFor(request) is var (since, wait)
                 ? await mapSurfaces.WaitAsync(principal, since, wait, cancellationToken).ConfigureAwait(false)
                 : mapSurfaces.Read(principal);
+            if (registry.OwnerLastSeenUtc() is { } seen)
+            {
+                var elapsed = (app.Services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow() - seen;
+                request.HttpContext.Response.Headers[OwnerSeenHeader] =
+                    Math.Max(0, (long)elapsed.TotalMilliseconds).ToString(CultureInfo.InvariantCulture);
+            }
+
             if (entry is null)
             {
                 return Results.NotFound();
@@ -428,6 +516,184 @@ public static class RelayCompanionRoutes
             return entry?.Artwork is null || entry.ArtworkMediaType is null
                 ? Results.NotFound()
                 : Results.Bytes(entry.Artwork, entry.ArtworkMediaType, entityTag: new('"' + entry.ArtworkSha256 + '"'));
+        });
+    }
+
+    /// <summary>
+    /// [#289] Coming back without the admin key and without pairing again, by proving possession
+    /// of a key this relay already has on record. See <see cref="RelayPossessionChallenges"/>.
+    /// </summary>
+    private static void MapKeyPossessionRoutes(
+        WebApplication app,
+        RelayDeviceRegistry? registry,
+        RelayResumeTickets tickets,
+        TimeProvider timeProvider)
+    {
+        var challenges = new RelayPossessionChallenges(timeProvider);
+        // No secret is needed to reach these, so they are admitted on their own budget: wide
+        // enough for a household of tablets behind one address coming back at once, and nothing
+        // spent here can starve the admin-key claim route.
+        var gate = new RelayOwnerClaimGate(timeProvider, perSourceLimit: 60, globalLimit: 240);
+
+        app.MapPost("/v2/companion/relay/possession/challenge", IResult (HttpRequest request) =>
+        {
+            if (registry is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            if (!gate.Admit(request.HttpContext.Connection.RemoteIpAddress).Allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
+            var issued = challenges.Issue();
+            return Results.Ok(new RelayPossessionChallengeResponse(issued.ChallengeId, issued.NonceBase64Url, issued.ExpiresUtc));
+        });
+
+        // The owner coming back. The body is the same self-pairing the admin-key claim carries,
+        // built around this relay's nonce, so its signature is the proof: there is no admin key
+        // here, and nothing that is not the key on record gets past the registry.
+        app.MapPost("/v2/companion/relay/owner/resume", async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            if (!gate.Admit(request.HttpContext.Connection.RemoteIpAddress).Allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
+            var claim = await ReadRelayDeviceClaimAsync(request, cancellationToken).ConfigureAwait(false);
+            if (claim is null)
+            {
+                return Results.BadRequest("claim-not-completed");
+            }
+
+            PairingAttempt attempt;
+            try
+            {
+                // Building the attempt is what checks the signature and that it covers this
+                // request, nonce included.
+                attempt = claim.ToCompletedAttempt();
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                return Results.BadRequest("claim-not-completed");
+            }
+
+            if (!challenges.TryConsume(attempt.Request!.ClientNonceBase64Url))
+            {
+                return Results.BadRequest("challenge-rejected");
+            }
+
+            var resumed = await registry.ResumeOwnerByKeyAsync(attempt, CompanionSurfaceKind.Desktop, cancellationToken)
+                .ConfigureAwait(false);
+            return resumed.Succeeded
+                ? Results.Ok(RelaySessionCredentialResponse.From(resumed.Value!))
+                : Results.BadRequest(resumed.Code);
+        });
+
+        // A paired device coming back. It proves the key this relay has on record for it and is
+        // given a ticket; its desktop sees the ticket on its next read and opens it a session.
+        // The relay never issues a device a session by itself: only its desktop can, and the
+        // desktop checks the same key again in the handshake that follows.
+        app.MapPost("/v2/companion/relay/resume/requests", async Task<IResult> (
+            HttpRequest request,
+            string? deviceKeyId,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            if (!gate.Admit(request.HttpContext.Connection.RemoteIpAddress).Allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
+            var proof = await ReadCompanionBodyAsync<DeviceKeyProof>(request, cancellationToken).ConfigureAwait(false);
+            if (proof is null || string.IsNullOrWhiteSpace(deviceKeyId) || deviceKeyId.Length > 64)
+            {
+                return Results.BadRequest("proof-required");
+            }
+
+            DeviceKeyId namedKey;
+            try
+            {
+                namedKey = new DeviceKeyId(deviceKeyId);
+            }
+            catch (ArgumentException)
+            {
+                return Results.BadRequest("proof-required");
+            }
+
+            var device = registry.FindPairedDeviceByKey(namedKey);
+            if (device is null)
+            {
+                return Results.Json("device-unknown", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            if (device.Status is not (DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired))
+            {
+                return Results.Json("device-revoked", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var nonce = challenges.TryConsume(proof.ChallengeId.Value);
+            if (nonce is null)
+            {
+                return Results.BadRequest("challenge-rejected");
+            }
+
+            if (!PairingCryptography.VerifyDeviceAssertion(
+                    device.DeviceKey,
+                    proof.Assertion,
+                    RelayPossessionChallenges.DeviceDoorChallenge(nonce)))
+            {
+                return Results.Json("proof-rejected", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var ticket = tickets.Open(device.DeviceKey.KeyId);
+            return Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, null));
+        });
+
+        // Read by the device that was given the ticket; its id is the only thing that names it.
+        app.MapGet("/v2/companion/relay/resume/requests/{ticketId:guid}", IResult (Guid ticketId) =>
+            tickets.Find(ticketId) is { } ticket
+                ? Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, ticket.PairingCode))
+                : Results.NotFound());
+
+        // The owner's answer: the code of the offer it has just opened in the pairing mailbox.
+        app.MapPost("/v2/companion/relay/resume/requests/{ticketId:guid}/offer", async Task<IResult> (
+            Guid ticketId,
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null || principal.Role != DeviceAuthorizationRole.Owner)
+            {
+                return Results.Unauthorized();
+            }
+
+            var code = request.Headers.TryGetValue("Tarkov-Pairing-Code", out var values) && values.Count == 1
+                ? values[0]
+                : null;
+            if (string.IsNullOrWhiteSpace(code) || code.Length > 32 || !code.All(char.IsAsciiLetterOrDigit))
+            {
+                return Results.BadRequest("pairing-code-required");
+            }
+
+            return tickets.Answer(ticketId, code) ? Results.Ok() : Results.NotFound();
         });
     }
 

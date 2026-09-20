@@ -38,7 +38,10 @@ public sealed class CaptureRecognitionPipeline(
     // leaves this pipeline knowing WHICH item it showed. Optional so a host that composes the
     // pipeline without a catalog still builds; it then identifies nothing rather than guessing.
     CanonicalItemResolverCache? resolverCache = null,
-    OcrTextNormalizer? normalizer = null) : ICaptureSessionPipeline
+    OcrTextNormalizer? normalizer = null,
+    // [f920 capture] #284: the flea row parser V1 already had. Optional and last: where OCR is
+    // not composed (every platform but Windows) there is nothing to parse rows from.
+    TarkovCompanion.Core.Abstractions.IFleaRecognitionService? flea = null) : ICaptureSessionPipeline
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
@@ -68,17 +71,83 @@ public sealed class CaptureRecognitionPipeline(
                 .ConfigureAwait(false);
         }
 
+        // A measured lattice is a usable reading whether or not any text was read. Availability
+        // was OCR's alone, so a Loot or Stash frame on a machine with no OCR engine - or one whose
+        // text simply was not legible - resolved its review and then ended "no change", with the
+        // grid it had measured thrown away.
+        isAvailable |= grid?.Lattice is not null;
+
+        // The text detector could not place the screen, the player armed Loot or Stash, and the
+        // pixels hold a measured inventory lattice: that is a grid screen, placed from its lines
+        // instead of its words. Without this the review offered "Analyse as armed" and intake
+        // then refused it as "context unknown, no change" - the button did nothing, on the one
+        // machine class (no OCR, or OCR that read no anchor) where it was the only way forward.
+        var fleaListings = await ReadFleaListingsAsync(request, detection.Context, cancellationToken).ConfigureAwait(false);
+        if (fleaListings.Count > 0 && isAmbiguous && request.RequestedIntent == ScanIntent.Flea)
+        {
+            // Priced rows under an armed Flea intent are a flea screen, whatever the anchor
+            // detector made of the header.
+            detectedContext = RecognizedContext.Flea;
+            isAmbiguous = false;
+        }
+
+        (detectedContext, isAmbiguous, var confidence) = PlaceFromLattice(
+            detectedContext,
+            isAmbiguous,
+            detection.Confidence,
+            grid?.Lattice is not null,
+            request.RequestedIntent);
+
         return new(
             contentHash,
             detectedContext,
             isAmbiguous,
             isAvailable,
             coordinated.DiagnosticCode,
-            detection.Confidence,
+            confidence,
             grid,
             await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
-                .ConfigureAwait(false));
+                .ConfigureAwait(false),
+            FleaListings: fleaListings);
     }
+
+    /// <summary>
+    /// The visible rows of a flea screen, parsed by the same service V1 uses.
+    /// </summary>
+    /// <remarks>
+    /// Run for an armed Flea intent, or when the anchor detector says the screen is the flea. It
+    /// reads the picture the player took and nothing else. A parser that is not composed, a
+    /// provider that is unavailable or a deadline that expired all give no rows, which the
+    /// handoff reports as "no rows were legible" rather than as an empty market.
+    /// </remarks>
+    private async Task<IReadOnlyList<CaptureFleaListing>> ReadFleaListingsAsync(
+        CaptureAnalysisRequest request,
+        ScanContext detected,
+        CancellationToken cancellationToken)
+    {
+        if (flea is null || !ReadsFleaRows(request.RequestedIntent, detected))
+        {
+            return [];
+        }
+
+        try
+        {
+            var read = await flea.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
+            return
+            [
+                .. read.Listings
+                    .OrderBy(listing => listing.Bounds.Y)
+                    .Select(listing => new CaptureFleaListing(listing.PriceRoubles, listing.Quantity, listing.Confidence, listing.SourceText)),
+            ];
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    internal static bool ReadsFleaRows(ScanIntent intent, ScanContext detected) =>
+        intent == ScanIntent.Flea || (intent == ScanIntent.Auto && detected == ScanContext.FleaListings);
 
     /// <summary>
     /// What single item this frame showed, when the screen is one that holds a single item.
@@ -135,6 +204,9 @@ public sealed class CaptureRecognitionPipeline(
     /// </remarks>
     internal static bool IdentifiesItems(RecognizedContext? detectedContext, ScanIntent requestedIntent) =>
         detectedContext is RecognizedContext.Item
+        // A flea search shows one item's offers, and its name is on every row.
+        || detectedContext is RecognizedContext.Flea
+        || requestedIntent is ScanIntent.Flea
         || (detectedContext is null && requestedIntent is ScanIntent.Auto);
 
     /// <summary>
@@ -148,6 +220,24 @@ public sealed class CaptureRecognitionPipeline(
         ScanIntent.Stash => InventoryGridSurface.Stash,
         _ => null,
     };
+
+    /// <summary>
+    /// Places a screen the text detector could not, from the lattice measured in its pixels.
+    /// </summary>
+    /// <remarks>
+    /// Only under an armed Loot or Stash, where the player has said what the screen is and the
+    /// lattice bears them out. The confidence is the floor at which intake will act on a reading,
+    /// never the "auto-selected" band: the lines were measured, the words were not read.
+    /// </remarks>
+    internal static (RecognizedContext? Context, bool IsAmbiguous, Confidence Confidence) PlaceFromLattice(
+        RecognizedContext? detected,
+        bool isAmbiguous,
+        Confidence confidence,
+        bool latticeMeasured,
+        ScanIntent intent) =>
+        isAmbiguous && latticeMeasured && GridSurfaceFor(intent) is not null
+            ? (MapContainer(intent), false, new(Math.Max(confidence.Value, RecognitionThresholds.Ambiguous)))
+            : (detected, isAmbiguous, confidence);
 
     /// <summary>
     /// The same, for a frame nobody armed an intent for.

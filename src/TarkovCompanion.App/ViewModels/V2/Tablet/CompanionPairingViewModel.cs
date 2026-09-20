@@ -146,6 +146,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
     private readonly RelayOwnerClaimClient? _claimClient;
+    private readonly PairedDeviceResumeService? _resume;
     private Uri? _relayOrigin;
     private readonly TimeProvider _timeProvider;
     private readonly CancellationTokenSource _lifetime = new();
@@ -195,6 +196,21 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             if (availability.IdentitySigner is { } signer)
             {
                 _claimClient = new RelayOwnerClaimClient(_relay, signer, authority, _relayMarksBridge);
+                if (_relayMarksBridge is not null)
+                {
+                    // [#289] The relay ends an owner session after twelve hours, or two idle. The
+                    // bridge asks to be let back in on this desktop's key before it gives the
+                    // claim up, so the admin key is typed once on this machine, not once a day.
+                    var claimClient = _claimClient;
+                    _relayMarksBridge.OwnerReclaim = token => claimClient.ClaimByKeyAsync(Now(), token);
+                }
+            }
+
+            if (_relayMarksBridge is not null)
+            {
+                // [#289, #290] And a tablet already approved here comes back the same way.
+                _resume = new PairedDeviceResumeService(authority, availability.Coordinator, _relayMarksBridge, _relay, _timeProvider);
+                _resume.DeviceResumed += OnDeviceResumed;
             }
         }
 
@@ -722,15 +738,20 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
         var adminKey = AdminKeyInput;
         AdminKeyInput = string.Empty;
-        if (string.IsNullOrWhiteSpace(adminKey))
-        {
-            RelayClaimMessage = "Enter the relay's admin key first.";
-            return;
-        }
-
         IsClaimingRelay = true;
         try
         {
+            if (string.IsNullOrWhiteSpace(adminKey))
+            {
+                // [#289] Nothing typed is still worth one try: a desktop that claimed this relay
+                // before (and pressed "Forget this relay", say) is let back in on its key alone.
+                var byKey = await _claimClient.ClaimByKeyAsync(Now(), _lifetime.Token).ConfigureAwait(true);
+                (RelayClaimState, RelayClaimMessage) = byKey.Outcome == RelayClaimOutcome.KeyNotRecognised
+                    ? (RelayClaimState, "Enter the relay's admin key first.")
+                    : DescribeClaim(byKey, RelayClaimState);
+                return;
+            }
+
             var result = await _claimClient.ClaimAsync(adminKey, Now(), _lifetime.Token).ConfigureAwait(true);
             (RelayClaimState, RelayClaimMessage) = DescribeClaim(result, RelayClaimState);
         }
@@ -754,6 +775,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         RelayClaimOutcome.NotConfiguredForClaiming =>
             (RelayOwnerClaimState.NotConfiguredForClaiming, NotConfiguredForClaimingMessage),
         RelayClaimOutcome.AdminKeyRefused => (current, "That admin key was not accepted."),
+        RelayClaimOutcome.KeyNotRecognised => (current, "This relay does not know this desktop. Enter its admin key."),
         RelayClaimOutcome.RateLimited => (current, "Too many claim attempts. Try again in a minute."),
         RelayClaimOutcome.Unreachable => (current, "Could not reach the group relay."),
         // The relay will not replace an owner it has heard from recently, this desktop included.
@@ -776,14 +798,27 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
         await _relayMarksBridge.ForgetOwnerAsync(_lifetime.Token).ConfigureAwait(true);
         RelayClaimState = RelayOwnerClaimState.NotClaimed;
-        RelayClaimMessage = "Forgotten. Enter the admin key to claim this relay again.";
+        RelayClaimMessage = "Forgotten. Press Claim to claim this relay again.";
     }
 
     /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
     internal Task RelayLinkRestored { get; } = Task.CompletedTask;
 
     /// <summary>How often the relay's pairing mailbox is asked for the ceremony's next message.</summary>
-    internal TimeSpan MailboxPollInterval { get; set; } = TimeSpan.FromSeconds(2);
+    internal TimeSpan MailboxPollInterval
+    {
+        get => _mailboxPollInterval;
+        set
+        {
+            _mailboxPollInterval = value;
+            if (_resume is not null)
+            {
+                _resume.MailboxPollInterval = value;
+            }
+        }
+    }
+
+    private TimeSpan _mailboxPollInterval = TimeSpan.FromSeconds(2);
 
     private async Task RestoreRelayLinkAsync()
     {
@@ -799,6 +834,20 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             // Closing during startup; nothing was half-applied.
         }
     }
+
+    private void OnDeviceResumed(PairedDevice device)
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            RefreshDevices();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(RefreshDevices);
+    }
+
+    /// <summary>Completes when no returning tablet is being answered; a test waits on it.</summary>
+    internal Task ResumesSettled => _resume?.WhenIdleAsync() ?? Task.CompletedTask;
 
     private void OnOwnerLinkChanged(RelayOwnerLinkState link)
     {
@@ -835,7 +884,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 break;
             case RelayOwnerLinkState.Rejected:
                 RelayClaimState = RelayOwnerClaimState.NotClaimed;
-                RelayClaimMessage = "The relay ended this desktop's claim. Enter the admin key to claim it again.";
+                RelayClaimMessage = "Another desktop has claimed this relay since. Enter the admin key to claim it back.";
                 break;
         }
     }
@@ -848,6 +897,12 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         {
             _relayMarksBridge.CanonicalStateChanged -= OnCanonicalStateChanged;
             _relayMarksBridge.OwnerLinkChanged -= OnOwnerLinkChanged;
+        }
+
+        if (_resume is not null)
+        {
+            _resume.DeviceResumed -= OnDeviceResumed;
+            _resume.Dispose();
         }
 
         _ceremony?.Cancel();
@@ -997,24 +1052,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         IsBusy = true;
         try
         {
-            var grant = new PairingDeviceGrant(
-                DeviceAuthorizationRole.Member,
-                [
-                    DeviceCapability.FollowDesktop,
-                    DeviceCapability.RequestControl,
-                    DeviceCapability.ShowOnDesktop,
-                    DeviceCapability.ManageOwnMarks,
-                    DeviceCapability.RequestCaptureIntent,
-                ],
-                [
-                    DeviceCapability.FollowDesktop,
-                    DeviceCapability.ShowOnDesktop,
-                    DeviceCapability.ManageOwnMarks,
-                    DeviceCapability.RequestCaptureIntent,
-                ],
-                Now().AddDays(90),
-                CompanionTransportKind.EndToEndRelay,
-                CompanionSurfaceKind.TabletLandscape);
+            var grant = PairedTabletGrant.Create(Now());
             _grant = grant;
             var challenge = await _coordinator.ApproveAsync(
                 _attemptId,

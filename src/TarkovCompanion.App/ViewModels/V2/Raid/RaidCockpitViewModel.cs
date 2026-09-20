@@ -391,7 +391,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             _userMarkers.Changed += UserMarkersChanged;
         }
 
-        _ = InitializeAsync();
+        InitializeAsync().Observe("raid", "initialize");
     }
 
     /// <summary>The canonical map renderer, once a reviewed map asset is available.</summary>
@@ -492,8 +492,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public IReadOnlyList<RaidMapPickerItemViewModel> MapPicker { get; private set; } = [];
     /// <summary>The picker entry for the map currently shown, for a header selector that stays
     /// showing the current map name rather than resetting to a blank picker each time.</summary>
+    /// <remarks>
+    /// The map that was chosen, not the map that has finished loading: the render model arrives
+    /// with the artwork, and until then the selector in the top bar was blank.
+    /// </remarks>
     public RaidMapPickerItemViewModel? SelectedMap =>
-        MapPicker.FirstOrDefault(item => item.MapId == _map.RenderModel?.Location.Id);
+        MapPicker.FirstOrDefault(item => item.MapId == (_map.SelectedLocation?.Id ?? _map.RenderModel?.Location.Id));
 
     public IReadOnlyList<RaidMarkRowViewModel> Marks { get; private set; } = [];
 
@@ -745,12 +749,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     /// <summary>The raid clock when one is running, otherwise a quiet "In raid" / "Not in raid"
     /// rather than the legacy page's "Unknown" plus a full sentence.</summary>
-    public string RaidPhaseLabel =>
-        !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeft)
-            ? TimeLeft
-            : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
+    /// <remarks>
+    /// The clock is <see cref="RaidPageViewModel.Clock"/>, the same string the top bar shows, not a
+    /// second reading of the same raid in another format.
+    /// </remarks>
+    public string RaidPhaseLabel => _raid.Clock.Length > 0
+        ? _raid.Clock
+        : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
 
-    /// <summary>False while no raid clock is running, so the quiet phase label stands alone.</summary>
+    /// <summary>
+    /// False while no countdown is running, so the quiet phase label stands alone.
+    /// </summary>
+    /// <remarks>
+    /// The detail says where time left came from (a screenshot, or a count from the start). A clock
+    /// that is only counting up has no such claim to qualify.
+    /// </remarks>
     public bool HasRaidPhaseDetail =>
         !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeftDetail);
 
@@ -1281,6 +1294,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         [nameof(MapViewModel.GroupPanel)] = [nameof(GroupPanel), nameof(HasGroupPanel)],
         [nameof(MapViewModel.MarkList)] = [nameof(MarkList), nameof(HasMarkList), nameof(HasReachedMarks)],
         [nameof(MapViewModel.Floors)] = [nameof(CanStack)],
+        [nameof(MapViewModel.SelectedLocation)] = [nameof(SelectedMap), nameof(MapTitle)],
     };
 
     /// <summary>The map state that changes what is drawn on the plan, so the scene is rebuilt.</summary>
@@ -1310,6 +1324,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             {
                 OnPropertyChanged(name);
             }
+        }
+
+        if (e.PropertyName is nameof(MapViewModel.Status) && Renderer is null && _map.RenderModel is null)
+        {
+            UnavailableReason = WaitingForMap();
         }
 
         if (e.PropertyName is nameof(MapViewModel.FloorSource) or nameof(MapViewModel.AutoSelectsFloor))
@@ -1546,6 +1565,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         switch (e.PropertyName)
         {
+            case nameof(RaidPageViewModel.Clock):
+                OnPropertyChanged(nameof(RaidPhaseLabel));
+                break;
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
@@ -1677,7 +1699,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var version = Interlocked.Increment(ref _trafficVersion);
         _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
-        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+        RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version).Observe("raid", "refresh traffic");
     }
 
     private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)
@@ -1740,7 +1762,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var model = _map.RenderModel;
         if (model is null)
         {
-            SetUnavailable("No map is loaded yet.");
+            SetUnavailable(WaitingForMap());
             return;
         }
 
@@ -1762,6 +1784,18 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             if (ComposeTileArtwork(model) is not { } composed)
             {
+                // Still arriving, not missing. V1 empties its tiles the moment another map is
+                // chosen and says "unavailable" only when a load has finished with none, so an
+                // empty grid that is not unavailable is a load in progress. Tearing the plan down
+                // for it put a black box with a sentence in it on screen for the whole load (54 s
+                // on a first visit to Reserve, measured 2026-09-20); what is on screen stays until
+                // the first tiles of the new map replace it, which is a fraction of a second.
+                if (Renderer is not null && _map.Tiles.Count == 0 &&
+                    model.Background.Availability != MapAssetAvailability.Unavailable)
+                {
+                    return;
+                }
+
                 ReplaceBackgroundImage(null);
                 _cachedAssetVariantKey = null;
                 _cachedAsset = null;
@@ -2810,6 +2844,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         return result;
     }
+
+    /// <summary>
+    /// What to say while there is no map to draw: what V1 is doing about it, in V1's own words.
+    /// </summary>
+    /// <remarks>
+    /// It was "No map is loaded yet." whatever was happening, which on a first launch was the
+    /// whole page for as long as the map list and the first map took to download. V1's status
+    /// already says which of those it is ("Loading the tarkov.dev map catalog…", "Loading Customs
+    /// · interactive…") and, when the list cannot be fetched at all, that and why.
+    /// </remarks>
+    private string WaitingForMap() => string.IsNullOrWhiteSpace(_map.Status) ? "Loading maps…" : _map.Status;
 
     private void SetUnavailable(string reason)
     {

@@ -29,6 +29,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private bool _closesToTray;
     private V2AppearanceApplier? _appearance;
     private WorkspacePreferenceService? _preferences;
+    private UiHangWatchdog? _hangWatchdog;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -101,6 +102,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 // when there is a tray to close to, and the pop-up needs a window to draw in.
                 AttachNotifications(desktop, window, options);
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
+                // [#453] From here on a dispatcher that stops answering for five seconds says so
+                // in the log, with the route and the load that was running.
+                _hangWatchdog = UiHangWatchdog.ForApplication();
+                _hangWatchdog.Start();
             }
         }
 
@@ -169,7 +174,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             var runtime = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
             runtime.Changed += (_, _) => _tray?.Update(runtime.Current);
             _tray.Update(runtime.Current);
-            _ = _notifications.InitializeAsync(_stopping.Token);
+            _notifications.InitializeAsync(_stopping.Token).Observe("notifications", "initialize");
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -247,6 +252,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     public async Task<string> StopAsync(TimeSpan budget)
     {
         var stages = new ShutdownStages(budget);
+        // First: the dispatcher is about to stop answering on purpose, and that is not a hang.
+        _hangWatchdog?.Dispose();
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_mainViewModel?.PreviewShell is { } preview)
         {

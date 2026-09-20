@@ -42,13 +42,15 @@ public sealed class RelayAdminKeyCollection
 internal sealed class LinkRelay : IAsyncDisposable
 {
     public const string AdminKey = "link-tests-admin-key-0123456789";
-    private readonly WebApplication _app;
+    private readonly RelayTestClock _clock;
     private readonly OwnerRecoveryProtector _recovery;
     private readonly string? _previousAdminKey;
+    private WebApplication _app;
 
-    private LinkRelay(WebApplication app, OwnerRecoveryProtector recovery, Uri origin, RelayDeviceRegistry registry, string? previousAdminKey)
+    private LinkRelay(WebApplication app, RelayTestClock clock, OwnerRecoveryProtector recovery, Uri origin, RelayDeviceRegistry registry, string? previousAdminKey)
     {
         _app = app;
+        _clock = clock;
         _recovery = recovery;
         Origin = origin;
         Registry = registry;
@@ -65,12 +67,36 @@ internal sealed class LinkRelay : IAsyncDisposable
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, AdminKey);
         var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x41, 32).ToArray(), clock);
         var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
+        var app = await HostAsync(clock, registry, recovery, "http://127.0.0.1:0");
+        var address = app.Services.GetRequiredService<IServer>().Features
+            .Get<IServerAddressesFeature>()!.Addresses.First();
+        return new LinkRelay(app, clock, recovery, new Uri(address), registry, previous);
+    }
+
+    /// <summary>
+    /// The relay process going down and coming back on the same address. The device registry is
+    /// the one thing it keeps on disk (relay-devices.json), so the same registry is what comes
+    /// back; queues, the pairing mailbox and the published map are memory and are gone.
+    /// </summary>
+    public async Task RestartAsync()
+    {
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+        _app = await HostAsync(_clock, Registry, _recovery, Origin.GetLeftPart(UriPartial.Authority));
+    }
+
+    private static async Task<WebApplication> HostAsync(
+        RelayTestClock clock,
+        RelayDeviceRegistry registry,
+        OwnerRecoveryProtector recovery,
+        string url)
+    {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddSingleton<CompanionPairingMailbox>();
         builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(url);
         var app = builder.Build();
         app.MapRelayCompanionRoutes(
             registry,
@@ -80,9 +106,7 @@ internal sealed class LinkRelay : IAsyncDisposable
             new RelayMapSurfaceStore(registry, clock));
         app.MapCompanionPairingMailboxRoutes();
         await app.StartAsync();
-        var address = app.Services.GetRequiredService<IServer>().Features
-            .Get<IServerAddressesFeature>()!.Addresses.First();
-        return new LinkRelay(app, recovery, new Uri(address), registry, previous);
+        return app;
     }
 
     public async ValueTask DisposeAsync()
@@ -107,6 +131,9 @@ internal sealed class DesktopDisk : IDisposable
 
     public LinkMarkStore Marks { get; } = new();
 
+    /// <summary>This desktop's own device id; a second desktop in one test gets another.</summary>
+    public Guid DesktopDeviceId { get; init; } = Guid.Parse("10000000-0000-4000-8000-0000000000aa");
+
     public void Dispose() => Signer.Dispose();
 }
 
@@ -119,17 +146,26 @@ internal sealed class DesktopRun : IAsyncDisposable
     public const string RelyingPartyId = "companion.example";
     public const string TabletOrigin = "https://tablet.companion.example";
 
+    private readonly HttpClient _claimHttp;
+
     private DesktopRun(
         DesktopCompanionAuthority authority,
         DesktopPairingCoordinator coordinator,
         RelayMarksBridge bridge,
-        CompanionPairingViewModel panel)
+        CompanionPairingViewModel panel,
+        DesktopDisk disk,
+        Uri relayOrigin)
     {
         Authority = authority;
         Coordinator = coordinator;
         Bridge = bridge;
         Panel = panel;
+        _claimHttp = new HttpClient { BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/") };
+        ClaimClient = new RelayOwnerClaimClient(_claimHttp, disk.Signer, authority, bridge);
     }
+
+    /// <summary>The claim calls the panel makes, for a test that needs one made on its own.</summary>
+    public RelayOwnerClaimClient ClaimClient { get; }
 
     public DesktopCompanionAuthority Authority { get; }
 
@@ -142,7 +178,7 @@ internal sealed class DesktopRun : IAsyncDisposable
     /// <summary>Starts a run and waits until it has looked for a kept claim, as the app does at startup.</summary>
     public static async Task<DesktopRun> StartAsync(DesktopDisk disk, Uri relayOrigin, RelayTestClock clock, bool protectedStorage = true)
     {
-        var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial());
+        var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
             authority,
             disk.Signer,
@@ -161,7 +197,7 @@ internal sealed class DesktopRun : IAsyncDisposable
             MailboxPollInterval = TimeSpan.FromMilliseconds(20),
         };
         await panel.RelayLinkRestored;
-        return new DesktopRun(authority, coordinator, bridge, panel);
+        return new DesktopRun(authority, coordinator, bridge, panel, disk, relayOrigin);
     }
 
     /// <summary>Types the admin key and presses Claim.</summary>
@@ -199,6 +235,7 @@ internal sealed class DesktopRun : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         Panel.Dispose();
+        _claimHttp.Dispose();
         await Bridge.DisposeAsync();
         Coordinator.Dispose();
         Authority.Dispose();
@@ -234,6 +271,7 @@ internal sealed class TabletSimulator : IDisposable
     private string? _credential;
     private long _senderSequence;
     private long _afterDeliveryId;
+    private DeviceKeyId _pinnedDesktopKeyId;
 
     public TabletSimulator(Uri relayOrigin, RelayTestClock clock)
     {
@@ -252,7 +290,9 @@ internal sealed class TabletSimulator : IDisposable
     /// The tablet's half of the ceremony over the relay's pairing mailbox, route for route what
     /// the page's <c>beginPairing</c> does.
     /// </summary>
-    public async Task PairAsync(string pairingCode, string name)
+    public Task PairAsync(string pairingCode, string name) => PairAsync(pairingCode, name, resuming: false);
+
+    private async Task PairAsync(string pairingCode, string name, bool resuming)
     {
         VerificationCode = null;
         using var resolve = new HttpRequestMessage(HttpMethod.Post, "v2/companion/pairing/offers/resolve");
@@ -261,6 +301,12 @@ internal sealed class TabletSimulator : IDisposable
         Assert.Equal(System.Net.HttpStatusCode.OK, resolved.StatusCode);
         var offer = CompanionProtocolJson.Deserialize<PairingOffer>(await resolved.Content.ReadAsByteArrayAsync());
         var attempt = offer.AttemptId.Value.ToString("D");
+        if (resuming)
+        {
+            // Nobody compares six digits on the way back in, so the desktop has to be the one this
+            // tablet first paired with: the key it pinned then, signing this handshake now.
+            Assert.Equal(_pinnedDesktopKeyId, offer.DesktopIdentityKey.KeyId);
+        }
 
         using var ephemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         var request = PairingRequestFor(offer, ephemeral, name);
@@ -274,6 +320,8 @@ internal sealed class TabletSimulator : IDisposable
         await PostMailboxAsync($"v2/companion/pairing/proofs/{attempt}", CompanionProtocolJson.Serialize(Proof(challenge)));
         var established = await PollMailboxAsync<SessionEstablished>($"v2/companion/pairing/established/{attempt}");
         Assert.True(established.Answers(challenge));
+        Assert.Equal(offer.DesktopIdentityKey, challenge.DesktopIdentityKey);
+        _pinnedDesktopKeyId = offer.DesktopIdentityKey.KeyId;
 
         var sharedSecret = PairingCryptography.DeriveP256SharedSecret(ephemeral, challenge.DesktopEphemeralKey);
         _tabletToDesktopKey = PairingCryptography.DeriveTrafficKey(sharedSecret, challenge.TranscriptHashBase64Url, PairingTrafficDirection.TabletToDesktop);
@@ -303,6 +351,58 @@ internal sealed class TabletSimulator : IDisposable
                 await Task.Delay(20);
             }
         }
+    }
+
+    /// <summary>
+    /// What the page does when the relay refuses its kept session: proves its device key at the
+    /// relay's door, waits for its desktop to answer the ticket, and runs the handshake again with
+    /// nothing typed and nothing compared. Returns the relay's refusal when the door stays shut.
+    /// </summary>
+    public async Task<(System.Net.HttpStatusCode Status, string Code)> ResumeAsync(string name, Func<Task>? whileWaiting = null)
+    {
+        using var asked = await _relay.PostAsync("v2/companion/relay/possession/challenge", null);
+        asked.EnsureSuccessStatusCode();
+        using var issued = JsonDocument.Parse(await asked.Content.ReadAsStringAsync());
+        var challengeId = issued.RootElement.GetProperty("challengeId").GetGuid();
+        var nonce = issued.RootElement.GetProperty("nonceBase64Url").GetString()!;
+
+        var proof = new DeviceKeyProof(
+            new HandshakeChallengeId(challengeId),
+            Assertion(RelayPossessionChallenges.DeviceDoorChallenge(nonce)));
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(proof));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var door = await _relay.PostAsync(
+            "v2/companion/relay/resume/requests?deviceKeyId=" + Uri.EscapeDataString(PublicDeviceKey().KeyId.Value),
+            content);
+        if (!door.IsSuccessStatusCode)
+        {
+            return (door.StatusCode, (await door.Content.ReadAsStringAsync()).Trim('"'));
+        }
+
+        using var ticket = JsonDocument.Parse(await door.Content.ReadAsStringAsync());
+        var ticketId = ticket.RootElement.GetProperty("ticketId").GetGuid();
+        string? code = null;
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (code is null)
+        {
+            if (whileWaiting is not null)
+            {
+                await whileWaiting();
+            }
+
+            using var answer = await _relay.GetAsync($"v2/companion/relay/resume/requests/{ticketId:D}");
+            answer.EnsureSuccessStatusCode();
+            using var answered = JsonDocument.Parse(await answer.Content.ReadAsStringAsync());
+            code = answered.RootElement.GetProperty("pairingCode").GetString();
+            Assert.True(code is not null || DateTime.UtcNow < deadline, "Timed out waiting for the desktop to answer the resume ticket.");
+            if (code is null)
+            {
+                await Task.Delay(20);
+            }
+        }
+
+        await PairAsync(code, name, resuming: true);
+        return (System.Net.HttpStatusCode.OK, "resumed");
     }
 
     /// <summary>Whether the desktop got this tablet registered on the relay and handed it a credential.</summary>
@@ -342,6 +442,11 @@ internal sealed class TabletSimulator : IDisposable
 
     /// <summary>What the page does with a reconnect plan's snapshot: it becomes what the tablet holds.</summary>
     public void AdoptSnapshot(CanonicalCompanionState snapshot) => AuthorityEpoch = snapshot.AuthorityEpoch;
+
+    /// <summary>The page's map read: the surface as the desktop published it, and what the relay says beside it.</summary>
+    public Task<HttpResponseMessage> ReadMapRawAsync() => SendAsync(HttpMethod.Get, "v2/companion/relay/map", null);
+
+    public Task<HttpResponseMessage> ReadArtworkRawAsync() => SendAsync(HttpMethod.Get, "v2/companion/relay/map/artwork", null);
 
     public Task<HttpResponseMessage> ReadFramesRawAsync() => SendAsync(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}", null);
 
@@ -476,23 +581,24 @@ internal sealed class TabletSimulator : IDisposable
         }
     }
 
-    private DeviceKeyProof Proof(HandshakeChallenge challenge)
+    private DeviceKeyProof Proof(HandshakeChallenge challenge) =>
+        new(challenge.ChallengeId, Assertion(challenge.TranscriptHashBase64Url));
+
+    private WebAuthnAssertion Assertion(string challengeBase64Url)
     {
         var authenticatorData = new byte[ProtocolBounds.MinAuthenticatorDataBytes];
         SHA256.HashData(Encoding.UTF8.GetBytes(DesktopRun.RelyingPartyId)).CopyTo(authenticatorData, 0);
         authenticatorData[32] = 0x05;
         BinaryPrimitives.WriteUInt32BigEndian(authenticatorData.AsSpan(33, 4), ++_signatureCounter);
         var clientData = Encoding.UTF8.GetBytes(
-            $"{{\"type\":\"webauthn.get\",\"challenge\":\"{challenge.TranscriptHashBase64Url}\",\"origin\":\"{DesktopRun.TabletOrigin}\",\"crossOrigin\":false}}");
+            $"{{\"type\":\"webauthn.get\",\"challenge\":\"{challengeBase64Url}\",\"origin\":\"{DesktopRun.TabletOrigin}\",\"crossOrigin\":false}}");
         byte[] signedData = [.. authenticatorData, .. SHA256.HashData(clientData)];
         var signature = _deviceKey.SignData(signedData, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
-        return new DeviceKeyProof(
-            challenge.ChallengeId,
-            new WebAuthnAssertion(
-                PublicDeviceKey().CredentialIdBase64Url,
-                Base64Url.EncodeToString(authenticatorData),
-                Base64Url.EncodeToString(clientData),
-                Base64Url.EncodeToString(signature)));
+        return new WebAuthnAssertion(
+            PublicDeviceKey().CredentialIdBase64Url,
+            Base64Url.EncodeToString(authenticatorData),
+            Base64Url.EncodeToString(clientData),
+            Base64Url.EncodeToString(signature));
     }
 
     // One key per browser profile, for good — which is exactly why a second pairing of the same
@@ -523,12 +629,12 @@ internal sealed class TabletSimulator : IDisposable
 
 internal static class LinkState
 {
-    public static CanonicalCompanionState Initial() => new(
+    public static CanonicalCompanionState Initial(Guid desktopDeviceId) => new(
         new AuthorityEpoch(Guid.Parse("30000000-0000-4000-8000-0000000000aa")),
         new WorkspaceId(Guid.Parse("80000000-0000-4000-8000-0000000000aa")),
         "desktop-link-tests",
         new GlobalRevision(0),
-        new CompanionDeviceId(Guid.Parse("10000000-0000-4000-8000-0000000000aa")),
+        new CompanionDeviceId(desktopDeviceId),
         new DeviceModeAggregate(AggregateCursor.Empty, [], null, null),
         new WorkspaceAggregate(
             AggregateCursor.Empty,

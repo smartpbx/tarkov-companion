@@ -304,6 +304,23 @@ public sealed class LoadoutIntelligenceTests
     }
 
     [Fact]
+    public async Task TheKlinIsNotToldItCannotFireTheRoundsItFires()
+    {
+        // The catalog's own strings: the PP-9 Klin is Caliber9x18PMM and every 9x18 round is
+        // Caliber9x18PM. Compared as they come, the Klin could use no ammunition at all.
+        var ammoService = new AmmoIntelligenceService(AmmoIntelligenceTests.AmmoFixtures());
+        var catalog = Catalog()
+            .Append(new("klin", "PP-9 Klin 9x18PMM submachine gun", ItemCategory.Weapon, 24_000, 2, "Caliber9x18PMM", new HashSet<string>(), new HashSet<string>()))
+            .Append(new("bzht", "9x18mm PM BZhT gzh", ItemCategory.Ammunition, 65, 0, "Caliber9x18PM", new HashSet<string>(), new HashSet<string>()));
+        var service = new LoadoutIntelligenceService(catalog, ammoService);
+        var selection = new LoadoutSelection("klin", "bzht", [], null, [], null, null, null, null, []);
+
+        var result = await service.EvaluateAsync(selection, null, CancellationToken.None);
+
+        Assert.DoesNotContain(result.CompatibilityIssues, x => x.Contains("does not match", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ReportsWeaponAmmoAndPlateIncompatibility()
     {
         var ammoService = new AmmoIntelligenceService(AmmoIntelligenceTests.AmmoFixtures());

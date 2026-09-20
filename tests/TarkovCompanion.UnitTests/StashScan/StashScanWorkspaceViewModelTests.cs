@@ -320,11 +320,12 @@ public sealed class StashScanWorkspaceViewModelTests
 
         ScanIntent? requested = null;
         viewModel.ScanRequested += (_, intent) => requested = intent;
-        Assert.Single(viewModel.ScanTargets, target => target.Intent == ScanIntent.Keys).SelectCommand.Execute(null);
+        // Ammo and Keys armed intents the stash handoff ignores, so only the full stash is offered.
+        Assert.Single(viewModel.ScanTargets).SelectCommand.Execute(null);
         viewModel.StartSelectedScanCommand.Execute(null);
 
-        Assert.Equal(ScanIntent.Keys, viewModel.ScanTarget);
-        Assert.Equal(ScanIntent.Keys, requested);
+        Assert.Equal(ScanIntent.Stash, viewModel.ScanTarget);
+        Assert.Equal(ScanIntent.Stash, requested);
 
         Assert.True(viewModel.IsGridView);
         viewModel.ShowListCommand.Execute(null);

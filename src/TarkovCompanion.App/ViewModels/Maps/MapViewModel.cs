@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -27,7 +28,8 @@ public sealed record MapTileViewModel(
     double Left,
     double Top,
     int Size,
-    bool HasArtwork);
+    bool HasArtwork,
+    bool IsUnderlay = false);
 
 /// <summary>
 /// The counter-scale that keeps a marker the same size on screen at every zoom.
@@ -1360,6 +1362,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapOverlayElementViewModel? _selectedMarker;
     private readonly MapMarkerScale _markerScale = new();
     private IReadOnlyList<MapTileViewModel> _tiles = [];
+
+    /// <summary>Decoded tiles kept across map changes, so going back to a map is not a second load.</summary>
+    /// <remarks>
+    /// 192 MB is three photographed maps (a map is up to 256 tiles of 256 pixels, 67 MB decoded).
+    /// The tiles of the map on screen are never evicted, whatever the budget says.
+    /// </remarks>
+    private readonly BoundedLruCache<string, DecodedTile> _decodedTiles = new(
+        192L * 1024 * 1024,
+        tile => (long)tile.Image.PixelSize.Width * tile.Image.PixelSize.Height * 4,
+        tile => ReleaseLater([tile.Image]));
+
+    private sealed record DecodedTile(string LocalPath, Bitmap Image, bool HasArtwork, bool Offline);
     private IReadOnlyList<QuestMapPointViewModel> _questPoints = [];
     private IReadOnlyList<QuestMapRegionViewModel> _questRegions = [];
     private IReadOnlyList<QuestMapAssociationViewModel> _questAssociations = [];
@@ -1545,13 +1559,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _tiles;
         private set
         {
-            var replaced = _tiles;
             Set(ref _tiles, value);
             UpdateContentBounds();
             OnPropertyChanged(nameof(HasTiles));
             OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(ShowsPlaceholder));
-            ReleaseLater(replaced.Select(tile => tile.Image));
+            // Not released here any more: a tile's bitmap belongs to _decodedTiles, which keeps
+            // it for the next visit to this map and disposes it when it falls out of the budget.
+            // Tiles also arrive in several publications now, each holding the bitmaps of the last.
         }
     }
 
@@ -2015,7 +2030,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _hideControlsWhenIdle = await _selectionService.HideControlsWhenIdleAsync(_lifetime.Token).ConfigureAwait(true);
             OnPropertyChanged(nameof(HideControlsWhenIdle));
 
+            UiActivity.Step("map:catalog?");
             var result = await _catalogClient.GetAsync(_lifetime.Token).ConfigureAwait(true);
+            UiActivity.Step("map:catalog");
             if (result.Catalog is null)
             {
                 Status = result.Message ?? "Map catalog unavailable.";
@@ -2030,7 +2047,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // A named map wins over the default, and a name the catalog does not carry falls
             // back rather than opening on nothing: a diagnostic launch that silently showed a
             // different map than it was asked for is worse than one that shows the usual one.
+            // Then the map that was on screen last, and Customs only for somebody who has never
+            // had one: see MapVariantSelectionService.LastMapAsync.
             var initial = Find(_openOnMapId)
+                ?? Find(await _selectionService.LastMapAsync(_lifetime.Token).ConfigureAwait(true))
                 ?? Locations.FirstOrDefault(location =>
                     string.Equals(location.Id, "customs", StringComparison.OrdinalIgnoreCase))
                 ?? Locations.FirstOrDefault();
@@ -2137,6 +2157,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(location);
         SelectedLocation = location;
         Variants = location.Variants.Where(variant => variant.HasRuntimeAsset).ToArray();
+        try
+        {
+            await _selectionService.RememberLastMapAsync(location.Id, _lifetime.Token).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Not being able to write a preference is no reason not to show the map.
+        }
+
         var selected = await _selectionService.SelectAsync(location, _lifetime.Token).ConfigureAwait(true);
         if (selected is not null)
         {
@@ -2264,7 +2293,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateOverlays();
         if (kind == MapOverlayKind.QuestObjectives)
         {
-            _ = RefreshQuestLayerAsync();
+            RefreshQuestLayerAsync().Observe("map", "refresh the quest layer");
         }
     }
 
@@ -2888,7 +2917,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // plan. That is what a floor layer looks like: the tiles are still listed, the floor's
         // own drawing replaces them, and taking the plan's extent meant Fit framed the entire
         // map when the player had asked for one building inside it.
-        IReadOnlyList<MapTileViewModel> measured = tiles.Where(tile => tile.HasArtwork).ToArray();
+        IReadOnlyList<MapTileViewModel> measured = tiles.Where(tile => tile.HasArtwork && !tile.IsUnderlay).ToArray();
         if (measured.Count == 0)
         {
             return default;
@@ -2917,12 +2946,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _backgroundImage?.Dispose();
         _backgroundImage = null;
-        foreach (var tile in _tiles)
-        {
-            tile.Image.Dispose();
-        }
-
         _tiles = [];
+        _decodedTiles.Clear();
     }
 
     /// <summary>Decodes a cached image file off the UI thread.</summary>
@@ -3049,14 +3074,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 .RotationAsync(location.Id, cancellationToken)
                 .ConfigureAwait(true);
 
+            UiActivity.Step("map:prefs");
             if (variant.TilePath is not null && !PrefersDrawing)
             {
+                var tileFeatures = await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true);
+                UiActivity.Step("map:features");
                 _renderModel = _presentationService.Create(
                     location,
                     variant,
-                    companionElements: await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true),
+                    companionElements: tileFeatures,
                     artwork: MapBackgroundKind.TileTemplate);
+                UiActivity.Step("map:model");
                 await LoadTilesAsync(variant, cancellationToken).ConfigureAwait(true);
+                UiActivity.Step("map:tiles");
             }
             else
             {
@@ -3081,10 +3111,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     : cached.Message ?? "Map artwork unavailable.";
             }
 
+            UiActivity.Step("map:artwork");
             UpdateOverlays();
+            UiActivity.Step("map:overlays");
             NotifyPresentationProperties();
+            UiActivity.Step("map:notified");
             await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("map:questlayer");
             await OpenStackedAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("map:stacked");
             // Said on the map rather than swallowed. A diagnostic launch that asked for a floor
             // this map does not have photographs the map it did get, and the picture has to say
             // which of those happened or it reads as the option doing nothing.
@@ -3227,21 +3262,40 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        foreach (var itemId in wanted)
+        if (wanted.Length == 0)
         {
-            try
+            return;
+        }
+
+        // Looked up off the interface thread, and the names written back on it (#453).
+        var repository = _itemRepository;
+        var named = await OffInterfaceThread.Run(
+            async () =>
             {
-                var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
-                if (item is not null)
+                var found = new List<(string Id, string Name)>(wanted.Length);
+                foreach (var itemId in wanted)
                 {
-                    _itemNames[itemId] = item.Name;
+                    try
+                    {
+                        if (await repository.GetAsync(itemId, cancellationToken).ConfigureAwait(false) is { } item)
+                        {
+                            found.Add((itemId, item.Name));
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        // One name that could not be read leaves one id on screen, which is the
+                        // state this whole lookup is improving on rather than the state it must
+                        // guarantee.
+                    }
                 }
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // One name that could not be read leaves one id on screen, which is the state
-                // this whole lookup is improving on rather than the state it must guarantee.
-            }
+
+                return found;
+            },
+            cancellationToken).ConfigureAwait(true);
+        foreach (var (itemId, name) in named)
+        {
+            _itemNames[itemId] = name;
         }
     }
 
@@ -3376,75 +3430,166 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _renderModel = _renderModel with { Background = planned with { TileZoom = zoom } };
         }
 
-        var loaded = new List<MapTileViewModel>();
-        var offlineCount = 0;
-        using var concurrency = new SemaphoreSlim(4, 4);
-        var tasks = plan.Tiles.Select(async tile =>
-        {
-            await concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var result = await _assetCache
-                    .GetTileAsync(variant, tile.Zoom, tile.X, tile.Y, cancellationToken)
-                    .ConfigureAwait(false);
-                if (result.Asset is not null)
-                {
-                    var decoded = await LoadBitmapAsync(result.Asset.LocalPath, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (decoded is null)
-                    {
-                        return;
-                    }
-
-                    if (result.Asset.Availability == MapAssetAvailability.CachedOffline)
-                    {
-                        Interlocked.Increment(ref offlineCount);
-                    }
-
-                    lock (loaded)
-                    {
-                        loaded.Add(new(
-                            result.Asset.LocalPath,
-                            decoded,
-                            tile.Left,
-                            tile.Top,
-                            tile.Size,
-                            HasArtwork(result.Asset.LocalPath)));
-                    }
-                }
-            }
-            finally
-            {
-                concurrency.Release();
-            }
-        });
-        await Task.WhenAll(tasks).ConfigureAwait(true);
-        Tiles = loaded.OrderBy(tile => tile.Top).ThenBy(tile => tile.Left).ToArray();
+        // The canvas is the plan's, and the plan is known before a single tile is: everything
+        // that is placed on the map can be placed now, over a picture that is still arriving.
         CanvasWidth = plan.Width;
         CanvasHeight = plan.Height;
-        var availability = Tiles.Count == 0
-            ? MapAssetAvailability.Unavailable
-            : offlineCount > 0
-                ? MapAssetAvailability.CachedOffline
-                : MapAssetAvailability.Available;
-        Status = availability switch
+
+        var template = variant.TilePath!.AbsoluteUri;
+        var underlayPlan = MapTileUnderlay.Plan(variant, zoom);
+        var underlayPlacements = underlayPlan is null ? [] : MapTileUnderlay.Place(underlayPlan, plan);
+        var inUse = plan.Tiles.Select(tile => TileKey(template, tile))
+            .Concat(underlayPlacements.Select(placement => TileKey(template, placement.Tile)))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var loaded = new List<MapTileViewModel>();
+        var offlineCount = 0;
+        // Eight at a time. It was four, and a first visit is a couple of hundred small requests to
+        // one host: the wait is round trips, not bandwidth.
+        using var concurrency = new SemaphoreSlim(8, 8);
+        async Task<MapTileViewModel?> LoadOneAsync(MapTilePlanItem tile, double left, double top, int size, bool underlay)
         {
-            MapAssetAvailability.CachedOffline => $"Offline · {Tiles.Count} cached tiles at zoom {zoom}",
-            MapAssetAvailability.Available when Tiles.Count == plan.Tiles.Count => $"{Tiles.Count} cached tiles at zoom {zoom}",
-            MapAssetAvailability.Available => $"{Tiles.Count} of {plan.Tiles.Count} tiles · the rest are blank",
-            _ => "No tiles available",
-        };
-        if (_renderModel?.Background is { } background)
-        {
-            _renderModel = _renderModel with
+            var key = TileKey(template, tile);
+            if (!_decodedTiles.TryGet(key, out var decodedTile))
             {
-                Background = background with { Availability = availability, Message = Status },
-            };
+                await concurrency.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var result = await _assetCache
+                        .GetTileAsync(variant, tile.Zoom, tile.X, tile.Y, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (result.Asset is null ||
+                        await LoadBitmapAsync(result.Asset.LocalPath, cancellationToken).ConfigureAwait(false) is not { } decoded)
+                    {
+                        return null;
+                    }
+
+                    decodedTile = _decodedTiles.GetOrAdd(
+                        key,
+                        new(
+                            result.Asset.LocalPath,
+                            decoded,
+                            HasArtwork(result.Asset.LocalPath),
+                            result.Asset.Availability == MapAssetAvailability.CachedOffline),
+                        inUse);
+                }
+                finally
+                {
+                    concurrency.Release();
+                }
+            }
+
+            if (decodedTile.Offline && !underlay)
+            {
+                Interlocked.Increment(ref offlineCount);
+            }
+
+            return new(decodedTile.LocalPath, decodedTile.Image, left, top, size, decodedTile.HasArtwork, underlay);
         }
 
-        UpdateOverlayElements();
-        NotifyPresentationProperties();
+        // The soft picture is asked for first. Started after the sharp tiles it queued behind all
+        // two hundred of them for a place, and arrived with the last one instead of before the first.
+        var soft = Task.WhenAll(underlayPlacements.Select(async placement =>
+        {
+            try
+            {
+                return await LoadOneAsync(placement.Tile, placement.Left, placement.Top, placement.Size, underlay: true)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The soft picture is a courtesy. A level that will not load costs the player
+                // nothing but the wait they would have had anyway.
+                return null;
+            }
+        }));
+        var sharp = Task.WhenAll(plan.Tiles.Select(async tile =>
+        {
+            if (await LoadOneAsync(tile, tile.Left, tile.Top, tile.Size, underlay: false).ConfigureAwait(false) is { } tileViewModel)
+            {
+                lock (loaded)
+                {
+                    loaded.Add(tileViewModel);
+                }
+            }
+        }));
+
+        // A map already decoded (a second visit) is complete before the underlay could matter, so
+        // give the sharp tiles a moment and only reach for the soft picture when they need longer.
+        IReadOnlyList<MapTileViewModel> underlay = [];
+        await Task.WhenAny(sharp, Task.Delay(TimeSpan.FromMilliseconds(60), cancellationToken)).ConfigureAwait(true);
+        if (!sharp.IsCompleted && underlayPlacements.Count > 0)
+        {
+            await Task.WhenAny(soft, sharp).ConfigureAwait(true);
+        }
+
+        if (soft.IsCompletedSuccessfully)
+        {
+            underlay = [.. soft.Result.OfType<MapTileViewModel>().Where(tile => tile.HasArtwork)];
+        }
+
+        // Shown as it arrives, not when the last tile has. Each publication is the soft picture
+        // with whatever sharp tiles exist drawn over it; twice a second is often enough to watch
+        // it fill in, and rare enough that redrawing the plan for it is not what slows it down.
+        var published = -1;
+        while (!sharp.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PublishTiles(final: false);
+            await Task.WhenAny(sharp, Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken)).ConfigureAwait(true);
+        }
+
+        await sharp.ConfigureAwait(true);
+        await soft.ConfigureAwait(true);
+        PublishTiles(final: true);
+
+        void PublishTiles(bool final)
+        {
+            MapTileViewModel[] arrived;
+            lock (loaded)
+            {
+                arrived = [.. loaded];
+            }
+
+            if (!final && arrived.Length == published)
+            {
+                return;
+            }
+
+            published = arrived.Length;
+            var ordered = arrived.OrderBy(tile => tile.Top).ThenBy(tile => tile.Left);
+            // The soft picture stays underneath while anything is missing from the sharp one, and
+            // afterwards too when upstream never sent some tiles: soft is better than a hole.
+            Tiles = final && arrived.Length == plan.Tiles.Count ? [.. ordered] : [.. underlay, .. ordered];
+            var availability = arrived.Length == 0 && underlay.Count == 0
+                ? MapAssetAvailability.Unavailable
+                : offlineCount > 0
+                    ? MapAssetAvailability.CachedOffline
+                    : MapAssetAvailability.Available;
+            Status = !final
+                ? $"Loading tiles · {arrived.Length} of {plan.Tiles.Count}"
+                : availability switch
+                {
+                    MapAssetAvailability.CachedOffline => $"Offline · {arrived.Length} cached tiles at zoom {zoom}",
+                    MapAssetAvailability.Available when arrived.Length == plan.Tiles.Count => $"{arrived.Length} cached tiles at zoom {zoom}",
+                    MapAssetAvailability.Available => $"{arrived.Length} of {plan.Tiles.Count} tiles · the rest are blank",
+                    _ => "No tiles available",
+                };
+            if (_renderModel?.Background is { } background)
+            {
+                _renderModel = _renderModel with
+                {
+                    Background = background with { Availability = availability, Message = Status },
+                };
+            }
+
+            UpdateOverlayElements();
+            NotifyPresentationProperties();
+        }
     }
+
+    private static string TileKey(string template, MapTilePlanItem tile) =>
+        string.Create(CultureInfo.InvariantCulture, $"{template}|{tile.Zoom}|{tile.X}|{tile.Y}");
 
     private void UpdateOverlays()
     {
@@ -5212,7 +5357,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(StackTilt));
             OnPropertyChanged(nameof(ShowsFlatBackground));
-            _ = LoadFloorStackAsync(CancellationToken.None);
+            LoadFloorStackAsync(CancellationToken.None).Observe("map", "load the floor stack");
         }
     }
 

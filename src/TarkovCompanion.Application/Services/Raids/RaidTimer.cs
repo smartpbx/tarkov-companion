@@ -30,6 +30,34 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
                 CultureInfo.InvariantCulture,
                 $"{(int)left.TotalHours}:{left.Minutes:00}:{left.Seconds:00}");
 
+    /// <summary>
+    /// The raid clock as every surface shows it: "20:56 left", or "14:03 elapsed" when no length is known.
+    /// </summary>
+    /// <remarks>
+    /// Reported on 2026-09-20 as three clocks on one screen: the top bar said "14:03 elapsed" while
+    /// the Raid plan card and the strip under the map both said "0:20:56". None was wrong. The top
+    /// bar counted up from the raid's start and knew nothing of the map's length; the other two
+    /// counted down from it, in another format, without a word saying which way they ran. Time left
+    /// is the number a player acts on and the one the game itself draws, so it is the one shown,
+    /// everywhere, from this one place, and it always says "left" or "elapsed". Minutes and
+    /// seconds, because no raid runs longer than an hour.
+    /// </remarks>
+    public string ClockText(DateTimeOffset? startedUtc, DateTimeOffset nowUtc)
+    {
+        if (Remaining is { } left)
+        {
+            return $"{Minutes(left)} left";
+        }
+
+        return startedUtc is { } started ? $"{Minutes(nowUtc - started)} elapsed" : string.Empty;
+    }
+
+    private static string Minutes(TimeSpan span)
+    {
+        var shown = span > TimeSpan.Zero ? span : TimeSpan.Zero;
+        return string.Create(CultureInfo.InvariantCulture, $"{(int)shown.TotalMinutes:00}:{shown.Seconds:00}");
+    }
+
     /// <summary>Which of the two this is, so a count is not read as a reading.</summary>
     public string Detail => Basis switch
     {
