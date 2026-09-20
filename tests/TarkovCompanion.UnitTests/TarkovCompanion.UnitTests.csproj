@@ -28,5 +28,8 @@
     <None Include="../../fixtures/quest-zones/*.json" Link="fixtures/quest-zones/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/maps/tarkov-dev-catalog.synthetic.json" Link="fixtures/maps/tarkov-dev-catalog.synthetic.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/maps/catalog-geometry-2026-09-18.json" Link="fixtures/maps/catalog-geometry-2026-09-18.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Three QR symbols this encoder produced and zbar read back, pinned so a change that
+         breaks the encoder fails even where no decoder is installed. -->
+    <None Include="V2Team/qr-golden.txt" Link="V2Team/qr-golden.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

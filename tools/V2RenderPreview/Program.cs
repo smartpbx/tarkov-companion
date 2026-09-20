@@ -583,7 +583,11 @@ internal static class Program
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.ClaimedByThisDesktop,
                             CompanionPairingStage.AwaitingTablet,
-                            pairingCode: "K7M2-9QRT-4B");
+                            pairingCode: "K7M2-9QRT-4B",
+                            // [V2 rough package 60 — Team] #289: far enough out that the
+                            // countdown reads in minutes, which is the state it spends most of
+                            // its life in.
+                            codeExpiresUtc: DateTimeOffset.UtcNow.AddMinutes(4).AddSeconds(37));
                         break;
                     case "approving":
                         pairing.PresentForPreview(
