@@ -150,7 +150,10 @@ public sealed class HideoutWorkspaceViewModelTests
         Assert.True(viewModel.CanLowerLevel);
 
         viewModel.RaiseLevelCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.Stations.Single().BuiltLevel == 2);
+        // Until the requirements have followed, not only the station row: the rows are read on
+        // the pool now and arrive a moment after the list does.
+        await WaitUntilAsync(() =>
+            viewModel.Stations.Single().BuiltLevel == 2 && viewModel.Items is [{ ItemName: "Nails" }]);
 
         Assert.Equal(2, profiles.Current.HideoutStationLevels["lavatory"]);
         Assert.Equal("Level 2 of 3", viewModel.SelectedLevelLabel);
