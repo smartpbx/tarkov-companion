@@ -393,6 +393,15 @@ public sealed class RaidPageViewModel : PageViewModel
     /// <summary>Walking a finished raid back across the map, when one has been opened.</summary>
     public RaidReplayViewModel Replay { get; }
 
+    /// <summary>The raid clock every V2 surface shows, e.g. "20:56 left"; empty outside a raid. See <see cref="RaidTimeRemaining.ClockText"/>.</summary>
+    public string Clock
+    {
+        get => _clockText;
+        private set => SetProperty(ref _clockText, value);
+    }
+
+    private string _clockText = string.Empty;
+
     /// <summary>How long is left, as the game would draw it.</summary>
     public string TimeLeft
     {
@@ -841,6 +850,7 @@ public sealed class RaidPageViewModel : PageViewModel
         {
             TimeLeft = "Unknown";
             TimeLeftDetail = "No raid in progress";
+            Clock = string.Empty;
             return;
         }
 
@@ -851,6 +861,7 @@ public sealed class RaidPageViewModel : PageViewModel
             nowUtc);
         TimeLeft = remaining.Display;
         TimeLeftDetail = remaining.Detail;
+        Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
     }
 
     /// <summary>

@@ -435,6 +435,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
 
         WireLegacyContext();
+        WireRaidClock();
         Restore(requestedAddress);
         RebuildSectionItems();
         LoadCurrentWorkspace();
@@ -2615,6 +2616,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         var map = raid.MapId ?? Router.Context.MapId ?? V2ShellText.Get("V2.Shell.Context.NoMap");
         var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        if (SharedRaidClock(raid) is { } sharedContextClock)
+        {
+            return $"{map} · {state} · {sharedContextClock}";
+        }
+
         if (raid.State == RaidLifecycleState.InRaid &&
             raid.RaidClock is { } observedRemaining &&
             raid.RaidClockReadUtc is { } readUtc)
@@ -2650,6 +2656,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private string FormatRaidClock(RaidSnapshot raid, DateTimeOffset nowUtc)
     {
         var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        if (SharedRaidClock(raid) is { } sharedClock)
+        {
+            return V2ShellText.Format("V2.Shell.Context.RaidOnMap", CultureInfo.CurrentCulture, state, sharedClock);
+        }
+
         if (raid.State == RaidLifecycleState.InRaid &&
             raid.RaidClock is { } observedRemaining &&
             raid.RaidClockReadUtc is { } readUtc)
@@ -3202,6 +3213,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _headerTimer?.Dispose();
         _headerTimer = null;
         _runtime.Changed -= RuntimeChanged;
+        UnwireRaidClock();
         Router.Navigated -= RouterNavigated;
         if (_stashScan is not null)
         {

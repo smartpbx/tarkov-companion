@@ -739,12 +739,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     /// <summary>The raid clock when one is running, otherwise a quiet "In raid" / "Not in raid"
     /// rather than the legacy page's "Unknown" plus a full sentence.</summary>
-    public string RaidPhaseLabel =>
-        !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeft)
-            ? TimeLeft
-            : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
+    /// <remarks>
+    /// The clock is <see cref="RaidPageViewModel.Clock"/>, the same string the top bar shows, not a
+    /// second reading of the same raid in another format.
+    /// </remarks>
+    public string RaidPhaseLabel => _raid.Clock.Length > 0
+        ? _raid.Clock
+        : _stateStore.Current.Raid.State == RaidLifecycleState.InRaid ? "In raid" : "Not in raid";
 
-    /// <summary>False while no raid clock is running, so the quiet phase label stands alone.</summary>
+    /// <summary>
+    /// False while no countdown is running, so the quiet phase label stands alone.
+    /// </summary>
+    /// <remarks>
+    /// The detail says where time left came from (a screenshot, or a count from the start). A clock
+    /// that is only counting up has no such claim to qualify.
+    /// </remarks>
     public bool HasRaidPhaseDetail =>
         !string.Equals(TimeLeft, "Unknown", StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(TimeLeftDetail);
 
@@ -1540,6 +1549,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         switch (e.PropertyName)
         {
+            case nameof(RaidPageViewModel.Clock):
+                OnPropertyChanged(nameof(RaidPhaseLabel));
+                break;
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
