@@ -67,7 +67,10 @@ public sealed class MapSceneRendererHostContractTests
     [Fact]
     public void Renderer_has_search_paging_touch_targets_and_live_text_peers()
     {
-        var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml");
+        // The mode segment, the floor ladder and the notices are MapPresentationControls, which
+        // the renderer's pill hosts; together the two files are the renderer's surface.
+        var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml") +
+            Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapPresentationControls.axaml");
 
         foreach (var id in new[]
                  {

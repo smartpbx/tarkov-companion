@@ -144,7 +144,7 @@ public sealed class MapFloorFollowingTests
     {
         // It used to live only in the status line at the other end of the card.
         var view = File.ReadAllText(RepositoryFile(
-            "src/TarkovCompanion.App/Views/V2/MapRenderer/MapSceneRendererView.axaml"));
+            "src/TarkovCompanion.App/Views/V2/MapRenderer/MapPresentationControls.axaml"));
         Assert.Contains("v2-map-floor-source", view, StringComparison.Ordinal);
         Assert.Contains("{Binding FloorSourceNote}", view, StringComparison.Ordinal);
     }
