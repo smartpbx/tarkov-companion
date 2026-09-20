@@ -29,3 +29,4 @@ LICENSES/** -text
 fixtures/profiles/*.json -text
 fixtures/loot-spawns/**/content.json -text
 PRODUCT_VERSION text eol=lf
+tests/TarkovCompanion.UnitTests/V2Team/qr-golden.txt text eol=lf
