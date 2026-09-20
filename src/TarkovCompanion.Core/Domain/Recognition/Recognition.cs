@@ -253,7 +253,18 @@ public sealed record ContainerScanResult(
     bool IsPartial,
     string? DiagnosticCode = null);
 
-public sealed record FleaListing(long PriceRoubles, int? Quantity, Confidence Confidence, PixelRect Bounds);
+/// <summary>One visible flea row as it was read.</summary>
+/// <param name="Bounds">The row's whole visible extent: its price and every line joined to it.</param>
+/// <param name="SourceText">
+/// The lines the row was joined from, top to bottom and left to right, so a reviewer can see what
+/// a price and a quantity were read from. Null where the row did not come from lines of text.
+/// </param>
+public sealed record FleaListing(
+    long PriceRoubles,
+    int? Quantity,
+    Confidence Confidence,
+    PixelRect Bounds,
+    string? SourceText = null);
 
 public sealed record FleaRecognitionResult(
     IReadOnlyList<FleaListing> Listings,

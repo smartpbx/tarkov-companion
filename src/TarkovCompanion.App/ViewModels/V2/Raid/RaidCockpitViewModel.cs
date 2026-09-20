@@ -1104,6 +1104,67 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         await RebuildAsync().ConfigureAwait(true);
     }
 
+    /// <summary>Where a spawn's waypoint goes: its marker's position, on the floor it belongs to.</summary>
+    internal readonly record struct SpawnWaypointPlacement(double X, double Y, string? FloorId);
+
+    /// <summary>
+    /// The place a waypoint for a loot spawn should be put, or null if its geometry somehow has no point.
+    /// </summary>
+    /// <remarks>
+    /// An area is placed at the middle of its outline, so the waypoint sits inside it rather than
+    /// on an edge. On a spawn that names several floors the floor being looked at wins when it is
+    /// one of them; otherwise the first named floor does, because a waypoint on the wrong floor
+    /// would be drawn on none of the floors the spawn is actually on.
+    /// </remarks>
+    internal static SpawnWaypointPlacement? PlaceSpawnWaypoint(MapSceneObject item, string? selectedFloorId)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var points = item.Geometry.Points;
+        if (points.Count == 0)
+        {
+            return null;
+        }
+
+        var floor = item.FloorIds.Count == 0
+            ? selectedFloorId
+            : item.FloorIds.Contains(selectedFloorId ?? string.Empty, StringComparer.Ordinal)
+                ? selectedFloorId
+                : item.FloorIds[0];
+        return new SpawnWaypointPlacement(points.Average(point => point.X), points.Average(point => point.Y), floor);
+    }
+
+    /// <summary>Whether this map already has a waypoint on the spot, so a second click adds nothing.</summary>
+    internal static bool HasWaypointAt(
+        IEnumerable<RaidMark> marks,
+        string mapId,
+        SpawnWaypointPlacement place) =>
+        marks.Any(mark =>
+            mark.Kind == RaidMarkKind.Waypoint &&
+            string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(mark.State.FloorId, place.FloorId, StringComparison.Ordinal) &&
+            Math.Abs(mark.State.X - place.X) < 1e-6 &&
+            Math.Abs(mark.State.Y - place.Y) < 1e-6);
+
+    private void LootWaypointRequested(HighValueLootEntry entry)
+    {
+        if (Renderer is not { } renderer || _map.RenderModel is not { } model || entry.SceneObjectId is not { } id)
+        {
+            return;
+        }
+
+        var item = renderer.Scene.Objects.FirstOrDefault(candidate => candidate.Id == id);
+        if (item is null ||
+            PlaceSpawnWaypoint(item, renderer.Scene.View.SelectedFloorId) is not { } place ||
+            HasWaypointAt(_marks.Marks, model.Location.Id, place))
+        {
+            return;
+        }
+
+        // Its own name, so the marks list says which spawn it was. A waypoint is a note to the
+        // player, not a claim that anything is there.
+        _ = _marks.AddAsync(RaidMarkKind.Waypoint, model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label);
+    }
+
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
     {
         await _marks.AddAsync(kind, mapId, floorId, x, y, label: null).ConfigureAwait(true);
@@ -1853,6 +1914,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
+            // [Issue 318] "Make waypoint" on a selected spawn.
+            if (renderer.HighValueLoot is { } lootLayerViewModel)
+            {
+                lootLayerViewModel.WaypointRequested += LootWaypointRequested;
+            }
+
             renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
             OnPropertyChanged(nameof(Renderer));
