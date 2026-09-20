@@ -51,6 +51,23 @@ public static class UiActivity
 
     public static void CommandStarted(string name) => _command = new(name, DateTimeOffset.UtcNow, null);
 
+    /// <summary>Names a command by the method behind it, which is the only name a command has.</summary>
+    /// <remarks>
+    /// A lambda's own name says nothing ("&lt;.ctor&gt;b__12_3"), but the class it was written in
+    /// does, so compiler-generated types are walked out of until a real one is found.
+    /// </remarks>
+    public static void CommandStarted(Delegate command)
+    {
+        var method = command.Method;
+        var type = method.DeclaringType;
+        while (type is { DeclaringType: not null } && type.Name.StartsWith('<'))
+        {
+            type = type.DeclaringType;
+        }
+
+        CommandStarted($"{type?.Name ?? "unknown"}.{method.Name}");
+    }
+
     /// <summary>Notes a point the interface thread has reached inside a load.</summary>
     /// <remarks>
     /// Kept in a small ring rather than written anywhere. Two readers want it: the render tool's
@@ -82,7 +99,22 @@ public static class UiActivity
         var route = _route;
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"route '{(route.Length == 0 ? "none yet" : route)}'; last load {Describe(_load)}; last command {Describe(_command)}");
+            $"route '{(route.Length == 0 ? "none yet" : route)}'; last load {Describe(_load)}; last command {Describe(_command, tracksCompletion: false)}");
+    }
+
+    /// <summary><see cref="Describe"/>, then the last few steps a load reached and how long ago.</summary>
+    public static string DescribeWithSteps()
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var steps = RecentSteps()
+            .TakeLast(8)
+            .Select(step => string.Create(
+                CultureInfo.InvariantCulture,
+                $"{step.Label} ({System.Diagnostics.Stopwatch.GetElapsedTime(step.Timestamp, now).TotalSeconds:0.0}s ago)"))
+            .ToArray();
+        return steps.Length == 0
+            ? Describe()
+            : $"{Describe()}; last steps: {string.Join(", ", steps)}";
     }
 
     /// <summary>Forgets everything. For tests, because the state is static.</summary>
@@ -99,18 +131,19 @@ public static class UiActivity
         }
     }
 
-    private static string Describe(Note? note)
+    private static string Describe(Note? note, bool tracksCompletion = true)
     {
         if (note is null)
         {
             return "none";
         }
 
+        // A command is only ever seen starting, so it does not claim to be still running.
         var age = DateTimeOffset.UtcNow - note.StartedUtc;
-        var state = note.FinishedUtc is null ? "still running" : "finished";
+        var state = !tracksCompletion ? string.Empty : note.FinishedUtc is null ? "still running, " : "finished, ";
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"'{note.Name}' ({state}, started {age.TotalSeconds:0.0}s ago)");
+            $"'{note.Name}' ({state}started {age.TotalSeconds:0.0}s ago)");
     }
 
     private sealed record Note(string Name, DateTimeOffset StartedUtc, DateTimeOffset? FinishedUtc);

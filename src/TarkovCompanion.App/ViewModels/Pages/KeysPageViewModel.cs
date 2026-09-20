@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -257,7 +258,7 @@ public sealed class KeysPageViewModel : PageViewModel
             return;
         }
 
-        _ = LoadAsync();
+        LoadAsync().Observe("keys", "reload");
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);

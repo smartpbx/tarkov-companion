@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -106,11 +107,18 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
+    /// <summary>Shown in the pane when the keep list could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
+            LoadFaultInjection.ThrowIfInjected("keep");
             var plan = await _service.BuildAsync(cancellationToken).ConfigureAwait(true);
+            LoadFault.Clear();
             if (!plan.HasData)
             {
                 Groups = [];
@@ -127,6 +135,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         {
             Groups = [];
             Status = "Keep-list data isn't available yet.";
+            LoadFault.Show("The keep list did not load", "Nothing is lost. Retry reads it again.");
             WorkspaceFault.Record("keep", "refresh", exception);
         }
     }

@@ -202,6 +202,13 @@ internal static class Program
             // constructed. Printed rather than asserted: this tool reports, the ratchet test in
             // MainWindowShellCompositionTests is what fails.
             Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
+            // [#453] --inject-load-fault plan,hideout,keep,startup/hideout: make those loads throw,
+            // so the pane's "did not load" notice and the shell's startup banner can be looked at.
+            if (StringOption(args, "--inject-load-fault") is { } injected)
+            {
+                LoadFaultInjection.Inject(injected.Split(','));
+            }
+
             // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
             if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
             {
@@ -1054,6 +1061,26 @@ internal static class Program
                 Pump(2);
                 DrainUntilComplete(setupWorkspace.SelfTest!.RunAsync());
                 Pump(20);
+            }
+
+            // [#453] --hang-demo: the application's own watchdog, on this real dispatcher, against a
+            // dispatcher job that does not return for 2.5 s. Prints what it wrote to the crash log.
+            if (args.Contains("--hang-demo"))
+            {
+                var hangLog = Path.Combine(dataRoot, "hang-demo-logs");
+                CrashLog.Install(hangLog);
+                using var watchdog = UiHangWatchdog.ForApplication(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100));
+                watchdog.Start();
+                Pump(20);
+                Dispatcher.UIThread.Post(() => Thread.Sleep(2500));
+                Pump(40);
+                Console.WriteLine($"Hang demo: {watchdog.HangsRecorded} hang(s) recorded.");
+                foreach (var line in File.ReadAllLines(CrashLog.FilePath!).Where(line => line.Contains("ui-hang", StringComparison.Ordinal)))
+                {
+                    Console.WriteLine("  " + line);
+                }
+
+                CrashLog.Detach();
             }
 
             SaveFrame(window, outputPath, width, height);

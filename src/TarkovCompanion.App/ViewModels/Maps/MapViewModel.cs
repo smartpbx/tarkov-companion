@@ -2267,7 +2267,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateOverlays();
         if (kind == MapOverlayKind.QuestObjectives)
         {
-            _ = RefreshQuestLayerAsync();
+            RefreshQuestLayerAsync().Observe("map", "refresh the quest layer");
         }
     }
 
@@ -5244,7 +5244,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(StackTilt));
             OnPropertyChanged(nameof(ShowsFlatBackground));
-            _ = LoadFloorStackAsync(CancellationToken.None);
+            LoadFloorStackAsync(CancellationToken.None).Observe("map", "load the floor stack");
         }
     }
 
