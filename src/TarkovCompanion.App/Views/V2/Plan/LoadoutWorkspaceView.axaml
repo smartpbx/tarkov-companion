@@ -4,6 +4,11 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:pages="using:TarkovCompanion.App.ViewModels">
   <UserControl.Styles>
+    <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
+         colour is a class of its own rather than an attribute on the text. -->
+    <Style Selector="TextBlock.v2-label.v2-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- [V2 rough package 60 — Plan] #288. A slot tile reads as a place that holds a thing, so an
          empty one is drawn as an outline and a filled one as a surface. The state is also in the
@@ -155,6 +160,10 @@
                           <StackPanel Grid.Column="1" Spacing="1">
                             <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
                             <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                            <!-- #285: the Events page records an allergy to this food or medicine. -->
+                            <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AllergyWarning}" FontWeight="SemiBold"
+                                       IsVisible="{Binding HasAllergyWarning}"
+                                       AutomationProperties.AutomationId="v2-loadout-allergy" />
                           </StackPanel>
                           <Button Grid.Column="2" Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}"
                                   VerticalAlignment="Center" />

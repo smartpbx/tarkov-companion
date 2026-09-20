@@ -1,3 +1,6 @@
+using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.Application.Services.Planning;
 using System.Globalization;
 using TarkovCompanion.Core.Common;
 using System.Windows.Input;
@@ -58,7 +61,13 @@ public sealed record LoadoutAssignmentViewModel(
     string ItemName,
     string Detail,
     ICommand RemoveCommand,
-    bool AllowsMany = false);
+    bool AllowsMany = false)
+{
+    /// <summary>"Allergic · event name" where the Events page records an allergy to this food or medicine (#285).</summary>
+    public string AllergyWarning { get; init; } = string.Empty;
+
+    public bool HasAllergyWarning => AllergyWarning.Length > 0;
+}
 
 /// <summary>A single line returned by the evaluation, issue or warning.</summary>
 /// <summary>An issue or warning, with the plain reason the rule raised it (empty when there is none).</summary>
@@ -166,6 +175,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private readonly ILoadoutPresetStore? _presets;
     private readonly TimeProvider _clock;
     private readonly Dictionary<LoadoutSlot, List<AssignedItem>> _selection = [];
+    private readonly AllergyWarningService? _allergies;
+    private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
 
     private IReadOnlyList<LoadoutItemFacts> _factList = [];
     private IReadOnlyDictionary<string, LoadoutItemFacts> _facts = NoFacts;
@@ -210,13 +221,15 @@ public sealed class LoadoutPageViewModel : PageViewModel
         IItemSearchService searchService,
         IItemRepository itemRepository,
         ILoadoutPresetStore? presets = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        AllergyWarningService? allergies = null)
         : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
         _searchService = searchService;
         _itemRepository = itemRepository;
         _presets = presets;
+        _allergies = allergies;
         _clock = clock ?? TimeProvider.System;
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         EvaluateCommand = new AsyncDelegateCommand(EvaluateAsync);
@@ -262,6 +275,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
             if (value is not null && SetProperty(ref _selectedSlot, value))
             {
                 RefreshSlotBoard();
+                if (Results.Count > 0 && !string.IsNullOrWhiteSpace(SearchQuery))
+                {
+                    // The list on screen was filtered for the slot just left.
+                    _ = SearchAsync(CancellationToken.None);
+                }
             }
         }
     }
@@ -486,11 +504,22 @@ public sealed class LoadoutPageViewModel : PageViewModel
         {
             SearchStatus = "Searching the local item cache…";
             var facts = await EnsureFactsAsync(cancellationToken).ConfigureAwait(true);
-            var hits = await _searchService.SearchAsync(SearchQuery, 20, cancellationToken).ConfigureAwait(true);
-            Results = hits.Select(hit => Describe(hit.Item, facts)).ToArray();
-            SearchStatus = Results.Count == 0
-                ? "No local item matched that query."
-                : $"{Results.Count} results · Assign uses the slot above";
+            // Only what the chosen slot takes, what the catalog is sure about first. More is read
+            // than is shown because "bp" is mostly rounds and the slot may be Weapon.
+            var slot = SelectedSlot;
+            var hits = await _searchService.SearchAsync(SearchQuery, 60, cancellationToken).ConfigureAwait(true);
+            var fitting = hits
+                .Where(hit => LoadoutSlotRules.Accepts(slot.Slot, hit.Item.Category))
+                .OrderByDescending(hit => LoadoutSlotRules.Fits(slot.Slot, hit.Item.Category))
+                .Take(20)
+                .ToArray();
+            Results = fitting.Select(hit => Describe(hit.Item, facts)).ToArray();
+            SearchStatus = (Results.Count, hits.Count) switch
+            {
+                (0, 0) => "No local item matched that query.",
+                (0, _) => $"Nothing for {slot.Name} matched · pick another slot",
+                _ => $"{Results.Count} results for {slot.Name}",
+            };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -655,6 +684,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             items.Add(new(item.ItemId, item.Name, SlotOptions.First(option => option.Slot == slot).Name));
         }
 
+        await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
         RefreshAssignments();
         ResetEvaluation("Loaded. Evaluate to price and weigh it.");
         PresetStatus = $"Loaded {saved.Name}";
@@ -674,7 +704,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             return;
         }
 
-        _ = RefreshComparisonAsync(CancellationToken.None);
+        RefreshComparisonAsync(CancellationToken.None).Observe("loadout", "refresh the comparison");
     }
 
     /// <summary>Removes a saved kit.</summary>
@@ -938,6 +968,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
             var facts = _facts.GetValueOrDefault(itemId);
             var name = item?.Name ?? facts?.Name ?? itemId;
             var category = item?.Category ?? facts?.Category ?? ItemCategory.Unknown;
+            if (!LoadoutSlotRules.Accepts(slot.Slot, category))
+            {
+                // The results were filtered for the slot they were searched under; the slot can
+                // have been changed since, and a preset or the tablet can ask for anything.
+                AssignmentStatus = LoadoutSlotRules.Refusal(slot.Name, name, category);
+                return;
+            }
 
             if (!_selection.TryGetValue(slot.Slot, out var items))
             {
@@ -951,6 +988,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             }
 
             items.Add(new(itemId, name, $"{category} · {DescribeCost(facts)} · {DescribeWeight(facts)}{DescribeGear(facts)}"));
+            await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
             RefreshAssignments();
             AssignmentStatus = slot.AllowsMany
                 ? $"Added {name} to {slot.Name}."
@@ -959,6 +997,30 @@ public sealed class LoadoutPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             AssignmentStatus = $"Not assigned · {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Re-reads which foods and medicines the player is recorded allergic to. Read when the kit
+    /// changes rather than once, because the record is made on another page in the same session.
+    /// A failure here costs the warning, never the assignment.
+    /// </summary>
+    private async Task RefreshAllergyWarningsAsync(CancellationToken cancellationToken)
+    {
+        if (_allergies is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _allergyWarnings = await OffInterfaceThread
+                .Run(() => _allergies.GetAsync(cancellationToken), cancellationToken)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            WorkspaceFault.Record("loadout", "read allergies", exception);
         }
     }
 
@@ -1002,7 +1064,10 @@ public sealed class LoadoutPageViewModel : PageViewModel
                     items[index].Name,
                     items[index].Detail,
                     new DelegateCommand(() => Remove(slot, position)),
-                    option.AllowsMany));
+                    option.AllowsMany)
+                {
+                    AllergyWarning = _allergyWarnings.GetValueOrDefault(items[index].ItemId, string.Empty),
+                });
             }
         }
 

@@ -7,6 +7,35 @@
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
 
+  <!-- Package 33 (#287): one row template shared by the search results and the four landing
+       sections below, so "Needed now"/"Pinned"/"Recently opened"/"Highest value" read exactly
+       like a search hit — icon tag, name, category, price — never a bespoke placeholder row. -->
+  <UserControl.Resources>
+    <DataTemplate x:Key="IntelResultRowTemplate" x:DataType="vm:V2IntelResultRowViewModel">
+      <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
+              AutomationProperties.AutomationId="{Binding AutomationId}"
+              AutomationProperties.Name="{Binding Name}"
+              Command="{Binding OpenCommand}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+          <Border Grid.Column="0" Classes="v2-intel-thumb">
+            <TextBlock Classes="v2-intel-tag" Text="{Binding ShortName}" />
+          </Border>
+          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-label" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding HasMatchLabel}" Text="{Binding MatchLabel}"
+                       TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="v2-body" HorizontalAlignment="Right" Text="{Binding PriceLabel}" />
+            <TextBlock Classes="v2-label" HorizontalAlignment="Right" IsVisible="{Binding HasPerSlot}"
+                       Text="{Binding PerSlotLabel}" />
+          </StackPanel>
+        </Grid>
+      </Button>
+    </DataTemplate>
+  </UserControl.Resources>
+
   <!-- V2 rough package 17, like docs/design/v2/v2-intel-workspace-concept.png: search across the
        top, results on the left, the selected item in the middle, and a full-height context panel
        on the right with the need summary and the catalog's prices. -->
@@ -68,25 +97,6 @@
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-            <StackPanel Grid.Row="0" Spacing="10" IsVisible="{Binding ShowsIntelSuggestionList}"
-                        AutomationProperties.AccessibilityView="Control"
-                        AutomationProperties.AutomationId="v2-shell-suggestions">
-              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding SuggestionsHeading}" />
-              <ItemsControl ItemsSource="{Binding SuggestionFilters}">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:V2ShellSuggestionFilterViewModel">
-                    <Button Classes="v2-target v2-intel-chip" Classes.selected="{Binding IsSelected}"
-                            AutomationProperties.AutomationId="{Binding AutomationId}"
-                            AutomationProperties.Name="{Binding Label}"
-                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-
             <TextBlock Grid.Row="1" Classes="v2-label" IsVisible="{Binding HasIntelSearchResults}"
                        Text="{Binding IntelResultCountLabel}" Margin="2,0" />
             <TextBlock Grid.Row="1" Classes="v2-label" IsVisible="{Binding HasIntelSearchStatus}"
@@ -112,54 +122,41 @@
 
             <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
               <StackPanel Spacing="4">
-                <ItemsControl ItemsSource="{Binding IntelResults}" IsVisible="{Binding HasIntelResults}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:V2IntelResultRowViewModel">
-                      <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
-                              AutomationProperties.AutomationId="{Binding AutomationId}"
-                              AutomationProperties.Name="{Binding Name}"
-                              Command="{Binding OpenCommand}">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
-                          <Border Grid.Column="0" Classes="v2-intel-thumb">
-                            <TextBlock Classes="v2-intel-tag" Text="{Binding ShortName}" />
-                          </Border>
-                          <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" IsVisible="{Binding HasMatchLabel}" Text="{Binding MatchLabel}"
-                                       TextTrimming="CharacterEllipsis" />
-                          </StackPanel>
-                          <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
-                            <TextBlock Classes="v2-body" HorizontalAlignment="Right" Text="{Binding PriceLabel}" />
-                            <TextBlock Classes="v2-label" HorizontalAlignment="Right" IsVisible="{Binding HasPerSlot}"
-                                       Text="{Binding PerSlotLabel}" />
-                          </StackPanel>
-                        </Grid>
-                      </Button>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding IntelResults}" IsVisible="{Binding HasIntelResults}"
+                              ItemTemplate="{StaticResource IntelResultRowTemplate}" />
                 <TextBlock Classes="v2-label" IsVisible="{Binding ShowsIntelNoKindMatch}" Text="{Binding IntelNoKindMatchLabel}" />
 
-                <StackPanel Spacing="4" IsVisible="{Binding ShowsIntelSuggestionList}">
-                  <TextBlock Classes="v2-label" IsVisible="{Binding HasNoSuggestions}" Text="{Binding SuggestionsEmpty}" />
-                  <ItemsControl ItemsSource="{Binding FilteredSuggestionItems}" IsVisible="{Binding HasSuggestions}">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:V2ShellSuggestionViewModel">
-                        <Button Classes="v2-target v2-intel-row"
-                                AutomationProperties.AutomationId="{Binding AutomationId}"
-                                AutomationProperties.Name="{Binding Label}" Command="{Binding OpenCommand}">
-                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <StackPanel Grid.Column="0" Spacing="2">
-                              <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
-                              <TextBlock Classes="v2-label" Text="{Binding Provenance}" TextTrimming="CharacterEllipsis" />
-                            </StackPanel>
-                            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Category}" />
-                          </Grid>
-                        </Button>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
+                <!-- Package 33 (#287): the Intel landing page. Four real sections, each hidden
+                     when it has nothing — never a placeholder row standing in for one that is
+                     empty. -->
+                <StackPanel Spacing="18" IsVisible="{Binding ShowsIntelSuggestionList}"
+                            AutomationProperties.AccessibilityView="Control"
+                            AutomationProperties.AutomationId="v2-intel-home">
+                  <TextBlock Classes="v2-label" IsVisible="{Binding ShowsIntelHomeEmpty}" Text="{Binding IntelHomeEmptyLabel}" />
+
+                  <StackPanel Spacing="8" IsVisible="{Binding HasIntelHomeNeededNow}"
+                              AutomationProperties.AutomationId="v2-intel-home-needed-now">
+                    <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelHomeNeededNowHeading}" />
+                    <ItemsControl ItemsSource="{Binding IntelHomeNeededNow}" ItemTemplate="{StaticResource IntelResultRowTemplate}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="8" IsVisible="{Binding HasIntelHomePinned}"
+                              AutomationProperties.AutomationId="v2-intel-home-pinned">
+                    <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelHomePinnedHeading}" />
+                    <ItemsControl ItemsSource="{Binding IntelHomePinned}" ItemTemplate="{StaticResource IntelResultRowTemplate}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="8" IsVisible="{Binding HasIntelHomeRecent}"
+                              AutomationProperties.AutomationId="v2-intel-home-recent">
+                    <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelHomeRecentHeading}" />
+                    <ItemsControl ItemsSource="{Binding IntelHomeRecent}" ItemTemplate="{StaticResource IntelResultRowTemplate}" />
+                  </StackPanel>
+
+                  <StackPanel Spacing="8" IsVisible="{Binding HasIntelHomeHighestValue}"
+                              AutomationProperties.AutomationId="v2-intel-home-highest-value">
+                    <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelHomeHighestValueHeading}" />
+                    <ItemsControl ItemsSource="{Binding IntelHomeHighestValue}" ItemTemplate="{StaticResource IntelResultRowTemplate}" />
+                  </StackPanel>
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>
@@ -304,6 +301,28 @@
           </Border>
           </Border>
 
+          <!-- Package 33 (#287): "should I keep it," named rather than counted — which quests and
+               which hideout levels, so far as the catalog knows them. -->
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasIntelKeepDetail}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelKeepHeading}" />
+              <ItemsControl ItemsSource="{Binding IntelKeepQuestLines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-body" Margin="0,2" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <ItemsControl ItemsSource="{Binding IntelKeepHideoutLines}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-body" Margin="0,2" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
           <!-- Prices: flea beside the best trader, the catalog's 24-hour range, and every channel. -->
           <Border Classes="v2-intel-accent" IsVisible="{Binding IntelHasResult}">
           <Border Classes="v2-intel-section">
@@ -328,6 +347,16 @@
                 <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Intel24HourLabel}" />
                 <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
                            Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding Intel24HourRange}" />
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding HasIntelPerSlotValue}">
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding IntelPerSlotHeading}" />
+                <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding IntelPerSlotValueLabel}" />
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding IntelHasPrices}">
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding IntelFeeHeading}" />
+                <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding IntelFeeLabel}" />
               </Grid>
 
               <StackPanel Spacing="8" IsVisible="{Binding IntelHasPrices}" Margin="0,6,0,0">

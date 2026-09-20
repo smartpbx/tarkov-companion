@@ -393,8 +393,10 @@
                         </StackPanel>
                         <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding SizeLabel}" />
                       </Grid>
-                      <!-- Package 37: a refusal says why where it can be read, not inside the expander. -->
-                      <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" IsVisible="{Binding IsReview}" TextWrapping="Wrap" />
+                      <!-- Package 37: a refusal says why where it can be read, not inside the expander.
+                           [f920 capture] So does every other verdict: a TAKE for a quest named the
+                           quest only inside the expander. -->
+                      <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
                       <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding CanSetItemChoices}">
                         <Button Classes="loot-choice" Classes.on="{Binding IsPinned}" Content="{Binding PinLabel}"
                                 Command="{Binding TogglePinCommand}"

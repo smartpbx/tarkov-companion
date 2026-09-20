@@ -195,16 +195,46 @@ internal static class Program
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
-            window.Show();
+            // [#453] --ui-stalls-before-show: start up with no window, so every long turn the meter
+            // reports is a view model holding the interface thread, not the first layout and paint.
+            var showAfterStartup = args.Contains("--ui-stalls-before-show");
+            if (!showAfterStartup)
+            {
+                window.Show();
+            }
+
             // [#294] Whether the V1 shell was built at all. It used to be built on every launch
             // and hidden, so "V2 is the default" was true of what was drawn and false of what was
             // constructed. Printed rather than asserted: this tool reports, the ratchet test in
             // MainWindowShellCompositionTests is what fails.
             Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
-            DrainUntilComplete(viewModel.InitializeAsync());
+            // [#453] --inject-load-fault plan,hideout,keep,startup/hideout: make those loads throw,
+            // so the pane's "did not load" notice and the shell's startup banner can be looked at.
+            if (StringOption(args, "--inject-load-fault") is { } injected)
+            {
+                LoadFaultInjection.Inject(injected.Split(','));
+            }
+
+            // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
+            if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
+            {
+                UiStallMeter.Enable(stallMs);
+            }
+
+            Task? initializing = null;
+            UiStallMeter.Time(() => initializing = viewModel.InitializeAsync());
+            DrainUntilComplete(initializing!);
             if (seeding is not null)
             {
                 DrainUntilComplete(seeding);
+            }
+
+            UiStallMeter.Report("startup");
+            if (showAfterStartup)
+            {
+                window.Show();
+                Pump(20);
+                UiStallMeter.Report("first layout and paint");
             }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
@@ -281,15 +311,34 @@ internal static class Program
                     $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
             }
 
+            // [V2 rough package 61 — plan export] #288/#315: press Export and print what it
+            // produced, so the document can be read rather than assumed.
+            if (args.Contains("--plan-export"))
+            {
+                var exported = services.GetRequiredService<PlanWorkspaceViewModel>();
+                exported.Clipboard = text =>
+                {
+                    Console.WriteLine("----- exported plan -----");
+                    Console.WriteLine(text);
+                    Console.WriteLine("----- end -----");
+                    return Task.CompletedTask;
+                };
+                DrainUntilComplete(exported.ExportCommand.ExecuteAsync());
+                Pump(20);
+                Console.WriteLine("Export status: " + exported.ExportStatus);
+            }
+
             if (shell is not null && route is not null)
             {
-                var result = shell.Router.NavigateToAddress(route);
-                if (!result.Succeeded)
+                V2NavigationResult? result = null;
+                UiStallMeter.Time(() => result = shell.Router.NavigateToAddress(route));
+                if (!result!.Succeeded)
                 {
                     throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
                 }
 
                 Pump(20);
+                UiStallMeter.Report($"navigate to {route}");
             }
 
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
@@ -364,15 +413,77 @@ internal static class Program
 
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
+            // --keep-find <text>: prints the Keep rows whose name contains the text, because the list
+            // is virtualised and 600 rows long, and a row below the first screen cannot be looked at.
+            if (StringOption(args, "--keep-find") is { } keepFind)
+            {
+                var keep = services.GetRequiredService<KeepListWorkspaceViewModel>();
+                DrainUntilComplete(keep.RefreshAsync());
+                foreach (var row in keep.Groups.SelectMany(group => group.Items)
+                             .Where(row => row.Name.Contains(keepFind, StringComparison.OrdinalIgnoreCase)))
+                {
+                    Console.WriteLine($"Keep row: {row.Name} | {row.ReasonSummary} | {row.QuestCountLabel} | {row.HeldLabel}");
+                }
+            }
+
+            // [#285] --allergy-demo <item query>: an event holding the first matches, the first of
+            // them recorded Allergic, before the pages that warn about it are built up below.
+            if (StringOption(args, "--allergy-demo") is { } allergyQuery)
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Halloween 2026";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = allergyQuery;
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                foreach (var match in events.Matches.Take(3).ToArray())
+                {
+                    match.AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    Console.WriteLine($"Allergy demo: {events.Items[0].ItemName} recorded Allergic");
+                    events.Items[0].MarkAllergicCommand.Execute(null);
+                    Pump(60);
+                    if (args.Contains("--allergy-undo"))
+                    {
+                        DrainUntilComplete(events.UndoCommand.ExecuteAsync());
+                        Pump(40);
+                    }
+
+                    // The app re-reads Plan whenever its tab is returned to; this render went
+                    // there before the record above was made, so it is returned to here.
+                    DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+                    Pump(40);
+                }
+            }
+
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;
-                loadout.SearchQuery = loadoutQuery;
-                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
-                if (loadout.Results.Count > 0)
+                // Several entries separated by ';' assign the first result of each, and
+                // "Ammunition=9x18mm PM" names the slot it goes in, so a render can hold a weapon
+                // and a round at once. Without a slot name every entry lands in the chosen slot
+                // and replaces the last: the first attempt at this put a round in Weapon.
+                foreach (var entry in loadoutQuery.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
-                    loadout.Results[0].AssignCommand.Execute(null);
-                    Pump(60);
+                    var query = entry;
+                    if (entry.Split('=', 2, StringSplitOptions.TrimEntries) is [var slotName, var slotQuery] &&
+                        Enum.TryParse<TarkovCompanion.App.ViewModels.LoadoutSlot>(slotName, ignoreCase: true, out var slot))
+                    {
+                        loadout.SelectedSlot = loadout.Slots.First(option => option.Slot == slot);
+                        query = slotQuery;
+                    }
+
+                    loadout.SearchQuery = query;
+                    DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                    if (loadout.Results.Count > 0)
+                    {
+                        loadout.Results[0].AssignCommand.Execute(null);
+                        Pump(60);
+                    }
                 }
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
@@ -429,6 +540,39 @@ internal static class Program
                 shell.SearchText = search;
                 DrainUntilComplete(shell.SearchAsync());
                 Pump(20);
+            }
+
+            // Package 33 (#287): --demo (always on here) preloads a "Graphics Card" search so the
+            // fixture-only run has something to show; against --seed-database that default masks
+            // the Intel landing page's real empty/no-search state. This clears it back out.
+            if (shell is not null && args.Contains("--intel-clear-search"))
+            {
+                shell.ClearIntelSearchCommand.Execute(null);
+                Pump(20);
+            }
+
+            // Package 33 (#287): pins one item and opens a second (leaving it "recently opened"),
+            // then returns to the bare Items route, so the landing page's Pinned/Recent sections
+            // can be rendered with real rows instead of only Needed now/Highest value.
+            if (shell is not null && args.Contains("--intel-home-demo"))
+            {
+                shell.SearchText = "bandage";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                if (shell.PinCommand.CanExecute(null))
+                {
+                    shell.PinCommand.Execute(null);
+                }
+
+                shell.SearchText = "screw nuts";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                shell.Router.Navigate(V2Routes.Items, "demo");
+                shell.ClearIntelSearchCommand.Execute(null);
+                // The landing page's own auto-select-first-suggestion fires one more navigation
+                // once its async load resolves (adding that item to Recents in turn); give it
+                // room to settle before anything downstream reads Recents or takes the shot.
+                Pump(80);
             }
 
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
@@ -647,6 +791,67 @@ internal static class Program
                         }
                     }
                 }
+
+                // [Issue 508] Waypoints (and a ping) on the raid map, so a render can show pins
+                // next to quest objectives. --seed-marks N drops N waypoints spread across the
+                // plan and one ping; --seed-marks-collide additionally drops two more waypoints
+                // both exactly on the plan's own centre — the default camera's own centre too, so
+                // a render can show the collision without having to be panned onto it — so a
+                // render can show three pins landing on the exact same spot.
+                if (IntOption(args, "--seed-marks", 0) is var markCount and > 0 && raid.Renderer is { } marksRenderer)
+                {
+                    var bounds = marksRenderer.Scene.Bounds;
+                    double[] fractions = [0.22, 0.38, 0.5, 0.64, 0.78];
+                    for (var i = 0; i < markCount; i++)
+                    {
+                        var fx = fractions[i % fractions.Length];
+                        var fy = 0.28 + (0.12 * (i % 3));
+                        raid.PlaceMarkAt(
+                            new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy)),
+                            TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                    }
+
+                    raid.PlaceMarkAt(
+                        new(bounds.MinimumX + (bounds.Width * 0.5), bounds.MinimumY + (bounds.Height * 0.62)),
+                        TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(false));
+
+                    if (args.Contains("--seed-marks-collide"))
+                    {
+                        var centre = new TarkovCompanion.Core.Domain.Maps.Scene.MapScenePoint(
+                            bounds.MinimumX + (bounds.Width / 2),
+                            bounds.MinimumY + (bounds.Height / 2));
+                        raid.PlaceMarkAt(centre, TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                        raid.PlaceMarkAt(centre, TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                    }
+
+                    Pump(80);
+                    Console.WriteLine("Marks: " + string.Join(" | ", raid.Marks.Select(mark => $"{mark.KindLabel} {mark.Label}")));
+                }
+
+                // [Issue 508] Zoom and rotate the plan the way the zoom buttons and the keyboard
+                // rotate gesture do, so a render can show a pin's tip staying on the spot at a
+                // closer zoom and with the map turned. --map-zoom N presses "zoom in" N times
+                // (each press is 1.25x, the same as RequestZoom); --map-bearing DEG turns the
+                // plan to that absolute bearing. Last, so selecting an objective or placing marks
+                // above does not recentre the view and undo it.
+                if (IntOption(args, "--map-zoom", 0) is var zoomSteps and > 0 && raid.Renderer is { } zoomRenderer)
+                {
+                    for (var i = 0; i < zoomSteps; i++)
+                    {
+                        zoomRenderer.RequestZoom(1);
+                        Pump(10);
+                    }
+
+                    Console.WriteLine($"Zoom: {zoomRenderer.Scene.View.Camera.Zoom:F2}");
+                }
+
+                if (DoubleOption(args, "--map-bearing") is { } bearingDegrees && raid.Renderer is { } bearingRenderer)
+                {
+                    bearingRenderer.SetBearing(bearingDegrees);
+                    Pump(20);
+                    Console.WriteLine($"Bearing: {bearingRenderer.Scene.View.Camera.BearingDegrees:F1}");
+                }
+
                 // Change map inside the run, and say what the view drew and how long it took.
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {
@@ -780,10 +985,70 @@ internal static class Program
                             RecognizedContext.Item,
                             captureNow,
                             "Graphics card · 82% sure · also Graphics tablet, GPU crate",
-                            "Screenshot · ambiguous_runner_up")),
+                            "Screenshot · ambiguous_runner_up",
+                            canCorrect: false)
+                        {
+                            // [f920 capture] The candidate list that replaced "Correct result".
+                            Candidates =
+                            [
+                                new("demo-graphics-card", "Graphics card", 0.82),
+                                new("demo-graphics-tablet", "Graphics tablet", 0.61),
+                                new("demo-gpu-crate", "GPU crate", 0.44),
+                            ],
+                            ChosenCandidateId = "demo-graphics-card",
+                        }),
                     _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
                 });
                 Pump(20);
+            }
+
+            // [f920 capture] --capture-image <file> [--capture-intent loot|stash|auto]: a picture
+            // handed to the shell the way the file picker hands one over, through the composed
+            // bridge, intake and pipeline. The panel is left open on whatever came of it.
+            if (shell is not null && StringOption(args, "--capture-image") is { } captureImage)
+            {
+                var wanted = Enum.Parse<ScanIntent>(StringOption(args, "--capture-intent") ?? "Auto", ignoreCase: true);
+                shell.CaptureCommand.Execute(null);
+                shell.CaptureIntents.Single(offered => offered.Intent == wanted).SelectCommand.Execute(null);
+                shell.SubmitManualImage(TarkovCompanion.App.ViewModels.V2.Shell.V2ManualImageOrigin.Picker, captureImage, null);
+                var sessions = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureSessionService>();
+                for (var turn = 0; turn < 1200 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal) && !shell.HasCaptureAttention; turn++)
+                {
+                    Pump(1);
+                    Thread.Sleep(25);
+                }
+
+                // --capture-analyse-as-armed presses the button a screen nobody could place offers,
+                // which on this host is every screen: OCR is Windows-only.
+                Pump(40);
+                if (args.Contains("--capture-analyse-as-armed") &&
+                    shell.CaptureAttentionActions.FirstOrDefault(action => action.Resolution == V2CaptureResolutionKind.AnalyzeAsArmed) is { } asArmed)
+                {
+                    asArmed.InvokeCommand.Execute(null);
+                    for (var turn = 0; turn < 2400 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal); turn++)
+                    {
+                        Pump(1);
+                        Thread.Sleep(25);
+                    }
+                }
+
+                // --capture-close shows what the capture left behind instead of the panel.
+                if (args.Contains("--capture-close"))
+                {
+                    if (shell.IsCaptureOpen)
+                    {
+                        shell.CaptureCommand.Execute(null);
+                    }
+
+                    DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>().LoadAsync());
+                }
+
+                Pump(40);
+                Console.WriteLine($"Capture image: {shell.CaptureManualStatus} | armed {shell.CaptureArmedStatus} | route {shell.Router.CurrentAddress}");
+                foreach (var notice in sessions.Snapshot.Notices.TakeLast(8))
+                {
+                    Console.WriteLine($"Capture notice: {notice.Kind} {notice.Code}");
+                }
             }
 
             if (shell is not null && args.Contains("--team-demo"))
@@ -827,6 +1092,14 @@ internal static class Program
                             RelayOwnerClaimState.ClaimedByThisDesktop,
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.");
+                        break;
+                    case "restored":
+                        // [#289] Claimed on an earlier run and picked back up at startup: nothing
+                        // was attempted this run, so there is no attempt message to show.
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            devices: [DemoPairedDevice("Kitchen tablet")]);
                         break;
                     case "pairing":
                         pairing.PresentForPreview(
@@ -910,6 +1183,27 @@ internal static class Program
                 shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
                     ScanDemo.LootResult(scope)));
                 Pump(20);
+            }
+
+            // [f920 capture] The same workspace decided by the composed application from a
+            // seeded profile: an active quest, a pin, an Allergic event result. See SeededLootScan.
+            if (shell is not null && args.Contains("--loot-seeded"))
+            {
+                SeededLootScan.Run(
+                    services,
+                    viewModel,
+                    DrainUntilComplete,
+                    Pump,
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"),
+                    StringOption(args, "--seed-database"));
+                Pump(20);
+            }
+
+            // [f920 capture] #284: Intel > Flea over a photographed flea screen. See FleaScanDemo.
+            if (shell is not null && StringOption(args, "--flea-scan-demo") is { } fleaScanItem)
+            {
+                FleaScanDemo.Run(services, DrainUntilComplete, Pump, fleaScanItem, StringOption(args, "--loot-scan-flea-rates"));
             }
 
             // Package 37: the same workspace over a picture the shipped recognizer actually read.
@@ -1008,6 +1302,26 @@ internal static class Program
                 Pump(2);
                 DrainUntilComplete(setupWorkspace.SelfTest!.RunAsync());
                 Pump(20);
+            }
+
+            // [#453] --hang-demo: the application's own watchdog, on this real dispatcher, against a
+            // dispatcher job that does not return for 2.5 s. Prints what it wrote to the crash log.
+            if (args.Contains("--hang-demo"))
+            {
+                var hangLog = Path.Combine(dataRoot, "hang-demo-logs");
+                CrashLog.Install(hangLog);
+                using var watchdog = UiHangWatchdog.ForApplication(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100));
+                watchdog.Start();
+                Pump(20);
+                Dispatcher.UIThread.Post(() => Thread.Sleep(2500));
+                Pump(40);
+                Console.WriteLine($"Hang demo: {watchdog.HangsRecorded} hang(s) recorded.");
+                foreach (var line in File.ReadAllLines(CrashLog.FilePath!).Where(line => line.Contains("ui-hang", StringComparison.Ordinal)))
+                {
+                    Console.WriteLine("  " + line);
+                }
+
+                CrashLog.Detach();
             }
 
             SaveFrame(window, outputPath, width, height);
@@ -1396,8 +1710,36 @@ internal static class Program
     {
         for (var i = 0; i < turns; i++)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(25);
+        }
+
+        Settle();
+    }
+
+    /// <summary>
+    /// Keeps pumping until the page has stopped reading, or ten seconds have gone.
+    /// </summary>
+    /// <remarks>
+    /// [#453] A fixed number of turns was enough while every database read ran inside the turn
+    /// that asked for it. Reads now happen on the pool and come back in later turns, and the first
+    /// render after that change photographed Keep saying "Loading the keep list…". Settled means
+    /// six turns in a row with no database call in flight, no workspace load unfinished, and
+    /// nothing for the dispatcher to do.
+    /// </remarks>
+    private static void Settle()
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (quiet < 6 && System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        {
+            var turn = System.Diagnostics.Stopwatch.GetTimestamp();
+            UiStallMeter.RunJobs();
+            var idle = System.Diagnostics.Stopwatch.GetElapsedTime(turn) < TimeSpan.FromMilliseconds(2)
+                && TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory.OpenConnectionCount == 0
+                && !UiActivity.IsLoading;
+            quiet = idle ? quiet + 1 : 0;
+            Thread.Sleep(10);
         }
     }
 
@@ -1405,7 +1747,7 @@ internal static class Program
     {
         while (!task.IsCompleted)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(5);
         }
 
@@ -1450,6 +1792,12 @@ internal static class Program
     {
         var value = StringOption(args, name);
         return value is null ? fallback : int.Parse(value);
+    }
+
+    private static double? DoubleOption(string[] args, string name)
+    {
+        var value = StringOption(args, name);
+        return value is null ? null : double.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string? StringOption(string[] args, string name)

@@ -1,4 +1,6 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
@@ -89,7 +91,8 @@ public sealed class KeysPageViewModel : PageViewModel
     private readonly IItemRepository _itemRepository;
     private readonly IQuestProgressService? _questProgress;
     private readonly IMapDataService? _maps;
-    private readonly Dictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
+    // Concurrent because the rows are now built on the pool (#453), and two loads can overlap.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
     private IReadOnlyList<KeyRowViewModel> _keys = [];
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
@@ -255,7 +258,7 @@ public sealed class KeysPageViewModel : PageViewModel
             return;
         }
 
-        _ = LoadAsync();
+        LoadAsync().Observe("keys", "reload");
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
@@ -279,14 +282,23 @@ public sealed class KeysPageViewModel : PageViewModel
             var ranks = KeyValue.Rank(facts
                 .Where(fact => fact.AcquisitionCostRoubles is > 0)
                 .Select(fact => (fact.ItemId, fact.AcquisitionCostRoubles!.Value)));
-            var rows = new List<KeyRowViewModel>(facts.Count);
-            foreach (var fact in facts)
-            {
-                rows.Add(await DescribeAsync(
-                    fact,
-                    ranks.TryGetValue(fact.ItemId, out var rank) ? rank : null,
-                    cancellationToken).ConfigureAwait(true));
-            }
+            // Three lookups a key — its name, its map's name, what your quests want of it — for a
+            // few hundred keys. Built off the interface thread and handed back whole (#453).
+            var rows = await OffInterfaceThread.Run(
+                async () =>
+                {
+                    var built = new List<KeyRowViewModel>(facts.Count);
+                    foreach (var fact in facts)
+                    {
+                        built.Add(await DescribeAsync(
+                            fact,
+                            ranks.TryGetValue(fact.ItemId, out var rank) ? rank : null,
+                            cancellationToken).ConfigureAwait(false));
+                    }
+
+                    return built;
+                },
+                cancellationToken).ConfigureAwait(true);
 
             // Keys whose map the projection could not settle on sort last rather than being mixed
             // in under a name that would read as a real map.

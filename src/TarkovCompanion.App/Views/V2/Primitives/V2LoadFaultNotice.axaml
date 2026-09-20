@@ -1,0 +1,25 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Primitives.V2LoadFaultNotice"
+             x:DataType="shell:LoadFaultNoticeViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:shell="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             IsVisible="{Binding IsVisible}">
+  <!-- #453: a load that failed says so where the player is looking, and offers Retry. -->
+  <Border Classes="v2-card" Padding="12,10"
+          BorderBrush="{DynamicResource V2.Brush.Warning}" BorderThickness="1"
+          AutomationProperties.AccessibilityView="Control"
+          AutomationProperties.AutomationId="v2-load-fault"
+          AutomationProperties.LiveSetting="Polite"
+          AutomationProperties.Name="{Binding Title}">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="Wrap" />
+      </StackPanel>
+      <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
+              AutomationProperties.AutomationId="v2-load-fault-retry"
+              Content="{Binding RetryLabel}" IsEnabled="{Binding CanRetry}"
+              Command="{Binding RetryCommand}" />
+    </Grid>
+  </Border>
+</UserControl>

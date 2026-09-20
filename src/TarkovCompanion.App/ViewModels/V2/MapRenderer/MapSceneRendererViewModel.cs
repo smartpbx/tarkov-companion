@@ -1567,15 +1567,24 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             .ToArray();
         if (points.Length <= MaximumPointMarkers)
         {
+            // [Issue 508] Two pins (or a ping and a pin) on the exact same spot must both stay
+            // legible, so a coincident group among the marks a player actually places and reads —
+            // waypoints, quest objectives, pings — is nudged into a small ring around the shared
+            // point before it is drawn. Every other kind (an extract, a loot spawn, …) draws the
+            // older chip, which never reads this offset, so there is no reason to spend the pass
+            // detecting collisions among them too.
+            var offsets = ResolvePinOverlap(points);
             return points
-                .Select(item => MapSceneRendererObjectViewModel.ForObject(
+                .Select((item, index) => MapSceneRendererObjectViewModel.ForObject(
                     item,
                     _projection,
                     _scene.View.Camera,
                     _presentation,
                     item.Id == _selectedObjectId,
                     () => SelectObject(item.Id),
-                    _styleResolver?.Invoke(item)))
+                    _styleResolver?.Invoke(item),
+                    offsets[index].DeltaX,
+                    offsets[index].DeltaY))
                 .ToArray();
         }
 
@@ -1586,6 +1595,43 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             .Select(group => BuildClusterMarker(group.Key.Column, group.Key.Row, group.ToArray()))
             .Take(MaximumPointMarkers)
             .ToArray();
+    }
+
+    /// <summary>
+    /// The (dx, dy) each of <paramref name="points"/> should be drawn with, in the same order,
+    /// so a waypoint, quest objective or ping landing on another one is still legible. Zero for
+    /// every point that is not one of those three kinds, or that has nothing else near it.
+    /// </summary>
+    private IReadOnlyList<(double DeltaX, double DeltaY)> ResolvePinOverlap(IReadOnlyList<MapSceneObject> points)
+    {
+        var result = new (double DeltaX, double DeltaY)[points.Count];
+        var eligible = new List<int>();
+        var anchors = new List<(double X, double Y)>();
+        for (var index = 0; index < points.Count; index++)
+        {
+            var icon = MapSceneRendererObjectViewModel.IconFor(points[index]);
+            if (icon is not (MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Objective or MapSceneMarkerIcon.Ping))
+            {
+                continue;
+            }
+
+            var projected = _projection.Project(points[index].Geometry.Points[0]);
+            eligible.Add(index);
+            anchors.Add((projected.X, projected.Y));
+        }
+
+        if (eligible.Count < 2)
+        {
+            return result;
+        }
+
+        var resolved = MapMarkerOverlapLayout.Resolve(anchors);
+        for (var slot = 0; slot < eligible.Count; slot++)
+        {
+            result[eligible[slot]] = resolved[slot];
+        }
+
+        return result;
     }
 
     private MapSceneRendererObjectViewModel BuildClusterMarker(
@@ -2547,7 +2593,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         Action select,
         double? headingDegrees = null,
         double cameraBearingDegrees = 0,
-        MapSceneObjectStyle? style = null)
+        MapSceneObjectStyle? style = null,
+        double pinOffsetX = 0,
+        double pinOffsetY = 0)
     {
         SceneObject = sceneObject;
         Key = key;
@@ -2575,6 +2623,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         HeadingDegrees = headingDegrees;
         _coneDegrees = ConeFor(headingDegrees, cameraBearingDegrees);
         Style = style;
+        PinOffsetX = pinOffsetX;
+        PinOffsetY = pinOffsetY;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
 
@@ -2678,12 +2728,64 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// <summary>A person marker is a dot with a facing cone, not one of the drawn glyphs.</summary>
     public bool IsPersonIcon => IsPlayerIcon || IsTeammateIcon;
     public bool ShowsGlyphIcon => ShowsMarkerIcon && !IsPersonIcon;
+
+    /// <summary>
+    /// The older boxed chip: every kind except a person (a dot and cone), a pin (a waypoint or
+    /// quest objective) and a ping (a pulse) — each of those three now draws its own visual.
+    /// </summary>
+    public bool ShowsLegacyChip => !IsPersonIcon && !IsPinMark && !IsPingMark;
     public string TruthGlyph { get; }
     public bool HasTruthGlyph => !string.IsNullOrWhiteSpace(TruthGlyph);
     public string FactionGlyph { get; }
     public bool HasFactionGlyph => !string.IsNullOrWhiteSpace(FactionGlyph);
     public string OfferGlyph { get; }
     public bool HasOfferGlyph => !string.IsNullOrWhiteSpace(OfferGlyph);
+
+    // [Issue 508] A waypoint and a quest objective are pins now, not a chip that reads a number
+    // when it has one and an icon when it does not. These are unconditional on the kind alone —
+    // unlike IsWaypointIcon/IsObjectiveIcon above, which only ever apply to the *unnumbered* case
+    // the old chip drew an icon for, and would be false for the common numbered waypoint.
+    public bool IsWaypointMark => Icon == MapSceneMarkerIcon.Waypoint;
+    public bool IsObjectiveMark => Icon == MapSceneMarkerIcon.Objective;
+    public bool IsPinMark => IsWaypointMark || IsObjectiveMark;
+
+    /// <summary>A ping is a transient pulse, drawn at its own point, never a pin.</summary>
+    public bool IsPingMark => Icon == MapSceneMarkerIcon.Ping;
+
+    /// <summary>The letter or number written on the pin's head; empty for an unnumbered, unnamed waypoint.</summary>
+    public string PinLabel => MarkerGlyph;
+    public bool HasPinLabel => PinLabel.Length > 0;
+
+    /// <summary>The letter shows, or a completed objective's check does — never both at once.</summary>
+    public bool ShowsPinLetter => HasPinLabel && !IsCompletedObjective;
+
+    /// <summary>
+    /// Issue 379: an objective the catalog gives no place for, that the player put there
+    /// themselves, is drawn with a visible "placed by you" distinction rather than as if it were
+    /// the quest data's own.
+    /// </summary>
+    public bool IsUserPlacedMark => IsObjectiveMark && SceneObject?.Truth == MapSceneTruthKind.UserAuthored;
+
+    /// <summary>A quest objective still on the map after its own step is done: dimmed, with a check.</summary>
+    public bool IsCompletedObjective => IsObjectiveMark && (SceneObject?.IsCompleted ?? false);
+
+    /// <summary>
+    /// The pin's own top-left, in the 44x44 marker box's local coordinates, including the small
+    /// nudge <see cref="MapMarkerOverlapLayout"/> gives a pin that would otherwise land exactly on
+    /// another one. See <see cref="TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry"/> for
+    /// why this keeps the pin's tip on the anchor at every zoom and bearing.
+    /// </summary>
+    public double PinLeft => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent).Left + PinOffsetX;
+    public double PinTop => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent).Top + PinOffsetY;
+
+    /// <summary>
+    /// The overlap nudge <see cref="MapMarkerOverlapLayout"/> gave this marker, in the same box
+    /// units as <see cref="PinLeft"/>/<see cref="PinTop"/>; (0, 0) for a marker nothing else lands
+    /// on. Applied to the pulse (a ping) too, so a ping dropped on a pin still shows both.
+    /// </summary>
+    public double PinOffsetX { get; }
+    public double PinOffsetY { get; }
+
     public string AutomationId => $"v2-map-object-{MapRendererToken.From(Key)}";
     public ICommand SelectCommand { get; }
 
@@ -2715,7 +2817,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         MapSceneRendererPresentation presentation,
         bool isSelected,
         Action select,
-        MapSceneObjectStyle? style = null)
+        MapSceneObjectStyle? style = null,
+        double pinOffsetX = 0,
+        double pinOffsetY = 0)
     {
         var formatter = new MapSceneRendererSemanticText(presentation);
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
@@ -2739,14 +2843,21 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             camera.BearingDegrees,
             MarkerFor(sceneObject),
             IconFor(sceneObject),
-            IsNumberedStep(sceneObject) ? string.Empty : TruthGlyphFor(sceneObject.Truth),
+            // A pin (a waypoint or a quest objective) never carries the truth-glyph badge: its
+            // shape and colour already say what it is, and the badge was never drawn anywhere —
+            // see MapSceneRendererObjectViewModel.TruthGlyph's remaining callers, all tests.
+            sceneObject.Kind is MapSceneObjectKind.QuestObjective or MapSceneObjectKind.Waypoint
+                ? string.Empty
+                : TruthGlyphFor(sceneObject.Truth),
             FactionGlyphFor(sceneObject),
             OfferGlyphFor(sceneObject),
             false,
             select,
             sceneObject.HeadingDegrees,
             camera.BearingDegrees,
-            style);
+            style,
+            pinOffsetX,
+            pinOffsetY);
     }
 
     public static MapSceneRendererObjectViewModel ForCluster(
@@ -2791,42 +2902,44 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             select);
     }
 
-    /// <summary>
-    /// V2 rough package 17: a personal-plan quest objective labelled with a short step number
-    /// (the Plan workspace's numbered objectives) draws that number, so the marker and its row
-    /// in the list read as one thing. Every other object keeps its kind glyph and truth badge.
-    /// </summary>
-    private static bool IsNumberedStep(MapSceneObject item) =>
-        item.Kind == MapSceneObjectKind.QuestObjective &&
-        item.Truth == MapSceneTruthKind.PersonalPlan &&
-        HasStepNumberLabel(item);
-
     /// <summary>A label that is a 1–3 digit number: the numbered-marker convention Plan and Team share.</summary>
     private static bool HasStepNumberLabel(MapSceneObject item) =>
         item.Label.Length is > 0 and <= 3 && item.Label.All(char.IsAsciiDigit);
 
-    private static string MarkerFor(MapSceneObject item) => IsNumberedStep(item) ? item.Label : item.Truth switch
+    /// <summary>
+    /// [Issue 508] A quest objective's marker always draws its own label — a letter (A, B, C…)
+    /// for one the catalog or the player placed, or a personal-plan route's own short step number
+    /// where a caller supplied one (see <c>QuestObjectiveSceneBuilder</c>'s <c>numberFor</c>) —
+    /// rather than a generic "◇" that discarded it. A waypoint is the only marker a plain number
+    /// ever means now, so an objective's label can never be mistaken for one.
+    /// </summary>
+    private static string MarkerFor(MapSceneObject item) => item.Kind switch
     {
-        MapSceneTruthKind.HistoricalEstimate => "≈",
-        MapSceneTruthKind.LocalLastKnown => "◎",
-        MapSceneTruthKind.TeamSharedLastKnown => "◉",
-        _ => item.Kind switch
+        MapSceneObjectKind.QuestObjective => item.Label.Length is > 0 and <= 4 ? item.Label : string.Empty,
+        // V2 rough package 17 (team): a waypoint labelled with its number draws that number,
+        // so the marker and its row in a marks list read as one thing. A custom-named waypoint
+        // draws no text at all — its round pin head already says "waypoint", and a name is too
+        // long to fit legibly inside it; the name itself is the marks list row and the tooltip.
+        MapSceneObjectKind.Waypoint => HasStepNumberLabel(item) ? item.Label : string.Empty,
+        _ => item.Truth switch
         {
-            MapSceneObjectKind.Extract => "⇱",
-            MapSceneObjectKind.Transit => "↔",
-            MapSceneObjectKind.QuestObjective => "◇",
-            // V2 rough package 17 (team): a waypoint labelled with its number draws that number,
-            // so the marker and its row in a marks list read as one thing.
-            MapSceneObjectKind.Waypoint => HasStepNumberLabel(item) ? item.Label : "◆",
-            MapSceneObjectKind.Ping => "•",
-            MapSceneObjectKind.Hazard => "!",
-            MapSceneObjectKind.Lock => "⌑",
-            MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
-            MapSceneObjectKind.Route => "↝",
-            MapSceneObjectKind.LastKnownPosition => "◉",
-            MapSceneObjectKind.TeammateLastKnown => "◍",
-            MapSceneObjectKind.Risk => "△",
-            _ => "●",
+            MapSceneTruthKind.HistoricalEstimate => "≈",
+            MapSceneTruthKind.LocalLastKnown => "◎",
+            MapSceneTruthKind.TeamSharedLastKnown => "◉",
+            _ => item.Kind switch
+            {
+                MapSceneObjectKind.Extract => "⇱",
+                MapSceneObjectKind.Transit => "↔",
+                MapSceneObjectKind.Ping => "•",
+                MapSceneObjectKind.Hazard => "!",
+                MapSceneObjectKind.Lock => "⌑",
+                MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
+                MapSceneObjectKind.Route => "↝",
+                MapSceneObjectKind.LastKnownPosition => "◉",
+                MapSceneObjectKind.TeammateLastKnown => "◍",
+                MapSceneObjectKind.Risk => "△",
+                _ => "●",
+            },
         },
     };
 

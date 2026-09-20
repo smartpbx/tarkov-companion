@@ -60,14 +60,52 @@ public interface ITabletMapSurfaceSink
     /// with the last to decide whether there is anything to send at all, and serializing a
     /// megabyte twice per change to hand over a record would undo the saving.
     /// </param>
-    ValueTask PublishMapSurfaceAsync(
+    /// <returns>
+    /// Whether the carrier took it. False is "nothing is carrying maps right now" (no relay, or
+    /// not claimed yet), and a caller that compares publishes must not count it as one: the map
+    /// that was current when the relay was finally claimed was otherwise never sent.
+    /// </returns>
+    ValueTask<bool> PublishMapSurfaceAsync(
         byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>What this desktop knows about its owner session on the relay.</summary>
+public enum RelayOwnerLinkState
+{
+    /// <summary>No owner session is held: never claimed from here, forgotten, or a different relay.</summary>
+    None = 1,
+
+    /// <summary>A stored session was picked up after a restart and the relay has not answered yet.</summary>
+    Restored,
+
+    /// <summary>The relay accepted this session on the last call.</summary>
+    Verified,
+
+    /// <summary>The relay refused this session: it expired or was replaced, and must be claimed again.</summary>
+    Rejected,
+
+    /// <summary>The relay could not be reached; the session is kept and tried again.</summary>
+    Unreachable,
+}
+
+/// <summary>What registering a just-paired device on the relay came to.</summary>
+/// <param name="Registered">Whether the relay now routes this device's traffic.</param>
+/// <param name="Code">The relay's own refusal code, or a local reason, when it does not.</param>
+/// <summary>A paired device that proved its key to the relay and is waiting for a fresh session.</summary>
+public sealed record RelayResumeTicket(Guid TicketId, string DeviceKeyId);
+
+public sealed record RelayDeviceRegistration(bool Registered, string Code)
+{
+    public static RelayDeviceRegistration Done { get; } = new(true, "registered");
+}
+
 public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 {
+    /// <summary>How many sender sequences one write to protected storage reserves.</summary>
+    internal const long SequenceBlock = 1024;
+
     private const string SessionHeader = "X-Relay-Session";
     private const string CredentialHeader = "X-Relay-Credential";
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -79,26 +117,260 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     private readonly Lock _gate = new();
     private readonly Dictionary<Guid, PairedSessionState> _sessionsById = new();
     private readonly Dictionary<Guid, Guid> _localMarkIdByCanonicalMarkId = new();
+    private readonly RelayLinkVault? _vault;
+    private readonly SemaphoreSlim _pollGate = new(1, 1);
     private HttpClient? _relay;
+    private Uri? _origin;
     private OwnerCredential? _owner;
     private CancellationTokenSource? _loop;
     private long _afterDeliveryId;
     private string? _publishedArtworkSha;
+    private string? _refusedArtworkSha;
+    private byte[]? _currentSurfaceJson;
+    private TabletMapArtworkBytes? _currentArtwork;
+    private RelayOwnerLinkState _ownerLink = RelayOwnerLinkState.None;
+    private readonly HashSet<Guid> _resumeTicketsSeen = [];
 
-    public RelayMarksBridge(DesktopCompanionAuthority authority, IRaidMarkStore marks, TimeProvider timeProvider)
+    public RelayMarksBridge(
+        DesktopCompanionAuthority authority,
+        IRaidMarkStore marks,
+        TimeProvider timeProvider,
+        RelayLinkVault? vault = null)
     {
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _clock = timeProvider ?? TimeProvider.System;
+        _vault = vault;
     }
 
+    /// <summary>
+    /// Points the bridge at a relay. Naming a different relay than before drops the old one's
+    /// owner session and routes, because both belong to the host that issued them.
+    /// </summary>
     public void Configure(Uri relayOrigin)
     {
         ArgumentNullException.ThrowIfNull(relayOrigin);
+        HttpClient? replaced = null;
         lock (_gate)
         {
-            _relay ??= new HttpClient { BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/") };
+            if (_origin is not null && _relay is not null &&
+                string.Equals(RelayLinkVault.Normalize(_origin), RelayLinkVault.Normalize(relayOrigin), StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            replaced = _relay;
+            _origin = relayOrigin;
+            _relay = new HttpClient { BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/") };
+            _owner = null;
+            _afterDeliveryId = 0;
+            _publishedArtworkSha = null;
         }
+
+        replaced?.Dispose();
+        SetOwnerLink(RelayOwnerLinkState.None);
+    }
+
+    /// <summary>What is known about this desktop's owner session on the relay right now.</summary>
+    public RelayOwnerLinkState OwnerLink
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _ownerLink;
+            }
+        }
+    }
+
+    /// <summary>Raised when <see cref="OwnerLink"/> changes, on whatever thread noticed.</summary>
+    public event Action<RelayOwnerLinkState>? OwnerLinkChanged;
+
+    /// <summary>
+    /// How this desktop claims the relay again on its identity key, when it can. Asked whenever the
+    /// relay refuses the kept owner session, before that session is given up on.
+    /// </summary>
+    /// <remarks>
+    /// [#289] Set by whoever holds the identity signer (the pairing panel). Without it a refused
+    /// session is dropped and the panel asks for the admin key, which is what every refusal used
+    /// to come to: twelve hours after a claim, or two idle.
+    /// </remarks>
+    public Func<CancellationToken, Task<RelayClaimResult>>? OwnerReclaim { get; set; }
+
+    /// <summary>
+    /// A paired device came back to the relay on its key and is waiting for this desktop to open
+    /// it a session. Raised from the poll, once per ticket.
+    /// </summary>
+    public event Action<RelayResumeTicket>? ResumeRequested;
+
+    /// <summary>
+    /// Picks the relay link back up after a desktop restart: the stored owner session, and the
+    /// traffic keys of every paired session the authority still holds as active.
+    /// </summary>
+    /// <remarks>
+    /// [#289, #290] Returns whether an owner session was found. It is not yet known to be good —
+    /// the relay may have ended it — so the link reads <see cref="RelayOwnerLinkState.Restored"/>
+    /// until the first poll answers, and <see cref="OwnerLinkChanged"/> says which way it went.
+    /// </remarks>
+    public async Task<bool> RestoreAsync(CancellationToken cancellationToken = default)
+    {
+        Uri? origin;
+        lock (_gate)
+        {
+            origin = _origin;
+        }
+
+        if (_vault is null || origin is null)
+        {
+            return false;
+        }
+
+        var snapshot = _authority.Snapshot;
+        var now = Now();
+        foreach (var session in snapshot.Sessions.Where(item => item.Status == DeviceSessionStatus.Active && now < item.ExpiresUtc))
+        {
+            var stored = await _vault.LoadSessionAsync(session.SessionId, cancellationToken).ConfigureAwait(false);
+            if (stored is null || stored.DeviceId != session.DeviceId.Value || stored.KeyEpoch != session.KeyEpoch)
+            {
+                continue;
+            }
+
+            // Everything below the stored reservation may already have been sent, so this run
+            // reserves its own block above it before it sends anything.
+            var restored = new PairedSessionState(
+                session.DeviceId,
+                session.SessionId,
+                new RelayChannelId(stored.ChannelId),
+                stored.KeyEpoch,
+                Convert.FromBase64String(stored.TabletToDesktopKeyBase64),
+                Convert.FromBase64String(stored.DesktopToTabletKeyBase64),
+                stored.ReservedThroughSequence);
+            lock (_gate)
+            {
+                _sessionsById[session.SessionId.Value] = restored;
+            }
+        }
+
+        var owner = await _vault.LoadOwnerAsync(snapshot.CanonicalState.DesktopDeviceId, origin, cancellationToken)
+            .ConfigureAwait(false);
+        if (owner is null)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            _owner = new OwnerCredential(owner.SessionId, owner.Credential, owner.ExpiresUtc);
+        }
+
+        SetOwnerLink(RelayOwnerLinkState.Restored);
+        EnsureLoopStarted();
+        return true;
+    }
+
+    /// <summary>Adopts a fresh claim and keeps it for the next restart.</summary>
+    public async Task AdoptOwnerCredentialAsync(
+        Guid sessionId,
+        string credential,
+        DateTimeOffset expiresUtc,
+        CancellationToken cancellationToken = default)
+    {
+        SetOwnerCredential(sessionId, credential, expiresUtc);
+        Uri? origin;
+        lock (_gate)
+        {
+            origin = _origin;
+        }
+
+        if (_vault is not null && origin is not null)
+        {
+            await _vault.SaveOwnerAsync(
+                _authority.Snapshot.CanonicalState.DesktopDeviceId,
+                new StoredRelayOwnerSession(RelayLinkVault.Normalize(origin), sessionId, credential, expiresUtc),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>"Forget this relay": drops the owner session here and in protected storage.</summary>
+    public async Task ForgetOwnerAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            _owner = null;
+        }
+
+        if (_vault is not null)
+        {
+            await _vault.ForgetOwnerAsync(_authority.Snapshot.CanonicalState.DesktopDeviceId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        SetOwnerLink(RelayOwnerLinkState.None);
+    }
+
+    /// <summary>
+    /// Cuts a revoked device off: its keys leave this process and protected storage, and the relay
+    /// is told to end its session so it stops reading the map as well.
+    /// </summary>
+    public async Task RevokePairedDeviceAsync(CompanionDeviceId deviceId, CancellationToken cancellationToken = default)
+    {
+        PairedSessionState[] removed;
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            removed = _sessionsById.Values.Where(state => state.DeviceId == deviceId).ToArray();
+            foreach (var state in removed)
+            {
+                _sessionsById.Remove(state.SessionId.Value);
+            }
+
+            relay = _relay;
+            owner = _owner;
+        }
+
+        foreach (var state in removed)
+        {
+            state.Clear();
+            if (_vault is not null)
+            {
+                await _vault.ForgetSessionAsync(state.SessionId, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (relay is null || owner is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"v2/companion/relay/devices/{deviceId.Value:D}/revoke");
+            AddBearer(request, owner);
+            using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            _ = response; // a relay that cannot be reached still loses the device's keys above
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            // The desktop's own authority has already revoked it; nothing it sends is opened.
+        }
+    }
+
+    private void SetOwnerLink(RelayOwnerLinkState next)
+    {
+        lock (_gate)
+        {
+            if (_ownerLink == next)
+            {
+                return;
+            }
+
+            _ownerLink = next;
+        }
+
+        OwnerLinkChanged?.Invoke(next);
     }
 
     /// <summary>Called once "Claim this relay" succeeds, so the poll loop can start reading this desktop's own queue.</summary>
@@ -107,10 +379,44 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         ArgumentException.ThrowIfNullOrWhiteSpace(credential);
         lock (_gate)
         {
+            if (_owner?.SessionId != sessionId)
+            {
+                // The relay numbers deliveries per session, from one. A cursor carried over from
+                // the session this replaces would read past everything the new one is sent.
+                _afterDeliveryId = 0;
+            }
+
             _owner = new OwnerCredential(sessionId, credential, expiresUtc);
         }
 
+        SetOwnerLink(RelayOwnerLinkState.Verified);
         EnsureLoopStarted();
+    }
+
+    /// <summary>
+    /// Answers a returning device's ticket with the code of the offer just opened for it, as this
+    /// relay's owner. False when the relay would not take it (the ticket lapsed, or no claim).
+    /// </summary>
+    public async Task<bool> AnswerResumeTicketAsync(Guid ticketId, string pairingCode, CancellationToken cancellationToken = default)
+    {
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            return false;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"v2/companion/relay/resume/requests/{ticketId:D}/offer");
+        request.Headers.Add("Tarkov-Pairing-Code", pairingCode);
+        AddBearer(request, owner);
+        using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
     }
 
     /// <summary>
@@ -118,7 +424,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     /// then immediately delivers the canonical snapshot <c>DesktopCompanionAuthority.RegisterPairingAsync</c>
     /// already queued for it locally.
     /// </summary>
-    public async Task RegisterPairedDeviceAsync(
+    public async Task<RelayDeviceRegistration> RegisterPairedDeviceAsync(
         PairingAttemptId attemptId,
         PairingOffer offer,
         string desktopNonceBase64Url,
@@ -143,7 +449,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         {
             // No relay configured, or this desktop has not claimed it yet. The pairing itself
             // still succeeded locally; only relay live-sync for this device is unavailable.
-            return;
+            return new RelayDeviceRegistration(false, "relay-not-claimed");
         }
 
         var pairingBody = RelayDeviceClaimWireFormat.Build(offer, desktopNonceBase64Url, codeConsumedUtc, request, challenge, session.Establishment);
@@ -162,7 +468,11 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var response = await relay.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return;
+            var refusal = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            refusal = refusal.Trim().Trim('"');
+            return new RelayDeviceRegistration(
+                false,
+                refusal.Length is > 0 and <= 64 ? refusal : $"relay-{(int)response.StatusCode}");
         }
 
         var registeredJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -198,16 +508,41 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             assignment.RelayChannelId,
             assignment.KeyEpoch,
             session.TabletToDesktopKey.ToArray(),
-            session.DesktopToTabletKey.ToArray());
+            session.DesktopToTabletKey.ToArray(),
+            reservedThroughSequence: 0);
+        PairedSessionState[] superseded;
         lock (_gate)
         {
+            // The same tablet pairing again replaces its old device on the authority, so whatever
+            // this bridge still holds for a session the authority no longer has is dead weight.
+            var active = _authority.Snapshot.Sessions
+                .Where(item => item.Status == DeviceSessionStatus.Active)
+                .Select(item => item.SessionId.Value)
+                .ToHashSet();
+            superseded = _sessionsById.Values.Where(item => !active.Contains(item.SessionId.Value)).ToArray();
+            foreach (var old in superseded)
+            {
+                _sessionsById.Remove(old.SessionId.Value);
+            }
+
             _sessionsById[assignment.SessionId.Value] = state;
+        }
+
+        foreach (var old in superseded)
+        {
+            old.Clear();
+            if (_vault is not null)
+            {
+                await _vault.ForgetSessionAsync(old.SessionId, cancellationToken).ConfigureAwait(false);
+            }
         }
 
         foreach (var delivery in session.Mutation.Deliveries)
         {
             await PublishDeliveryAsync(state, delivery, _authority.Snapshot.CanonicalState, cancellationToken).ConfigureAwait(false);
         }
+
+        return RelayDeviceRegistration.Done;
     }
 
     private sealed record RelaySessionCredentialWire(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
@@ -237,7 +572,12 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             }
             catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
             {
-                // Transient; the next tick tries again.
+                // Transient; the next tick tries again. The owner session is kept: a relay that
+                // is down for a minute has not un-claimed anything.
+                if (exception is not JsonException && !cancellationToken.IsCancellationRequested && HasOwner())
+                {
+                    SetOwnerLink(RelayOwnerLinkState.Unreachable);
+                }
             }
 
             try
@@ -251,7 +591,25 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         }
     }
 
+    /// <summary>Reads and handles whatever is queued for this desktop, once.</summary>
+    /// <remarks>
+    /// One read at a time: the loop and a direct caller share the delivery cursor, and two reads
+    /// racing over it would each handle the same frame.
+    /// </remarks>
     public async Task PollOnceAsync(CancellationToken cancellationToken)
+    {
+        await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await PollCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _pollGate.Release();
+        }
+    }
+
+    private async Task PollCoreAsync(CancellationToken cancellationToken)
     {
         HttpClient? relay;
         OwnerCredential? owner;
@@ -269,13 +627,78 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var request = new HttpRequestMessage(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}");
         AddBearer(request, owner);
         using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            // [#289] The relay has ended this owner session: it expired (twelve hours, or two
+            // idle), or another claim replaced it. The first is every morning, so before giving
+            // the claim up this desktop asks to be let back in on its key.
+            if (OwnerReclaim is { } reclaim)
+            {
+                var reclaimed = await reclaim(cancellationToken).ConfigureAwait(false);
+                if (reclaimed.Outcome == RelayClaimOutcome.Claimed)
+                {
+                    return; // adopted; the next read is on the new session
+                }
+
+                if (reclaimed.Outcome is RelayClaimOutcome.Unreachable or RelayClaimOutcome.RateLimited)
+                {
+                    SetOwnerLink(RelayOwnerLinkState.Unreachable);
+                    return; // kept, and asked again on the next tick
+                }
+            }
+
+            // Holding on to it would only repeat the refusal every two seconds and keep telling
+            // the player the relay is claimed when it is not.
+            var dropped = false;
+            lock (_gate)
+            {
+                if (ReferenceEquals(_owner, owner))
+                {
+                    _owner = null;
+                    dropped = true;
+                }
+            }
+
+            if (dropped)
+            {
+                if (_vault is not null)
+                {
+                    await _vault.ForgetOwnerAsync(_authority.Snapshot.CanonicalState.DesktopDeviceId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                SetOwnerLink(RelayOwnerLinkState.Rejected);
+            }
+
+            return;
+        }
+
         if (!response.IsSuccessStatusCode)
         {
             return;
         }
 
+        SetOwnerLink(RelayOwnerLinkState.Verified);
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var frames = ParseFrameBatch(json);
+        foreach (var ticket in ParseResumeRequests(json))
+        {
+            bool first;
+            lock (_gate)
+            {
+                first = _resumeTicketsSeen.Add(ticket.TicketId);
+                if (_resumeTicketsSeen.Count > 256)
+                {
+                    _resumeTicketsSeen.Clear(); // tickets live five minutes; this is only a de-duplicator
+                    _resumeTicketsSeen.Add(ticket.TicketId);
+                }
+            }
+
+            if (first)
+            {
+                ResumeRequested?.Invoke(ticket);
+            }
+        }
 
         foreach (var (deliveryId, frame) in frames)
         {
@@ -293,6 +716,33 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             AddBearer(ack, owner);
             using var ackResponse = await relay.SendAsync(ack, cancellationToken).ConfigureAwait(false);
             _ = ackResponse; // best-effort; an unacknowledged delivery is simply re-read next poll
+        }
+
+        var status = ParseBatchStatus(json);
+        if (status.RequiresReconnect && frames.Count == 0)
+        {
+            // [#407] The relay dropped something from this queue (or restarted and lost it). What
+            // a tablet sent and the relay dropped is gone either way, and each tablet's own resync
+            // heals its side; what is left to do here is tell the relay the gap has been seen, or
+            // it goes on saying "reconnect" on every read for as long as this session lives.
+            using var reset = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/frames/reset");
+            AddBearer(reset, owner);
+            using var resetResponse = await relay.SendAsync(reset, cancellationToken).ConfigureAwait(false);
+            if (resetResponse.IsSuccessStatusCode)
+            {
+                var resetJson = await resetResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _afterDeliveryId = ParseResetCursor(resetJson);
+            }
+        }
+
+        await ReconcileMapAsync(relay, owner, status.Map, cancellationToken).ConfigureAwait(false);
+    }
+
+    private bool HasOwner()
+    {
+        lock (_gate)
+        {
+            return _owner is not null;
         }
     }
 
@@ -322,17 +772,23 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             return;
         }
 
+        var authenticatedFrame = new AuthenticatedPairedFrame(
+            frame.SessionId,
+            frame.KeyEpoch,
+            "relay-marks-bridge",
+            Now());
+        if (payload.Kind == RelayPayloadKind.ReconnectRequest)
+        {
+            await AnswerReconnectAsync(state, authenticatedFrame, payload, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (payload.Kind != RelayPayloadKind.ClientCommandEnvelope)
         {
             return;
         }
 
         var command = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(payload.Json.Span);
-        var authenticatedFrame = new AuthenticatedPairedFrame(
-            frame.SessionId,
-            frame.KeyEpoch,
-            "relay-marks-bridge",
-            Now());
         PairedCommandApplication application;
         try
         {
@@ -373,6 +829,40 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     }
 
     /// <summary>
+    /// A tablet that lost its memory (a page reload, a browser restart) or fell behind asks where
+    /// canonical state now is, and is told — the protocol's own reconnect path, which had a planner
+    /// and nothing that called it.
+    /// </summary>
+    /// <remarks>
+    /// [#290] It doubles as the tablet's sign of life. The authority expires a device it has not
+    /// heard from, and a tablet that only follows never sends a command, so without this a tablet
+    /// left on the desk would be dropped mid-session for saying nothing.
+    /// </remarks>
+    private async Task AnswerReconnectAsync(
+        PairedSessionState state,
+        AuthenticatedPairedFrame authenticatedFrame,
+        RelayPayload payload,
+        CancellationToken cancellationToken)
+    {
+        ReconnectApplication application;
+        try
+        {
+            var request = CompanionProtocolJson.Deserialize<ReconnectRequest>(payload.Json.Span);
+            application = await _authority.PlanReconnectAsync(authenticatedFrame, request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or JsonException or ArgumentException)
+        {
+            return;
+        }
+
+        await PublishSealedAsync(
+            state,
+            RelayPayloadKind.ReconnectPlan,
+            CompanionProtocolJson.Serialize(application.Plan),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Raised after a paired device in Control mode has moved canonical workspace state, with the
     /// projection the desktop must now be showing.
     /// </summary>
@@ -394,7 +884,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     /// always names the hash it expects, so a tablet that has the picture already keeps drawing it
     /// and one that does not fetches it.
     /// </remarks>
-    public async ValueTask PublishMapSurfaceAsync(
+    public async ValueTask<bool> PublishMapSurfaceAsync(
         byte[] surfaceJson,
         TabletMapArtworkBytes? artwork,
         CancellationToken cancellationToken = default)
@@ -404,15 +894,30 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         OwnerCredential? owner;
         lock (_gate)
         {
+            // Kept whether or not it can be sent now. What the relay holds is reconciled against
+            // this on every read of the desktop's queue (ReconcileMapAsync), which is how a map
+            // published before the claim, or lost to a relay restart, still reaches the tablets.
+            _currentSurfaceJson = surfaceJson;
+            _currentArtwork = artwork;
             relay = _relay;
             owner = _owner;
         }
 
         if (relay is null || owner is null)
         {
-            return;
+            return false;
         }
 
+        return await UploadMapAsync(relay, owner, surfaceJson, artwork, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> UploadMapAsync(
+        HttpClient relay,
+        OwnerCredential owner,
+        byte[] surfaceJson,
+        TabletMapArtworkBytes? artwork,
+        CancellationToken cancellationToken)
+    {
         using var surfaceRequest = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/map")
         {
             Content = new ByteArrayContent(surfaceJson),
@@ -422,15 +927,25 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var surfaceResponse = await relay.SendAsync(surfaceRequest, cancellationToken).ConfigureAwait(false);
         if (!surfaceResponse.IsSuccessStatusCode)
         {
-            return;
+            return false;
         }
 
         if (artwork is null ||
             string.Equals(_publishedArtworkSha, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return true;
         }
 
+        await UploadArtworkAsync(relay, owner, artwork, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task UploadArtworkAsync(
+        HttpClient relay,
+        OwnerCredential owner,
+        TabletMapArtworkBytes artwork,
+        CancellationToken cancellationToken)
+    {
         using var artworkRequest = new HttpRequestMessage(
             HttpMethod.Post,
             $"v2/companion/relay/map/artwork?sha256={Uri.EscapeDataString(artwork.ContentSha256)}")
@@ -443,6 +958,54 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         if (artworkResponse.IsSuccessStatusCode)
         {
             _publishedArtworkSha = artwork.ContentSha256;
+            _refusedArtworkSha = null;
+        }
+        else if ((int)artworkResponse.StatusCode is >= 400 and < 500)
+        {
+            // The relay will not take this picture (too large, a type it does not serve). Offering
+            // it again on every read would be megabytes every two seconds for the same answer.
+            _refusedArtworkSha = artwork.ContentSha256;
+        }
+    }
+
+    /// <summary>
+    /// Makes what the relay holds match what this desktop last published, from what the relay
+    /// says it holds on each read of the desktop's queue.
+    /// </summary>
+    /// <remarks>
+    /// [#407] The relay keeps the map in memory, and this desktop uploads only on change. So a
+    /// relay restart left every tablet with no map (and, once a scene change brought the scene
+    /// back, no picture behind it, because the picture's hash had not changed here) until the
+    /// player happened to change maps. The same hole swallowed a map published before the relay
+    /// was claimed. An older relay says nothing about what it holds, and nothing is done.
+    /// </remarks>
+    private async Task ReconcileMapAsync(HttpClient relay, OwnerCredential owner, HeldMapWire? held, CancellationToken cancellationToken)
+    {
+        byte[]? surface;
+        TabletMapArtworkBytes? artwork;
+        lock (_gate)
+        {
+            surface = _currentSurfaceJson;
+            artwork = _currentArtwork;
+        }
+
+        if (held is null || surface is null)
+        {
+            return;
+        }
+
+        if (!held.Held)
+        {
+            _publishedArtworkSha = null;
+            await UploadMapAsync(relay, owner, surface, artwork, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (artwork is not null &&
+            !string.Equals(held.ArtworkSha256, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(_refusedArtworkSha, artwork.ContentSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            await UploadArtworkAsync(relay, owner, artwork, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -583,21 +1146,46 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             return;
         }
 
-        var now = Now();
         var message = delivery.Item.Resolve(current);
         var serverEnvelope = new ServerEnvelope(
             CompanionProtocolVersion.Current,
             state.SessionId,
             current.DesktopDeviceId,
-            now,
+            Now(),
             delivery.Item.Sequence,
             message);
-        var json = CompanionProtocolJson.Serialize(serverEnvelope);
-        var senderSequence = state.NextSenderSequence();
+        await PublishSealedAsync(
+            state,
+            RelayPayloadKind.ServerEnvelope,
+            CompanionProtocolJson.Serialize(serverEnvelope),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task PublishSealedAsync(
+        PairedSessionState state,
+        RelayPayloadKind kind,
+        byte[] json,
+        CancellationToken cancellationToken)
+    {
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            return;
+        }
+
+        var now = Now();
+        var senderSequence = await state.NextSenderSequenceAsync(_vault, cancellationToken).ConfigureAwait(false);
         var frame = PairingCryptography.SealRelayFrame(
             state.DesktopToTabletKey,
             PairingTrafficDirection.DesktopToTablet,
-            RelayPayloadKind.ServerEnvelope,
+            kind,
             CompanionProtocolVersion.Current,
             state.ChannelId,
             state.SessionId,
@@ -661,9 +1249,15 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         RelayChannelId channelId,
         long keyEpoch,
         byte[] tabletToDesktopKey,
-        byte[] desktopToTabletKey)
+        byte[] desktopToTabletKey,
+        long reservedThroughSequence)
     {
-        private long _senderSequence;
+        private readonly SemaphoreSlim _sequenceGate = new(1, 1);
+
+        // Starts at the reservation rather than below it: whatever a previous run reserved it may
+        // have used, and a sender sequence is this session's AES-GCM nonce.
+        private long _senderSequence = reservedThroughSequence;
+        private long _reservedThrough = reservedThroughSequence;
 
         public CompanionDeviceId DeviceId { get; } = deviceId;
 
@@ -677,7 +1271,49 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 
         public byte[] DesktopToTabletKey { get; } = desktopToTabletKey;
 
-        public long NextSenderSequence() => Interlocked.Increment(ref _senderSequence);
+        /// <summary>
+        /// The next sender sequence, reserving another block in protected storage first whenever
+        /// the last one is used up — so the reservation on disk is always ahead of what was sent.
+        /// </summary>
+        public async ValueTask<long> NextSenderSequenceAsync(RelayLinkVault? vault, CancellationToken cancellationToken)
+        {
+            await _sequenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (_senderSequence >= _reservedThrough)
+                {
+                    var reserved = _reservedThrough + SequenceBlock;
+                    if (vault is not null)
+                    {
+                        await vault.SaveSessionAsync(
+                            new StoredPairedSession(
+                                DeviceId.Value,
+                                SessionId.Value,
+                                ChannelId.Value,
+                                KeyEpoch,
+                                Convert.ToBase64String(TabletToDesktopKey),
+                                Convert.ToBase64String(DesktopToTabletKey),
+                                reserved),
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    _reservedThrough = reserved;
+                }
+
+                return ++_senderSequence;
+            }
+            finally
+            {
+                _sequenceGate.Release();
+            }
+        }
+
+        /// <summary>Zeroes the traffic keys of a session that has been revoked or replaced.</summary>
+        public void Clear()
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(TabletToDesktopKey);
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(DesktopToTabletKey);
+        }
     }
 
     /// <summary>
@@ -726,7 +1362,54 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         return results;
     }
 
+    /// <summary>The returning devices a frame batch names; none from a relay that predates them.</summary>
+    public static IReadOnlyList<RelayResumeTicket> ParseResumeRequests(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<RelayResumeBatchWire>(json, WireJsonOptions)?.ResumeRequests is { } waiting
+                ? waiting.Where(item => item.TicketId != Guid.Empty && !string.IsNullOrEmpty(item.DeviceKeyId)).ToArray()
+                : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record RelayResumeBatchWire(IReadOnlyList<RelayResumeTicket>? ResumeRequests);
+
+    private static BatchStatusWire ParseBatchStatus(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<BatchStatusWire>(json, WireJsonOptions) ?? new BatchStatusWire(false, null);
+        }
+        catch (JsonException)
+        {
+            return new BatchStatusWire(false, null);
+        }
+    }
+
+    private static long ParseResetCursor(string json)
+    {
+        try
+        {
+            return Math.Max(0, JsonSerializer.Deserialize<FrameResetWire>(json, WireJsonOptions)?.After ?? 0);
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
+    private sealed record FrameResetWire(long After);
+
+    private sealed record BatchStatusWire(bool RequiresReconnect, HeldMapWire? Map);
+
+    private sealed record HeldMapWire(bool Held, long Revision, string? ArtworkSha256);
 
     private sealed record RelayFrameBatchWire(int ProtocolVersion, bool RequiresReconnect, DateTimeOffset ServerUtc, IReadOnlyList<RelayFrameEnvelopeWire> Frames);
 

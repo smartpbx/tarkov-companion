@@ -1,8 +1,10 @@
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
+using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.Application.Services.Intel;
 
@@ -61,13 +63,33 @@ public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
 /// (V2 rough package 17). Nothing here is a history: the 24-hour figures are the catalog's own
 /// summary of its last sync, not a series this application recorded.
 /// </summary>
+/// <param name="FeeRoubles">
+/// What listing it on the flea at the current flea price would cost, by the game's own fee
+/// formula. Null where the base price or the live flea listing rates are not cached — never
+/// zero, which would read as a free listing.
+/// </param>
 public sealed record V2IntelPriceFacts(
     long? FleaRoubles,
     long? Average24HourRoubles,
     long? Low24HourRoubles,
     long? High24HourRoubles,
     IReadOnlyList<V2IntelTraderPrice> Traders,
-    DateTimeOffset UpdatedUtc);
+    DateTimeOffset UpdatedUtc,
+    long? FeeRoubles = null);
+
+/// <summary>One active quest that still wants this item, by name.</summary>
+public sealed record V2IntelQuestNeedRow(string TaskName, int? Remaining, bool FoundInRaidRequired);
+
+/// <summary>One hideout station's next level that still wants this item, by name.</summary>
+public sealed record V2IntelHideoutNeedRow(string StationName, int TargetLevel, int Remaining);
+
+/// <summary>
+/// Every reason a player might keep this rather than sell or drop it: the quests and hideout
+/// levels asking for it, named rather than counted.
+/// </summary>
+public sealed record V2IntelKeepFacts(
+    IReadOnlyList<V2IntelQuestNeedRow> Quests,
+    IReadOnlyList<V2IntelHideoutNeedRow> Hideout);
 
 public sealed record V2ItemIntelResult(
     V2IntelKind Kind,
@@ -83,7 +105,8 @@ public sealed record V2ItemIntelResult(
     V2IntelKeyFacts? Key = null,
     V2IntelAmmoFacts? Ammo = null,
     string Description = "",
-    V2IntelPriceFacts? Prices = null)
+    V2IntelPriceFacts? Prices = null,
+    V2IntelKeepFacts? Keep = null)
 {
     public static V2ItemIntelResult NotFound(string itemId) =>
         new(V2IntelKind.Unknown, itemId, itemId, itemId, null, ItemCategory.Unknown, 0, 0, false);
@@ -103,7 +126,16 @@ public sealed class ItemIntelService(
     IItemRepository itemRepository,
     IQuestProgressService questProgress,
     IItemFactCatalog factCatalog,
-    IMapDataService? maps = null) : IItemIntelService
+    IMapDataService? maps = null,
+    // Package 33 (#287): "should I keep it" needs the quests and hideout levels asking for the
+    // item by name, not just the counts questProgress already carries. All optional so every
+    // existing composition of this class keeps working; without them the keep facts are null and
+    // the caller falls back to the counts it already had.
+    IQuestReadService? questRead = null,
+    IPlayerProfileService? profileService = null,
+    ProfileNeedAggregationService? needAggregation = null,
+    IRequirementCatalog? requirements = null,
+    IItemMarketFactSource? marketFacts = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -117,7 +149,8 @@ public sealed class ItemIntelService(
         var price = await itemRepository.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(false);
         var needs = await questProgress.GetItemNeedsAsync(itemId, cancellationToken).ConfigureAwait(false);
         var value = ValueFacts(price, needs);
-        var prices = PriceFacts(price);
+        var prices = await PriceFactsAsync(itemId, price, cancellationToken).ConfigureAwait(false);
+        var keep = await KeepFactsAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         return item.Category switch
         {
@@ -125,7 +158,7 @@ public sealed class ItemIntelService(
                 await BuildAmmoAsync(item, value, cancellationToken).ConfigureAwait(false),
             ItemCategory.Key => await BuildKeyAsync(item, value, cancellationToken).ConfigureAwait(false),
             _ => Base(V2IntelKind.Item, item, value),
-        } with { Description = item.Description, Prices = prices };
+        } with { Description = item.Description, Prices = prices, Keep = keep };
     }
 
     private async Task<V2ItemIntelResult> BuildAmmoAsync(
@@ -203,9 +236,17 @@ public sealed class ItemIntelService(
         item.FleaEligible,
         value);
 
-    private static V2IntelPriceFacts? PriceFacts(ItemPriceSnapshot? price) => price is null
-        ? null
-        : new(
+    private async Task<V2IntelPriceFacts?> PriceFactsAsync(
+        string itemId,
+        ItemPriceSnapshot? price,
+        CancellationToken cancellationToken)
+    {
+        if (price is null)
+        {
+            return null;
+        }
+
+        return new(
             price.FleaPriceRoubles,
             price.Average24HourRoubles,
             price.Low24HourRoubles,
@@ -214,7 +255,133 @@ public sealed class ItemIntelService(
                 .OrderByDescending(offer => offer.ValueRoubles)
                 .Select(offer => new V2IntelTraderPrice(offer.TraderName, offer.ValueRoubles))
                 .ToArray(),
-            price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc);
+            price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc,
+            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The flea listing fee at the item's own current price, by the game's published formula.
+    /// </summary>
+    /// <remarks>
+    /// Null wherever a factor is missing — no base price cached, nothing currently asking on
+    /// flea, or the live fee rates have not synced — rather than guessed at 5%, which is only
+    /// this week's published rate and not a promise.
+    /// </remarks>
+    private async Task<long?> FeeRoublesAsync(string itemId, long? fleaPriceRoubles, CancellationToken cancellationToken)
+    {
+        if (marketFacts is null || fleaPriceRoubles is not > 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var facts = await marketFacts.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+            var rates = await marketFacts.GetFleaRatesAsync(cancellationToken).ConfigureAwait(false);
+            if (facts?.BasePriceRoubles is not > 0 || rates is null)
+            {
+                return null;
+            }
+
+            return FleaMarketFee.Calculate(facts.BasePriceRoubles.Value, fleaPriceRoubles.Value, 1, rates);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Named quests and hideout levels asking for this item — "should I keep it," in words.</summary>
+    private async Task<V2IntelKeepFacts?> KeepFactsAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (questRead is null && (needAggregation is null || requirements is null || profileService is null))
+        {
+            return null;
+        }
+
+        var quests = await QuestNeedRowsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var hideout = await HideoutNeedRowsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        return new(quests, hideout);
+    }
+
+    private async Task<IReadOnlyList<V2IntelQuestNeedRow>> QuestNeedRowsAsync(
+        string itemId,
+        CancellationToken cancellationToken)
+    {
+        if (questRead is null || profileService is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var profile = await profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+            var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+            var needs = await questRead.GetItemNeedsAsync(scope, itemId, cancellationToken).ConfigureAwait(false);
+
+            // One task can list the same item on two objectives (find-in-raid, then hand over),
+            // and each read separately. Grouped by task rather than shown twice under its own
+            // name with nothing to tell the rows apart; the larger of the two is kept rather than
+            // summed, the same reasoning the hideout requirement catalog collapses a duplicate row
+            // by — two objectives are not reliably an additive amount, and overstating what is
+            // needed is the worse of the two wrong answers.
+            return needs.Requirements
+                .Where(requirement => requirement.RemainingCount is not 0)
+                .GroupBy(requirement => requirement.TaskName, StringComparer.Ordinal)
+                .Select(group => new V2IntelQuestNeedRow(
+                    group.Key,
+                    MaxOrNull(group.Select(requirement => requirement.RemainingCount ?? requirement.TargetCount)),
+                    group.Any(requirement => requirement.FoundInRaidRequired == true)))
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// The largest of a set of possibly-unknown quantities, or null when every one of them is
+    /// unknown — never zero, which would read as nothing outstanding.
+    /// </summary>
+    private static int? MaxOrNull(IEnumerable<decimal?> values)
+    {
+        var known = values.Where(value => value is not null).Select(value => value!.Value).ToArray();
+        return known.Length == 0 ? null : (int)Math.Ceiling(known.Max());
+    }
+
+    private async Task<IReadOnlyList<V2IntelHideoutNeedRow>> HideoutNeedRowsAsync(
+        string itemId,
+        CancellationToken cancellationToken)
+    {
+        if (needAggregation is null || requirements is null || profileService is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var profile = await profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+            var outstanding = needAggregation.GetOutstandingRequirements(profile, itemId).Hideout;
+            if (outstanding.Count == 0)
+            {
+                return [];
+            }
+
+            var stations = await requirements.GetStationsAsync(cancellationToken).ConfigureAwait(false);
+            var names = stations.ToDictionary(station => station.StationId, station => station.Name, StringComparer.Ordinal);
+            return outstanding
+                .Select(row => new V2IntelHideoutNeedRow(
+                    names.GetValueOrDefault(row.Requirement.StationId, row.Requirement.StationId),
+                    row.Requirement.TargetLevel,
+                    row.Remaining))
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
+    }
 
     private static V2IntelValueFacts ValueFacts(ItemPriceSnapshot? price, ItemNeedSummary needs)
     {

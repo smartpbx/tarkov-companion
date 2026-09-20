@@ -3,8 +3,14 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
-             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
+    <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
+         colour is a class of its own rather than an attribute on the text. -->
+    <Style Selector="TextBlock.v2-label.v2-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
     <Style Selector="Button.v2-plan-bundle">
@@ -116,20 +122,37 @@
       <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
               <TextBlock Classes="v2-heading-1" Text="Next raid" AutomationProperties.HeadingLevel="1"
                          VerticalAlignment="Center" />
-              <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
+              <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
+                   clipboard and in a file. Beside Refresh because both act on the whole board. -->
+              <Button Grid.Column="1" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
+                      Padding="8,2" Content="Export"
+                      AutomationProperties.AutomationId="v2-plan-export"
+                      AutomationProperties.Name="Export this plan as text"
+                      ToolTip.Tip="Copy the plan and save it" Command="{Binding ExportCommand}" />
+              <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
                       AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="Refresh"
                       ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
               </Button>
             </Grid>
+            <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" />
             <StackPanel Spacing="2">
               <TextBlock Classes="v2-body" Text="{Binding Status}" TextWrapping="Wrap"
                          AutomationProperties.AutomationId="v2-plan-status"
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+              <!-- #288: the map where one raid moves the most quests. Pressing it selects that map. -->
+              <Button Classes="v2-target v2-plan-link v2-plan-link-action" Padding="0" HorizontalAlignment="Left"
+                      Content="{Binding SuggestedRaidLabel}" Command="{Binding SelectSuggestedRaidCommand}"
+                      IsVisible="{Binding HasSuggestedRaid}"
+                      AutomationProperties.AutomationId="v2-plan-suggested-raid-select" />
+              <TextBlock Classes="v2-label" Text="{Binding ExportStatus}" IsVisible="{Binding HasExportStatus}"
+                         TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-plan-export-status"
+                         AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding RequirementsRollup}" IsVisible="{Binding HasRequirementsRollup}"
                          Foreground="{DynamicResource V2.Brush.Warning}"
                          AutomationProperties.AutomationId="v2-plan-rollup" />
@@ -230,6 +253,12 @@
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MapLabel}"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+                        <!-- #288: the map where one raid moves the most quests along. -->
+                        <Border Classes="v2-plan-chip" HorizontalAlignment="Left" IsVisible="{Binding IsSuggested}"
+                                AutomationProperties.AutomationId="v2-plan-suggested-raid">
+                          <TextBlock Classes="v2-label" Text="Suggested next raid"
+                                     Foreground="{DynamicResource V2.Brush.Action}" />
+                        </Border>
                       </StackPanel>
                       <Path Grid.Column="2" Classes="v2-icon v2-icon-muted" Classes.v2-icon-action="{Binding IsSelected}"
                             Data="{DynamicResource V2.Icon.ChevronRight}" VerticalAlignment="Center" />
@@ -299,7 +328,8 @@
             <Grid RowDefinitions="Auto,*">
               <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
               <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Objectives}" Margin="0,0,8,0">
+                <StackPanel>
+                <ItemsControl ItemsSource="{Binding VisibleObjectives}" Margin="0,0,8,0">
                   <!-- V2 rough package 32: one column in a 440px panel, several under a map card
                        three times that wide. A plain stack would have drawn each objective as a
                        single row the width of the window. -->
@@ -399,6 +429,11 @@
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <Button Classes="v2-target v2-plan-link v2-plan-link-action" Margin="38,4,0,8"
+                        Content="{Binding MoreObjectivesLabel}" Command="{Binding ShowAllObjectivesCommand}"
+                        IsVisible="{Binding HasMoreObjectives}"
+                        AutomationProperties.AutomationId="v2-plan-objectives-show-all" />
+                </StackPanel>
               </ScrollViewer>
             </Grid>
           </Border>
@@ -425,6 +460,10 @@
                         <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                           <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
                           <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                          <!-- #285: the Events page records an allergy to this food or medicine. -->
+                          <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AllergyWarning}" FontWeight="SemiBold"
+                                     IsVisible="{Binding HasAllergyWarning}"
+                                     AutomationProperties.AutomationId="v2-plan-requirement-allergy" />
                         </StackPanel>
                         <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
                       </Grid>

@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -2029,7 +2030,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _hideControlsWhenIdle = await _selectionService.HideControlsWhenIdleAsync(_lifetime.Token).ConfigureAwait(true);
             OnPropertyChanged(nameof(HideControlsWhenIdle));
 
+            UiActivity.Step("map:catalog?");
             var result = await _catalogClient.GetAsync(_lifetime.Token).ConfigureAwait(true);
+            UiActivity.Step("map:catalog");
             if (result.Catalog is null)
             {
                 Status = result.Message ?? "Map catalog unavailable.";
@@ -2290,7 +2293,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateOverlays();
         if (kind == MapOverlayKind.QuestObjectives)
         {
-            _ = RefreshQuestLayerAsync();
+            RefreshQuestLayerAsync().Observe("map", "refresh the quest layer");
         }
     }
 
@@ -3071,14 +3074,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 .RotationAsync(location.Id, cancellationToken)
                 .ConfigureAwait(true);
 
+            UiActivity.Step("map:prefs");
             if (variant.TilePath is not null && !PrefersDrawing)
             {
+                var tileFeatures = await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true);
+                UiActivity.Step("map:features");
                 _renderModel = _presentationService.Create(
                     location,
                     variant,
-                    companionElements: await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true),
+                    companionElements: tileFeatures,
                     artwork: MapBackgroundKind.TileTemplate);
+                UiActivity.Step("map:model");
                 await LoadTilesAsync(variant, cancellationToken).ConfigureAwait(true);
+                UiActivity.Step("map:tiles");
             }
             else
             {
@@ -3103,10 +3111,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     : cached.Message ?? "Map artwork unavailable.";
             }
 
+            UiActivity.Step("map:artwork");
             UpdateOverlays();
+            UiActivity.Step("map:overlays");
             NotifyPresentationProperties();
+            UiActivity.Step("map:notified");
             await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("map:questlayer");
             await OpenStackedAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("map:stacked");
             // Said on the map rather than swallowed. A diagnostic launch that asked for a floor
             // this map does not have photographs the map it did get, and the picture has to say
             // which of those happened or it reads as the option doing nothing.
@@ -3249,21 +3262,40 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             .Distinct(StringComparer.Ordinal)
             .ToArray();
 
-        foreach (var itemId in wanted)
+        if (wanted.Length == 0)
         {
-            try
+            return;
+        }
+
+        // Looked up off the interface thread, and the names written back on it (#453).
+        var repository = _itemRepository;
+        var named = await OffInterfaceThread.Run(
+            async () =>
             {
-                var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
-                if (item is not null)
+                var found = new List<(string Id, string Name)>(wanted.Length);
+                foreach (var itemId in wanted)
                 {
-                    _itemNames[itemId] = item.Name;
+                    try
+                    {
+                        if (await repository.GetAsync(itemId, cancellationToken).ConfigureAwait(false) is { } item)
+                        {
+                            found.Add((itemId, item.Name));
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        // One name that could not be read leaves one id on screen, which is the
+                        // state this whole lookup is improving on rather than the state it must
+                        // guarantee.
+                    }
                 }
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                // One name that could not be read leaves one id on screen, which is the state
-                // this whole lookup is improving on rather than the state it must guarantee.
-            }
+
+                return found;
+            },
+            cancellationToken).ConfigureAwait(true);
+        foreach (var (itemId, name) in named)
+        {
+            _itemNames[itemId] = name;
         }
     }
 
@@ -5325,7 +5357,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(StackTilt));
             OnPropertyChanged(nameof(ShowsFlatBackground));
-            _ = LoadFloorStackAsync(CancellationToken.None);
+            LoadFloorStackAsync(CancellationToken.None).Observe("map", "load the floor stack");
         }
     }
 

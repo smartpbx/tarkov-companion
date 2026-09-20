@@ -119,10 +119,12 @@ public sealed class QuestObjectiveSceneBuilder
                 .Where(item => item.HasExactGeometry && item.Points.Count > 0)
                 .DistinctBy(item => $"{item.ZoneId}|{string.Join(';', item.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}")
                 .ToArray();
-            // Only what is on the map is numbered, so the numbers on it run one, two, three with
-            // no gap where an objective that has no place would have been.
+            // Only what is on the map is numbered, so the letters on it run A, B, C with no gap
+            // where an objective that has no place would have been. Letters, not digits: issue
+            // 508. A caller that numbers its own rows (Plan's personal route order) is still
+            // believed as given — that is a different, already-ordered sequence, not this one.
             var number = numberFor?.Invoke(group.Key) ??
-                (placed.Length == 0 ? string.Empty : (++sequence).ToString(CultureInfo.InvariantCulture));
+                (placed.Length == 0 ? string.Empty : QuestObjectiveLetters.LetterFor(++sequence));
             var first = group.First();
             var objective = first.Source ?? FromProjection(first);
             if (placed.Length == 0)
@@ -152,6 +154,10 @@ public sealed class QuestObjectiveSceneBuilder
             var floorNames = FloorNamesOf(placed, floors);
             var label = PlacementLabelFor(placement, placed.Length);
             var detail = DetailFor(objective, label, floorNames);
+            // Issue 508: an objective can still be on the map after its own step is done (the
+            // task itself runs on), and its marker says so rather than looking exactly like one
+            // still outstanding.
+            var isCompleted = objective.ObjectiveState == RecordedObjectiveState.Completed;
             var ids = new List<MapSceneObjectId>();
             var ordinal = 0;
             foreach (var item in placed)
@@ -170,7 +176,8 @@ public sealed class QuestObjectiveSceneBuilder
                         detail,
                         new(MapSceneGeometryKind.Area, outline),
                         itemFloors,
-                        provenance);
+                        provenance,
+                        isCompleted: isCompleted);
                     var tag = new MapSceneObject(
                         new($"quest:{group.Key}:{ordinal}:label"),
                         QuestsLayer,
@@ -180,7 +187,8 @@ public sealed class QuestObjectiveSceneBuilder
                         detail,
                         MapSceneGeometry.At(LabelPoint(outline)),
                         itemFloors,
-                        provenance);
+                        provenance,
+                        isCompleted: isCompleted);
                     objects.Add(area);
                     objects.Add(tag);
                     ids.Add(area.Id);
@@ -197,7 +205,8 @@ public sealed class QuestObjectiveSceneBuilder
                     detail,
                     MapSceneGeometry.At(new(item.Points[0].X, item.Points[0].Y)),
                     itemFloors,
-                    provenance);
+                    provenance,
+                    isCompleted: isCompleted);
                 objects.Add(spot);
                 ids.Add(spot.Id);
             }

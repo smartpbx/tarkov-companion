@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Planning;
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
@@ -59,17 +61,34 @@ public sealed record PlanTraderOption(string? TraderId, string Name);
 public sealed record PlanTraderLoyaltyViewModel(string TraderId, string Name, decimal Level);
 
 /// <summary>One item a map's objectives ask the player to bring, hand in or find.</summary>
+/// <param name="ItemId">
+/// The catalog id. Carried beside the name because the name is not an identity: an item the
+/// catalog does not know is called "Item not in the catalog", and two different unknown items
+/// keyed by that phrase merge into one row saying the player needs two of something that does
+/// not exist. The plan export found exactly that.
+/// </param>
 /// <param name="HandlingLabel">"Bring", "Hand in" or "Find in raid".</param>
 public sealed record PlanRequirementRowViewModel(
+    string ItemId,
     string ItemName,
     string HandlingLabel,
     int Need,
-    int Have)
+    int? Have)
 {
-    public bool IsSatisfied => Have >= Need;
+    public bool IsSatisfied => HeldCount.Meets(Need, Have);
 
-    /// <summary>"2 / 5": held against needed, the right-hand figure of the row.</summary>
-    public string ProgressLabel => string.Create(CultureInfo.CurrentCulture, $"{Math.Min(Have, Need):N0} / {Need:N0}");
+    /// <summary>Whether any holding is recorded for it. Where none is, the row says so instead of "0".</summary>
+    public bool IsHeldKnown => Have is not null;
+
+    /// <summary>"Allergic · event name" where the Events page records an allergy to this food or medicine (#285).</summary>
+    public string AllergyWarning { get; init; } = string.Empty;
+
+    public bool HasAllergyWarning => AllergyWarning.Length > 0;
+
+    /// <summary>"2 / 5": held against needed, the right-hand figure of the row; "? / 5" where the holding is not recorded.</summary>
+    public string ProgressLabel => Have is { } have
+        ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
+        : string.Create(CultureInfo.CurrentCulture, $"? / {Need:N0}");
 }
 
 /// <summary>
@@ -117,7 +136,7 @@ public static class PlanQuestRules
     /// thing to show somebody deciding what to do next, so it reads as nothing rather than as
     /// a word: the quest is neither known to be available nor known to be locked.
     /// </remarks>
-    public static string DescribeStatus(QuestSummaryReadModel task)
+    public static string DescribeStatus(QuestSummaryReadModel task, Func<string, string?>? nameOfTask = null)
     {
         ArgumentNullException.ThrowIfNull(task);
         return task.RecordedState switch
@@ -128,9 +147,10 @@ public static class PlanQuestRules
             _ => task.Eligibility.State switch
             {
                 QuestEligibilityState.Available => "Available now",
+                // What opens it, not why it is shut (#288); the wording is QuestUnlockPlanner's.
                 QuestEligibilityState.Locked => task.Eligibility.Reasons.Count == 0
                     ? "Locked"
-                    : $"Locked · {task.Eligibility.Reasons[0].Detail}",
+                    : $"Locked · {QuestUnlockPlanner.Summarise(QuestUnlockPlanner.Steps(task, nameOfTask ?? (static _ => null)))}",
                 QuestEligibilityState.Delayed => "Waiting on a timer",
                 _ => string.Empty,
             },
@@ -151,65 +171,76 @@ public static class PlanQuestRules
     };
 
     /// <summary>
-    /// What a set of objectives asks the player to have on them, with how much of it they hold.
+    /// What a set of objectives asks the player to have on them, with how much of it they hold,
+    /// named and ordered for the row. The requirement arithmetic is
+    /// <see cref="QuestRequirementPlanner"/>; this adds the words.
     /// </summary>
     /// <remarks>
-    /// Keys, weapons, worn gear and markers are carried in, one of each; everything else is
-    /// handed over, as many as the objective still needs. Alternatives ("this or that") are one
-    /// requirement satisfied by any of them, named by the first with the rest counted. The same
-    /// item asked for by two objectives is one row, because the player holds one pile of it.
-    /// "Not wearing" and container-content conditions name nothing to have, so they are left out.
+    /// Alternatives ("this or that") are named by the first with the rest counted.
     /// </remarks>
     public static IReadOnlyList<PlanRequirementRowViewModel> BuildRequirements(
         IEnumerable<QuestObjectiveReadModel> objectives,
         Func<string, string> nameOf,
-        IReadOnlyDictionary<string, int> owned)
+        IReadOnlyDictionary<string, int> owned,
+        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null,
+        IReadOnlyDictionary<string, string>? allergyWarnings = null)
     {
-        ArgumentNullException.ThrowIfNull(objectives);
         ArgumentNullException.ThrowIfNull(nameOf);
-        ArgumentNullException.ThrowIfNull(owned);
-
-        var rows = new Dictionary<(string ItemId, string Handling), (string Name, int Need, int Have)>();
-        foreach (var objective in objectives.Where(objective => objective.RecordedState != RecordedObjectiveState.Completed))
-        {
-            var targets = objective.ItemTargets.Where(target => !IsCondition(target.SourceField));
-            foreach (var alternatives in targets.GroupBy(target => (target.SourceField, target.AlternativeGroup)))
-            {
-                var ids = alternatives
-                    .OrderBy(target => target.SourceOrdinal)
-                    .ThenBy(target => target.ItemId, StringComparer.Ordinal)
-                    .Select(target => target.ItemId)
-                    .Distinct(StringComparer.Ordinal)
-                    .ToArray();
-                var carried = QuestItemRequirementFormatter.IsCarriedIn(alternatives.Key.SourceField);
-                var handling = carried
-                    ? "Bring"
-                    : objective.FoundInRaidRequired == true ? "Find in raid" : "Hand in";
-                var need = carried
-                    ? 1
-                    : (int)Math.Ceiling(Math.Max(
-                        1m,
-                        (alternatives.Max(target => target.TargetCount) ?? objective.TargetCount ?? 1m) - (objective.RecordedCount ?? 0m)));
-                var have = ids.Sum(id => owned.GetValueOrDefault(id));
-                var name = ids.Length == 1
-                    ? nameOf(ids[0])
-                    : string.Create(CultureInfo.CurrentCulture, $"{nameOf(ids[0])} or {ids.Length - 1:N0} more");
-                var key = (ids[0], handling);
-                rows[key] = rows.TryGetValue(key, out var existing)
-                    ? (existing.Name, carried ? existing.Need : existing.Need + need, existing.Have)
-                    : (name, need, have);
-            }
-        }
 
         return
         [
-            .. rows
-                .Select(row => new PlanRequirementRowViewModel(row.Value.Name, row.Key.Handling, row.Value.Need, row.Value.Have))
+            .. QuestRequirementPlanner.Build(objectives, owned, handedOverByItsTask)
+                .Select(requirement => new PlanRequirementRowViewModel(
+                    requirement.PrimaryItemId,
+                    requirement.AlternativeCount == 0
+                        ? nameOf(requirement.PrimaryItemId)
+                        : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),
+                    HandlingLabel(requirement.Handling),
+                    requirement.Need,
+                    requirement.Have)
+                {
+                    // Any of the alternatives: the row offers all of them, so it warns for each.
+                    AllergyWarning = allergyWarnings is null
+                        ? string.Empty
+                        : requirement.ItemIds
+                            .Select(id => allergyWarnings.GetValueOrDefault(id))
+                            .FirstOrDefault(warning => warning is not null) ?? string.Empty,
+                })
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
         ];
     }
 
-    private static bool IsCondition(string sourceField) =>
-        sourceField is "notWearing" or "attributes" or "containsAll" or "containsOne";
+    /// <summary>
+    /// "2 still needed", "3 to check", or both: unmet requirements split by whether the shortfall
+    /// is known. Empty where nothing is unmet.
+    /// </summary>
+    /// <remarks>
+    /// A row whose holding nobody recorded is not known to be short. Counting it as "still needed"
+    /// said the same false thing as "0 / 5", once per page instead of once per row. "To check" is
+    /// what the player can actually do about it.
+    /// </remarks>
+    /// <param name="count">How a count is written: "6" by default, "6 items" for the page's rollup.</param>
+    public static string SummariseUnmet(IEnumerable<PlanRequirementRowViewModel> unmet, Func<int, string>? count = null)
+    {
+        ArgumentNullException.ThrowIfNull(unmet);
+        count ??= value => value.ToString("N0", CultureInfo.CurrentCulture);
+        var rows = unmet.ToArray();
+        var needed = rows.Count(row => row.IsHeldKnown);
+        var unknown = rows.Length - needed;
+        return (needed, unknown) switch
+        {
+            (0, 0) => string.Empty,
+            (_, 0) => $"{count(needed)} still needed",
+            (0, _) => $"{count(unknown)} to check",
+            _ => $"{count(needed)} still needed · {count(unknown)} to check",
+        };
+    }
+
+    private static string HandlingLabel(RequirementHandling handling) => handling switch
+    {
+        RequirementHandling.Bring => "Bring",
+        RequirementHandling.FindInRaid => "Find in raid",
+        _ => "Hand in",
+    };
 }

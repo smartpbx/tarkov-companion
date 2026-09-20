@@ -441,9 +441,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         ShowListCommand = new DelegateCommand(() => IsGridView = false);
         ScanTargets =
         [
+            // [f920 capture] "Ammo" and "Keys" were offered here and armed intents the stash
+            // handoff ignores: the capture ran and this page never changed. The ammo and key
+            // summaries below are counted from a full stash scan, which is the one target.
             new StashScanTargetViewModel(ScanIntent.Stash, "Full stash", SelectScanTarget) { IsSelected = true },
-            new StashScanTargetViewModel(ScanIntent.Ammo, "Ammo", SelectScanTarget),
-            new StashScanTargetViewModel(ScanIntent.Keys, "Keys", SelectScanTarget),
         ];
     }
 

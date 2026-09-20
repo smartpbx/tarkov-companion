@@ -62,6 +62,23 @@
     <Style Selector="Border.v2-raid-chip.v2-raid-muted TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
+    <!-- [Issue 508] An objective's own letter chip carries the same amber its pin on the map
+         does (V2.Brush.Warning, same as Path.v2-map-pin-shield), so this row can be matched to
+         its pin by colour as well as by the letter itself. -->
+    <Style Selector="Border.v2-raid-chip.v2-raid-chip-objective">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Border.v2-raid-chip.v2-raid-chip-objective TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- A mark's own row carries a small dot in the same colour family as its pin (a waypoint's
+         accent) or pulse (a ping's) on the map. -->
+    <Style Selector="Ellipse.v2-raid-mark-dot.v2-raid-mark-waypoint">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Ellipse.v2-raid-mark-dot.v2-raid-mark-ping">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
     <Style Selector="Border.v2-raid-strip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -482,7 +499,7 @@
                     <Border Classes="v2-raid-row v2-raid-offered">
                       <StackPanel Spacing="5">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                          <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center">
+                          <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Center">
                             <TextBlock Classes="v2-label" Text="{Binding Number}" />
                           </Border>
                           <TextBlock Grid.Column="1" Classes="v2-heading-3" Text="{Binding Task}" TextWrapping="Wrap"
@@ -552,7 +569,7 @@
                               ToolTip.Tip="{Binding Task}">
                         <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}" Padding="8,5">
                           <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="8">
-                            <Border Classes="v2-raid-chip" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
+                            <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
                                     HorizontalAlignment="Left">
                               <TextBlock Classes="v2-label" Text="{Binding Number}" />
                             </Border>
@@ -654,13 +671,18 @@
                   <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
                     <Border Classes="v2-raid-row">
                       <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                          <TextBlock Classes="v2-label" Text="{Binding KindLabel}" VerticalAlignment="Center" />
-                          <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Label}" VerticalAlignment="Center"
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
+                          <!-- Issue 508: the same colour family as this mark's pin (a waypoint)
+                               or pulse (a ping) on the map, so the row can be matched to it. -->
+                          <Ellipse Classes="v2-raid-mark-dot" Classes.v2-raid-mark-waypoint="{Binding IsWaypoint}"
+                                   Classes.v2-raid-mark-ping="{Binding IsPing}"
+                                   Width="10" Height="10" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding KindLabel}" VerticalAlignment="Center" />
+                          <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding Label}" VerticalAlignment="Center"
                                      AutomationProperties.AutomationId="v2-raid-mark-label" />
-                          <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center"
+                          <TextBlock Grid.Column="3" Classes="v2-label" VerticalAlignment="Center"
                                      IsVisible="{Binding HasOwner}" Text="{Binding Owner}" />
-                          <Button Grid.Column="3" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                          <Button Grid.Column="4" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
                                   AutomationProperties.AutomationId="v2-raid-mark-remove" />
                         </Grid>
                         <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->

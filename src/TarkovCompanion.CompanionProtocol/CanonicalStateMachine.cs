@@ -651,7 +651,18 @@ public static class DesktopCanonicalStateMachine
         }
 
         var projection = ApplyWorkspaceAction(scope.State.Workspace.Projection, command.Action, context);
-        return CommitWorkspace(scope, projection, "workspace-action-applied");
+        // The lease is two minutes with no renewal by default, so a tablet actively driving the
+        // desktop's map mid-raid would otherwise lose Control to its own idle bound. Every accepted
+        // workspace action — the only thing a Control-lease holder can do — resets the window from
+        // now, keeping the originally granted duration; a tablet that stops acting still lapses at
+        // ApplyMaintenance's ordinary expiry check, and the desktop's PreemptControl still ends the
+        // lease immediately regardless of how recently it was renewed.
+        var renewed = new DeviceModeAggregate(
+            scope.State.DeviceModes.Cursor,
+            scope.State.DeviceModes.Devices,
+            scope.State.DeviceModes.PendingControl,
+            new ControlLease(lease.LeaseId, lease.DeviceId, lease.SessionId, scope.Now, scope.Now + (lease.ExpiresUtc - lease.GrantedUtc)));
+        return CommitWorkspace(scope, projection, renewed, "workspace-action-applied");
     }
 
     private static CommandReduction ApplyDesktopWorkspace(Scope scope, UpdateDesktopWorkspaceCommand command) =>
@@ -1311,10 +1322,20 @@ public static class DesktopCanonicalStateMachine
             code);
 
     private static CommandReduction CommitWorkspace(Scope scope, WorkspaceProjection projection, string code) =>
+        CommitWorkspace(scope, projection, renewedDeviceModes: null, code);
+
+    /// <summary>
+    /// Commits a workspace change and, in the same staged state, folds in a device-modes aggregate
+    /// whose content changed (a renewed control lease) without occupying its cursor or emitting its
+    /// own update — the command's one delivered change is still the workspace action.
+    /// </summary>
+    private static CommandReduction CommitWorkspace(
+        Scope scope, WorkspaceProjection projection, DeviceModeAggregate? renewedDeviceModes, string code) =>
         Commit(
             scope,
             new WorkspaceAggregate(new AggregateCursor(scope.Command.RequestedRevision, scope.Command.CommandId), projection),
-            code);
+            code,
+            renewedDeviceModes);
 
     private static CommandReduction CommitCapture(Scope scope, ContextualCaptureIntent intent, string code) =>
         Commit(
@@ -1342,7 +1363,7 @@ public static class DesktopCanonicalStateMachine
             code);
     }
 
-    private static CommandReduction Commit(Scope scope, object aggregate, string code)
+    private static CommandReduction Commit(Scope scope, object aggregate, string code, DeviceModeAggregate? renewedDeviceModes = null)
     {
         var state = scope.State;
         var command = scope.Command;
@@ -1362,7 +1383,10 @@ public static class DesktopCanonicalStateMachine
                 update = new DeviceModeCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, modes);
                 break;
             case WorkspaceAggregate workspace:
-                staged = state.With(global, workspace: workspace);
+                // renewedDeviceModes keeps its own cursor untouched (see CommitWorkspace), so this
+                // never violates "the global revision equals the sum of every aggregate revision" or
+                // "one command id cannot occupy more than one aggregate cursor" (WorkspaceState.cs).
+                staged = state.With(global, workspace: workspace, deviceModes: renewedDeviceModes);
                 update = new WorkspaceCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, workspace);
                 break;
             case MarkAggregate marks:

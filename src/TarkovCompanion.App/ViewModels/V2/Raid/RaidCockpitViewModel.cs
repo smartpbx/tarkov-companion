@@ -138,6 +138,12 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
 
     public string KindLabel => (Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint") + (IsGroupMark ? " · group" : string.Empty);
 
+    // [Issue 508] So this row can carry the same colour as its pin on the map (see
+    // RaidCockpitView.axaml's v2-raid-mark-waypoint/v2-raid-mark-ping), the same way its Label
+    // already carries the same text.
+    public bool IsWaypoint => Kind == RaidMarkKind.Waypoint;
+    public bool IsPing => Kind == RaidMarkKind.Ping;
+
     /// <summary>A ping is "look here now": it is never told apart from another ping by name.</summary>
     public bool CanRename => Kind == RaidMarkKind.Waypoint && !IsGroupMark;
 
@@ -385,7 +391,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             _userMarkers.Changed += UserMarkersChanged;
         }
 
-        _ = InitializeAsync();
+        InitializeAsync().Observe("raid", "initialize");
     }
 
     /// <summary>The canonical map renderer, once a reviewed map asset is available.</summary>
@@ -1693,7 +1699,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var version = Interlocked.Increment(ref _trafficVersion);
         _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
-        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+        RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version).Observe("raid", "refresh traffic");
     }
 
     private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)

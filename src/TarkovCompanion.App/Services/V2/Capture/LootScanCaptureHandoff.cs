@@ -119,7 +119,10 @@ public sealed class LootScanCaptureHandoff(
                         request.DecodeRevision,
                         request.Analysis.ResultId,
                         request.Context.InitiatingDevice ?? "desktop",
-                        request.Analysis.Grid),
+                        request.Analysis.Grid)
+                    {
+                        CarriedGrid = request.Analysis.CarriedGrid,
+                    },
                     profile,
                     cancellationToken)
                 .ConfigureAwait(false);

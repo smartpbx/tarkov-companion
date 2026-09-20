@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -9,6 +10,7 @@ using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
@@ -148,7 +150,7 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
     /// <summary>What the quest is doing when it is not being played: available now, locked and why, completed, failed.</summary>
-    public string StatusLabel => PlanQuestRules.DescribeStatus(Task);
+    public string StatusLabel => PlanQuestRules.DescribeStatus(Task, _owner is null ? null : _owner.TaskNameOrNull);
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
@@ -259,6 +261,41 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
 
+    /// <summary>How many objective rows a map shows before the player asks for the rest.</summary>
+    internal const int ObjectivePageSize = 30;
+
+    private bool _showsAllObjectives;
+    private bool _isSuggested;
+    private ICommand? _showAllObjectives;
+
+    /// <summary>
+    /// The rows the list draws. Each row is a card with chips, two buttons and a twelve-entry
+    /// menu, and "All" on Customs is 150 of them: drawn at once they held the interface thread
+    /// for over a second. The first page is what fits a few screens; the rest is one press away.
+    /// </summary>
+    public IReadOnlyList<PlanObjectiveRowViewModel> VisibleObjectives =>
+        _showsAllObjectives || Objectives.Count <= ObjectivePageSize
+            ? Objectives
+            : [.. Objectives.Take(ObjectivePageSize)];
+
+    public bool HasMoreObjectives => !_showsAllObjectives && Objectives.Count > ObjectivePageSize;
+
+    public string MoreObjectivesLabel => $"Show all {Objectives.Count:N0}";
+
+    public ICommand ShowAllObjectivesCommand => _showAllObjectives ??= new DelegateCommand(() =>
+    {
+        _showsAllObjectives = true;
+        OnPropertyChanged(nameof(VisibleObjectives));
+        OnPropertyChanged(nameof(HasMoreObjectives));
+    });
+
+    /// <summary>The map <see cref="NextRaidPlanner"/> picks: one raid there moves the most quests.</summary>
+    public bool IsSuggested
+    {
+        get => _isSuggested;
+        internal set => SetProperty(ref _isSuggested, value);
+    }
+
     private IReadOnlyList<PlanRequirementRowViewModel> _requirements = [];
 
     /// <summary>What this map's objectives ask the player to bring, hand in or find, against what they hold.</summary>
@@ -289,12 +326,12 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool RequirementsReady => HasRequirements && StillNeededCount == 0;
 
-    /// <summary>"All ready", "2 still needed", or empty where the objectives ask for no item.</summary>
+    /// <summary>"All ready", "2 still needed", "3 to check", or empty where the objectives ask for no item.</summary>
     public string RequirementsSummary => !HasRequirements
         ? string.Empty
         : RequirementsReady
             ? "All ready"
-            : $"{StillNeededCount:N0} still needed";
+            : PlanQuestRules.SummariseUnmet(Requirements.Where(row => !row.IsSatisfied));
 
     public bool IsSelected
     {
@@ -338,12 +375,18 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private string? _mapPreviewSignature;
     private string _mapNote = string.Empty;
     private QuestBoardReadModel? _board;
+    private readonly AllergyWarningService? _allergies;
+    private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
+    private (QuestBoardReadModel Board, Dictionary<string, string> Names)? _taskNames;
     private QuestProfileScope? _scope;
     private string _status = "Loading your quest board…";
     private string _scopeLabel = "No profile loaded";
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
     private PlanMapGroupViewModel? _selectedGroup;
     private readonly IItemRepository? _itemRepository;
+    private readonly AppDataPaths? _paths;
+    private readonly TimeProvider _clock;
+    private string _exportStatus = string.Empty;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly HashSet<string> _missingItems = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, int> _ownedItems = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -391,8 +434,18 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // refresh only after a mutation it had made itself, so a quest handed in while the player
         // was looking at this page did not appear until the page was left and come back to -- and
         // a session in which nothing was read said nothing at all.
-        QuestLogProgressService? questLog = null)
+        QuestLogProgressService? questLog = null,
+        // [V2 rough package 61 — plan export] #288/#315: where an exported plan is written and
+        // what clock stamps it. Optional like the rest, so a composition without app paths still
+        // plans; without them Export copies to the clipboard and writes no file.
+        AppDataPaths? paths = null,
+        TimeProvider? clock = null,
+        // #285: which foods and medicines the Events page records an allergy to.
+        AllergyWarningService? allergies = null)
     {
+        _allergies = allergies;
+        _paths = paths;
+        _clock = clock ?? TimeProvider.System;
         _itemRepository = itemRepository;
         _searchableText = SearchableText;
         _selectGroup = group => SelectedGroup = group;
@@ -421,6 +474,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             UpdateGameLogStatus(_questLog.Reading);
         }
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
+        ExportCommand = new AsyncDelegateCommand(() => ExportAsync(CancellationToken.None));
         OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
         // The map catalog usually finishes loading after the first quest board read; the groups
         // are named from it, so rebuild them when it arrives rather than showing catalog ids.
@@ -668,27 +722,159 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
+    /// <summary>Copies the plan as text, and writes it beside the other exports.</summary>
+    public AsyncDelegateCommand ExportCommand { get; }
+
+    /// <summary>
+    /// Where a copied plan goes. The view supplies it; without one, Export still writes its file.
+    /// </summary>
+    /// <remarks>
+    /// The same seam the shell uses for Copy diagnostics: a view model cannot reach a clipboard
+    /// without a top level, and a top level is exactly what a test does not have.
+    /// </remarks>
+    public Func<string, Task>? Clipboard { get; set; }
+
+    /// <summary>What the last export did, or why it did nothing.</summary>
+    public string ExportStatus
+    {
+        get => _exportStatus;
+        private set
+        {
+            if (SetProperty(ref _exportStatus, value))
+            {
+                OnPropertyChanged(nameof(HasExportStatus));
+            }
+        }
+    }
+
+    public bool HasExportStatus => _exportStatus.Length > 0;
+
+    /// <summary>
+    /// Builds the plan as Markdown, puts it on the clipboard and saves it.
+    /// </summary>
+    /// <remarks>
+    /// Both, not either. The clipboard is what a player actually wants nine times in ten — the
+    /// plan goes straight into a squad chat — and the file is what makes it a plan they still
+    /// have tomorrow. A clipboard that is not there, or a disk that refuses, is reported rather
+    /// than thrown: neither is a reason to lose the other half.
+    /// </remarks>
+    public async Task ExportAsync(CancellationToken cancellationToken)
+    {
+        // Every map's item names first. The page resolves names only for the map being looked
+        // at, which is right for a screen showing one map and wrong for a document covering all
+        // of them: without this the same item appears as a name on one map and a raw id on the
+        // next, in the same file.
+        foreach (var group in Groups)
+        {
+            await ResolveRequirementNamesAsync(group).ConfigureAwait(true);
+        }
+
+        // Then rebuild all of them. A group whose ids were resolved by a *different* group's pass
+        // is skipped by the resolver (it has nothing left to look up) and would otherwise keep the
+        // rows it was built with, which is how one document ended up naming the same item twice,
+        // once as a name and once as an id.
+        foreach (var group in Groups)
+        {
+            group.Requirements = BuildRequirementsFor(group);
+        }
+
+        var document = PlanExport.Build(this, _clock.GetUtcNow(), NameOfTask);
+        var markdown = document.ToMarkdown(CultureInfo.CurrentCulture);
+        var copied = false;
+        string? written = null;
+
+        if (Clipboard is { } clipboard)
+        {
+            try
+            {
+                await clipboard(markdown).ConfigureAwait(true);
+                copied = true;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+            {
+                copied = false;
+            }
+        }
+
+        if (_paths is { } paths)
+        {
+            try
+            {
+                var directory = Path.Combine(paths.Config, "Exports");
+                Directory.CreateDirectory(directory);
+                // The local date and time in the name, because a folder of plans is sorted by eye
+                // and "plan-2026-09-20-1432.md" is the one thing that makes that work.
+                var name = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"plan-{LocalTime.ToLocal(_clock.GetUtcNow()):yyyy-MM-dd-HHmm}.md");
+                written = Path.Combine(directory, name);
+                await File.WriteAllTextAsync(written, markdown, cancellationToken).ConfigureAwait(true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                written = null;
+            }
+        }
+
+        ExportStatus = (copied, written) switch
+        {
+            (true, { } path) => $"Copied, and saved to {path}",
+            (true, null) => "Copied to the clipboard",
+            (false, { } path) => $"Saved to {path}",
+            _ => "Nothing to export to: no clipboard and no writable folder.",
+        };
+    }
+
     public Task LoadAsync() => RefreshAsync(CancellationToken.None);
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
+
+    /// <summary>Shown in the pane when the board could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
 
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
+            UiActivity.Step("plan:start");
+            LoadFaultInjection.ThrowIfInjected("plan");
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:profile");
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _ownedItems = profile.OwnedItemCounts;
             _missingItems.Clear();
-            _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
-            _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
+            // Off the interface thread: the board is every quest and objective in the catalog
+            // joined to the profile, and read here it held one turn for up to 2.5 s.
+            var scope = _scope;
+            _board = await OffInterfaceThread
+                .Run(() => _readService.GetQuestBoardAsync(scope, cancellationToken), cancellationToken)
+                .ConfigureAwait(true);
+            UiActivity.Step("plan:board");
+            if (_allergies is { } allergies)
+            {
+                // Re-read with the board: the record is made on the Events tab beside this one.
+                _allergyWarnings = await OffInterfaceThread
+                    .Run(() => allergies.GetAsync(cancellationToken), cancellationToken)
+                    .ConfigureAwait(true);
+            }
+
+            var board = _board;
+            _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:mapnames");
             RebuildSearchIndex();
+            UiActivity.Step("plan:searchindex");
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
+            UiActivity.Step("plan:applyprofile");
             ApplyFilter();
+            UiActivity.Step("plan:applyfilter");
             UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
+            UiActivity.Step("plan:questlayer");
+            LoadFault.Clear();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -699,6 +885,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Groups = [];
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
+            LoadFault.Show("Quests did not load", "Nothing is lost. Retry reads them again.");
             WorkspaceFault.Record("plan", "refresh", exception);
         }
     }
@@ -719,7 +906,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         UpdateGameLogStatus(reading);
-        _ = RefreshAsync(CancellationToken.None);
+        RefreshAsync(CancellationToken.None).Observe("plan", "refresh after the game reported a quest");
     }
 
     private void UpdateGameLogStatus(QuestLogProgressReading? reading)
@@ -793,6 +980,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         var composed = ComposeGroups(entries, Groups, NameOfMap, this, _selectGroup, _openInRaid);
         var composedChanged = !ReferenceEquals(composed, Groups);
         Groups = composed;
+        var suggested = MarkSuggestedRaid(composed);
+        _suggestedRaid = suggested;
+        OnPropertyChanged(nameof(HasSuggestedRaid));
+        OnPropertyChanged(nameof(SuggestedRaidLabel));
         RebuildRequirements(composedChanged);
         PlanMapGroupViewModel? keep = null;
         if (previousMapKey is not null)
@@ -807,8 +998,41 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             }
         }
 
-        SelectedGroup = keep ?? (Groups.Count > 0 ? Groups[0] : null);
+        SelectedGroup = keep ?? suggested ?? (Groups.Count > 0 ? Groups[0] : null);
         UpdateStatus();
+    }
+
+    private PlanMapGroupViewModel? _suggestedRaid;
+    private ICommand? _selectSuggestedRaid;
+
+    public bool HasSuggestedRaid => _suggestedRaid is not null;
+
+    /// <summary>"Suggested: Shoreline · 3 quests", under the page heading where it cannot scroll away.</summary>
+    public string SuggestedRaidLabel => _suggestedRaid is { } group
+        ? $"Suggested: {group.MapLabel} · {CountLabel(group.Quests.Count, "quest")}"
+        : string.Empty;
+
+    public ICommand SelectSuggestedRaidCommand => _selectSuggestedRaid ??= new DelegateCommand(() =>
+    {
+        if (_suggestedRaid is { } group)
+        {
+            SelectedGroup = group;
+        }
+    });
+
+    /// <summary>Flags the map the next raid should be on, and returns it. The choice is <see cref="NextRaidPlanner"/>'s.</summary>
+    internal static PlanMapGroupViewModel? MarkSuggestedRaid(IReadOnlyList<PlanMapGroupViewModel> groups)
+    {
+        var best = NextRaidPlanner.Suggest(groups.Select(group =>
+            new TarkovCompanion.Core.Domain.Planning.NextRaidCandidate(group.MapId ?? string.Empty, group.MapLabel, group.Quests.Count, group.Objectives.Count)));
+        PlanMapGroupViewModel? suggested = null;
+        foreach (var group in groups)
+        {
+            group.IsSuggested = best is not null && string.Equals(group.MapId, best.MapKey, StringComparison.OrdinalIgnoreCase);
+            suggested = group.IsSuggested ? group : suggested;
+        }
+
+        return suggested;
     }
 
     /// <summary>
@@ -1128,11 +1352,32 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group) =>
-        PlanQuestRules.BuildRequirements(
+    /// <summary>Names a quest by id, including one the plan does not itself contain.</summary>
+    private string NameOfTask(string taskId) => TaskNameOrNull(taskId) ?? taskId;
+
+    private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group)
+    {
+        // Which items each objective's own quest also hands over, so a find objective beside a
+        // hand-over of the same item is counted once (QuestRequirementPlanner says why).
+        var handedOver = new Dictionary<QuestObjectiveReadModel, IReadOnlySet<string>>(ReferenceEqualityComparer.Instance);
+        foreach (var rows in group.Objectives.GroupBy(row => row.Task.TaskId, StringComparer.Ordinal))
+        {
+            var items = QuestItemNeedPlanner.HandedOverItemIds(rows.First().Task);
+            foreach (var row in rows)
+            {
+                handedOver[row.Objective] = items;
+            }
+        }
+
+        return PlanQuestRules.BuildRequirements(
             group.Objectives.Select(row => row.Objective),
             NameOfItem,
-            _ownedItems);
+            _ownedItems,
+            objective => handedOver.TryGetValue(objective, out var items) ? items : EmptyItemIds,
+            _allergyWarnings);
+    }
+
+    private static readonly IReadOnlySet<string> EmptyItemIds = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>
     /// What an item is called: its catalog name, or plainly that the catalog lacks it once that is
@@ -1147,10 +1392,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         var unmet = Groups
             .SelectMany(group => group.Requirements.Where(row => !row.IsSatisfied))
-            .Select(row => (row.ItemName, row.HandlingLabel))
-            .Distinct()
-            .Count();
-        RequirementsRollup = unmet == 0 ? string.Empty : $"{CountLabel(unmet, "item")} still needed";
+            .DistinctBy(row => (row.ItemName, row.HandlingLabel));
+        RequirementsRollup = PlanQuestRules.SummariseUnmet(unmet, value => CountLabel(value, "item"));
     }
 
     /// <summary>
@@ -1177,26 +1420,40 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var resolved = false;
-        foreach (var id in unnamed)
+        // Read off the interface thread and applied on it: up to 150 lookups, none of which the
+        // view needs to watch happen. The dictionaries belong to this thread, so only the answers
+        // come back.
+        var repository = _itemRepository;
+        var lookups = await OffInterfaceThread.Run(async () =>
         {
-            try
+            var found = new List<(string Id, string? Name)>(unnamed.Length);
+            foreach (var id in unnamed)
             {
-                if (await _itemRepository.GetAsync(id, CancellationToken.None).ConfigureAwait(true) is { } item)
+                try
                 {
-                    _itemNames[id] = item.Name;
+                    var item = await repository.GetAsync(id, CancellationToken.None).ConfigureAwait(false);
+                    found.Add((id, item?.Name));
                 }
-                else
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    _missingItems.Add(id);
+                    // One unreadable item costs one name, not the panel.
+                    WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
                 }
-
-                resolved = true;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+
+            return found;
+        }).ConfigureAwait(true);
+
+        var resolved = lookups.Count > 0;
+        foreach (var (id, name) in lookups)
+        {
+            if (name is not null)
             {
-                // One unreadable item costs one name, not the panel.
-                WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
+                _itemNames[id] = name;
+            }
+            else
+            {
+                _missingItems.Add(id);
             }
         }
 
@@ -1528,6 +1785,28 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         return names;
+    }
+
+    /// <summary>A quest's name by id, for the line that says which quest opens a locked one.</summary>
+    internal string? TaskNameOrNull(string taskId)
+    {
+        if (_board is not { } board)
+        {
+            return null;
+        }
+
+        if (_taskNames is not { } cached || !ReferenceEquals(cached.Board, board))
+        {
+            var names = new Dictionary<string, string>(board.Tasks.Count, StringComparer.Ordinal);
+            foreach (var task in board.Tasks)
+            {
+                names[task.TaskId] = task.Name;
+            }
+
+            _taskNames = cached = (board, names);
+        }
+
+        return cached.Names.GetValueOrDefault(taskId);
     }
 
     private string NameOfMap(string mapId)

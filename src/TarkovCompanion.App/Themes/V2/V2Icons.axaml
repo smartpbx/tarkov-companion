@@ -36,6 +36,14 @@
   <StreamGeometry x:Key="V2.Icon.Lock">M6,11 L18,11 L18,20 L6,20 Z M8.5,11 L8.5,7.5 A3.5,3.5 0 0 1 15.5,7.5 L15.5,11</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Route">M6,20 C6,13 18,17 18,9 M6,20 A1.5,1.5 0 1 0 6,17 A1.5,1.5 0 1 0 6,20 Z M18,9 A2.5,2.5 0 1 0 18,4 A2.5,2.5 0 1 0 18,9 Z</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Ping">M12,12 A2.5,2.5 0 1 1 12,11.9 Z M12,7 A5,5 0 0 1 12,17 A5,5 0 0 1 12,7 M12,3 A9,9 0 0 1 12,21 A9,9 0 0 1 12,3</StreamGeometry>
+  <!-- [Issue 508] Pins, not the boxed chip a waypoint and a quest objective used to share. Both
+       are drawn on the same 28x36 grid, bounding box touching every edge on purpose
+       (MapPinGeometry.Width/Height and MapPinAnchorTests depend on that), so both shapes' tip —
+       the bottom-centre point — lands on the exact map coordinate the same way. Only the head
+       differs: round for a waypoint, a pointed shield for a quest objective, so shape tells the
+       two apart before colour or label ever has to. -->
+  <StreamGeometry x:Key="V2.Icon.PinRound">M14,36 C14,36 0,24 0,14 A14,14 0 1 1 28,14 C28,24 14,36 14,36 Z</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.PinShield">M0,0 L28,0 L28,18 L14,36 L0,18 Z</StreamGeometry>
   <!-- V2 rough package 17 (Plan workspace): bundle chevron, done tick, hideout house, primary play, overflow. -->
   <StreamGeometry x:Key="V2.Icon.ChevronRight">M9,5 L16,12 L9,19</StreamGeometry>
   <!-- V2 rough package 39: the floor ladder's step-up/step-down pair. -->

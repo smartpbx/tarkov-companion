@@ -450,6 +450,8 @@ public static class AppComposition
         services.AddSingleton<QuestsPageViewModel>();
         services.AddSingleton<SqliteRequirementCatalog>();
         services.AddSingleton<IRequirementCatalog>(provider => provider.GetRequiredService<SqliteRequirementCatalog>());
+        services.AddSingleton<IHideoutPrerequisiteCatalog, SqliteHideoutPrerequisiteCatalog>();
+        services.AddSingleton<TarkovCompanion.Application.Services.Planning.AllergyWarningService>();
         services.AddSingleton<SqliteMapAliasCatalog>();
         services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
@@ -458,6 +460,10 @@ public static class AppComposition
         // service already exist; this is the first caller to read them together for a single
         // item id instead of a whole legacy page.
         services.AddSingleton<IItemIntelService, ItemIntelService>();
+        // Package 33 (#287, the lookup half): the Intel landing page's four real sections need
+        // only what is already registered above, plus the catalog's own value ranking.
+        services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();
+        services.AddSingleton<IIntelLandingService, IntelLandingService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
@@ -614,6 +620,10 @@ public static class AppComposition
             services.AddSingleton<IRecycleBin, UnavailableRecycleBin>();
         }
 
+        // [f920 capture] Where the player is working when a capture arrives. The raid observer
+        // asks it, and the V2 capture bridge binds the router into it once the shell exists.
+        services.AddSingleton<ShellCaptureContextSource>();
+        services.AddSingleton<ICaptureContextSource>(provider => provider.GetRequiredService<ShellCaptureContextSource>());
         services.AddSingleton<RaidObservationService>();
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
@@ -689,7 +699,10 @@ public static class AppComposition
         services.AddSingleton(provider => new RelayMarksBridge(
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<IRaidMarkStore>(),
-            timeProvider));
+            timeProvider,
+            // [#289] The owner session and paired sessions' keys, kept where the TarkovTracker
+            // token is, so a restart does not ask for the relay's admin key or a re-pair.
+            new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>())));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);
@@ -776,7 +789,11 @@ public static class AppComposition
             provider.GetRequiredService<IItemRepository>(),
             provider.GetRequiredService<IItemMarketFactSource>(),
             provider.GetRequiredService<LootScanNeedSource>(),
-            provider.GetRequiredService<LootScanRaidContextSource>()));
+            provider.GetRequiredService<LootScanRaidContextSource>(),
+            // [f920 capture] The Events page's Safe / Allergic results reach the scan.
+            new LootScanEventStateSource(
+                provider.GetRequiredService<IPlayerProfileService>(),
+                provider.GetRequiredService<IEventCatalog>())));
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
@@ -795,6 +812,11 @@ public static class AppComposition
         // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
         // item. Every intent but Loot and Stash used to be acknowledged and dropped.
         services.AddSingleton<IntelCaptureHandoff>();
+        // [f920 capture] #284: the flea rows the player photographed, priced against the catalog.
+        services.AddSingleton(provider => new FleaCaptureHandoff(
+            provider.GetRequiredService<IItemRepository>(),
+            provider.GetRequiredService<IItemMarketFactSource>(),
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<FleaCaptureHandoff>>()));
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());
@@ -811,6 +833,8 @@ public static class AppComposition
         // Loot Scan workspace and read back by the scan.
         services.AddSingleton<LootScanWorkspaceControls>();
         services.AddSingleton<ILootScanWorkspaceControls>(provider => provider.GetRequiredService<LootScanWorkspaceControls>());
+        // [f920 capture] A picture the player pasted, dropped or picked, on the watcher's intake.
+        services.AddSingleton<ManualImageIntake>();
         services.AddSingleton<V2ShellCaptureBridge>();
         // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
         // paired device in Control mode moving it back. Refs #407.

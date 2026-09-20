@@ -105,6 +105,19 @@ public sealed partial class V2ShellViewModel
     private V2IntelSort _intelSort = V2IntelSort.Relevance;
     private IReadOnlyList<V2IntelSortViewModel>? _intelSorts;
 
+    // Package 33 (#287): the Intel landing page's four real sections (needed now, pinned,
+    // recently opened, highest value), loaded once and kept fresh on a timer rather than on
+    // every property read — each row is resolved through the same Intel service the detail pane
+    // uses, which is not free.
+    private readonly IIntelLandingService _intelLanding;
+    private static readonly TimeSpan IntelLandingRefreshInterval = TimeSpan.FromSeconds(30);
+    private IntelLandingSnapshot? _intelLandingSnapshot;
+    private string? _intelLandingKey;
+    private DateTimeOffset _intelLandingLoadedUtc = DateTimeOffset.MinValue;
+    private bool _intelLandingLoading;
+    private bool _intelLandingAutoSelected;
+    private CancellationTokenSource? _intelLandingCts;
+
     /// <summary>
     /// How many hits an Intel search keeps. V1's cards fit a dozen; this list scrolls, and a
     /// kind chip filters the hits it has, so a dozen left "Keys" empty for a search that had
@@ -122,8 +135,30 @@ public sealed partial class V2ShellViewModel
 
     public string IntelSearchPlaceholder => V2ShellText.Get("V2.Shell.Intel.SearchPlaceholder");
     public string IntelClearSearchLabel => V2ShellText.Get("V2.Shell.Intel.ClearSearch");
-    public ICommand ClearIntelSearchCommand => _clearIntelSearch ??= new DelegateCommand(() => SearchText = string.Empty);
+    public ICommand ClearIntelSearchCommand => _clearIntelSearch ??= new DelegateCommand(ClearIntelSearch);
     private ICommand? _clearIntelSearch;
+
+    /// <summary>
+    /// Clears the box and the results it produced, back to the landing page's own sections.
+    /// </summary>
+    /// <remarks>
+    /// Before this, the button only emptied <see cref="SearchText"/> — the box the player types
+    /// into — and left <c>Legacy.Items.Results</c> exactly as the last search left it, so the list
+    /// still showed the old hits under an empty search box with no way back to "Needed now" short
+    /// of typing something else.
+    /// </remarks>
+    private void ClearIntelSearch()
+    {
+        SearchText = string.Empty;
+        if (Legacy is null || Legacy.Items.SearchQuery.Length == 0)
+        {
+            return;
+        }
+
+        Legacy.Items.SearchQuery = string.Empty;
+        Legacy.Items.SearchCommand.Execute(null);
+        RaiseIntelWorkspaceChanged();
+    }
     public bool HasSearchText => !string.IsNullOrEmpty(SearchText);
 
     public IReadOnlyList<V2IntelKindFilterViewModel> IntelKindFilters => _intelKindFilters ??= CreateIntelKindFilters();
@@ -231,9 +266,21 @@ public sealed partial class V2ShellViewModel
         : string.Empty;
 
     // Need summary: the context panel's headline card.
-    public int IntelKeepCount => _intelResult?.Value is { } value ? value.OutstandingItems + value.HideoutCount : 0;
-    public bool IntelIsNeeded => _intelResult?.Value is { } value &&
-        (value.OutstandingItems > 0 || value.HideoutCount > 0 || value.QuestsNeedingIt > 0);
+    //
+    // Package 33 (#287): the quest half of this used to read result.Value — QuestsNeedingIt,
+    // TrackedQuestsNeedingIt, OutstandingFoundInRaidItems — which comes from
+    // ProfileNeedAggregationService's cached quest-requirement snapshot. Every item tried against
+    // the seed database read zero quest need from it, including one (Salewa first aid kit, seeded
+    // active on "Shortage") verified by direct SQL to have a real requirement; the hideout half of
+    // that exact snapshot was correct for the same items (Bolts: 63, matches the named list
+    // below). Rather than ship a headline that visibly disagrees with the named "Should I keep it"
+    // list under it, the quest figures here read Keep, which asks the quest board directly and is
+    // the same source that list is built from. Hideout stays on Value, which this render evidence
+    // shows is not the broken half. Reported to Clayton; not fixed here (outside Intel's owned
+    // paths).
+    public int IntelKeepCount =>
+        (_intelResult?.Keep?.Quests.Sum(row => row.Remaining ?? 0) ?? 0) + (_intelResult?.Value?.HideoutCount ?? 0);
+    public bool IntelIsNeeded => IntelKeepCount > 0 || _intelResult?.Keep?.Quests.Count > 0;
     public string IntelVerdictHeadline => !IntelHasResult
         ? string.Empty
         : IntelKeepCount > 0
@@ -251,17 +298,14 @@ public sealed partial class V2ShellViewModel
                 return [];
             }
 
-            var value = result.Value;
-            var tracked = value?.TrackedQuestsNeedingIt ?? 0;
-            var later = Math.Max(0, (value?.QuestsNeedingIt ?? 0) - tracked);
-            var hideout = value?.HideoutCount ?? 0;
+            var tracked = result.Keep?.Quests.Count ?? 0;
+            var hideout = result.Value?.HideoutCount ?? 0;
             var lines = new List<V2IntelNeedLineViewModel>
             {
                 new(V2ShellText.Format("V2.Shell.Intel.Need.Tracked", CultureInfo.CurrentCulture, tracked), tracked > 0),
-                new(V2ShellText.Format("V2.Shell.Intel.Need.Later", CultureInfo.CurrentCulture, later), later > 0),
                 new(V2ShellText.Format("V2.Shell.Intel.Need.Hideout", CultureInfo.CurrentCulture, hideout), hideout > 0),
             };
-            if (value?.OutstandingFoundInRaidItems is > 0 and var foundInRaid)
+            if (result.Keep?.Quests.Where(row => row.FoundInRaidRequired).Sum(row => row.Remaining ?? 0) is > 0 and var foundInRaid)
             {
                 lines.Add(new(V2ShellText.Format("V2.Shell.Intel.Need.FoundInRaid", CultureInfo.CurrentCulture, foundInRaid), true));
             }
@@ -303,6 +347,47 @@ public sealed partial class V2ShellViewModel
             ? V2ShellText.Format("V2.Shell.Intel.RangeWithAverage", CultureInfo.CurrentCulture, Roubles(low), Roubles(high), Roubles(average))
             : V2ShellText.Format("V2.Shell.Intel.Range", CultureInfo.CurrentCulture, Roubles(low), Roubles(high))
         : string.Empty;
+
+    // Package 33 (#287): "what is it worth" also asks for a per-slot value and the flea fee.
+    public string IntelPerSlotHeading => V2ShellText.Get("V2.Shell.Intel.PerSlotHeading");
+    public bool HasIntelPerSlotValue => _intelResult is { Kind: not V2IntelKind.Unknown, Width: > 0, Height: > 0 } result &&
+        result.Value?.ValueRoubles is > 0;
+    public string IntelPerSlotValueLabel => _intelResult is { Kind: not V2IntelKind.Unknown, Width: > 0, Height: > 0 } result &&
+        result.Value?.ValueRoubles is { } value
+        ? Roubles(value / (result.Width * result.Height))
+        : string.Empty;
+
+    public string IntelFeeHeading => V2ShellText.Get("V2.Shell.Intel.Fee");
+    public string IntelFeeLabel => _intelResult?.Prices?.FeeRoubles is { } fee
+        ? Roubles(fee)
+        : V2ShellText.Get("V2.Shell.Intel.FeeUnknown");
+
+    // Package 33 (#287): "should I keep it," named rather than counted — which quests and which
+    // hideout levels, not just how many.
+    public string IntelKeepHeading => V2ShellText.Get("V2.Shell.Intel.Keep.Heading");
+    public string IntelKeepEmptyLabel => V2ShellText.Get("V2.Shell.Intel.Keep.None");
+
+    public IReadOnlyList<string> IntelKeepQuestLines => _intelResult?.Keep?.Quests
+        .Select(row => row.Remaining is { } remaining
+            ? V2ShellText.Format(
+                row.FoundInRaidRequired ? "V2.Shell.Intel.Keep.QuestFoundInRaid" : "V2.Shell.Intel.Keep.Quest",
+                CultureInfo.CurrentCulture,
+                row.TaskName,
+                remaining)
+            : row.TaskName)
+        .ToArray() ?? [];
+
+    public IReadOnlyList<string> IntelKeepHideoutLines => _intelResult?.Keep?.Hideout
+        .Select(row => V2ShellText.Format(
+            "V2.Shell.Intel.Keep.Hideout",
+            CultureInfo.CurrentCulture,
+            row.StationName,
+            row.TargetLevel,
+            row.Remaining))
+        .ToArray() ?? [];
+
+    public bool HasIntelKeepDetail => IntelKeepQuestLines.Count > 0 || IntelKeepHideoutLines.Count > 0;
+    public bool ShowsIntelKeepEmpty => IntelHasResult && _intelResult?.Keep is not null && !HasIntelKeepDetail;
 
     public string IntelSourcesHeading => V2ShellText.Get("V2.Shell.Intel.Sources");
 
@@ -462,9 +547,14 @@ public sealed partial class V2ShellViewModel
             nameof(IntelBestSaleLabel), nameof(IntelHasPrices), nameof(IntelHasNoPrices), nameof(IntelFleaPriceLabel),
             nameof(IntelPriceUpdatedLabel), nameof(IntelHasTraderPrice), nameof(IntelTraderPriceLabel),
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
+            nameof(HasIntelPerSlotValue), nameof(IntelPerSlotValueLabel), nameof(IntelFeeLabel),
+            nameof(IntelKeepQuestLines), nameof(IntelKeepHideoutLines), nameof(HasIntelKeepDetail), nameof(ShowsIntelKeepEmpty),
             nameof(IntelIsKey), nameof(IntelIsAmmo), nameof(IntelKeyMapLabel), nameof(IntelKeyLocks),
             nameof(IntelHasAmmoFacts), nameof(IntelHasNoAmmoFacts), nameof(IntelAmmoDamage), nameof(IntelAmmoPenetration),
             nameof(IntelAmmoTier), nameof(IntelAmmoAdvice), nameof(IntelArmorClasses),
+            nameof(IntelHomeNeededNow), nameof(IntelHomePinned), nameof(IntelHomeRecent), nameof(IntelHomeHighestValue),
+            nameof(HasIntelHomeNeededNow), nameof(HasIntelHomePinned), nameof(HasIntelHomeRecent), nameof(HasIntelHomeHighestValue),
+            nameof(ShowsIntelHomeEmpty),
         })
         {
             OnPropertyChanged(property);
@@ -500,4 +590,181 @@ public sealed partial class V2ShellViewModel
         : age < TimeSpan.FromDays(2)
             ? V2ShellText.Format("V2.Shell.Intel.Ago", CultureInfo.CurrentCulture, FormatApproximateAge(age))
             : V2ShellText.Format("V2.Shell.Intel.Days", CultureInfo.CurrentCulture, (int)age.TotalDays);
+
+    // Package 33 (#287): the Intel landing page. Four real sections instead of the address-book
+    // "Suggested" list, which had nothing to show for a fresh profile and one junk row ("Items ·
+    // Opened recently · Items") for a used one — every navigation to the Items route itself, with
+    // no item selected, was recorded as a "recently opened" address and printed back with the
+    // route's own heading standing in for a name.
+    public string IntelHomeNeededNowHeading => V2ShellText.Get("V2.Shell.Intel.Home.NeededNow");
+    public string IntelHomePinnedHeading => V2ShellText.Get("V2.Shell.Intel.Home.Pinned");
+    public string IntelHomeRecentHeading => V2ShellText.Get("V2.Shell.Intel.Home.Recent");
+    public string IntelHomeHighestValueHeading => V2ShellText.Get("V2.Shell.Intel.Home.HighestValue");
+
+    public IReadOnlyList<V2IntelResultRowViewModel> IntelHomeNeededNow => BuildHomeRows(_intelLandingSnapshot?.NeededNow);
+    public IReadOnlyList<V2IntelResultRowViewModel> IntelHomePinned => BuildHomeRows(_intelLandingSnapshot?.Pinned);
+    public IReadOnlyList<V2IntelResultRowViewModel> IntelHomeRecent => BuildHomeRows(_intelLandingSnapshot?.Recent);
+    public IReadOnlyList<V2IntelResultRowViewModel> IntelHomeHighestValue => BuildHomeRows(_intelLandingSnapshot?.HighestValue);
+
+    public bool HasIntelHomeNeededNow => IntelHomeNeededNow.Count > 0;
+    public bool HasIntelHomePinned => IntelHomePinned.Count > 0;
+    public bool HasIntelHomeRecent => IntelHomeRecent.Count > 0;
+    public bool HasIntelHomeHighestValue => IntelHomeHighestValue.Count > 0;
+
+    /// <summary>Nothing to show yet: a brand-new profile with an empty catalog still loading.</summary>
+    public bool ShowsIntelHomeEmpty => _intelLandingSnapshot is not null &&
+        !HasIntelHomeNeededNow && !HasIntelHomePinned && !HasIntelHomeRecent && !HasIntelHomeHighestValue;
+    public string IntelHomeEmptyLabel => V2ShellText.Get("V2.Shell.Intel.NoSelection");
+
+    private IReadOnlyList<V2IntelResultRowViewModel> BuildHomeRows(IReadOnlyList<IntelLandingRow>? rows)
+    {
+        if (rows is null || rows.Count == 0)
+        {
+            return [];
+        }
+
+        var selected = IntelItem;
+        return rows.Select(row => BuildHomeRow(row, selected)).ToArray();
+    }
+
+    private V2IntelResultRowViewModel BuildHomeRow(IntelLandingRow row, string selected)
+    {
+        var automationId = $"v2-intel-home-{row.ItemId}";
+        var matchLabel = row.Count > 0
+            ? V2ShellText.Format("V2.Shell.Intel.Home.NeedCount", CultureInfo.CurrentCulture, row.Count)
+            : row.SaleChannelLabel is { Length: > 0 } channel
+                ? V2ShellText.Format("V2.Shell.Intel.Home.Via", CultureInfo.CurrentCulture, ChannelName(channel))
+                : string.Empty;
+        return new V2IntelResultRowViewModel(
+            row.ItemId,
+            row.Name,
+            row.ShortName,
+            CategoryLabel(row.Category),
+            row.ValueRoubles is { } roubles ? Roubles(roubles) : V2ShellText.Get("V2.Shell.Intel.NoPrice"),
+            string.Equals(row.ItemId, selected, StringComparison.Ordinal),
+            new DelegateCommand(() => OpenSuggestedItem(row.ItemId, automationId)),
+            MatchLabel: matchLabel);
+    }
+
+    /// <summary>
+    /// Loads the landing snapshot once per distinct pins/recents fingerprint, and re-reads it
+    /// every <see cref="IntelLandingRefreshInterval"/> regardless, so a quest pinned or an item
+    /// obtained mid-session eventually shows up without a restart.
+    /// </summary>
+    private void RefreshIntelLandingIfNeeded()
+    {
+        if (!ShowsIntelWorkspace)
+        {
+            // Leaving Intel resets the one-shot auto-select below, so the next visit picks a
+            // first suggestion again; staying and explicitly closing the detail pane does not.
+            _intelLandingAutoSelected = false;
+            return;
+        }
+
+        var key = string.Join('|', Pins.Take(6)) + "||" + string.Join('|', Recents.Take(6));
+        var stale = _clock.GetUtcNow() - _intelLandingLoadedUtc > IntelLandingRefreshInterval;
+        if (_intelLandingLoading || (_intelLandingSnapshot is not null && key == _intelLandingKey && !stale))
+        {
+            return;
+        }
+
+        _intelLandingCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _intelLandingCts = cts;
+        _intelLandingKey = key;
+        _intelLandingLoading = true;
+        _ = LoadIntelLandingAsync(cts.Token);
+    }
+
+    private async Task LoadIntelLandingAsync(CancellationToken cancellationToken)
+    {
+        IntelLandingSnapshot snapshot;
+        try
+        {
+            snapshot = await _intelLanding.GetAsync(
+                ItemIdsFromAddresses(Pins, 8),
+                ItemIdsFromAddresses(Recents, 8),
+                cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            _intelLandingLoading = false;
+            return;
+        }
+
+        if (cancellationToken.IsCancellationRequested || _disposed)
+        {
+            return;
+        }
+
+        _intelLandingSnapshot = snapshot;
+        _intelLandingLoadedUtc = _clock.GetUtcNow();
+        _intelLandingLoading = false;
+        RaiseIntelWorkspaceChanged();
+        AutoSelectFirstIntelHomeItem();
+    }
+
+    /// <summary>
+    /// With nothing selected, the detail pane opens on the first real suggestion rather than a
+    /// sentence — once per visit to Intel, so a deliberate Close afterward stays closed.
+    /// </summary>
+    private void AutoSelectFirstIntelHomeItem()
+    {
+        if (_intelLandingAutoSelected || HasIntelSelection || _intelLandingSnapshot is not { } snapshot)
+        {
+            return;
+        }
+
+        var first = snapshot.NeededNow.Concat(snapshot.Pinned).Concat(snapshot.Recent).Concat(snapshot.HighestValue)
+            .FirstOrDefault();
+        if (first is null)
+        {
+            return;
+        }
+
+        _intelLandingAutoSelected = true;
+        Act(Router.OpenIntel(first.ItemId, invoker: null));
+    }
+
+    /// <summary>Saved addresses resolved to the item each one is actually open on, bare page visits dropped.</summary>
+    private IReadOnlyList<string> ItemIdsFromAddresses(IReadOnlyList<string> addresses, int limit)
+    {
+        var ids = new List<string>(Math.Min(addresses.Count, limit));
+        foreach (var address in addresses)
+        {
+            if (ids.Count >= limit)
+            {
+                break;
+            }
+
+            if (Router.Addresses.Parse(address).Location is not { } location)
+            {
+                continue;
+            }
+
+            var itemId = location.Item ?? location.IntelItem;
+            if (itemId is not null)
+            {
+                ids.Add(itemId);
+            }
+        }
+
+        return ids;
+    }
+}
+
+/// <summary>The fallback used in tests that build the shell without composing the landing service.</summary>
+internal sealed class NullIntelLandingService : IIntelLandingService
+{
+    public static readonly NullIntelLandingService Instance = new();
+
+    public Task<IntelLandingSnapshot> GetAsync(
+        IReadOnlyList<string> pinnedItemIds,
+        IReadOnlyList<string> recentItemIds,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(new IntelLandingSnapshot([], [], [], []));
 }
