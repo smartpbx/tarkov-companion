@@ -59,6 +59,15 @@ internal static class Program
             report["cold-start-ms"] = host.ColdStart;
             Console.WriteLine("cold-start-ms " + JsonSerializer.Serialize(host.ColdStart));
 
+            if (scenarios.Contains("plansearch"))
+            {
+                // Package 45: typing in the Plan workspace's quest search. Needs no map, so it is
+                // measured before the map scenarios and runs on its own in seconds.
+                var planSearch = Scenarios.PlanSearch(host, StringOption(args, "--plan-query") ?? "graphics card");
+                report["plan-search"] = planSearch;
+                Console.WriteLine("plan-search " + JsonSerializer.Serialize(planSearch));
+            }
+
             RaidScript? script = null;
             if (scenarios.Contains("map") || scenarios.Contains("pan") || scenarios.Contains("raid") || scenarios.Contains("bisect"))
             {
