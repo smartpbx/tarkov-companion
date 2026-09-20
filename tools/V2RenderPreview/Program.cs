@@ -759,6 +759,22 @@ internal static class Program
                     Pump(20);
                 }
 
+                // [Issue 286] The other press: a layer the map opens with, switched off.
+                if (StringOption(args, "--map-layers-off") is { } unwanted && raid.Renderer is { } offRenderer)
+                {
+                    foreach (var layerId in unwanted.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        if (offRenderer.Layers.FirstOrDefault(item =>
+                                string.Equals(item.Layer.Id.Value, layerId, StringComparison.OrdinalIgnoreCase)) is { IsVisible: true } layer)
+                        {
+                            layer.ToggleCommand.Execute(null);
+                            Pump(10);
+                        }
+                    }
+
+                    Pump(20);
+                }
+
                 // [V2 rough package 39] Two render-only presses, both of them the app's own
                 // controls rather than a fixture: choose the drawing (the stack needs it — a
                 // tile grid and a drawing cover different rectangles), then stack the floors.
