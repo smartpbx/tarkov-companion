@@ -275,6 +275,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
             if (value is not null && SetProperty(ref _selectedSlot, value))
             {
                 RefreshSlotBoard();
+                if (Results.Count > 0 && !string.IsNullOrWhiteSpace(SearchQuery))
+                {
+                    // The list on screen was filtered for the slot just left.
+                    _ = SearchAsync(CancellationToken.None);
+                }
             }
         }
     }
@@ -499,11 +504,22 @@ public sealed class LoadoutPageViewModel : PageViewModel
         {
             SearchStatus = "Searching the local item cache…";
             var facts = await EnsureFactsAsync(cancellationToken).ConfigureAwait(true);
-            var hits = await _searchService.SearchAsync(SearchQuery, 20, cancellationToken).ConfigureAwait(true);
-            Results = hits.Select(hit => Describe(hit.Item, facts)).ToArray();
-            SearchStatus = Results.Count == 0
-                ? "No local item matched that query."
-                : $"{Results.Count} results · Assign uses the slot above";
+            // Only what the chosen slot takes, what the catalog is sure about first. More is read
+            // than is shown because "bp" is mostly rounds and the slot may be Weapon.
+            var slot = SelectedSlot;
+            var hits = await _searchService.SearchAsync(SearchQuery, 60, cancellationToken).ConfigureAwait(true);
+            var fitting = hits
+                .Where(hit => LoadoutSlotRules.Accepts(slot.Slot, hit.Item.Category))
+                .OrderByDescending(hit => LoadoutSlotRules.Fits(slot.Slot, hit.Item.Category))
+                .Take(20)
+                .ToArray();
+            Results = fitting.Select(hit => Describe(hit.Item, facts)).ToArray();
+            SearchStatus = (Results.Count, hits.Count) switch
+            {
+                (0, 0) => "No local item matched that query.",
+                (0, _) => $"Nothing for {slot.Name} matched · pick another slot",
+                _ => $"{Results.Count} results for {slot.Name}",
+            };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -952,6 +968,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
             var facts = _facts.GetValueOrDefault(itemId);
             var name = item?.Name ?? facts?.Name ?? itemId;
             var category = item?.Category ?? facts?.Category ?? ItemCategory.Unknown;
+            if (!LoadoutSlotRules.Accepts(slot.Slot, category))
+            {
+                // The results were filtered for the slot they were searched under; the slot can
+                // have been changed since, and a preset or the tablet can ask for anything.
+                AssignmentStatus = LoadoutSlotRules.Refusal(slot.Name, name, category);
+                return;
+            }
 
             if (!_selection.TryGetValue(slot.Slot, out var items))
             {
