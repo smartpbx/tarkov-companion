@@ -194,6 +194,86 @@ public sealed class PlanWorkspaceViewModelTests
         Assert.Single(scene.Objects);
     }
 
+    [Fact]
+    public void A_filter_pass_over_the_same_board_keeps_every_group_and_row_it_already_had()
+    {
+        var tasks = new[] { Task("quest-a", RecordedTaskState.Active,
+        [
+            Objective("obj-1", RecordedObjectiveState.InProgress, mapIds: ["customs"]),
+            Objective("obj-2", RecordedObjectiveState.InProgress, mapIds: ["woods"]),
+        ]) };
+        var entries = PlanWorkspaceViewModel.Bucket(tasks, showAll: false);
+
+        var first = PlanWorkspaceViewModel.ComposeGroups(entries, [], NameOfMap);
+        var again = PlanWorkspaceViewModel.ComposeGroups(PlanWorkspaceViewModel.Bucket(tasks, showAll: false), first, NameOfMap);
+
+        // The same list, not a list of the same things: nothing is re-bound and nothing redrawn.
+        Assert.Same(first, again);
+        Assert.Equal(["Customs", "Woods"], first.Select(group => group.MapLabel));
+    }
+
+    [Fact]
+    public void A_narrowing_search_keeps_the_rows_it_still_shows_and_renumbers_them()
+    {
+        var tasks = new[] { Task("quest-a", RecordedTaskState.Active,
+        [
+            Objective("obj-1", RecordedObjectiveState.InProgress, mapIds: ["customs"]),
+            Objective("obj-2", RecordedObjectiveState.InProgress, mapIds: ["customs"]),
+            Objective("obj-3", RecordedObjectiveState.InProgress, mapIds: ["customs"]),
+        ]) };
+        var all = PlanWorkspaceViewModel.ComposeGroups(PlanWorkspaceViewModel.Bucket(tasks, showAll: false), [], NameOfMap);
+        var kept = all[0].Objectives[2];
+
+        // As if the search dropped the first two objectives and left the third.
+        var narrowed = PlanWorkspaceViewModel.ComposeGroups(
+            [.. PlanWorkspaceViewModel.Bucket(tasks, showAll: false).Where(entry => entry.Objective.ObjectiveId == "obj-3")],
+            all,
+            NameOfMap);
+
+        var row = Assert.Single(narrowed[0].Objectives);
+        Assert.Same(kept, row);
+        Assert.Equal(1, row.Number);
+        Assert.True(row.IsLast);
+        // The group holds different rows now, so it is a different group.
+        Assert.NotSame(all[0], narrowed[0]);
+    }
+
+    [Fact]
+    public void A_board_read_replaces_the_rows_because_their_quest_and_objective_are_new()
+    {
+        var before = new[] { Task("quest-a", RecordedTaskState.Active, [Objective("obj-1", RecordedObjectiveState.InProgress, mapIds: ["customs"])]) };
+        var after = new[] { Task("quest-a", RecordedTaskState.Active, [Objective("obj-1", RecordedObjectiveState.Completed, mapIds: ["customs"])]) };
+        var first = PlanWorkspaceViewModel.ComposeGroups(PlanWorkspaceViewModel.Bucket(before, showAll: true), [], NameOfMap);
+
+        var second = PlanWorkspaceViewModel.ComposeGroups(PlanWorkspaceViewModel.Bucket(after, showAll: true), first, NameOfMap);
+
+        Assert.NotSame(first, second);
+        Assert.NotSame(first[0].Objectives[0], second[0].Objectives[0]);
+        Assert.Equal(RecordedObjectiveState.Completed, second[0].Objectives[0].Objective.RecordedState);
+    }
+
+    [Fact]
+    public void The_search_reads_a_quest_its_name_its_trader_its_objectives_and_its_maps()
+    {
+        var task = Task("quest-a", RecordedTaskState.Active,
+        [
+            Objective("obj-1", RecordedObjectiveState.InProgress, mapIds: ["customs"]),
+        ]) with { TraderName = "Prapor" };
+
+        var index = PlanSearchIndex.Build([task], NameOfMap);
+        var text = index.TextFor(task);
+
+        Assert.All(
+            new[] { "quest-a", "Prapor", "trader-1", "Do the thing for obj-1", "Customs" },
+            expected => Assert.Contains(expected, text, StringComparison.Ordinal));
+        // A quest the index has not heard of is still searchable by name.
+        Assert.Equal("other", PlanSearchIndex.Empty.TextFor(task with { TaskId = "other", Name = "other" }));
+    }
+
+    private static string NameOfMap(string mapId) => mapId.Length == 0
+        ? "Any map"
+        : string.Concat(mapId[..1].ToUpperInvariant(), mapId[1..]);
+
     private static QuestMapObjectiveProjection Projected(
         string objectiveId,
         QuestMapGeometryKind geometry,
