@@ -19,14 +19,40 @@ namespace TarkovCompanion.App.Services;
 /// With no dispatcher (a unit-test host, a headless run) the work runs at once, which is what
 /// every caller of the thing this replaced saw.
 /// </remarks>
-public sealed class DeferredDispatch(SynchronizationContext? context, Action work)
+public sealed class DeferredDispatch
 {
-    private readonly Action _work = work ?? throw new ArgumentNullException(nameof(work));
+    private readonly Action _work;
+    private readonly Action<Action>? _post;
     private int _pending;
+
+    public DeferredDispatch(SynchronizationContext? context, Action work)
+        : this(work, context is null ? null : run => context.Post(_ => run(), null))
+    {
+    }
+
+    private DeferredDispatch(Action work, Action<Action>? post)
+    {
+        _work = work ?? throw new ArgumentNullException(nameof(work));
+        _post = post;
+    }
+
+    /// <summary>
+    /// The same coalescing, posted by a delegate rather than through a
+    /// <see cref="SynchronizationContext"/>.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 45] For a caller that needs a priority the ambient context does not post
+    /// at — the quest search runs behind queued input, see <see cref="UiThreadPost"/> — and so
+    /// that wanting one does not mean writing a <see cref="SynchronizationContext"/> subclass,
+    /// which reads like something installed on the thread even when it never is.
+    /// A <see langword="null"/> <paramref name="post"/> runs the work inline, exactly as a
+    /// <see langword="null"/> context does.
+    /// </remarks>
+    public static DeferredDispatch Posting(Action<Action>? post, Action work) => new(work, post);
 
     public void Request()
     {
-        if (context is null)
+        if (_post is null)
         {
             _work();
             return;
@@ -37,7 +63,7 @@ public sealed class DeferredDispatch(SynchronizationContext? context, Action wor
             return;
         }
 
-        context.Post(_ => Run(), null);
+        _post(Run);
     }
 
     private void Run()
