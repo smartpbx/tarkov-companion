@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Raids;
@@ -113,9 +114,12 @@ public static class RaidHistoryExport
 {
     public const int SchemaVersion = 2;
 
+    // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
+    // spreadsheet reads as a date-time (an ISO string with an offset arrives as text), and the
+    // header says which clock. The database and the JSON export's envelope timestamp keep UTC.
     public static readonly IReadOnlyList<string> CsvColumns =
     [
-        "id", "profile_id", "map_id", "mode", "start_utc", "end_utc", "outcome", "notes",
+        "id", "profile_id", "map_id", "mode", "start_local", "end_local", "outcome", "notes",
         "schema_version",
         "map_source", "mode_source", "start_source", "end_source", "outcome_source", "notes_source",
         "scans", "scans_recognised",
@@ -145,8 +149,8 @@ public static class RaidHistoryExport
                 Escape(raid.ProfileId.ToString("D")),
                 Escape(raid.MapId),
                 Escape(raid.Mode),
-                Escape(raid.StartedUtc is null ? null : Format(raid.StartedUtc.Value)),
-                Escape(raid.EndedUtc is null ? null : Format(raid.EndedUtc.Value)),
+                Escape(raid.StartedUtc is null ? null : LocalTime.SortableSeconds(raid.StartedUtc.Value)),
+                Escape(raid.EndedUtc is null ? null : LocalTime.SortableSeconds(raid.EndedUtc.Value)),
                 Escape(raid.Outcome),
                 Escape(raid.Notes),
                 SchemaVersion.ToString(CultureInfo.InvariantCulture),
@@ -185,8 +189,11 @@ public static class RaidHistoryExport
         record.Raid.ProfileId,
         record.Raid.MapId,
         record.Raid.Mode,
-        record.Raid.StartedUtc?.ToUniversalTime(),
-        record.Raid.EndedUtc?.ToUniversalTime(),
+        // Local for the person who opens it, with the numeric offset so a program reads the same
+        // instant back — the keys drop "Utc" because the values are no longer written at offset
+        // zero (docs/DEBRIEF_EXPORT.md).
+        record.Raid.StartedUtc is { } started ? LocalTime.Iso(started) : null,
+        record.Raid.EndedUtc is { } ended ? LocalTime.Iso(ended) : null,
         record.Raid.Outcome,
         record.Raid.Notes,
         new SourcesDocument(
@@ -218,8 +225,8 @@ public static class RaidHistoryExport
         Guid ProfileId,
         string? MapId,
         string Mode,
-        DateTimeOffset? StartedUtc,
-        DateTimeOffset? EndedUtc,
+        string? Started,
+        string? Ended,
         string? Outcome,
         string? Notes,
         SourcesDocument Sources,
@@ -245,9 +252,6 @@ public static class RaidHistoryExport
         long? ValuePerSlotRoubles,
         string? ValueSource,
         string? Recommendation);
-
-    private static string Format(DateTimeOffset value) =>
-        value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
     private static string Escape(string? value)
     {

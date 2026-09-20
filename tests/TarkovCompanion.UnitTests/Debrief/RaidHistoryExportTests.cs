@@ -23,10 +23,10 @@ public sealed class RaidHistoryExportTests
 
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes,schema_version,map_source,mode_source,start_source,end_source,outcome_source,notes_source,scans,scans_recognised",
+            "id,profile_id,map_id,mode,start_local,end_local,outcome,notes,schema_version,map_source,mode_source,start_source,end_source,outcome_source,notes_source,scans,scans_recognised",
             lines[0].TrimEnd('\r'));
         Assert.Equal(RaidHistoryExport.CsvColumns, lines[0].TrimEnd('\r').Split(','));
-        Assert.StartsWith("id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes,", lines[0], StringComparison.Ordinal);
+        Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes,", lines[0], StringComparison.Ordinal);
     }
 
     [Fact]

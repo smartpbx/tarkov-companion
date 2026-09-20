@@ -29,7 +29,7 @@ columns first and unchanged.
 | Column | Meaning |
 | --- | --- |
 | `id`, `profile_id`, `map_id`, `mode` | As version 1. |
-| `start_utc`, `end_utc` | UTC, ISO 8601 round-trip. Empty while the raid is in progress. |
+| `start_local`, `end_local` | The player's own clock, `yyyy-MM-dd HH:mm:ss` (`LocalTime.SortableSeconds`), read by a spreadsheet as a date-time. Empty while the raid is in progress. The database keeps UTC; only what leaves the machine is converted. |
 | `outcome`, `notes` | As version 1. |
 | `schema_version` | `2`. |
 | `map_source`, `mode_source`, `start_source`, `end_source`, `outcome_source`, `notes_source` | One of the four kinds, or empty. |
@@ -45,7 +45,7 @@ columns first and unchanged.
   "raids": [
     {
       "id": "…", "profileId": "…", "mapId": "customs", "mode": "Regular",
-      "startedUtc": "…", "endedUtc": "…", "outcome": "Survived", "notes": null,
+      "started": "2026-09-19T08:03:39-04:00", "ended": "2026-09-19T08:27:40-04:00", "outcome": "Survived", "notes": null,
       "sources": { "map": "observed", "mode": "inferred", "started": "observed",
                    "ended": "observed", "outcome": "manual", "notes": null },
       "scans": [
@@ -59,9 +59,13 @@ columns first and unchanged.
 }
 ```
 
-Version 1 was a bare array of raids with the first eight fields. Version 2 is an envelope, which is
-the one incompatible change; the eight fields keep their names. A scan that found nothing has
-`itemSource` and `valueSource` of `null`. No scan carries a claim of value carried out of the raid.
+Version 1 was a bare array of raids with the first eight fields, `startedUtc`/`endedUtc` included.
+Version 2 is an envelope — the one incompatible change — and the two time fields are renamed
+`started`/`ended` and carry the player's own offset (`LocalTime.Iso`, e.g. `…T08:03:39-04:00`)
+rather than a bare UTC instant, the same rule the rest of the product follows: nothing user-visible
+prints a UTC clock. Every other field keeps its version 1 name. `exportedUtc`, the envelope's own
+timestamp, stays UTC like the database and the logs. A scan that found nothing has `itemSource` and
+`valueSource` of `null`. No scan carries a claim of value carried out of the raid.
 
 ## Not in version 2
 
