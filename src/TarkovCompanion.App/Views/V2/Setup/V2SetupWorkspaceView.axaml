@@ -395,102 +395,14 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAppearanceSelected}">
+    <!-- #292/#315: renamed from Appearance and gathered into one Accessibility section, since
+         theme, colour vision, text size, density, reduced motion and the focus ring are all
+         accessibility settings first. Extracted to its own view/view-model pair rather than grown
+         in place, per the hot-file rule this file is under. -->
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAccessibilitySelected}">
       <StackPanel Classes="v2-stack">
-        <!-- [V2 rough package 60 — appearance] #266/#315. Each row is a set of toggles rather
-             than a combo box: the choice and what is in force are both readable without opening
-             anything, which is the point of the section. -->
-        <Panel IsVisible="{Binding HasAppearance}">
-        <StackPanel Classes="v2-stack" DataContext="{Binding Appearance}">
-          <TextBlock Classes="v2-body" AutomationProperties.AutomationId="v2-setup-appearance-summary"
-                     AutomationProperties.LiveSetting="Polite" Text="{Binding Summary}" />
-
-          <StackPanel Classes="v2-field">
-            <TextBlock Classes="v2-label" Text="{Binding ThemeLabel}" />
-            <ItemsControl ItemsSource="{Binding Themes}" AutomationProperties.AutomationId="v2-setup-appearance-themes">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                          AutomationProperties.AutomationId="{Binding AutomationId}"
-                          AutomationProperties.Name="{Binding Label}"
-                          AutomationProperties.HelpText="{Binding AutomationState}"
-                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ThemeHint}" />
-          </StackPanel>
-
-          <StackPanel Classes="v2-field">
-            <TextBlock Classes="v2-label" Text="{Binding VisionLabel}" />
-            <ItemsControl ItemsSource="{Binding ColorVisions}" AutomationProperties.AutomationId="v2-setup-appearance-visions">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                          AutomationProperties.AutomationId="{Binding AutomationId}"
-                          AutomationProperties.Name="{Binding Label}"
-                          AutomationProperties.HelpText="{Binding AutomationState}"
-                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding VisionHint}" />
-          </StackPanel>
-
-          <StackPanel Classes="v2-field">
-            <TextBlock Classes="v2-label" Text="{Binding TextScaleLabel}" />
-            <ItemsControl ItemsSource="{Binding TextScales}" AutomationProperties.AutomationId="v2-setup-appearance-textscales">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                          AutomationProperties.AutomationId="{Binding AutomationId}"
-                          AutomationProperties.Name="{Binding Label}"
-                          AutomationProperties.HelpText="{Binding AutomationState}"
-                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding TextScaleHint}" />
-          </StackPanel>
-
-          <StackPanel Classes="v2-field">
-            <TextBlock Classes="v2-label" Text="{Binding DensityLabel}" />
-            <ItemsControl ItemsSource="{Binding Densities}" AutomationProperties.AutomationId="v2-setup-appearance-densities">
-              <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
-              </ItemsControl.ItemsPanel>
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
-                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
-                          AutomationProperties.AutomationId="{Binding AutomationId}"
-                          AutomationProperties.Name="{Binding Label}"
-                          AutomationProperties.HelpText="{Binding AutomationState}"
-                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-
-          <StackPanel Classes="v2-field">
-            <TextBlock Classes="v2-label" Text="{Binding MotionLabel}" />
-            <WrapPanel Classes="v2-toolbar">
-              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-motion"
-                      Content="{Binding MotionToggleLabel}" Command="{Binding ReduceMotionCommand}" />
-              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-reset"
-                      Content="{Binding ResetAllLabel}" Command="{Binding ResetCommand}" />
-            </WrapPanel>
-            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
-          </StackPanel>
-        </StackPanel>
+        <Panel IsVisible="{Binding HasAccessibility}">
+          <setup:V2SetupAccessibilityView DataContext="{Binding Accessibility}" />
         </Panel>
 
         <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />

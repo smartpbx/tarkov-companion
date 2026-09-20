@@ -29,6 +29,9 @@ public sealed partial class PlanWorkspaceView : UserControl
     /// <summary>The map card's own margins, which are not available to the plan.</summary>
     private const double MapCardMargins = 32;
 
+    /// <summary>How wide Requirements and Open in Raid are when they stand beside the objectives.</summary>
+    private const double SidePieceWidthBelow = 380;
+
     /// <summary>What the panel takes from the width when it sits beside the map.</summary>
     private const double PanelWidthBeside = 440;
 
@@ -162,6 +165,7 @@ public sealed partial class PlanWorkspaceView : UserControl
                 // The map's name is the heading of the card directly above it here, so the panel
                 // does not say it a second time and spends the rows on objectives instead.
                 SetPanelHeadingVisible(false);
+                ArrangePanel(sideBySide: true);
             }
 
             PlanMapCard.Height = Math.Max(0, mapHeight);
@@ -183,6 +187,44 @@ public sealed partial class PlanWorkspaceView : UserControl
         PlanMapCard.Height = double.NaN;
         PlanBody.RowDefinitions = new RowDefinitions("*,Auto");
         SetPanelHeadingVisible(true);
+        ArrangePanel(sideBySide: false);
+    }
+
+    /// <summary>
+    /// Where Requirements and Open in Raid sit inside the panel: under the objectives, or beside them.
+    /// </summary>
+    /// <remarks>
+    /// Reported at 1920x1080 with the panel under the map: "only the Objectives (N) heading shows
+    /// and the rows have no height". The panel is about 320 tall there, and stacked in one column
+    /// the Requirements card and the button took their full height first, leaving the objectives'
+    /// starred row some 95 pixels for a heading and a clipped line. Under the map the panel is
+    /// three times as wide as it is beside it, so the two fixed pieces go in a column of their
+    /// own on the right and the objectives keep the whole height.
+    /// </remarks>
+    private void ArrangePanel(bool sideBySide)
+    {
+        if (PlanObjectivesCard is null || PlanRequirementsCard is null || PlanPanelActions is null)
+        {
+            return;
+        }
+
+        Grid.SetColumnSpan(PlanObjectivesCard, sideBySide ? 1 : 2);
+        Grid.SetRowSpan(PlanObjectivesCard, sideBySide ? 3 : 1);
+        PlanObjectivesCard.Margin = sideBySide ? new(16, 8, 0, 16) : new(16, 0, 16, 12);
+
+        Grid.SetColumn(PlanRequirementsCard, sideBySide ? 1 : 0);
+        Grid.SetColumnSpan(PlanRequirementsCard, sideBySide ? 1 : 2);
+        // The starred row beside the objectives, not the Auto row under them.
+        Grid.SetRow(PlanRequirementsCard, sideBySide ? 1 : 2);
+        PlanRequirementsCard.Width = sideBySide ? SidePieceWidthBelow : double.NaN;
+        PlanRequirementsCard.Margin = sideBySide ? new(16, 8, 16, 12) : new(16, 0, 16, 12);
+        PlanRequirementsCard.VerticalAlignment = sideBySide
+            ? Avalonia.Layout.VerticalAlignment.Top
+            : Avalonia.Layout.VerticalAlignment.Stretch;
+
+        Grid.SetColumn(PlanPanelActions, sideBySide ? 1 : 0);
+        Grid.SetColumnSpan(PlanPanelActions, sideBySide ? 1 : 2);
+        PlanPanelActions.Width = sideBySide ? SidePieceWidthBelow : double.NaN;
     }
 
     private void SetPanelHeadingVisible(bool visible)

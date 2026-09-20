@@ -360,6 +360,16 @@
     return (qr ? qr[1] : trimmed).replace(/[\s-]/g, "").toUpperCase();
   }
 
+  // #289: a phone camera cannot run the pairing ceremony, only open a link, so the desktop's QR
+  // is this page's own URL with the pairing payload in the fragment — never sent to any server.
+  // Only a payload actually shaped like one (the same prefix TryParseQrPayload checks server-side)
+  // is honoured, so an arbitrary or stale fragment does not silently start a pairing attempt.
+  function pairingCodeFromLocationHash() {
+    if (location.hash.length < 2) return null;
+    const qr = /^TARKOV-COMPANION-PAIR\/2\.0\/([0-9A-Za-z]+)\/[^/]+$/.exec(location.hash.slice(1));
+    return qr ? normalizeCode(qr[1]) : null;
+  }
+
   // ---------------------------------------------------------------------------------------
   // The ceremony. Steps and field orders follow docs/PAIRED_DEVICE_PROTOCOL.md exactly; the
   // byte layouts are checked against tests/TarkovCompanion.CompanionProtocol.Tests/Golden/crypto
@@ -2266,7 +2276,19 @@
 
   setStage("pairingIdle");
   renderMode();
-  restoreSession();
+  const qrCode = pairingCodeFromLocationHash();
+  if (qrCode) {
+    // The payload is a one-time secret. A fragment is never sent to the server, but the browser
+    // still keeps it in the visible address bar and in history, so drop it the moment it is read.
+    history.replaceState(null, "", location.pathname + location.search);
+    // A scanned QR is a fresh, explicit pairing intent, so it goes straight to the verification
+    // step rather than through restoreSession()'s own (fire-and-forget) attempt to reconnect a
+    // cached or previously-paired session, which would otherwise race this and could overwrite
+    // its stage change.
+    beginPairing(qrCode, "Tablet").catch((error) => setStage("pairingIdle", error.message || String(error)));
+  } else {
+    restoreSession();
+  }
 })();
 
 </script>

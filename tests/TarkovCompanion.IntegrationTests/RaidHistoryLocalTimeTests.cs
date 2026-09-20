@@ -40,7 +40,12 @@ public sealed class RaidHistoryLocalTimeTests
 
         var lines = (await scratch.ExportCsvAsync()).Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
-        Assert.Equal("id,profile_id,map_id,mode,start_local,end_local,outcome,notes", lines[0].TrimEnd('\r'));
+        // Version 2 keeps these eight columns first and unchanged, then adds a schema version, a
+        // source per field and scan counts (docs/DEBRIEF_EXPORT.md) — a prefix check, not equality.
+        Assert.StartsWith(
+            "id,profile_id,map_id,mode,start_local,end_local,outcome,notes",
+            lines[0].TrimEnd('\r'),
+            StringComparison.Ordinal);
         var row = lines[1].TrimEnd('\r').Split(',');
         Assert.Equal("customs", row[2]);
         Assert.Equal("2026-09-18 23:03:39", row[4]);
@@ -56,7 +61,10 @@ public sealed class RaidHistoryLocalTimeTests
 
         using var document = JsonDocument.Parse(await scratch.ExportJsonAsync());
 
-        var raid = Assert.Single(document.RootElement.EnumerateArray());
+        // Version 2 is an envelope (schemaVersion, exportedUtc, raids) rather than version 1's bare
+        // array — the one documented, deliberate break in docs/DEBRIEF_EXPORT.md. Nothing in the
+        // repo reads this file, so nothing but this test needed to move with it.
+        var raid = Assert.Single(document.RootElement.GetProperty("raids").EnumerateArray());
         Assert.False(raid.TryGetProperty("startedUtc", out _));
         Assert.False(raid.TryGetProperty("endedUtc", out _));
         var started = raid.GetProperty("started").GetString()!;

@@ -428,6 +428,12 @@ public sealed class RaidPageViewModel : PageViewModel
         private set => SetProperty(ref _timeLeftDetail, value);
     }
 
+    /// <summary>
+    /// What the player has corrected by hand about this raid (#286). Laid over the runtime
+    /// snapshot before any page reads it, so the one clock above counts from the corrected values.
+    /// </summary>
+    public RaidManualCorrections Corrections { get; } = new();
+
     public RaidPageViewModel(
         MapViewModel map,
         IRaidHistoryService? raidHistoryService = null,
@@ -594,7 +600,9 @@ public sealed class RaidPageViewModel : PageViewModel
             : raid.ActiveExtracts
                 .Select(extract => new ActiveExtractViewModel(
                     extract.Name,
-                    string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
+                    extract.Source == RaidManualCorrections.ManualBasis
+                        ? RaidManualCorrections.ManualBasis
+                        : string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
                     extract.Source))
                 .ToArray();
         ExtractsNotMatched = !isInRaid
@@ -865,7 +873,7 @@ public sealed class RaidPageViewModel : PageViewModel
             LengthFor(raid),
             nowUtc);
         TimeLeft = remaining.Display;
-        TimeLeftDetail = remaining.Detail;
+        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? RaidManualCorrections.ManualBasis : remaining.Detail;
         Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
     }
 
@@ -2854,6 +2862,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         };
 
         _apply = new(_synchronizationContext, () => ApplySnapshot(_stateStore.Current));
+        Raid.Corrections.Changed += RuntimeStateChanged;
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);
         StartClock();
@@ -3597,6 +3606,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
     private void ApplySnapshot(ApplicationRuntimeSnapshot snapshot)
     {
+        snapshot = snapshot with { Raid = Raid.Corrections.Apply(snapshot.Raid) };
         var now = _timeProvider.GetUtcNow();
         ModeLabel = snapshot.IsDemoMode
             ? "Deterministic local fixture · no live game access"
