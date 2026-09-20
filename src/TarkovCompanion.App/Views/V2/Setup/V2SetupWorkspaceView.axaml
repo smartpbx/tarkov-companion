@@ -115,6 +115,10 @@
         <Panel IsVisible="{Binding HasAdmin}">
           <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
         </Panel>
+        <!-- #292 task 3: the database's own migration version and verified backup. -->
+        <Panel IsVisible="{Binding HasDatabaseStatus}">
+          <setup:V2SetupDatabaseStatusView DataContext="{Binding DatabaseStatus}" />
+        </Panel>
         <!-- [Issue 318] The same for the loot-spawn layer: per map, how many of the published spawn records
              have a position and a floor, from the last verified import (works offline). -->
         <StackPanel Classes="v2-stack" IsVisible="{Binding HasLootCoverage}"

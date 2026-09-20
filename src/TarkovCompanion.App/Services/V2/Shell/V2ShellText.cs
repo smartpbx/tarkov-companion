@@ -240,6 +240,20 @@ public static class V2ShellText
         ["V2.Setup.Data.NextAtLaunch"] = "At launch if the data is over {0} h old, or press Sync now",
         ["V2.Setup.Data.ReasonLabel"] = "Why it is not current",
         ["V2.Setup.Data.RetryLabel"] = "Retry now",
+
+        // #292 task 3: the database's own migration state and verified backup, beside the
+        // catalog sync facts above.
+        ["V2.Setup.Data.DatabaseHeading"] = "Database",
+        ["V2.Setup.Data.VersionLine"] = "Version {0} · applied {1}",
+        ["V2.Setup.Data.NoMigrations"] = "No migrations recorded yet.",
+        ["V2.Setup.Data.UnknownTime"] = "an unknown time",
+        ["V2.Setup.Data.BackupLine"] = "{0} · {1}",
+        ["V2.Setup.Data.NoBackup"] = "No verified backup yet.",
+        ["V2.Setup.Data.BackUpNowLabel"] = "Back up now",
+        ["V2.Setup.Data.OpenBackupFolderLabel"] = "Open backup folder",
+        ["V2.Setup.Data.BackingUp"] = "Backing up…",
+        ["V2.Setup.Data.BackedUp"] = "Backed up.",
+        ["V2.Setup.Data.BackupFailed"] = "Not backed up · {0}",
         ["V2.Setup.Updates.NotesHeading"] = "What is new",
         ["V2.Setup.Updates.RetryLabel"] = "Try again",
         ["V2.Setup.Updates.GoingBackHeading"] = "Going back",
@@ -289,6 +303,12 @@ public static class V2ShellText
         ["V2.Setup.Profiles.Switched"] = "Switched to {0}.",
         ["V2.Setup.Profiles.ArchivedDone"] = "Archived {0}.",
         ["V2.Setup.Profiles.Restored"] = "Restored {0}.",
+
+        // #292 task 3: game mode and wipe label are set at creation and were unreachable after.
+        ["V2.Setup.Profiles.Edit"] = "Edit",
+        ["V2.Setup.Profiles.SaveEdit"] = "Save",
+        ["V2.Setup.Profiles.CancelEdit"] = "Cancel",
+        ["V2.Setup.Profiles.Edited"] = "Updated {0}.",
         // V2 rough package 17 (home): the Setup overview, after docs/design/v2/v2-home-setup-concept.png.
         ["V2.Home.Hero.Title"] = "Ready when you are",
         ["V2.Home.Hero.Subtitle"] = "Finish setup, then pick a map and plan your raid.",

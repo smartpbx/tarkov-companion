@@ -57,6 +57,64 @@ public sealed class ProfileContextV2Tests
         Assert.Equal(1, comparison.RightWishlistItems);
     }
 
+    [Fact]
+    public async Task Updating_mode_and_wipe_keeps_identity_progress_and_lifecycle_unchanged()
+    {
+        var store = new MemoryProfileStore();
+        using var service = new ProfileContextService(store, new ProfileClock(Now));
+        var profile = Profile("00000000-0000-0000-0000-000000000021", "alt-a", ProfileGameMode.Pvp, "bolts");
+        await service.CreateAsync(Request(profile), CancellationToken.None);
+
+        var updated = await service.UpdateModeAndWipeAsync(
+            profile.Context.Identity.ProfileId,
+            ProfileGameMode.Seasonal,
+            new WipeSeason("Wipe 9"),
+            CancellationToken.None);
+
+        var record = updated.Profiles.Single(candidate => candidate.Context.Identity.ProfileId == profile.Context.Identity.ProfileId);
+        Assert.Equal(ProfileGameMode.Seasonal, record.Context.Mode);
+        Assert.Equal("Wipe 9", record.Context.WipeSeason.Value);
+        // Untouched: identity, name, progress, lifecycle.
+        Assert.Equal(profile.Context.Identity.Generation, record.Context.Identity.Generation);
+        Assert.Equal(profile.Name, record.Name);
+        Assert.Contains("bolts", record.Progress.WishlistItemIds);
+        Assert.Equal(ProfileLifecycle.Active, record.Lifecycle);
+    }
+
+    [Fact]
+    public async Task Updating_to_the_same_mode_and_wipe_publishes_nothing()
+    {
+        var store = new MemoryProfileStore();
+        using var service = new ProfileContextService(store, new ProfileClock(Now));
+        var profile = Profile("00000000-0000-0000-0000-000000000022", "alt-b", ProfileGameMode.Pve, "ledx");
+        await service.CreateAsync(Request(profile), CancellationToken.None);
+        var published = new List<long>();
+        service.ContextChanged += change => published.Add(change.Snapshot.Revision);
+
+        await service.UpdateModeAndWipeAsync(
+            profile.Context.Identity.ProfileId,
+            ProfileGameMode.Pve,
+            profile.Context.WipeSeason,
+            CancellationToken.None);
+
+        Assert.Empty(published);
+    }
+
+    [Fact]
+    public async Task UnknownModeIsRefused()
+    {
+        var store = new MemoryProfileStore();
+        using var service = new ProfileContextService(store, new ProfileClock(Now));
+        var profile = Profile("00000000-0000-0000-0000-000000000023", "alt-c", ProfileGameMode.Pvp, "bolts");
+        await service.CreateAsync(Request(profile), CancellationToken.None);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.UpdateModeAndWipeAsync(
+            profile.Context.Identity.ProfileId,
+            ProfileGameMode.Unknown,
+            new WipeSeason("Wipe 1"),
+            CancellationToken.None));
+    }
+
     /// <summary>
     /// Phase 1 has no in-place rollover operation. A new wipe is a new profile with its own stable
     /// id, and the previous wipe stays a separate, archivable, unchanged profile; reusing the old

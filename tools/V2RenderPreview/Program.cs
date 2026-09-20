@@ -378,6 +378,15 @@ internal static class Program
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
                 Pump(20);
+
+                // [#292 task 3] Opens the active profile's inline mode/wipe editor, so the render
+                // shows real fields bound to a real row rather than a mock of the form.
+                if (args.Contains("--profiles-edit-demo") && shell.SetupWorkspace?.Profiles is { } profilesVm)
+                {
+                    var row = profilesVm.Profiles.First(candidate => candidate.IsActive);
+                    row.BeginEditCommand.Execute(null);
+                    Pump(10);
+                }
             }
 
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
