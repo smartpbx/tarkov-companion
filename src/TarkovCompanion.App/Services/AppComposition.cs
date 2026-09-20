@@ -693,7 +693,10 @@ public static class AppComposition
         services.AddSingleton(provider => new RelayMarksBridge(
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<IRaidMarkStore>(),
-            timeProvider));
+            timeProvider,
+            // [#289] The owner session and paired sessions' keys, kept where the TarkovTracker
+            // token is, so a restart does not ask for the relay's admin key or a re-pair.
+            new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>())));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);

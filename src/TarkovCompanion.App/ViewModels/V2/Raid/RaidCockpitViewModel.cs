@@ -385,7 +385,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             _userMarkers.Changed += UserMarkersChanged;
         }
 
-        _ = InitializeAsync();
+        InitializeAsync().Observe("raid", "initialize");
     }
 
     /// <summary>The canonical map renderer, once a reviewed map asset is available.</summary>
@@ -1671,7 +1671,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var version = Interlocked.Increment(ref _trafficVersion);
         _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
-        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+        RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version).Observe("raid", "refresh traffic");
     }
 
     private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)

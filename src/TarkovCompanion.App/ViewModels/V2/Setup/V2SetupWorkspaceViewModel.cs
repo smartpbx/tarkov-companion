@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -455,12 +456,12 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         {
             if (QuestCoverage is { } coverage)
             {
-                _ = coverage.RefreshAsync();
+                coverage.RefreshAsync().Observe("setup", "refresh quest coverage");
             }
 
             if (LootCoverage is { } lootCoverage)
             {
-                _ = lootCoverage.RefreshAsync();
+                lootCoverage.RefreshAsync().Observe("setup", "refresh loot coverage");
             }
         }
     }

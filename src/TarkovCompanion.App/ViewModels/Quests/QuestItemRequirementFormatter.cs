@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.App.ViewModels.Quests;
@@ -31,30 +32,8 @@ public static class QuestItemRequirementFormatter
         bool? foundInRaidRequired,
         Func<string, string>? name = null) => Describe(targets, foundInRaidRequired, "Items", name);
 
-    /// <summary>
-    /// The fields that name something you must already be carrying or wearing.
-    /// </summary>
-    /// <remarks>
-    /// The split is the whole point of having two lines. A key you forgot is a raid you cannot
-    /// finish; an item you meant to hand in is a raid you finish and then repeat. Those are
-    /// different mistakes and they are made at different moments, so they are not one list.
-    ///
-    /// A marker is carried in and left behind rather than handed over, so it belongs here.
-    /// "Not wearing" belongs here too: it is a decision made at the same screen, in the same
-    /// minute, about the same rig.
-    /// </remarks>
-    private static readonly string[] CarriedIn =
-    [
-        "requiredKeys",
-        "usingWeapon",
-        "usingWeaponMods",
-        "wearing",
-        "notWearing",
-        "markerItem",
-    ];
-
     /// <summary>Whether a requirement field names something carried or worn rather than handed over.</summary>
-    public static bool IsCarriedIn(string sourceField) => CarriedIn.Contains(sourceField, StringComparer.Ordinal);
+    public static bool IsCarriedIn(string sourceField) => QuestItemTargetFields.IsCarriedIn(sourceField);
 
     /// <summary>
     /// What to have on you before the raid starts, or empty where nothing is asked.
@@ -91,7 +70,7 @@ public static class QuestItemRequirementFormatter
     {
         ArgumentNullException.ThrowIfNull(targets);
         var wanted = targets
-            .Where(target => CarriedIn.Contains(target.SourceField, StringComparer.Ordinal) == carriedIn)
+            .Where(target => QuestItemTargetFields.IsCarriedIn(target.SourceField) == carriedIn)
             .ToArray();
         return wanted.Length == 0
             ? string.Empty

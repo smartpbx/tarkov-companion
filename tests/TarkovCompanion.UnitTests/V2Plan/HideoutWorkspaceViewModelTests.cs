@@ -55,6 +55,39 @@ public sealed class HideoutWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task A_load_that_fails_says_so_in_the_pane_and_Retry_brings_the_stations_back()
+    {
+        // #453: a failed load used to leave an empty pane and one grey sentence. The notice names
+        // what failed, never shows the exception, and its Retry is the same load run again.
+        var requirements = new FakeRequirementCatalog
+        {
+            Fails = true,
+            Stations = [new("lavatory", "Lavatory", [1, 2])],
+            Requirements = [new("lavatory", 1, "item-bolts", 5)],
+        };
+        var viewModel = new HideoutWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile(
+                hideoutLevels: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                owned: new Dictionary<string, int>(StringComparer.Ordinal))),
+            new FakeItemRepository());
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.LoadFault.IsVisible);
+        Assert.Equal("The hideout did not load", viewModel.LoadFault.Title);
+        Assert.DoesNotContain("no such table", viewModel.LoadFault.Title + viewModel.LoadFault.Detail, StringComparison.Ordinal);
+        Assert.Empty(viewModel.Stations);
+
+        requirements.Fails = false;
+        await viewModel.LoadFault.RetryAsync();
+
+        Assert.False(viewModel.LoadFault.IsVisible);
+        Assert.False(viewModel.LoadFault.IsRetrying);
+        Assert.Single(viewModel.Stations);
+    }
+
+    [Fact]
     public async Task Selecting_a_station_lists_what_its_next_level_still_needs()
     {
         var requirements = new FakeRequirementCatalog();
@@ -150,7 +183,10 @@ public sealed class HideoutWorkspaceViewModelTests
         Assert.True(viewModel.CanLowerLevel);
 
         viewModel.RaiseLevelCommand.Execute(null);
-        await WaitUntilAsync(() => viewModel.Stations.Single().BuiltLevel == 2);
+        // Until the requirements have followed, not only the station row: the rows are read on
+        // the pool now and arrive a moment after the list does.
+        await WaitUntilAsync(() =>
+            viewModel.Stations.Single().BuiltLevel == 2 && viewModel.Items is [{ ItemName: "Nails" }]);
 
         Assert.Equal(2, profiles.Current.HideoutStationLevels["lavatory"]);
         Assert.Equal("Level 2 of 3", viewModel.SelectedLevelLabel);
@@ -299,8 +335,12 @@ public sealed class HideoutWorkspaceViewModelTests
         public Task<IReadOnlyList<QuestItemRequirement>> GetQuestRequirementsAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<QuestItemRequirement>>([]);
 
+        public bool Fails { get; set; }
+
         public Task<IReadOnlyList<HideoutStationSummary>> GetStationsAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(Stations);
+            Fails
+                ? Task.FromException<IReadOnlyList<HideoutStationSummary>>(new InvalidOperationException("no such table: hideout_stations"))
+                : Task.FromResult(Stations);
 
         public void Invalidate()
         {

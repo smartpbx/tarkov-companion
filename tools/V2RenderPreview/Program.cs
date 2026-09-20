@@ -189,16 +189,46 @@ internal static class Program
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
-            window.Show();
+            // [#453] --ui-stalls-before-show: start up with no window, so every long turn the meter
+            // reports is a view model holding the interface thread, not the first layout and paint.
+            var showAfterStartup = args.Contains("--ui-stalls-before-show");
+            if (!showAfterStartup)
+            {
+                window.Show();
+            }
+
             // [#294] Whether the V1 shell was built at all. It used to be built on every launch
             // and hidden, so "V2 is the default" was true of what was drawn and false of what was
             // constructed. Printed rather than asserted: this tool reports, the ratchet test in
             // MainWindowShellCompositionTests is what fails.
             Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
-            DrainUntilComplete(viewModel.InitializeAsync());
+            // [#453] --inject-load-fault plan,hideout,keep,startup/hideout: make those loads throw,
+            // so the pane's "did not load" notice and the shell's startup banner can be looked at.
+            if (StringOption(args, "--inject-load-fault") is { } injected)
+            {
+                LoadFaultInjection.Inject(injected.Split(','));
+            }
+
+            // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
+            if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
+            {
+                UiStallMeter.Enable(stallMs);
+            }
+
+            Task? initializing = null;
+            UiStallMeter.Time(() => initializing = viewModel.InitializeAsync());
+            DrainUntilComplete(initializing!);
             if (seeding is not null)
             {
                 DrainUntilComplete(seeding);
+            }
+
+            UiStallMeter.Report("startup");
+            if (showAfterStartup)
+            {
+                window.Show();
+                Pump(20);
+                UiStallMeter.Report("first layout and paint");
             }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
@@ -275,15 +305,34 @@ internal static class Program
                     $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
             }
 
+            // [V2 rough package 61 — plan export] #288/#315: press Export and print what it
+            // produced, so the document can be read rather than assumed.
+            if (args.Contains("--plan-export"))
+            {
+                var exported = services.GetRequiredService<PlanWorkspaceViewModel>();
+                exported.Clipboard = text =>
+                {
+                    Console.WriteLine("----- exported plan -----");
+                    Console.WriteLine(text);
+                    Console.WriteLine("----- end -----");
+                    return Task.CompletedTask;
+                };
+                DrainUntilComplete(exported.ExportCommand.ExecuteAsync());
+                Pump(20);
+                Console.WriteLine("Export status: " + exported.ExportStatus);
+            }
+
             if (shell is not null && route is not null)
             {
-                var result = shell.Router.NavigateToAddress(route);
-                if (!result.Succeeded)
+                V2NavigationResult? result = null;
+                UiStallMeter.Time(() => result = shell.Router.NavigateToAddress(route));
+                if (!result!.Succeeded)
                 {
                     throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
                 }
 
                 Pump(20);
+                UiStallMeter.Report($"navigate to {route}");
             }
 
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
@@ -361,12 +410,27 @@ internal static class Program
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;
-                loadout.SearchQuery = loadoutQuery;
-                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
-                if (loadout.Results.Count > 0)
+                // Several entries separated by ';' assign the first result of each, and
+                // "Ammunition=9x18mm PM" names the slot it goes in, so a render can hold a weapon
+                // and a round at once. Without a slot name every entry lands in the chosen slot
+                // and replaces the last: the first attempt at this put a round in Weapon.
+                foreach (var entry in loadoutQuery.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
-                    loadout.Results[0].AssignCommand.Execute(null);
-                    Pump(60);
+                    var query = entry;
+                    if (entry.Split('=', 2, StringSplitOptions.TrimEntries) is [var slotName, var slotQuery] &&
+                        Enum.TryParse<TarkovCompanion.App.ViewModels.LoadoutSlot>(slotName, ignoreCase: true, out var slot))
+                    {
+                        loadout.SelectedSlot = loadout.Slots.First(option => option.Slot == slot);
+                        query = slotQuery;
+                    }
+
+                    loadout.SearchQuery = query;
+                    DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                    if (loadout.Results.Count > 0)
+                    {
+                        loadout.Results[0].AssignCommand.Execute(null);
+                        Pump(60);
+                    }
                 }
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
@@ -869,6 +933,14 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.");
                         break;
+                    case "restored":
+                        // [#289] Claimed on an earlier run and picked back up at startup: nothing
+                        // was attempted this run, so there is no attempt message to show.
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            devices: [DemoPairedDevice("Kitchen tablet")]);
+                        break;
                     case "pairing":
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.ClaimedByThisDesktop,
@@ -1064,6 +1136,26 @@ internal static class Program
                 Pump(2);
                 DrainUntilComplete(setupWorkspace.SelfTest!.RunAsync());
                 Pump(20);
+            }
+
+            // [#453] --hang-demo: the application's own watchdog, on this real dispatcher, against a
+            // dispatcher job that does not return for 2.5 s. Prints what it wrote to the crash log.
+            if (args.Contains("--hang-demo"))
+            {
+                var hangLog = Path.Combine(dataRoot, "hang-demo-logs");
+                CrashLog.Install(hangLog);
+                using var watchdog = UiHangWatchdog.ForApplication(TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100));
+                watchdog.Start();
+                Pump(20);
+                Dispatcher.UIThread.Post(() => Thread.Sleep(2500));
+                Pump(40);
+                Console.WriteLine($"Hang demo: {watchdog.HangsRecorded} hang(s) recorded.");
+                foreach (var line in File.ReadAllLines(CrashLog.FilePath!).Where(line => line.Contains("ui-hang", StringComparison.Ordinal)))
+                {
+                    Console.WriteLine("  " + line);
+                }
+
+                CrashLog.Detach();
             }
 
             SaveFrame(window, outputPath, width, height);
@@ -1451,8 +1543,36 @@ internal static class Program
     {
         for (var i = 0; i < turns; i++)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(25);
+        }
+
+        Settle();
+    }
+
+    /// <summary>
+    /// Keeps pumping until the page has stopped reading, or ten seconds have gone.
+    /// </summary>
+    /// <remarks>
+    /// [#453] A fixed number of turns was enough while every database read ran inside the turn
+    /// that asked for it. Reads now happen on the pool and come back in later turns, and the first
+    /// render after that change photographed Keep saying "Loading the keep list…". Settled means
+    /// six turns in a row with no database call in flight, no workspace load unfinished, and
+    /// nothing for the dispatcher to do.
+    /// </remarks>
+    private static void Settle()
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (quiet < 6 && System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        {
+            var turn = System.Diagnostics.Stopwatch.GetTimestamp();
+            UiStallMeter.RunJobs();
+            var idle = System.Diagnostics.Stopwatch.GetElapsedTime(turn) < TimeSpan.FromMilliseconds(2)
+                && TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory.OpenConnectionCount == 0
+                && !UiActivity.IsLoading;
+            quiet = idle ? quiet + 1 : 0;
+            Thread.Sleep(10);
         }
     }
 
@@ -1460,7 +1580,7 @@ internal static class Program
     {
         while (!task.IsCompleted)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(5);
         }
 

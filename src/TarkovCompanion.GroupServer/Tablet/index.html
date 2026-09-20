@@ -116,6 +116,7 @@
     </div>
     <div id="pairingDone" style="display:none">
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
+      <button type="button" id="unpair">Unpair this tablet</button>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
@@ -292,6 +293,16 @@
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+
+  const idbDelete = async (key) => {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -624,6 +635,19 @@
   let mode = "Follow";
   const FRAME_LIFETIME_MS = 60_000;
   const CONTROL_LEASE = "00:02:00";
+  // [#290] The paired session, kept across a page reload and a browser restart. What is kept is
+  // this one device's session: its relay credential (which the desktop revokes, and which expires
+  // with the session) and its two traffic keys as non-extractable CryptoKeys. Never a group key,
+  // an owner credential or the desktop's admin key: none of those ever reach this page.
+  const SESSION_KEY = "session";
+  // A sender sequence is this session's AES-GCM nonce, so a reload must never start again at
+  // one. Sequences are reserved in blocks and the reservation is what is stored: whatever a
+  // previous page may have used is below the number this page starts from.
+  const SEQUENCE_BLOCK = 256;
+  // How often a quiet tablet asks the desktop where canonical state is. It heals a missed update,
+  // and it is the only thing a tablet that just follows ever sends, so it is also what tells
+  // the desktop this tablet is still here.
+  const RESYNC_MS = 5 * 60_000;
   // The desktop republishes its map about once a second while a raid is running. Twice that,
   // and a tablet says the desktop is gone rather than showing a map that stopped being true.
   const SURFACE_STALE_MS = 20_000;
@@ -951,6 +975,11 @@
       const held = live.mapRevision !== null;
       const query = held ? `?since=${live.mapRevision}&wait=${HOLD_SECONDS}` : "";
       const response = await relayCall(`/v2/companion/relay/map${query}`);
+      if (response.status === 401) {
+        await sessionEnded();
+        return false;
+      }
+
       if (response.status === 404) {
         live.surface = null;
         live.mapRevision = null;
@@ -1037,6 +1066,7 @@
       workspace: null,
       credential: null,
       senderSequence: 0,
+      reservedThrough: 0,
       afterDeliveryId: 0,
       marks: [],
       surface: null,
@@ -1073,10 +1103,144 @@
       return;
     }
 
+    // From here on the keys are only ever used, never read: imported non-extractable, which is
+    // also the only form of them that is stored.
+    live.tabletToDesktopKey = await RelayFrameCrypto.importStoredTrafficKey(tabletToDesktopKey, "encrypt");
+    live.desktopToTabletKey = await RelayFrameCrypto.importStoredTrafficKey(desktopToTabletKey, "decrypt");
+    tabletToDesktopKey.fill(0);
+    desktopToTabletKey.fill(0);
+    live.sessionExpiresUtc = assignment.sessionExpiresUtc;
+    live.deviceName = $("pairingName").value.trim() || "Tablet";
+    await saveSession();
+    beginLive();
+  }
+
+  async function saveSession() {
+    if (!live?.credential) return;
+    try {
+      await idbSet(SESSION_KEY, {
+        sessionId: live.sessionId,
+        deviceId: live.deviceId,
+        channelId: live.channelId,
+        keyEpoch: live.keyEpoch,
+        protocolVersion: live.protocolVersion,
+        sessionExpiresUtc: live.sessionExpiresUtc,
+        tabletToDesktopKey: live.tabletToDesktopKey,
+        desktopToTabletKey: live.desktopToTabletKey,
+        credential: live.credential,
+        reservedThrough: live.reservedThrough,
+        deviceName: live.deviceName,
+      });
+    } catch {
+      // Storage is unavailable (a private window). The session still works; it just will not
+      // outlive this page.
+    }
+  }
+
+  async function forgetSession() {
+    try {
+      await idbDelete(SESSION_KEY);
+    } catch {
+      // Nothing was kept, so there is nothing to forget.
+    }
+  }
+
+  /** Picks a kept session back up on load. True when there was one and it is now live. */
+  async function restoreSession() {
+    let stored = null;
+    try {
+      stored = await idbGet(SESSION_KEY);
+    } catch {
+      return false;
+    }
+
+    if (!stored?.credential || !stored.tabletToDesktopKey || !stored.desktopToTabletKey) return false;
+    if (Date.parse(stored.sessionExpiresUtc) <= Date.now()) {
+      await forgetSession();
+      return false;
+    }
+
+    live = {
+      sessionId: stored.sessionId,
+      deviceId: stored.deviceId,
+      channelId: stored.channelId,
+      keyEpoch: stored.keyEpoch,
+      protocolVersion: stored.protocolVersion,
+      sessionExpiresUtc: stored.sessionExpiresUtc,
+      tabletToDesktopKey: stored.tabletToDesktopKey,
+      desktopToTabletKey: stored.desktopToTabletKey,
+      deviceName: stored.deviceName || "Tablet",
+      authorityEpoch: null,
+      marksRevision: 0,
+      workspaceRevision: 0,
+      modesRevision: 0,
+      workspace: null,
+      credential: stored.credential,
+      // Above anything the page that stored this may have sent; see SEQUENCE_BLOCK.
+      senderSequence: stored.reservedThrough || 0,
+      reservedThrough: stored.reservedThrough || 0,
+      afterDeliveryId: 0,
+      marks: [],
+      surface: null,
+      mapRevision: null,
+      connected: false,
+    };
+    $("pairedName").textContent = live.deviceName;
+    setStage("pairingDone");
+    renderMarks();
+    beginLive();
+    return true;
+  }
+
+  function beginLive() {
+    const session = live;
     $("surface").style.display = "";
     renderLiveStatus();
+    announceTab();
     pollLiveFrames();
     pollSurface();
+    // A page that has just loaded holds no canonical state at all, so the first thing it does is
+    // ask for it: the protocol's reconnect request, answered with a snapshot.
+    requestResync();
+    const timer = setInterval(() => {
+      if (live !== session) {
+        clearInterval(timer);
+        return;
+      }
+
+      requestResync();
+    }, RESYNC_MS);
+  }
+
+  /** The relay no longer accepts this session: revoked from the desktop, or expired. */
+  async function sessionEnded(message) {
+    if (!live) return;
+    live = null;
+    mode = "Follow";
+    await forgetSession();
+    $("surface").style.display = "none";
+    setStage("pairingIdle", message || "This tablet is no longer paired with the desktop. Pair it again.");
+    renderLiveStatus();
+  }
+
+  // One tab at a time. Two tabs on one kept session would share a sender sequence, and the
+  // second to send would be refused as a replay at best. The newest tab wins; an older one says
+  // so and stops, keeping nothing that the newer one needs.
+  const tabs = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("tarkov-companion-tablet");
+  const tabId = crypto.randomUUID();
+  function announceTab() {
+    tabs?.postMessage({ type: "live", tabId, sessionId: live?.sessionId });
+  }
+
+  if (tabs) {
+    tabs.onmessage = (event) => {
+      if (event.data?.type !== "live" || event.data.tabId === tabId || !live) return;
+      if (event.data.sessionId !== live.sessionId) return;
+      live = null;
+      $("surface").style.display = "none";
+      setStage("pairingIdle", "This tablet is open in another tab. Reload this one to use it here instead.");
+      renderLiveStatus();
+    };
   }
 
   async function pollSurface() {
@@ -1092,11 +1256,24 @@
     while (live && live.credential) {
       try {
         const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}`);
+        if (response.status === 401) {
+          await sessionEnded();
+          return;
+        }
+
         if (response.ok) {
           const batch = await response.json();
           for (const envelope of batch.frames) {
             await handleInboundFrame(envelope.frame);
+            if (!live) return;
             live.afterDeliveryId = Math.max(live.afterDeliveryId, envelope.deliveryId);
+          }
+
+          // The relay dropped or restarted this queue, so something was missed: ask the desktop
+          // where things are rather than showing a state that stopped being true.
+          if (batch.requiresReconnect && batch.frames.length === 0) {
+            live.afterDeliveryId = 0;
+            requestResync();
           }
 
           if (batch.frames.length > 0) {
@@ -1119,6 +1296,17 @@
         direction: RelayFrameCrypto.DIRECTION.DesktopToTablet,
         frame,
       });
+      if (opened.kind === RelayFrameCrypto.PAYLOAD_KIND.ReconnectPlan) {
+        const plan = JSON.parse(RelayFrameCrypto.textDecoder.decode(opened.json));
+        // Only the answer to the request this page is waiting on; a late plan for an earlier
+        // one describes a state that may already have been replaced.
+        if (plan.requestId?.value !== live.resyncRequestId) return;
+        live.resyncRequestId = null;
+        if (plan.snapshot) applyServerMessage({ type: "canonicalSnapshot", state: plan.snapshot });
+        for (const replayed of plan.replay ?? []) applyServerMessage(replayed.message);
+        return;
+      }
+
       if (opened.kind !== RelayFrameCrypto.PAYLOAD_KIND.ServerEnvelope) return;
       const envelope = JSON.parse(RelayFrameCrypto.textDecoder.decode(opened.json));
       applyServerMessage(envelope.message);
@@ -1233,34 +1421,69 @@
 
   async function sendCommand(command) {
     if (!live?.authorityEpoch) return;
-    const envelope = {
+    await sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
       protocolVersion: live.protocolVersion,
       sessionId: { value: live.sessionId },
       authorityEpoch: { value: live.authorityEpoch },
       clientSentUtc: new Date().toISOString(),
       command,
-    };
-    const json = textEncoder.encode(JSON.stringify(envelope));
+    });
+  }
+
+  /** The next sender sequence, with its block reserved in storage before it is used. */
+  async function nextSenderSequence(session) {
+    if (session.senderSequence >= session.reservedThrough) {
+      session.reservedThrough += SEQUENCE_BLOCK;
+      await saveSession();
+    }
+
+    session.senderSequence += 1;
+    return session.senderSequence;
+  }
+
+  async function sendSealed(kind, payload) {
+    const session = live;
+    if (!session?.credential) return;
+    const json = textEncoder.encode(JSON.stringify(payload));
+    const senderSequence = await nextSenderSequence(session);
     const now = Date.now();
-    live.senderSequence += 1;
     const frame = await RelayFrameCrypto.sealRelayFrame({
-      trafficKey: live.tabletToDesktopKey,
+      trafficKey: session.tabletToDesktopKey,
       direction: RelayFrameCrypto.DIRECTION.TabletToDesktop,
-      kind: RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope,
-      protocolVersion: live.protocolVersion,
-      channelId: live.channelId,
-      sessionId: live.sessionId,
-      keyEpoch: live.keyEpoch,
-      senderSequence: live.senderSequence,
+      kind,
+      protocolVersion: session.protocolVersion,
+      channelId: session.channelId,
+      sessionId: session.sessionId,
+      keyEpoch: session.keyEpoch,
+      senderSequence,
       issuedUtc: now,
       expiresUtc: now + FRAME_LIFETIME_MS,
       json,
     });
-    await relayCall("/v2/companion/relay/frames", {
+    if (live !== session) return;
+    const response = await relayCall("/v2/companion/relay/frames", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(frame),
     });
+    if (response.status === 401) await sessionEnded();
+  }
+
+  // The protocol's reconnect request (docs/PAIRED_DEVICE_PROTOCOL.md, "Reconnect and replay"),
+  // always as a client holding no cache: this page replaces what it shows rather than folding
+  // deltas, so a full snapshot is the answer it can use.
+  function requestResync() {
+    if (!live?.credential) return;
+    live.resyncRequestId = crypto.randomUUID();
+    sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ReconnectRequest, {
+      protocolVersion: live.protocolVersion,
+      sessionId: { value: live.sessionId },
+      requestId: { value: live.resyncRequestId },
+      authorityEpoch: null,
+      lastGlobalRevision: { value: 0 },
+      lastDeliverySequence: { value: 0 },
+      aggregateAcknowledgements: [],
+    }).catch(() => {});
   }
 
   const commandHeader = (revision) => {
@@ -1726,8 +1949,12 @@
     if (event.key === "Enter") runSearch();
   });
 
+  $("unpair").addEventListener("click", () =>
+    sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again."));
+
   setStage("pairingIdle");
   renderMode();
+  restoreSession();
 })();
 
 </script>

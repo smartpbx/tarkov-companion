@@ -2,7 +2,8 @@
              x:DataType="vm:KeepListWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <!-- Same visual language as the Hideout tab's card and chip. -->
     <Style Selector="Border.v2-keep-card">
@@ -48,6 +49,7 @@
         <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-keep-status"
                    AutomationProperties.LiveSetting="Polite" />
+        <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" Margin="0,8,8,0" />
       </StackPanel>
 
       <Panel Grid.Row="1">
@@ -76,6 +78,19 @@
                               <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                               <TextBlock Classes="v2-label" Text="{Binding ReasonSummary}" TextWrapping="Wrap"
                                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                              <WrapPanel Orientation="Horizontal" IsVisible="{Binding HasCounts}" Margin="0,2,0,0">
+                                <Border Classes="v2-keep-chip" Margin="0,0,6,0" IsVisible="{Binding HasQuestCount}"
+                                        AutomationProperties.AutomationId="v2-keep-quest-count">
+                                  <TextBlock Classes="v2-label" Text="{Binding QuestCountLabel}" />
+                                </Border>
+                                <Border Classes="v2-keep-chip" Margin="0,0,6,0" IsVisible="{Binding HasHideoutCount}"
+                                        AutomationProperties.AutomationId="v2-keep-hideout-count">
+                                  <TextBlock Classes="v2-label" Text="{Binding HideoutCountLabel}" />
+                                </Border>
+                                <Border Classes="v2-keep-chip" AutomationProperties.AutomationId="v2-keep-held">
+                                  <TextBlock Classes="v2-label" Text="{Binding HeldLabel}" />
+                                </Border>
+                              </WrapPanel>
                             </StackPanel>
                             <Border Grid.Column="1" Classes="v2-keep-chip" Classes.v2-keep-high-value="{Binding IsHighValue}"
                                     VerticalAlignment="Center" IsVisible="{Binding IsHighValue}">

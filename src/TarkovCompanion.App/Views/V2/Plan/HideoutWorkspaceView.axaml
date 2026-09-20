@@ -2,7 +2,8 @@
              x:DataType="vm:HideoutWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
     <!-- Same visual language as the Plan tab's bundle cards and requirement list. -->
     <Style Selector="Button.v2-hideout-station">
@@ -69,6 +70,7 @@
           <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
                      AutomationProperties.AutomationId="v2-hideout-status"
                      AutomationProperties.LiveSetting="Polite" />
+          <prim:V2LoadFaultNotice DataContext="{Binding LoadFault}" Margin="0,8,8,0" />
         </StackPanel>
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasStations}">
           <ItemsControl ItemsSource="{Binding Stations}" Margin="0,4,0,8">
