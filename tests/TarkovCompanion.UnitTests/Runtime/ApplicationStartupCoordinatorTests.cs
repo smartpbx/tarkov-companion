@@ -4,6 +4,7 @@ using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -12,6 +13,8 @@ using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Profile;
+using TarkovCompanion.Core.Domain.Profiles;
+using static TarkovCompanion.UnitTests.Profiles.ProfileV2Fixtures;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.UnitTests.Runtime;
@@ -328,6 +331,108 @@ public sealed class ApplicationStartupCoordinatorTests
         Assert.DoesNotContain("Lifecycle = snapshot", initialize, StringComparison.Ordinal);
     }
 
+    // [#269] Catalog refresh follows the active profile instead of the hard-coded Regular / "en".
+
+    [Theory]
+    [InlineData(ProfileGameMode.Pvp, GameMode.Regular, "en")]
+    [InlineData(ProfileGameMode.Pve, GameMode.Pve, "de")]
+    [InlineData(ProfileGameMode.Seasonal, GameMode.PvpSeason, "pt")]
+    public async Task ARefreshFetchesTheActiveProfilesModeAndLanguage(
+        ProfileGameMode mode,
+        GameMode expectedMode,
+        string expectedLanguage)
+    {
+        using var profiles = await ProfilesAsync(
+            (201, mode, expectedLanguage == "pt" ? "pt-BR" : expectedLanguage));
+        await using var fixture = new RefreshFixture(RefreshDependency.None, TimeSpan.FromSeconds(5), profileContext: profiles.Runtime);
+
+        await fixture.Coordinator.RefreshAsync(force: true, default);
+
+        var request = Assert.Single(fixture.Sync.Requests);
+        Assert.Equal(expectedMode, request.GameMode);
+        Assert.Equal(expectedLanguage, request.Language);
+    }
+
+    [Fact]
+    public async Task AProfileWithNoGameModeFetchesNothingAndSaysWhy()
+    {
+        using var profiles = await ProfilesAsync((202, ProfileGameMode.Unknown, "en-US"));
+        await using var fixture = new RefreshFixture(RefreshDependency.None, TimeSpan.FromSeconds(5), profileContext: profiles.Runtime);
+
+        await fixture.Coordinator.RefreshAsync(force: true, default);
+
+        Assert.Empty(fixture.Sync.Requests);
+        Assert.Contains("no game mode", fixture.State.Current.Data.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task WithNoProfileAtAllTheRuntimeOptionsStillLoadTheCatalog()
+    {
+        using var profiles = await ProfilesAsync();
+        await using var fixture = new RefreshFixture(RefreshDependency.None, TimeSpan.FromSeconds(5), profileContext: profiles.Runtime);
+
+        await fixture.Coordinator.RefreshAsync(force: true, default);
+
+        var request = Assert.Single(fixture.Sync.Requests);
+        Assert.Equal(GameMode.Regular, request.GameMode);
+        Assert.Equal("en", request.Language);
+    }
+
+    [Fact]
+    public async Task SwitchingToAProfileInAnotherModeFetchesThatModesCatalogAndReloadsProgress()
+    {
+        using var profiles = await ProfilesAsync((203, ProfileGameMode.Pvp, "en-US"), (204, ProfileGameMode.Pve, "de-DE"));
+        await using var fixture = new RefreshFixture(RefreshDependency.None, TimeSpan.FromSeconds(5), profileContext: profiles.Runtime);
+        await fixture.Coordinator.RefreshAsync(force: true, default);
+        var readsBefore = fixture.Profile.Reads;
+
+        await profiles.Runtime.SwitchAsync(Id(204), default);
+        await fixture.Sync.WaitForCallsAsync(2);
+
+        Assert.Equal([(GameMode.Regular, "en"), (GameMode.Pve, "de")], fixture.Sync.Requests.Select(r => (r.GameMode, r.Language)));
+        Assert.True(fixture.Profile.Reads > readsBefore, "the runtime state must reload the profile that is now active");
+    }
+
+    [Fact]
+    public async Task SwitchingToAProfileInTheSameModeReloadsProgressWithoutFetchingAgain()
+    {
+        using var profiles = await ProfilesAsync((205, ProfileGameMode.Pve, "en-US"), (206, ProfileGameMode.Pve, "en-GB"));
+        await using var fixture = new RefreshFixture(RefreshDependency.None, TimeSpan.FromSeconds(5), profileContext: profiles.Runtime);
+        await fixture.Coordinator.RefreshAsync(force: true, default);
+        var readsBefore = fixture.Profile.Reads;
+
+        await profiles.Runtime.SwitchAsync(Id(206), default);
+        await fixture.Profile.WaitForReadsAsync(readsBefore + 1);
+
+        Assert.Single(fixture.Sync.Requests);
+    }
+
+    private static async Task<ProfileFixture> ProfilesAsync(params (int Id, ProfileGameMode Mode, string Language)[] specs)
+    {
+        var service = new ProfileContextService(new UnitTests.Profiles.MemoryProfileStore(), new UnitTests.Profiles.ProfileClock(Now));
+        foreach (var (id, mode, language) in specs)
+        {
+            await service.CreateAsync(
+                Request(Profile(Context(Id(id), $"generation-{id}", mode, language: language), $"item-{id}"), makeActive: id == specs[0].Id),
+                default);
+        }
+
+        var runtime = new ProfileRuntimeContextService(service);
+        await runtime.InitializeAsync(default);
+        return new(service, runtime);
+    }
+
+    private sealed class ProfileFixture(ProfileContextService service, ProfileRuntimeContextService runtime) : IDisposable
+    {
+        public ProfileRuntimeContextService Runtime { get; } = runtime;
+
+        public void Dispose()
+        {
+            Runtime.Dispose();
+            service.Dispose();
+        }
+    }
+
     public enum RefreshDependency
     {
         None,
@@ -347,7 +452,8 @@ public sealed class ApplicationStartupCoordinatorTests
             TaskCompletionSource? databaseRelease = null,
             bool offline = false,
             Func<bool>? offlineProbe = null,
-            IHighValueLootRuntimeSource? highValueLoot = null)
+            IHighValueLootRuntimeSource? highValueLoot = null,
+            IProfileRuntimeContextService? profileContext = null)
         {
             Time = new(Epoch);
             Control = new(dependency);
@@ -369,6 +475,7 @@ public sealed class ApplicationStartupCoordinatorTests
             ItemFacts = new();
             Projection = new();
             var profile = new StubProfileService();
+            Profile = profile;
             var raid = new RaidActivityCoordinator(
                 new RaidStateService(),
                 raidHistory ?? new StubRaidHistoryService(),
@@ -402,8 +509,11 @@ public sealed class ApplicationStartupCoordinatorTests
                 options,
                 NullLogger<ApplicationStartupCoordinator>.Instance,
                 timeProvider: Time,
-                highValueLoot: highValueLoot);
+                highValueLoot: highValueLoot,
+                profileContext: profileContext);
         }
+
+        public StubProfileService Profile { get; }
 
         public ManualTimeProvider Time { get; }
 
@@ -458,10 +568,50 @@ public sealed class ApplicationStartupCoordinatorTests
 
     private sealed class ControlledSyncService(RefreshControl control) : IDataSyncService
     {
+        private readonly Lock _gate = new();
+        private readonly List<SyncRequest> _requests = [];
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
+
         public int Calls { get; private set; }
+
+        public IReadOnlyList<SyncRequest> Requests
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _requests.ToArray();
+                }
+            }
+        }
+
+        /// <summary>Completes once this many syncs have started, however the switch that caused them was scheduled.</summary>
+        public Task WaitForCallsAsync(int count)
+        {
+            lock (_gate)
+            {
+                if (_requests.Count >= count)
+                {
+                    return Task.CompletedTask;
+                }
+
+                var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((count, reached));
+                return reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+        }
 
         public async Task<SyncReport> SyncAsync(SyncRequest request, CancellationToken cancellationToken)
         {
+            lock (_gate)
+            {
+                _requests.Add(request);
+                foreach (var waiter in _waiters.Where(waiter => waiter.Count <= _requests.Count))
+                {
+                    waiter.Reached.TrySetResult();
+                }
+            }
+
             Calls++;
             return await control.RunAsync(
                     RefreshDependency.Synchronization,
@@ -617,6 +767,36 @@ public sealed class ApplicationStartupCoordinatorTests
 
     private sealed class StubProfileService : IPlayerProfileService
     {
+        private readonly Lock _gate = new();
+        private readonly List<(int Count, TaskCompletionSource Reached)> _waiters = [];
+        private int _reads;
+
+        public int Reads
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _reads;
+                }
+            }
+        }
+
+        public Task WaitForReadsAsync(int count)
+        {
+            lock (_gate)
+            {
+                if (_reads >= count)
+                {
+                    return Task.CompletedTask;
+                }
+
+                var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                _waiters.Add((count, reached));
+                return reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            }
+        }
+
         private static readonly PlayerProfile Profile = new(
             Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
             "fixture",
@@ -634,7 +814,19 @@ public sealed class ApplicationStartupCoordinatorTests
             new Dictionary<string, string>(),
             Epoch);
 
-        public Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken) => Task.FromResult(Profile);
+        public Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken)
+        {
+            lock (_gate)
+            {
+                _reads++;
+                foreach (var waiter in _waiters.Where(waiter => waiter.Count <= _reads))
+                {
+                    waiter.Reached.TrySetResult();
+                }
+            }
+
+            return Task.FromResult(Profile);
+        }
 
         public Task SaveAsync(PlayerProfile profile, CancellationToken cancellationToken) => Task.CompletedTask;
 

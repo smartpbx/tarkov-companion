@@ -4,8 +4,10 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Intelligence.Gear;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
+using TarkovCompanion.Core.Domain.Gear;
 using TarkovCompanion.Core.Domain.Items;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -279,7 +281,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         command.CommandText = """
             SELECT item.id, item.name, item.category_type,
                    metric.flea_price_roubles, item.avg_24h_price, item.base_price,
-                   metric.weight_kg, item.properties_type, item.properties_json
+                   metric.weight_kg, item.properties_type, item.properties_json,
+                   item.source_updated_utc
             FROM items AS item
             LEFT JOIN item_metrics_v2 AS metric ON metric.item_id = item.id
             ORDER BY item.id;
@@ -301,14 +304,22 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
 
                 var carriesCaliber = isAmmo ||
                     string.Equals(propertiesType, WeaponPropertiesType, StringComparison.Ordinal);
+                var category = ParseCategory(reader.GetString(2));
                 rows.Add(new(
                     itemId,
                     reader.GetString(1),
-                    ParseCategory(reader.GetString(2)),
+                    category,
                     BestPriceRoubles(reader, 3, 4, 5),
                     reader.IsDBNull(6) ? null : reader.GetDouble(6),
                     carriesCaliber ? ReadString(properties?.RootElement, "caliber") : null,
-                    ReadAllowedAmmo(properties?.RootElement)));
+                    ReadAllowedAmmo(properties?.RootElement),
+                    GearFactsReader.Read(
+                        itemId,
+                        category,
+                        properties?.RootElement,
+                        UpstreamProvenance(reader.IsDBNull(9)
+                            ? DateTimeOffset.UnixEpoch
+                            : ParseTimestamp(reader.GetString(9))))));
             }
         }
 
@@ -334,6 +345,31 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             }
         }
 
+        // A body armor states which plates fit each of its plate slots, so a plate's parents are the
+        // armors that list it. Only ids of items that are plates are inverted, for the same reason
+        // as ammunition above: a malformed list must not hand a parent to something that is not one.
+        var plateItemIds = new HashSet<string>(
+            rows.Where(row => row.Category == ItemCategory.Plate).Select(row => row.Id),
+            StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            foreach (var plateId in row.Gear?.PlateSlots.SelectMany(slot => slot.AllowedPlateItemIds) ?? [])
+            {
+                if (!plateItemIds.Contains(plateId))
+                {
+                    continue;
+                }
+
+                if (!parents.TryGetValue(plateId, out var armors))
+                {
+                    armors = new(StringComparer.Ordinal);
+                    parents[plateId] = armors;
+                }
+
+                armors.Add(row.Id);
+            }
+        }
+
         var facts = new List<LoadoutItemFacts>(rows.Count);
         foreach (var row in rows)
         {
@@ -345,7 +381,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
                 WeightKg: row.WeightKg,
                 Caliber: row.Caliber,
                 CompatibleWeaponItemIds: NoItemIds,
-                CompatibleParentItemIds: parents.TryGetValue(row.Id, out var containers) ? containers : NoItemIds));
+                CompatibleParentItemIds: parents.TryGetValue(row.Id, out var containers) ? containers : NoItemIds,
+                Gear: row.Gear));
         }
 
         return facts;
@@ -613,7 +650,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         long? CostRoubles,
         double? WeightKg,
         string? Caliber,
-        IReadOnlyList<string> AllowedAmmoItemIds);
+        IReadOnlyList<string> AllowedAmmoItemIds,
+        GearFacts? Gear);
 
     private sealed record KeyLocks(IReadOnlyList<string> LockIds, IReadOnlyList<string> MapIds);
 }

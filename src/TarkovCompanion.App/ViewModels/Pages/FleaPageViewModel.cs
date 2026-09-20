@@ -3,6 +3,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -199,7 +200,7 @@ public sealed class FleaPageViewModel : PageViewModel
         sale.Count == 1
             ? "1 sold"
             : string.Create(CultureInfo.CurrentCulture, $"{sale.Count} sold"),
-        sale.ObservedUtc.ToLocalTime().ToString("t", CultureInfo.CurrentCulture));
+        LocalTime.ShortTime(sale.ObservedUtc));
 
     /// <summary>
     /// Names the items that sold, once each.
@@ -308,7 +309,7 @@ public sealed class FleaPageViewModel : PageViewModel
             History = points
                 .OrderByDescending(point => point.TimestampUtc)
                 .Select(point => new FleaHistoryPointViewModel(
-                    point.TimestampUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                    LocalTime.Moment(point.TimestampUtc),
                     point.FleaPriceRoubles is { } flea ? Roubles(flea) : "—",
                     point.TraderValueRoubles is { } trader ? Roubles(trader) : "—",
                     point.Source))
@@ -374,5 +375,5 @@ public sealed class FleaPageViewModel : PageViewModel
     private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
 }

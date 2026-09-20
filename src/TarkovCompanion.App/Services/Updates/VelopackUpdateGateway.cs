@@ -12,12 +12,14 @@ namespace TarkovCompanion.App.Services.Updates;
 /// <param name="CanApply">Whether a build is fetched and waiting for a restart.</param>
 /// <param name="Available">The newer build's version, when there is one.</param>
 /// <param name="Failed">Whether the feed could not be asked, so "nothing newer" is not known.</param>
+/// <param name="Notes">The newer build's release notes, as the feed carries them (markdown), when it has any.</param>
 public sealed record UpdateProgress(
     string Status,
     bool CanDownload = false,
     bool CanApply = false,
     string? Available = null,
-    bool Failed = false);
+    bool Failed = false,
+    string? Notes = null);
 
 /// <summary>
 /// Installs and updates the application in place.
@@ -177,7 +179,11 @@ public sealed class VelopackUpdateGateway
 
         var available = update.TargetFullRelease.Version.ToString();
         _logger?.LogInformation("{Installed}; {Available} is available", InstalledBuild, available);
-        return new($"{available} is available", CanDownload: true, Available: available);
+        return new(
+            $"{available} is available",
+            CanDownload: true,
+            Available: available,
+            Notes: update.TargetFullRelease.NotesMarkdown);
     }
 
     /// <summary>

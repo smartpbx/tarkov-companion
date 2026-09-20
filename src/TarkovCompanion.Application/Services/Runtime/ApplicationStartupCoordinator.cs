@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
@@ -51,6 +52,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly BackgroundWorkSupervisor _supervisor;
     private readonly FeatureLifecycleCoordinator _lifecycle;
     private Task<BackgroundWorkResult>? _backgroundRefresh;
+    private readonly IProfileRuntimeContextService? _profileContext;
+    // The mode and language the last refresh was *attempted* for (not the last that succeeded), so a
+    // refresh that fails does not read as "scope changed" and loop; a manual Sync now retries.
+    private volatile SyncScope? _lastAttemptedScope;
     private Task? _offlineModeMonitor;
     private bool _backgroundRefreshNeedsOnlineFollowup;
     private Task? _disposeTask;
@@ -85,7 +90,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IMapFeatureCatalog? mapFeatures = null,
         // Optional because fixture and headless compositions may intentionally omit the map
         // layer while the desktop composition always supplies the durable production source.
-        IHighValueLootRuntimeSource? highValueLoot = null)
+        IHighValueLootRuntimeSource? highValueLoot = null,
+        // #269: the active profile decides which mode and language the catalog is fetched for.
+        // Optional so a composition without profiles (tests, headless) keeps using RuntimeOptions.
+        IProfileRuntimeContextService? profileContext = null)
     {
         _dataStore = dataStore;
         _dataSyncService = dataSyncService;
@@ -129,6 +137,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _supervisor.Changed += PublishSupervisorState;
         _lifecycle.Changed += PublishLifecycleState;
         _raidActivityCoordinator.OutboxChanged += PublishOutboxState;
+        _profileContext = profileContext;
+        if (_profileContext is not null)
+        {
+            _profileContext.ContextChanged += OnProfileContextChanged;
+        }
     }
 
     private readonly IOcrEngineStatus? _ocrStatus;
@@ -327,8 +340,18 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 Data = current.Data with { Availability = DataAvailability.Refreshing, Detail = "Refreshing stale game data in the background." },
             });
 
+            var scope = await ResolveSyncScopeAsync(operationCancellation.Token).ConfigureAwait(false);
+            if (scope is null)
+            {
+                // The active profile's mode is unknown. Fetching Regular data for it would put
+                // another mode's items and quests under a profile that never chose them.
+                PublishUnknownModeState();
+                return null;
+            }
+
+            _lastAttemptedScope = scope;
             var report = await _dataSyncService.SyncAsync(
-                    new(_options.GameMode, _options.Language, force),
+                    new(scope.Mode, scope.Language, force),
                     operationCancellation.Token)
                 .ConfigureAwait(false);
             operationCancellation.Token.ThrowIfCancellationRequested();
@@ -503,6 +526,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _supervisor.Changed -= PublishSupervisorState;
         _lifecycle.Changed -= PublishLifecycleState;
         _raidActivityCoordinator.OutboxChanged -= PublishOutboxState;
+        if (_profileContext is not null)
+        {
+            _profileContext.ContextChanged -= OnProfileContextChanged;
+        }
+
         if (supervisor.CompletedWithinDeadline)
         {
             await _supervisor.DisposeAsync().ConfigureAwait(false);
@@ -669,6 +697,144 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _options.OfflineTransitionPollInterval > TimeSpan.Zero
             ? _options.OfflineTransitionPollInterval
             : TimeSpan.FromSeconds(1);
+
+    /// <summary>The mode and language one catalog refresh is for.</summary>
+    private sealed record SyncScope(GameMode Mode, string Language);
+
+    /// <summary>
+    /// What the catalog should be fetched for right now: the active profile's mode and language,
+    /// <see cref="RuntimeOptions"/> when there is no profile at all (a V1 launch, or before the first
+    /// profile exists), and nothing when the profile's mode is unknown.
+    /// </summary>
+    private async Task<SyncScope?> ResolveSyncScopeAsync(CancellationToken cancellationToken)
+    {
+        if (_profileContext is null)
+        {
+            return new(_options.GameMode, _options.Language);
+        }
+
+        var snapshot = _profileContext.Current;
+        if (!snapshot.IsInitialized)
+        {
+            try
+            {
+                snapshot = await _profileContext.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Before the profile table exists, or with an unreadable workspace: the options
+                // are the pre-profile behaviour, so the catalog still loads on a first launch.
+                _logger.LogWarning(exception, "The profile context could not be read; refreshing with the runtime options.");
+                return new(_options.GameMode, _options.Language);
+            }
+        }
+
+        return ScopeOf(snapshot);
+    }
+
+    private SyncScope? ScopeOf(ProfileRuntimeContextSnapshot snapshot) => snapshot.State switch
+    {
+        ProfileRuntimeContextState.Ready when snapshot.CatalogScope is { } catalog =>
+            new(catalog.GameMode, catalog.Language),
+        ProfileRuntimeContextState.UnknownGameMode => null,
+        _ => new(_options.GameMode, _options.Language),
+    };
+
+    /// <summary>
+    /// A profile switch, create or restore committed: show the new profile's progress at once, and
+    /// fetch the catalog again only if its mode or language is not the one last fetched.
+    /// </summary>
+    /// <remarks>
+    /// The reaction is one supervised operation, so shutdown waits for it and its faults are
+    /// recorded, rather than a detached task. It reads the *latest* context when it runs, not the
+    /// one that raised the event: several quick switches collapse into whatever is active by then.
+    /// </remarks>
+    private void OnProfileContextChanged(ProfileRuntimeContextChanged change)
+    {
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted)
+            {
+                return;
+            }
+
+            var execution = new OperationExecutionRequest(
+                new("profile-change"),
+                OperationId.New(),
+                CorrelationId.New(),
+                new("profile-context"),
+                OperationPolicy.Once(
+                    _options.RefreshTimeout,
+                    WorkloadClass.Light,
+                    OperationRestartMode.Manual,
+                    IdempotencyRequirement.Guaranteed));
+            _supervisor.Submit(
+                new(execution, new("profile-change"), WorkPriority.UserBlocking),
+                async (_, token) => await ApplyProfileChangeAsync(token).ConfigureAwait(false));
+        }
+    }
+
+    private async Task ApplyProfileChangeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await LoadProfileAsync(cancellationToken).ConfigureAwait(false);
+            // A refresh already running may be for the scope before this switch. Joining it is not
+            // enough, so look again once it ends; three looks bounds a player flipping back and forth.
+            for (var pass = 0; pass < 3; pass++)
+            {
+                var scope = ScopeOf(_profileContext!.Current);
+                if (scope is null)
+                {
+                    PublishUnknownModeState();
+                    return;
+                }
+
+                if (_options.DemoMode || _options.IsOffline || scope == _lastAttemptedScope)
+                {
+                    return;
+                }
+
+                Task<BackgroundWorkResult> refresh;
+                lock (_backgroundGate)
+                {
+                    if (_disposeStarted)
+                    {
+                        return;
+                    }
+
+                    refresh = _backgroundRefresh is { IsCompleted: false } active
+                        ? active
+                        : _backgroundRefresh = StartRefreshUnsafe(force: true, WorkPriority.UserBlocking);
+                }
+
+                await refresh
+                    .WaitAsync(_options.RefreshTimeout, _timeProvider, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or ObjectDisposedException or TimeoutException)
+        {
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "The profile change could not be applied to the runtime state.");
+        }
+    }
+
+    private void PublishUnknownModeState()
+    {
+        _stateStore.Update(current => current with
+        {
+            Data = current.Data with
+            {
+                Availability = current.Data.ItemCount > 0
+                    ? DataAvailability.Cached
+                    : DataAvailability.Unavailable,
+                Detail = "This profile has no game mode. Choose PvP, PvE or Seasonal to load game data.",
+            },
+        });
+    }
 
     private void PublishOfflineState()
     {

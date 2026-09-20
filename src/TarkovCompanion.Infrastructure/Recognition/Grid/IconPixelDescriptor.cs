@@ -39,8 +39,28 @@ public sealed class IconPixelDescriptor
 
     public int HeightCells { get; }
 
+    /// <summary>
+    /// Descriptor rows left out at the top and at the bottom when the game's own writing is
+    /// masked: the caption band and the band that holds the stack count, the durability figure
+    /// and the found-in-raid tick. A quarter of a cell each.
+    /// </summary>
+    public const int MaskedBandRows = PixelsPerCell / 4;
+
     /// <summary>Describes an image known to span the given number of cells.</summary>
-    public static IconPixelDescriptor? Create(CapturedImage image, int widthCells, int heightCells)
+    public static IconPixelDescriptor? Create(CapturedImage image, int widthCells, int heightCells) =>
+        Create(image, widthCells, heightCells, maskGameWriting: false);
+
+    /// <summary>
+    /// Describes an image, optionally leaving out the two bands the game writes over an icon.
+    /// </summary>
+    /// <remarks>
+    /// The reference art carries a caption in its own font and nothing else. A real cell carries
+    /// the game's caption, a stack count or durability figure, and a found-in-raid tick, all in
+    /// bright pixels. On a bright item that is a detail; on a dark one (an attachment, a bolt, a
+    /// phone) it is most of the picture's variance, and measured on real screenshots it is what
+    /// drags a true match from 0.9 down to 0.4.
+    /// </remarks>
+    public static IconPixelDescriptor? Create(CapturedImage image, int widthCells, int heightCells, bool maskGameWriting)
     {
         ArgumentNullException.ThrowIfNull(image);
         if (widthCells < 1 || heightCells < 1 || widthCells > 16 || heightCells > 16 ||
@@ -59,12 +79,14 @@ public sealed class IconPixelDescriptor
         var redOffset = image.Format == PixelFormat.Rgba8888 ? 0 : 2;
         var blueOffset = image.Format == PixelFormat.Rgba8888 ? 2 : 0;
         var pixels = image.Pixels.Span;
+        var firstRow = maskGameWriting ? MaskedBandRows : 1;
+        var lastRow = maskGameWriting ? targetHeight - MaskedBandRows : targetHeight - 1;
         var innerWidth = targetWidth - 2;
-        var innerHeight = targetHeight - 2;
+        var innerHeight = lastRow - firstRow;
         var values = new float[innerWidth * innerHeight * 3];
         var index = 0;
         double sum = 0;
-        for (var ty = 1; ty < targetHeight - 1; ty++)
+        for (var ty = firstRow; ty < lastRow; ty++)
         {
             var top = (image.Height * ty) / targetHeight;
             var bottom = Math.Max(top + 1, (image.Height * (ty + 1)) / targetHeight);

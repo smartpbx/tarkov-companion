@@ -1,0 +1,142 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Windows.Input;
+using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Recognition;
+
+namespace TarkovCompanion.App.ViewModels.V2.Setup;
+
+/// <summary>One monitor, as Setup › Displays lists it.</summary>
+public sealed record SetupDisplayRow(string Name, string Detail, bool IsPrimary, bool HoldsGame)
+{
+    public string Badges => string.Join(" · ", new[]
+    {
+        IsPrimary ? V2ShellText.Get("V2.Setup.Displays.Primary") : null,
+        HoldsGame ? V2ShellText.Get("V2.Setup.Displays.GameHere") : null,
+    }.Where(badge => badge is not null));
+
+    public bool HasBadges => IsPrimary || HoldsGame;
+}
+
+/// <summary>
+/// Setup › Displays (#292): the monitors the machine has, and what a scan will capture. Read-only: window
+/// placement already restores itself, so this only says what it sees.
+/// </summary>
+/// <remarks>
+/// A scan captures the game's window, not a monitor, so the capture target is the game window: whether it
+/// is found, how large it is, which display it is on, and whether it is minimized. Without those a scan that
+/// returns nothing looks identical whether the game was closed, minimized, or on the display nobody thought of.
+/// Both services are Windows-only and are null elsewhere; the page then says so instead of showing nothing.
+/// </remarks>
+public sealed class SetupDisplaysViewModel : BindableViewModel
+{
+    private readonly IMonitorService? _monitors;
+    private readonly IGameWindowLocator? _windows;
+    private string _captureTarget = string.Empty;
+    private string _captureNote = string.Empty;
+    private bool _isAvailable;
+
+    public SetupDisplaysViewModel(IMonitorService? monitors, IGameWindowLocator? windows)
+    {
+        _monitors = monitors;
+        _windows = windows;
+        _isAvailable = monitors is not null;
+        RefreshCommand = new AsyncDelegateCommand(() => RefreshAsync(CancellationToken.None));
+    }
+
+    public ObservableCollection<SetupDisplayRow> Displays { get; } = [];
+
+    public ICommand RefreshCommand { get; }
+
+    public string Heading => V2ShellText.Get("V2.Setup.Displays.Heading");
+    public string CaptureHeading => V2ShellText.Get("V2.Setup.Displays.CaptureHeading");
+    public string RefreshLabel => V2ShellText.Get("V2.Setup.Displays.Refresh");
+    public string UnavailableNote => V2ShellText.Get("V2.Setup.Displays.NoInfo");
+
+    public bool IsAvailable
+    {
+        get => _isAvailable;
+        private set
+        {
+            if (SetProperty(ref _isAvailable, value))
+            {
+                OnPropertyChanged(nameof(IsUnavailable));
+            }
+        }
+    }
+
+    public bool IsUnavailable => !IsAvailable;
+
+    /// <summary>The game window as a scan would find it, in one line.</summary>
+    public string CaptureTarget
+    {
+        get => _captureTarget;
+        private set => SetProperty(ref _captureTarget, value);
+    }
+
+    public string CaptureNote
+    {
+        get => _captureNote;
+        private set => SetProperty(ref _captureNote, value);
+    }
+
+    public async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        if (_monitors is null)
+        {
+            IsAvailable = false;
+            return;
+        }
+
+        IReadOnlyList<DisplayDescriptor> displays;
+        WindowDescriptor? game = null;
+        try
+        {
+            displays = await _monitors.GetDisplaysAsync(cancellationToken).ConfigureAwait(true);
+            if (_windows is not null)
+            {
+                game = await _windows.FindAsync(false, cancellationToken).ConfigureAwait(true);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            IsAvailable = false;
+            CaptureTarget = exception.Message;
+            return;
+        }
+
+        var holding = game is null ? null : displays.FirstOrDefault(display => Contains(display.Bounds, game.Bounds));
+        Displays.Clear();
+        foreach (var display in displays)
+        {
+            Displays.Add(new(
+                display.Name,
+                string.Create(CultureInfo.CurrentCulture, $"{display.Bounds.Width}×{display.Bounds.Height} · {display.Scale:P0}"),
+                display.IsPrimary,
+                ReferenceEquals(display, holding)));
+        }
+
+        IsAvailable = true;
+        CaptureNote = V2ShellText.Get("V2.Setup.Displays.CaptureNote");
+        CaptureTarget = game switch
+        {
+            null => V2ShellText.Get("V2.Setup.Displays.CaptureMissing"),
+            { IsMinimized: true } => V2ShellText.Get("V2.Setup.Displays.CaptureMinimized"),
+            _ => V2ShellText.Format(
+                "V2.Setup.Displays.CaptureFound",
+                CultureInfo.CurrentCulture,
+                game.Bounds.Width,
+                game.Bounds.Height,
+                holding?.Name ?? V2ShellText.Get("V2.Setup.Displays.UnknownDisplay")),
+        };
+    }
+
+    /// <summary>The display a window mostly sits on: the one holding its centre.</summary>
+    private static bool Contains(PixelRect display, PixelRect window)
+    {
+        var x = window.X + (window.Width / 2);
+        var y = window.Y + (window.Height / 2);
+        return x >= display.X && x < display.X + display.Width && y >= display.Y && y < display.Y + display.Height;
+    }
+}

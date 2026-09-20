@@ -295,6 +295,25 @@ public sealed record CaptureAnalysisRequest(
     CaptureCorrelationId CorrelationId,
     int DecodeRevision);
 
+/// <summary>
+/// One catalog item a frame was read as, with the alternates it was chosen over.
+/// </summary>
+/// <remarks>
+/// Pixel-free, like everything else on <see cref="CaptureAnalysis"/>: a name, an id, how sure the
+/// resolver was, and the line it came from. The pixels are released the moment analysis returns,
+/// so an identity that does not ride along here cannot be recovered afterwards — which is why the
+/// Intel handoff could not say what a screenshot showed before this existed.
+/// </remarks>
+/// <param name="CanonicalId">The catalog id, which is what Intel is addressed by.</param>
+/// <param name="DisplayName">The name to show, as the catalog spells it.</param>
+/// <param name="Confidence">How sure the resolver was, unchanged from the recognizer.</param>
+/// <param name="Evidence">The text it matched and the engine that read it.</param>
+public sealed record CaptureIdentifiedItem(
+    string CanonicalId,
+    string DisplayName,
+    Confidence Confidence,
+    string Evidence);
+
 public sealed record CaptureAnalysis(
     string ResultId,
     RecognizedContext? DetectedContext,
@@ -302,7 +321,10 @@ public sealed record CaptureAnalysis(
     bool IsAvailable,
     string? DiagnosticCode,
     Confidence Confidence,
-    GridReconstructionRequest? Grid = null)
+    GridReconstructionRequest? Grid = null,
+    // Additive and defaulted: every existing producer and consumer predates it, and a capture
+    // whose screen holds no single item legitimately identifies nothing.
+    IReadOnlyList<CaptureIdentifiedItem>? Identified = null)
 {
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))
@@ -311,6 +333,9 @@ public sealed record CaptureAnalysis(
     public string? DiagnosticCode { get; } = string.IsNullOrWhiteSpace(DiagnosticCode)
         ? null
         : DiagnosticCode.Trim();
+
+    /// <summary>What the frame was read as, most confident first; empty when nothing matched.</summary>
+    public IReadOnlyList<CaptureIdentifiedItem> Identified { get; } = Identified ?? [];
 }
 
 public sealed record CaptureReviewRequest(

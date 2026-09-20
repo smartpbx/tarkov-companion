@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
+using TarkovCompanion.App.Services.V2.Appearance;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
@@ -11,6 +12,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Views;
 using TarkovCompanion.App.Views.V2.MapRenderer;
+using TarkovCompanion.Application.Services.Personalization;
 
 namespace TarkovCompanion.App;
 
@@ -19,6 +21,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
     private MainWindowViewModel? _mainViewModel;
+    private V2AppearanceApplier? _appearance;
+    private WorkspacePreferenceService? _preferences;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -26,6 +30,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // [V2 rough package 60 — appearance] #266/#315. Before any window exists, so the
+            // first frame is already the theme, the text scale and the density that were chosen
+            // last time rather than the default repainted a moment later.
+            ApplyStoredAppearance();
+
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             _mainViewModel = viewModel;
 
@@ -71,15 +80,54 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     viewModel.Map.OpenOn(launch.MapId, launch.MapFloor, launch.StacksFloors);
                 }
 
-                desktop.MainWindow = new MainWindow
+                var window = new MainWindow
                 {
                     DataContext = viewModel,
                 };
+                if (_appearance is { } appearance && _preferences is { } preferences)
+                {
+                    appearance.Attach(window, preferences.Current);
+                }
+
+                desktop.MainWindow = window;
                 _initialization = viewModel.InitializeAsync(_stopping.Token);
             }
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Reads the stored appearance and paints the application with it, now and on every change.
+    /// </summary>
+    /// <remarks>
+    /// Best effort by design. A preferences file that cannot be read must not stop the companion
+    /// opening, so a failure here leaves the application exactly as <c>App.axaml</c> authored it.
+    /// The read is synchronous because the alternative is a window that opens in the wrong theme
+    /// and flips a frame later, which is worse than a few milliseconds of file access.
+    /// </remarks>
+    private void ApplyStoredAppearance()
+    {
+        try
+        {
+            var preferences = services.GetService<WorkspacePreferenceService>();
+            if (preferences is null)
+            {
+                return;
+            }
+
+            _preferences = preferences;
+            var applier = new V2AppearanceApplier(this);
+            _appearance = applier;
+            // Loaded before subscribing, so the first paint happens once rather than twice.
+            applier.Apply(preferences.LoadAsync(CancellationToken.None).GetAwaiter().GetResult());
+            preferences.Changed += (_, current) => applier.Apply(current);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException)
+        {
+        }
     }
 
     /// <summary>
