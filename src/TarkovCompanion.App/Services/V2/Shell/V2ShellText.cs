@@ -678,6 +678,12 @@ public static class V2ShellText
         ["V2.Shell.Intel.Trade.NoneUsedIn"] = "Nothing in the catalog uses this.",
         ["V2.Shell.Intel.Trade.Arrow"] = "{0} → {1}",
 
+        // #287 (event state on items): the Events page's Safe/Allergic/Untested result, shown
+        // on Intel without re-asking the profile.
+        ["V2.Shell.Intel.Event.Allergic"] = "Allergic",
+        ["V2.Shell.Intel.Event.Safe"] = "Safe",
+        ["V2.Shell.Intel.Event.Untested"] = "Untested",
+
         ["V2.Shell.Banner.Sharing"] = "Sharing with your group",
         ["V2.Shell.Banner.OpenGroup"] = "Open Group",
 
