@@ -364,11 +364,11 @@ app.MapGet("/health", () => Results.Ok(new
 // client stays complete on its own, and somebody playing alone needs none of this.
 app.MapGet("/", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
 
-app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
+app.MapGet(PairedTransportBinding.TabletPagePath, () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
 
 // v2r-tablet-marks-sync: the relay-frame sealing/opening the tablet page's live sync uses,
 // served at an absolute path so it resolves the same from "/" and "/tablet". See Tablet.cs.
-app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
+app.MapGet($"{PairedTransportBinding.TabletPagePath}/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
 
 // v2r-pairing-tablet: the paired-device pairing handshake (#277/#290). The routes live in
 // RelayPairingMailboxRoutes so a test can serve the mailbox this relay actually serves.
