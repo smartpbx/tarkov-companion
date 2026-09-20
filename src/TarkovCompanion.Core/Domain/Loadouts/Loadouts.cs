@@ -25,6 +25,11 @@ public readonly record struct LoadoutCoverage(int Known, int Total)
 /// is meaningful only beside <paramref name="CostCoverage"/>. An item listed twice counts twice.
 /// </param>
 /// <param name="KnownWeightKg">As <paramref name="KnownCostRoubles"/>, for weight.</param>
+/// <param name="Explanations">
+/// Why each compatibility issue and warning was raised, keyed by its message: fixed wording that
+/// says which fact the rule compared and, for the ammunition warning, the policy's own numbers.
+/// Nothing here is a ballistic or economic judgement, and nothing needs the network.
+/// </param>
 public sealed record LoadoutEvaluation(
     long? ApproximateCostRoubles,
     double? ApproximateWeightKg,
@@ -35,4 +40,5 @@ public sealed record LoadoutEvaluation(
     LoadoutCoverage CostCoverage = default,
     LoadoutCoverage WeightCoverage = default,
     long? KnownCostRoubles = null,
-    double? KnownWeightKg = null);
+    double? KnownWeightKg = null,
+    IReadOnlyDictionary<string, string>? Explanations = null);

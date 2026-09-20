@@ -53,7 +53,8 @@ public sealed record LoadoutAssignmentViewModel(
     ICommand RemoveCommand);
 
 /// <summary>A single line returned by the evaluation, issue or warning.</summary>
-public sealed record LoadoutFindingViewModel(string Message);
+/// <summary>An issue or warning, with the plain reason the rule raised it (empty when there is none).</summary>
+public sealed record LoadoutFindingViewModel(string Message, string Explanation = "");
 
 /// <summary>
 /// Prices, weighs and sanity-checks a kit the player assembles by hand.
@@ -348,8 +349,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
                 .EvaluateAsync(BuildSelection(), profile: null, cancellationToken)
                 .ConfigureAwait(true);
 
-            Issues = evaluation.CompatibilityIssues.Select(message => new LoadoutFindingViewModel(message)).ToArray();
-            Warnings = evaluation.Warnings.Select(message => new LoadoutFindingViewModel(message)).ToArray();
+            Issues = evaluation.CompatibilityIssues.Select(message => Finding(evaluation, message)).ToArray();
+            Warnings = evaluation.Warnings.Select(message => Finding(evaluation, message)).ToArray();
             CostSummary = DescribeCost(evaluation);
             WeightSummary = DescribeWeight(evaluation);
             AmmoTierSummary = DescribeAmmoTier(evaluation);
@@ -567,6 +568,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
             DescribeDetail(fact),
             new AsyncDelegateCommand(() => AssignAsync(item.Id, CancellationToken.None)));
     }
+
+    internal static LoadoutFindingViewModel Finding(LoadoutEvaluation evaluation, string message) =>
+        new(message, evaluation.Explanations?.GetValueOrDefault(message) ?? string.Empty);
 
     internal static string DescribeCost(LoadoutEvaluation evaluation)
     {
