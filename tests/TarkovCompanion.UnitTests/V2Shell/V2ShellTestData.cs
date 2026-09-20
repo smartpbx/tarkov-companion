@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
 
@@ -8,21 +9,33 @@ internal static class V2ShellTestData
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
     /// <summary>
-    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Raid", "Scanner", "History",
-    /// "Quests", "Hideout", "Settings", "Squad", and "Group" are deliberately absent: the Raid
-    /// route now hosts the raid cockpit (<c>V2RouteContent.RaidCockpit</c>, package 2) instead of
-    /// a passthrough to V1's "Raid" page, the Loot route now hosts the real <c>LootScanView</c>
-    /// instead of Scanner (package 1, #282), the Debrief route now hosts the real
-    /// <c>DebriefWorkspaceView</c> instead of History (package 3, #291), the Plan and Hideout
-    /// routes now host the real Plan workspace and its Hideout section instead (package 10, #288),
-    /// Setup hosts the real <c>V2SetupWorkspaceView</c> instead of Settings (package 6, #292), and
-    /// the Team and Group routes both host the real Team workspace
-    /// (<c>V2RouteContent.Workspace</c>, package 9) instead of a passthrough to either V1 page.
-    /// Ammo, Keys and Flea host native Intel workspaces, and Loadout and Events native Plan
-    /// workspaces, over the V1 pages' view models (package 28). All eight V1 pages remain reachable
-    /// from V1 navigation; none is a V2 LegacyPage route any more.
+    /// The V1 shell's fourteen page names, read from V1's own navigation list.
     /// </summary>
-    public static readonly string[] V1Destinations = [];
+    /// <remarks>
+    /// [#294] Read rather than copied. A copied list agrees with itself for ever: the point is to
+    /// notice a fifteenth V1 page, or a renamed one, that has no V2 home and therefore no way to
+    /// be reached by name under the default shell.
+    ///
+    /// None of the fourteen is a V2 <c>LegacyPage</c> route any more — that field and that route
+    /// content are gone. Raid hosts the raid cockpit (package 2, #286), Loot the real LootScanView
+    /// (package 1, #282), Debrief the DebriefWorkspaceView (package 3, #291), Plan and Hideout the
+    /// Plan workspace and its section (package 10, #288), Team and Group the Team workspace
+    /// (package 9, #289), Setup the V2SetupWorkspaceView (package 6, #292), Intel plus Ammo, Keys
+    /// and Flea their own Intel workspaces, and Loadout and Events their Plan workspaces
+    /// (packages 17 and 28). All fourteen stay reachable from V1 navigation under
+    /// <c>--ui-shell legacy</c>.
+    /// </remarks>
+    public static IReadOnlyList<string> V1PageNames()
+    {
+        var source = File.ReadAllText(
+            RepositoryPath("src", "TarkovCompanion.App", "ViewModels", "MainWindowViewModel.cs"));
+        var names = Regex.Matches(source, @"CreateNavigation\(""([A-Za-z]+)""")
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+
+        Assert.Equal(14, names.Length);
+        return names;
+    }
 
     /// <summary>A snapshot as the runtime store starts one, so tests change only what they mean to.</summary>
     public static ApplicationRuntimeSnapshot Snapshot(bool demo = false, bool offline = false) =>

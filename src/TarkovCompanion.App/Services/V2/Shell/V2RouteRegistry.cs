@@ -5,11 +5,15 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// <summary>What a route draws in the content area.</summary>
 public enum V2RouteContent
 {
-    /// <summary>A V1 page, hosted unchanged until its feature migrates (#294 removes these).</summary>
-    LegacyPage = 1,
-
     /// <summary>The readiness checklist, with Continue where the route asks for it.</summary>
-    Readiness,
+    /// <remarks>
+    /// One was <c>LegacyPage</c>: a route that drew a V1 page unchanged until its feature
+    /// migrated. #294 removed it once the last of the fourteen had a V2 home of its own, so that
+    /// a route cannot be given a V1 page to host again by accident. Numbering starts at one for
+    /// the reason the V2 contract enums do — a value that was never set must not read as a
+    /// meaningful one.
+    /// </remarks>
+    Readiness = 1,
 
     /// <summary>A state presenter: the capability exists, and says honestly what it has.</summary>
     StatePresenter,
@@ -40,7 +44,6 @@ public enum V2RouteContent
 /// <param name="Capabilities">What a player can do here, whichever variant is showing it.</param>
 /// <param name="Content">What the content area draws.</param>
 /// <param name="HeadingKey">The heading when no variant label applies (sections, panels).</param>
-/// <param name="LegacyPage">The V1 destination name this route hosts, exactly as V1 navigation names it.</param>
 /// <param name="Parent">The route this one is a section of, for local section tabs.</param>
 /// <param name="TakesItem">Whether the route is addressed with an item id.</param>
 /// <param name="ShowsReadiness">Whether the readiness checklist leads the page.</param>
@@ -51,7 +54,6 @@ public sealed record V2RouteDefinition(
     IReadOnlyList<V2CapabilityId> Capabilities,
     V2RouteContent Content,
     string HeadingKey,
-    string? LegacyPage = null,
     V2RouteId? Parent = null,
     bool TakesItem = false,
     bool ShowsReadiness = false,
@@ -88,11 +90,6 @@ public sealed class V2RouteRegistry
             if (route.Parent is { } parent && !_routes.ContainsKey(parent))
             {
                 throw new ArgumentException($"Route '{route.Id}' names an unknown parent '{parent}'.", nameof(routes));
-            }
-
-            if ((route.Content == V2RouteContent.LegacyPage) != (route.LegacyPage is not null))
-            {
-                throw new ArgumentException($"Route '{route.Id}' must name a V1 page exactly when it hosts one.", nameof(routes));
             }
         }
 

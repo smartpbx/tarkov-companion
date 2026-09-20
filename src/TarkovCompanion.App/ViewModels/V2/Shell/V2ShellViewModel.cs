@@ -436,7 +436,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         WireLegacyContext();
         Restore(requestedAddress);
-        SynchronizeLegacyRoute();
         RebuildSectionItems();
         LoadCurrentWorkspace();
         Refresh(announceBackgroundChange: false);
@@ -468,7 +467,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public AmmoWorkspaceViewModel? AmmoWorkspace { get; }
     public KeysWorkspaceViewModel? KeysWorkspace { get; }
     public FleaWorkspaceViewModel? FleaWorkspace { get; }
-    public object? LegacyPage => Legacy?.CurrentPage;
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
     public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
@@ -939,7 +937,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public bool ShowsWorkspaceSearch => Variant.SearchPlacement == V2SearchPlacement.InsideItemsWorkspace &&
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsSectionNavigation => SectionItems.Count > 1;
-    public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
     /// <summary>
     /// Whether the current route hosts a self-contained V2 workspace (stash scan, debrief).
     /// </summary>
@@ -982,7 +979,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ICommand ScanLootCommand { get; }
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
     public int ShellBodyRowSpan =>
-        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
+        ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     /// <summary>The plain checklist; Setup draws the same checks as its overview's steps instead.</summary>
     public bool ShowsReadinessChecklist => ShowsReadiness && !ShowsSetupWorkspace;
@@ -1648,7 +1645,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         var resetting = Volatile.Read(ref _resetInProgress) != 0;
         _activeReadinessTarget = null;
-        SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
         // Every navigation funnels through here, which is what makes this the one place worth
         // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
@@ -1808,15 +1804,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
-    private void SynchronizeLegacyRoute()
-    {
-        if (Legacy is not null && Registry[Router.Current.Location.Route].LegacyPage is { } page)
-        {
-            Legacy.Navigate(page);
-            OnPropertyChanged(nameof(LegacyPage));
-        }
-    }
-
     private void WireLegacyContext()
     {
         if (Legacy is null)
@@ -1853,11 +1840,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (!ShouldRefreshLegacyContext(isLegacyRoot, eventArgs.PropertyName))
         {
             return;
-        }
-
-        if (isLegacyRoot)
-        {
-            OnPropertyChanged(nameof(LegacyPage));
         }
 
         _apply.Request();
@@ -2774,7 +2756,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ShowsSurfaceBanner), nameof(SurfaceBannerText), nameof(ShowsHealthSurface),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsWorkspace), nameof(WorkspaceContent),
             nameof(ShowsRaidCockpit),
             nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
             nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
