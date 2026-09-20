@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Buffers.Text;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
@@ -42,35 +43,77 @@ public sealed class RelayAdminKeyCollection
 internal sealed class LinkRelay : IAsyncDisposable
 {
     public const string AdminKey = "link-tests-admin-key-0123456789";
+    private static readonly string[] DefaultUrls = ["http://127.0.0.1:0"];
+
     private readonly RelayTestClock _clock;
     private readonly OwnerRecoveryProtector _recovery;
     private readonly string? _previousAdminKey;
+    private readonly X509Certificate2? _certificate;
     private WebApplication _app;
 
-    private LinkRelay(WebApplication app, RelayTestClock clock, OwnerRecoveryProtector recovery, Uri origin, RelayDeviceRegistry registry, string? previousAdminKey)
+    private LinkRelay(
+        WebApplication app,
+        RelayTestClock clock,
+        OwnerRecoveryProtector recovery,
+        Uri origin,
+        Uri? browserOrigin,
+        RelayDeviceRegistry registry,
+        string? previousAdminKey,
+        X509Certificate2? certificate)
     {
         _app = app;
         _clock = clock;
         _recovery = recovery;
         Origin = origin;
+        BrowserOrigin = browserOrigin;
         Registry = registry;
         _previousAdminKey = previousAdminKey;
+        _certificate = certificate;
     }
 
+    /// <summary>Plain HTTP on loopback — what every existing test's own HTTP calls (and the desktop's) use.</summary>
     public Uri Origin { get; }
+
+    /// <summary>
+    /// HTTPS on a real browser-usable DNS name (<c>localhost</c>), present only when
+    /// <see cref="StartAsync(RelayTestClock, string[], X509Certificate2?)"/> was given a second,
+    /// <c>https://</c> URL. A real browser cannot lie about <c>location.origin</c> the way
+    /// <see cref="TabletSimulator"/> can, and both <c>WebAuthnDeviceKeyProofVerifier</c> and a
+    /// page's own WebCrypto refuse anything that is not an exact HTTPS DNS origin — the same
+    /// refusal production makes, not a test artifact.
+    /// </summary>
+    public Uri? BrowserOrigin { get; }
 
     public RelayDeviceRegistry Registry { get; }
 
-    public static async Task<LinkRelay> StartAsync(RelayTestClock clock)
+    public static Task<LinkRelay> StartAsync(RelayTestClock clock) =>
+        StartAsync(clock, DefaultUrls, certificate: null);
+
+    /// <summary>
+    /// One relay, bound to every URL given — typically plain HTTP on loopback for this file's own
+    /// callers, plus <c>https://localhost:0</c> (with <paramref name="certificate"/>) for a real
+    /// browser, so both sides talk to the exact same process and state.
+    /// </summary>
+    public static async Task<LinkRelay> StartAsync(RelayTestClock clock, string[] urls, X509Certificate2? certificate)
     {
         var previous = Environment.GetEnvironmentVariable(RelayAdmin.Variable);
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, AdminKey);
         var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x41, 32).ToArray(), clock);
         var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
-        var app = await HostAsync(clock, registry, recovery, "http://127.0.0.1:0");
-        var address = app.Services.GetRequiredService<IServer>().Features
-            .Get<IServerAddressesFeature>()!.Addresses.First();
-        return new LinkRelay(app, clock, recovery, new Uri(address), registry, previous);
+        var app = await HostAsync(clock, registry, recovery, urls, certificate);
+        var addresses = app.Services.GetRequiredService<IServer>().Features
+            .Get<IServerAddressesFeature>()!.Addresses;
+        var origin = new Uri(addresses.First(address => address.StartsWith("http://", StringComparison.Ordinal)));
+        var browserAddress = addresses.FirstOrDefault(address => address.StartsWith("https://", StringComparison.Ordinal));
+        return new LinkRelay(
+            app,
+            clock,
+            recovery,
+            origin,
+            browserAddress is null ? null : new Uri(browserAddress),
+            registry,
+            previous,
+            certificate);
     }
 
     /// <summary>
@@ -80,24 +123,50 @@ internal sealed class LinkRelay : IAsyncDisposable
     /// </summary>
     public async Task RestartAsync()
     {
+        // The exact bound ports, not the original port-0 URLs, so a restart really does come
+        // back on the same address rather than picking new random ones.
+        var urls = BrowserOrigin is { } browser
+            ? new[] { Origin.GetLeftPart(UriPartial.Authority), browser.GetLeftPart(UriPartial.Authority) }
+            : new[] { Origin.GetLeftPart(UriPartial.Authority) };
         await _app.StopAsync();
         await _app.DisposeAsync();
-        _app = await HostAsync(_clock, Registry, _recovery, Origin.GetLeftPart(UriPartial.Authority));
+        _app = await HostAsync(_clock, Registry, _recovery, urls, _certificate);
     }
 
     private static async Task<WebApplication> HostAsync(
         RelayTestClock clock,
         RelayDeviceRegistry registry,
         OwnerRecoveryProtector recovery,
-        string url)
+        string[] urls,
+        X509Certificate2? certificate = null)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddSingleton<CompanionPairingMailbox>();
-        builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
-        builder.WebHost.UseUrls(url);
+        if (certificate is not null)
+        {
+            // The slim builder trims HTTPS support by default; only a real browser test needs it
+            // back.
+            builder.WebHost.UseKestrelHttpsConfiguration();
+        }
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.Limits.MaxRequestBodySize = 32 * 1024;
+            if (certificate is not null)
+            {
+                options.ConfigureHttpsDefaults(https => https.ServerCertificate = certificate);
+            }
+        });
+        builder.WebHost.UseUrls(urls);
         var app = builder.Build();
+        // Only TabletSimulator's raw HTTP calls exercised this relay before now, so the page
+        // itself was never served. A real browser needs to load it, exactly like production.
+        // "/tablet" as a literal, not PairedTransportBinding.TabletPagePath: that constant ships
+        // in a sibling package's PR, and this one must build against main on its own.
+        app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
+        app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
         app.MapRelayCompanionRoutes(
             registry,
             new OpaqueRelayFrameHub(registry, clock),
@@ -176,13 +245,25 @@ internal sealed class DesktopRun : IAsyncDisposable
     public CompanionPairingViewModel Panel { get; }
 
     /// <summary>Starts a run and waits until it has looked for a kept claim, as the app does at startup.</summary>
-    public static async Task<DesktopRun> StartAsync(DesktopDisk disk, Uri relayOrigin, RelayTestClock clock, bool protectedStorage = true)
+    /// <remarks>
+    /// <paramref name="relyingPartyId"/>/<paramref name="tabletOrigin"/> default to this file's own
+    /// fake tablet's stand-in values; a real browser cannot lie about its own <c>location.origin</c>
+    /// the way <see cref="TabletSimulator"/> can, so a test that drives one has to pass the relay's
+    /// actual DNS name and HTTPS origin here instead.
+    /// </remarks>
+    public static async Task<DesktopRun> StartAsync(
+        DesktopDisk disk,
+        Uri relayOrigin,
+        RelayTestClock clock,
+        bool protectedStorage = true,
+        string relyingPartyId = RelyingPartyId,
+        string tabletOrigin = TabletOrigin)
     {
         var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
             authority,
             disk.Signer,
-            new WebAuthnDeviceKeyProofVerifier(RelyingPartyId, TabletOrigin, disk.Counters));
+            new WebAuthnDeviceKeyProofVerifier(relyingPartyId, tabletOrigin, disk.Counters));
         var bridge = new RelayMarksBridge(
             authority,
             disk.Marks,
