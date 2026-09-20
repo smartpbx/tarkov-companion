@@ -275,8 +275,25 @@ public sealed partial class MapSceneRendererView : UserControl
 
     /// <summary>A drag that ends without a release (another control takes the pointer) puts the
     /// plan back where it was rather than leaving it mid-drag.</summary>
+    /// <remarks>
+    /// [Issue 551] "if i zoom in on a map, and then try to pan it, it snaps back to where i
+    /// zoomed". Reported three times, and answered twice in the view model, where it never was.
+    /// Releasing the button gives the capture back, giving it back raises this event before
+    /// <see cref="PlanPointerReleased"/> has got as far as committing, and this handler used to
+    /// cancel the drag unconditionally: so every drag in the running app was abandoned on release
+    /// and the plan went back to the camera the drag began from, which after a zoom is "where I
+    /// zoomed". At the fitted zoom there is nowhere to pan to, which is why it only ever showed
+    /// zoomed in; and every test drove the view model directly, where there is no capture.
+    /// A release clears <c>_pointerDown</c> first, so only a capture lost while the button is
+    /// still down cancels. MapPanGestureTests drags the real view with a real pointer.
+    /// </remarks>
     private void PlanPointerCaptureLost(object? sender, PointerCaptureLostEventArgs eventArgs)
     {
+        if (!_pointerDown)
+        {
+            return;
+        }
+
         _pointerDown = false;
         _dragging = false;
         (DataContext as MapSceneRendererViewModel)?.CancelPan();

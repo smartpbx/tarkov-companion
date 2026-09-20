@@ -960,6 +960,12 @@ internal static class Program
                     Console.WriteLine($"Bearing: {bearingRenderer.Scene.View.Camera.BearingDegrees:F1}");
                 }
 
+                // [Issue 551] What clips a mark, read off the visual tree. See MarkClipProbe.
+                if (args.Contains("--mark-clip-probe"))
+                {
+                    MarkClipProbe.Run(window);
+                }
+
                 // Change map inside the run, and say what the view drew and how long it took.
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {

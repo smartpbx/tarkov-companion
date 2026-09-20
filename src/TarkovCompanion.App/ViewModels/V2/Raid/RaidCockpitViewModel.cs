@@ -2063,6 +2063,14 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
             .Concat(traffic.Objects).Concat(routes.Objects).ToArray();
 
+        // [V2 rough package 39] The stack: one asset per floor beside the background.
+        // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
+        // landed while floor artwork was loading was overwritten by the camera this rebuild had
+        // read before it started waiting. Nothing between reading the view and presenting the
+        // scene may yield.
+        var floorAssets = await LoadFloorStackAssetsAsync(model, cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
+
         // The floor the plan is drawn on is V1's, because V1 is what fetches the artwork for it
         // and what an automatic floor change (AutoSelectsFloor) moves. The renderer's own
         // selection is pushed back into V1 by ViewChangeRequested, so the two only ever differ
@@ -2085,11 +2093,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 FitCamera(planBounds, Bearing()),
                 []);
 
-        // [V2 rough package 39] The stack: one asset per floor beside the background, and the
-        // scene mode that asks the renderer to draw them. The mode follows V1's own "Stack"
-        // toggle, which is also what the renderer's presentation control now pushes back here.
-        var floorAssets = await LoadFloorStackAssetsAsync(model, cancellationToken).ConfigureAwait(true);
-        cancellationToken.ThrowIfCancellationRequested();
+        // [V2 rough package 39] The mode follows V1's own "Stack" toggle, which is also what the
+        // renderer's presentation control now pushes back here.
         // Not when this map cannot be stacked at all: a scene asking for a mode that will draw
         // one plan anyway lights the "Floor stack" control over a flat map, which is the exact
         // complaint V1's own stack collected ("the 3d view doesnt seem to work at all for me").
