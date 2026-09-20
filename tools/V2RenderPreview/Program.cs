@@ -410,12 +410,27 @@ internal static class Program
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;
-                loadout.SearchQuery = loadoutQuery;
-                DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
-                if (loadout.Results.Count > 0)
+                // Several entries separated by ';' assign the first result of each, and
+                // "Ammunition=9x18mm PM" names the slot it goes in, so a render can hold a weapon
+                // and a round at once. Without a slot name every entry lands in the chosen slot
+                // and replaces the last: the first attempt at this put a round in Weapon.
+                foreach (var entry in loadoutQuery.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 {
-                    loadout.Results[0].AssignCommand.Execute(null);
-                    Pump(60);
+                    var query = entry;
+                    if (entry.Split('=', 2, StringSplitOptions.TrimEntries) is [var slotName, var slotQuery] &&
+                        Enum.TryParse<TarkovCompanion.App.ViewModels.LoadoutSlot>(slotName, ignoreCase: true, out var slot))
+                    {
+                        loadout.SelectedSlot = loadout.Slots.First(option => option.Slot == slot);
+                        query = slotQuery;
+                    }
+
+                    loadout.SearchQuery = query;
+                    DrainUntilComplete(loadout.SearchCommand.ExecuteAsync());
+                    if (loadout.Results.Count > 0)
+                    {
+                        loadout.Results[0].AssignCommand.Execute(null);
+                        Pump(60);
+                    }
                 }
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
