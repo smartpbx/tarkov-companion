@@ -1234,6 +1234,24 @@ internal static class Program
                 Pump(20);
             }
 
+            // [Issue 286] Press an extract's row, so the routes drawn are the ones to it.
+            if (StringOption(args, "--route-extract") is { } routeExtract &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routedRaid)
+            {
+                if (routedRaid.MapExtracts.FirstOrDefault(row =>
+                        row.Name.Contains(routeExtract, StringComparison.OrdinalIgnoreCase)) is { RouteCommand: { } press })
+                {
+                    press.Execute(null);
+                    Pump(40);
+                }
+                else
+                {
+                    Console.Error.WriteLine(
+                        $"No routed extract matches '{routeExtract}'. Routed: " +
+                        string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
+                }
+            }
+
             // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
             // one exit marked offered, the card open. After
             // --raid-demo, because that publishes a new raid and a new raid drops every correction. "return" then undoes the side, to show both states.

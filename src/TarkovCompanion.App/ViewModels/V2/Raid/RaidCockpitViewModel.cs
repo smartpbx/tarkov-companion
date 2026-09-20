@@ -184,6 +184,20 @@ public sealed class RaidExtractRowViewModel(string name, string detail, MapScene
     };
 
     public bool HasOfferLabel => offerState != MapSceneOfferState.Unknown;
+
+    /// <summary>[Issue 286] "~6–11 min" by the suggested route, where one was planned to this extract.</summary>
+    public string Estimate { get; private init; } = string.Empty;
+
+    public bool HasEstimate => Estimate.Length > 0;
+
+    /// <summary>This is the extract whose routes are the ones drawn on the map.</summary>
+    public bool IsRouted { get; private init; }
+
+    /// <summary>Draws this extract's routes instead. Null where no route was planned.</summary>
+    public ICommand? RouteCommand { get; private init; }
+
+    internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
+        new(Name, Detail, offerState) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
 }
 
 /// <summary>
@@ -2042,11 +2056,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 286] The modelled-traffic layer: its hotspots here, its picture handed to the
         // renderer once there is one (ApplyTrafficToRenderer).
         var traffic = BuildTrafficLayers(model, planBounds, transformVersion, lootLayer, floorIds, nowUtc);
+        var routes = BuildRouteLayers(model, transformVersion, raidSnapshot);
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
-            : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).ToArray();
+            : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
-            .Concat(traffic.Objects).ToArray();
+            .Concat(traffic.Objects).Concat(routes.Objects).ToArray();
 
         // The floor the plan is drawn on is V1's, because V1 is what fetches the artwork for it
         // and what an automatic floor change (AutoSelectsFloor) moves. The renderer's own
@@ -2383,6 +2398,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             OnPropertyChanged(nameof(ShowsTrafficBanner));
         }
 
+        // [Issue 286] With no screenshot yet, a selected spawn is where routes start from.
+        // Only when the spawn itself changed: every re-present raises SelectedObject again, and a
+        // rebuild per raise is a rebuild loop.
+        if (e.PropertyName == nameof(MapSceneRendererViewModel.SelectedObject) && _map.PlayerPosition is null &&
+            SelectedSpawnId() != _routeStartSpawnId)
+        {
+            _rebuildRequest.Request();
+        }
+
         if (e.PropertyName != nameof(MapSceneRendererViewModel.SelectedObject) ||
             Renderer?.SelectedObject?.SceneObject is not { } selected)
         {
@@ -2401,10 +2425,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     private void RefreshSceneLists(MapSceneSnapshot scene)
     {
-        MapExtracts = BuildExtractRows(scene.Objects);
+        // The corrections card lists every exit by name; the rows then take their routes' estimates.
+        var extractRows = BuildExtractRows(scene.Objects);
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
-            [.. MapExtracts.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
+            [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
+        MapExtracts = WithRouteEstimates(extractRows);
         SpawnAreas = scene.Objects
             .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
             .Select(item => item.Label)
@@ -2484,7 +2510,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     /// <summary>How this cockpit wants one object drawn; see <see cref="MapSceneObjectStyle"/>.</summary>
     private MapSceneObjectStyle? StyleFor(MapSceneObject item) =>
-        _objectStyles.TryGetValue(item.Id, out var style) ? style : null;
+        _objectStyles.TryGetValue(item.Id, out var style) ? style
+        : _routeStyles.TryGetValue(item.Id, out var route) ? route : null;
 
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>
     private double Bearing() => (_map.RotationDegrees % 360 + 360) % 360;
