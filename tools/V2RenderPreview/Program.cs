@@ -22,7 +22,6 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -157,6 +156,15 @@ internal static class Program
                 throw new ArgumentException($"No destination is named '{startPage}'.");
             }
 
+            // [#294] Photograph the waiting-build mark. This paints it directly rather than
+            // simulating the updater: what it proves is that the dot is drawn, where, and at what
+            // size. That the shell raises it from the real update signal is proved by
+            // V2UpdateNoticeTests and the host-contract ratchet, not by this.
+            if (shell is not null && args.Contains("--update-waiting"))
+            {
+                shell.SetupDestination.HasNotice = true;
+            }
+
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
@@ -274,6 +282,8 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {

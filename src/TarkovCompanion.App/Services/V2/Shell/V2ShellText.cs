@@ -34,6 +34,9 @@ public static class V2ShellText
         ["V2.Shell.Region.Main"] = "Current workspace",
         ["V2.Shell.Nav.Current"] = "Current page",
         ["V2.Shell.Nav.NotCurrent"] = "Available page",
+        // [#294] Said, not only drawn. The dot beside Setup means nothing to somebody using a
+        // screen reader, and "an update is ready" is the whole of what it is telling anybody.
+        ["V2.Shell.Nav.UpdateWaiting"] = "Update ready",
 
         ["V2.Shell.Route.Home"] = "Home",
         ["V2.Shell.Route.Raid"] = "Raid",
