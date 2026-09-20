@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Windows.Input;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services.V2.Team;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
@@ -29,12 +31,29 @@ public sealed record CompanionPairingAvailability(
 }
 
 /// <summary>One row of the paired-device list.</summary>
-public sealed class PairedDeviceRowViewModel
+public sealed class PairedDeviceRowViewModel : BindableViewModel
 {
+    private bool _confirming;
+
     public PairedDeviceRowViewModel(PairedDevice device, Func<PairedDeviceRowViewModel, Task> revoke)
     {
+        ArgumentNullException.ThrowIfNull(revoke);
         Device = device;
-        RevokeCommand = new AsyncDelegateCommand(() => revoke(this));
+        RevokeCommand = new AsyncDelegateCommand(async () =>
+        {
+            // [V2 rough package 60 — Team] #289: two presses, because revoking cannot be
+            // undone. The grant is gone and the tablet has to be paired again from scratch, so
+            // the confirmation has to come before the act rather than as an undo after it. The
+            // second press is the confirmation, and the button says which one it is on.
+            if (!_confirming)
+            {
+                Confirming = true;
+                return;
+            }
+
+            Confirming = false;
+            await revoke(this).ConfigureAwait(true);
+        });
     }
 
     public PairedDevice Device { get; }
@@ -50,6 +69,30 @@ public sealed class PairedDeviceRowViewModel
     public DateTimeOffset ExpiresUtc => Device.ExpiresUtc;
 
     public bool CanRevoke => Device.Status == DeviceLifecycleStatus.Active;
+
+    /// <summary>Whether the next press revokes, rather than asks.</summary>
+    public bool Confirming
+    {
+        get => _confirming;
+        private set
+        {
+            if (SetProperty(ref _confirming, value))
+            {
+                OnPropertyChanged(nameof(RevokeLabel));
+                OnPropertyChanged(nameof(RevokeWarning));
+            }
+        }
+    }
+
+    public string RevokeLabel => Confirming ? "Confirm revoke" : "Revoke";
+
+    /// <summary>What the second press will do, said before it is pressed.</summary>
+    public string RevokeWarning => Confirming
+        ? $"{DisplayName} will have to be paired again. This cannot be undone."
+        : string.Empty;
+
+    /// <summary>Puts the row back to asking, for a selection change or a reload.</summary>
+    public void CancelConfirmation() => Confirming = false;
 
     public ICommand RevokeCommand { get; }
 }
@@ -115,6 +158,11 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     private CompanionPairingStage _stage = CompanionPairingStage.Idle;
     private string? _qrPayload;
+    private string? _qrPath;
+    private int _qrExtent;
+    private string _codeExpiry = string.Empty;
+    private bool _isCodeExpired;
+    private DateTimeOffset? _previewExpiry;
     private string? _pairingCode;
     private string? _requestedDisplayName;
     private string? _verificationCode;
@@ -254,7 +302,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         string? requestedDisplayName = null,
         string? statusMessage = null,
         string? claimMessage = null,
-        IReadOnlyList<PairedDeviceRowViewModel>? devices = null)
+        IReadOnlyList<PairedDeviceRowViewModel>? devices = null,
+        DateTimeOffset? codeExpiresUtc = null)
     {
         _previewAvailability = true;
         OnPropertyChanged(nameof(CanPair));
@@ -272,7 +321,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         RelayClaimMessage = claimMessage;
         Stage = stage;
         PairingCode = pairingCode;
-        QrPayload = pairingCode is null ? null : $"tarkov-companion://pair?code={pairingCode}";
+        // The shape the ceremony really produces, so a render shows the symbol a tablet would
+        // actually be asked to scan rather than a placeholder that happens to be shorter.
+        QrPayload = pairingCode is null
+            ? null
+            : PairedTransportBinding.QrPayloadPrefix + pairingCode.Replace("-", string.Empty, StringComparison.Ordinal)
+                + "/" + new string('a', 43);
+        _previewExpiry = codeExpiresUtc;
+        TickExpiry();
         VerificationCode = verificationCode;
         RequestedDisplayName = requestedDisplayName;
         StatusMessage = statusMessage;
@@ -414,7 +470,113 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     public string? QrPayload
     {
         get => _qrPayload;
-        private set => SetProperty(ref _qrPayload, value);
+        private set
+        {
+            if (!SetProperty(ref _qrPayload, value))
+            {
+                return;
+            }
+
+            // [V2 rough package 60 — Team] #289: the payload has always been produced and never
+            // drawn, so the only way onto a tablet was to type the code. A symbol that cannot be
+            // built is not an error worth showing: the code beside it still works.
+            QrPath = null;
+            QrExtent = 0;
+            if (value is not null)
+            {
+                try
+                {
+                    var code = QrCode.Encode(value);
+                    QrExtent = QrGeometry.Extent(code);
+                    QrPath = QrGeometry.PathData(code);
+                }
+                catch (ArgumentException)
+                {
+                    QrPath = null;
+                    QrExtent = 0;
+                }
+            }
+
+            OnPropertyChanged(nameof(HasQrSymbol));
+        }
+    }
+
+    /// <summary>The pairing payload as path data, or null when there is none to draw.</summary>
+    public string? QrPath
+    {
+        get => _qrPath;
+        private set => SetProperty(ref _qrPath, value);
+    }
+
+    /// <summary>The symbol's width in modules, quiet zone included, for the view's viewbox.</summary>
+    public int QrExtent
+    {
+        get => _qrExtent;
+        private set => SetProperty(ref _qrExtent, value);
+    }
+
+    public bool HasQrSymbol => QrPath is not null;
+
+    /// <summary>
+    /// How long the code has left, or why it no longer has any.
+    /// </summary>
+    /// <remarks>
+    /// The offer has always carried an expiry and the panel never showed it, so a code that had
+    /// quietly gone stale looked exactly like one that had not, and the tablet's refusal was the
+    /// first anybody heard of it.
+    /// </remarks>
+    public string CodeExpiry
+    {
+        get => _codeExpiry;
+        private set => SetProperty(ref _codeExpiry, value);
+    }
+
+    public bool HasCodeExpiry => CodeExpiry.Length > 0;
+
+    /// <summary>
+    /// How long is left, in words.
+    /// </summary>
+    /// <remarks>
+    /// Minutes and seconds while there are minutes, because "4m 36s" is read once and understood,
+    /// and a bare "276s" is arithmetic. Under a minute it drops to seconds, which is the point at
+    /// which somebody decides whether to start over rather than keep typing.
+    /// </remarks>
+    internal static string DescribeExpiry(TimeSpan left) => left <= TimeSpan.Zero
+        ? "This code has expired. Start pairing again."
+        : left.TotalMinutes >= 1
+            ? string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalMinutes}m {left.Seconds:00}s")
+            : string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalSeconds}s");
+
+    /// <summary>Whether the code has run out, which is when the panel stops offering it.</summary>
+    public bool IsCodeExpired
+    {
+        get => _isCodeExpired;
+        private set => SetProperty(ref _isCodeExpired, value);
+    }
+
+    /// <summary>
+    /// Recomputes the countdown. The shell calls this on its own one-second pass.
+    /// </summary>
+    /// <remarks>
+    /// Driven from outside rather than by a timer of its own: the shell already ticks once a
+    /// second for the raid clock, and a second timer would be a second thing to stop on dispose.
+    /// </remarks>
+    public void TickExpiry()
+    {
+        var expires = _offer?.ExpiresUtc ?? _previewExpiry;
+        if (expires is not { } expiresUtc
+            || Stage is not (CompanionPairingStage.AwaitingTablet or CompanionPairingStage.AwaitingApproval))
+        {
+            CodeExpiry = string.Empty;
+            IsCodeExpired = false;
+            OnPropertyChanged(nameof(HasCodeExpiry));
+            return;
+        }
+
+        var left = expiresUtc - Now();
+        IsCodeExpired = left <= TimeSpan.Zero;
+        CodeExpiry = DescribeExpiry(left);
+        OnPropertyChanged(nameof(HasCodeExpiry));
     }
 
     public string? PairingCode
