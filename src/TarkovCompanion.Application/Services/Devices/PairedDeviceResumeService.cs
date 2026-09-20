@@ -7,6 +7,18 @@ using TarkovCompanion.Core.Abstractions.V2;
 namespace TarkovCompanion.Application.Services.Devices;
 
 /// <summary>What a tablet paired from the pairing panel is allowed, in one place.</summary>
+/// <remarks>
+/// [#407] <c>AuthenticatedCommandContext.ForPairedSession</c> takes the *intersection* of a
+/// device's own grant and its current session's grant, so a capability missing from either list
+/// is refused. <c>RequestControl</c> was on the device grant but not the session grant — every
+/// paired tablet had it in principle and never in practice: <c>RequestControlCommand</c> and
+/// <c>ControlWorkspaceCommand</c> both require it, and CanonicalStateMachine's own capability
+/// switch has no other source for it. A real paired tablet could follow, show itself on the
+/// desktop and drop marks, but Control — the mode the pairing concept art and the whole
+/// Follow/Control/Independent UI are built around — was unreachable end to end. Measured with the
+/// real browser harness (TabletScreenshotHarness): a freshly-paired tablet's own requestControl
+/// came back RejectedUnauthorized every time, before this line was added.
+/// </remarks>
 public static class PairedTabletGrant
 {
     public static PairingDeviceGrant Create(DateTimeOffset nowUtc) => new(
@@ -20,6 +32,7 @@ public static class PairedTabletGrant
         ],
         [
             DeviceCapability.FollowDesktop,
+            DeviceCapability.RequestControl,
             DeviceCapability.ShowOnDesktop,
             DeviceCapability.ManageOwnMarks,
             DeviceCapability.RequestCaptureIntent,

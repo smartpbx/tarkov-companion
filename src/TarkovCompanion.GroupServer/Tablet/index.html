@@ -42,7 +42,9 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
   }
   input { min-width: 0; }
-  button { cursor: pointer; min-height: 40px; }
+  /* 44px: the same touch-target minimum #mapTools' own buttons already used, now consistent
+     across the page rather than only where a finger happens to need the map. */
+  button { cursor: pointer; min-height: 44px; }
   button.primary { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
   button:active { transform: translateY(1px); }
   button[disabled] { opacity: .45; cursor: default; }
@@ -85,12 +87,18 @@
   .driving { border-color: rgba(34, 211, 238, .45); }
   .floors { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .floors button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  [hidden] { display: none !important; }
+  .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
 </style>
 </head>
 <body>
 <header>
   <h1>Tarkov Companion</h1>
-  <span class="quiet"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
+  <span class="quiet grow"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
+  <!-- #407: the map is the surface and fills the tablet; once paired, the pairing card that got
+       here is gone (see #pairing below), so the one thing it still owns — unpairing — moves here,
+       the one place that is never scrolled away. -->
+  <button type="button" id="unpairHeader" class="headerBtn" hidden>Unpair</button>
 </header>
 
 <main>
@@ -116,7 +124,6 @@
     </div>
     <div id="pairingDone" style="display:none">
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
-      <button type="button" id="unpair">Unpair this tablet</button>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
@@ -1321,7 +1328,9 @@
 
   /**
    * Asks to be let back in without a code. Resolves "resumed", "waiting" (the desktop has not
-   * answered: it is off, or not updated yet), or "refused" (this tablet has to be paired again).
+   * answered: it is off, or not updated yet), "refused" (this tablet WAS paired and the relay no
+   * longer lets it back in — revoked, or claimed by somebody else) or "never-paired" (this
+   * browser has no memory of ever pairing, so there is nothing to be refused from).
    */
   function comeBackByKey() {
     comingBack ||= (async () => {
@@ -1329,10 +1338,10 @@
       try {
         paired = await idbGet(PAIRED_KEY);
       } catch {
-        return "refused";
+        return "never-paired";
       }
 
-      if (!paired?.desktopKeyId) return "refused";
+      if (!paired?.desktopKeyId) return "never-paired";
       setStage("pairingWaiting");
       $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
       const device = await ensureDeviceIdentity();
@@ -1386,6 +1395,13 @@
     }
 
     if (outcome === "resumed" || live) return;
+    // A tablet that has never been paired has nothing to say about it — this used to show "no
+    // longer paired", worded as if it once was, on the very first load of a brand new tablet.
+    if (outcome === "never-paired") {
+      setStage("pairingIdle");
+      return;
+    }
+
     if (outcome === "refused") {
       setStage("pairingIdle", refusedMessage || "This tablet is no longer paired with the desktop. Pair it again.");
       return;
@@ -1482,6 +1498,13 @@
   function beginLive() {
     const session = live;
     $("surface").style.display = "";
+    // #407: "the map is the surface... everything else is a strip around it" was the stated
+    // intent, but the pairing card kept its full section — heading, "Paired as…" text and an
+    // Unpair button — permanently above the map, pushing it (and everything below it) off the
+    // bottom of the screen even at 1280x800. Once live there is nothing left to pair; collapse it
+    // to the one thing it still owns, which moves to the header.
+    $("pairing").hidden = true;
+    $("unpairHeader").hidden = false;
     renderLiveStatus();
     announceTab();
     pollLiveFrames();
@@ -1510,6 +1533,8 @@
     mode = "Follow";
     await forgetSession();
     $("surface").style.display = "none";
+    $("pairing").hidden = false;
+    $("unpairHeader").hidden = true;
     renderLiveStatus();
     if (unpaired) {
       clearTimeout(comeBackTimer);
@@ -2271,7 +2296,7 @@
   });
   $("searchTakeControl").addEventListener("click", () => requestMode("Control"));
 
-  $("unpair").addEventListener("click", () =>
+  $("unpairHeader").addEventListener("click", () =>
     sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
 
   setStage("pairingIdle");
