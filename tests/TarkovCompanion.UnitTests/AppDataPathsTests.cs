@@ -59,9 +59,22 @@ public sealed class AppDataPathsTests
         var paths = AppDataPaths.Resolve();
         var root = Path.GetFullPath(paths.Root);
 
-        foreach (var folder in new[] { paths.Database, paths.Cache, paths.Logs, paths.Config, paths.DebugCaptures, paths.Support })
+        foreach (var folder in new[] { paths.Database, paths.Cache, paths.Logs, paths.Config, paths.Support })
         {
             Assert.StartsWith(root, Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase);
         }
+    }
+
+    /// <summary>
+    /// #309: Debug Capture was decided against (docs/adr/0020). The folder it would have used is gone, so
+    /// nothing in the data root is set aside for retained pixels, and a later change that adds one has to
+    /// reverse that decision in the open rather than by adding a path.
+    /// </summary>
+    [Fact]
+    public void ThereIsNoFolderSetAsideForRetainedPixels()
+    {
+        Assert.DoesNotContain(
+            typeof(AppDataPaths).GetProperties(),
+            property => property.Name.Contains("DebugCapture", StringComparison.OrdinalIgnoreCase));
     }
 }

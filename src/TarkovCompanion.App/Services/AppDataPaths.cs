@@ -6,7 +6,6 @@ public sealed record AppDataPaths(
     string Cache,
     string Logs,
     string Config,
-    string DebugCaptures,
     string Support)
 {
     public static AppDataPaths Resolve(string? overrideRoot = null, bool demoMode = false)
@@ -28,7 +27,6 @@ public sealed record AppDataPaths(
             Path.Combine(root, "Cache"),
             Path.Combine(root, "Logs"),
             Path.Combine(root, "Config"),
-            Path.Combine(root, "DebugCaptures"),
             Path.Combine(root, "Support"));
     }
 }

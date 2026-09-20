@@ -67,7 +67,12 @@ public interface IRecycleBin
 /// And everything goes to the recycle bin, so the answer to "it deleted one I wanted" is to
 /// open the bin rather than to apologise.
 /// </remarks>
-public sealed partial class ScreenshotRetentionService(IRecycleBin recycleBin, TimeProvider? timeProvider = null)
+public sealed partial class ScreenshotRetentionService(
+    IRecycleBin recycleBin,
+    TimeProvider? timeProvider = null,
+    // #309: where a run that moved something, or failed to, is written down. Optional so a composition
+    // without one (and every test that builds this by hand) still tidies, it just leaves no ledger.
+    IScreenshotTidyLedger? ledger = null)
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -90,48 +95,176 @@ public sealed partial class ScreenshotRetentionService(IRecycleBin recycleBin, T
             return 0;
         }
 
-        FileInfo[] candidates;
+        return Run(screenshotRoot, settings, dryRun: false).Moved;
+    }
+
+    /// <summary>
+    /// Reads the folder and says exactly which files a tidy would move, which it would leave and why.
+    /// Works whether or not tidying is turned on: it is what the player is shown before they turn it on.
+    /// </summary>
+    public ScreenshotTidyPlan Plan(string screenshotRoot, ScreenshotRetentionSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var hours = settings.SafeRetentionHours;
+        if (string.IsNullOrWhiteSpace(screenshotRoot))
+        {
+            return ScreenshotTidyPlan.Refused(screenshotRoot ?? string.Empty, hours, "There is no screenshot folder yet.");
+        }
+
+        string root;
         try
         {
-            candidates = new DirectoryInfo(screenshotRoot)
-                .EnumerateFiles()
-                .Where(file => ScreenshotName().IsMatch(file.Name))
-                .ToArray();
+            root = Path.GetFullPath(screenshotRoot);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return ScreenshotTidyPlan.Refused(screenshotRoot, hours, "That is not a usable folder path.");
+        }
+
+        // A drive root is never a screenshot folder. Only files named like the game's are ever touched, but
+        // a wrong root that happens to hold a few of them is exactly the mistake worth refusing outright.
+        if (string.Equals(Path.GetPathRoot(root), root, StringComparison.OrdinalIgnoreCase))
+        {
+            return ScreenshotTidyPlan.Refused(root, hours, "That is a drive root, not a screenshot folder.");
+        }
+
+        FileInfo[] files;
+        try
+        {
+            if (!Directory.Exists(root))
+            {
+                return ScreenshotTidyPlan.Refused(root, hours, "That folder does not exist.");
+            }
+
+            files = new DirectoryInfo(root).EnumerateFiles().ToArray();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            return 0;
+            return ScreenshotTidyPlan.Refused(root, hours, "That folder could not be read.");
         }
 
-        if (candidates.Length <= 1)
-        {
-            return 0;
-        }
-
+        var named = files.Where(file => ScreenshotName().IsMatch(file.Name)).ToArray();
+        var excluded = new List<TidyExclusion>();
+        var eligible = new List<TidyCandidate>();
         // Kept whatever its age: the map may still be showing a position from it.
-        var newest = candidates.MaxBy(file => file.LastWriteTimeUtc);
-        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromHours(settings.SafeRetentionHours);
-        var tidied = 0;
-        foreach (var file in candidates)
+        var newest = named.Length > 1 ? named.MaxBy(file => file.LastWriteTimeUtc) : null;
+        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromHours(hours);
+        foreach (var file in named.OrderBy(file => file.LastWriteTimeUtc))
         {
-            if (ReferenceEquals(file, newest) || file.LastWriteTimeUtc > cutoff)
+            if (named.Length <= 1 || ReferenceEquals(file, newest))
             {
-                continue;
+                excluded.Add(new(file.Name, TidySkipReason.NewestKept));
             }
-
-            if (IsCloudOnly(file.Attributes))
+            else if (file.LastWriteTimeUtc > cutoff)
             {
-                continue;
+                excluded.Add(new(file.Name, TidySkipReason.TooRecent));
             }
-
-            if (recycleBin.Recycle(file.FullName))
+            else if (SkipReason(file.Attributes, file.LinkTarget) is { } reason)
             {
-                tidied++;
+                excluded.Add(new(file.Name, reason));
+            }
+            else
+            {
+                eligible.Add(new(file.Name, file.Length, new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero)));
             }
         }
 
-        return tidied;
+        return new(root, hours, null, eligible, excluded, files.Length - named.Length);
     }
+
+    /// <summary>
+    /// Plans, then (unless <paramref name="dryRun"/>) moves the eligible files to the recycle bin, one at a
+    /// time, checking each is still the file that was planned. Never throws.
+    /// </summary>
+    /// <remarks>
+    /// A dry run goes through the same planning as a real run and stops before the first move, so what the
+    /// preview shows is what the run does rather than a second opinion about it.
+    /// </remarks>
+    public ScreenshotTidyResult Run(string screenshotRoot, ScreenshotRetentionSettings settings, bool dryRun)
+    {
+        var plan = Plan(screenshotRoot, settings);
+        var now = _timeProvider.GetUtcNow();
+        if (dryRun || plan.IsRefused || !recycleBin.IsAvailable)
+        {
+            return new(dryRun, plan, 0, 0, [], now);
+        }
+
+        var moved = 0;
+        long movedBytes = 0;
+        var failures = new List<TidyFailure>();
+        foreach (var candidate in plan.Eligible)
+        {
+            var path = Path.Combine(plan.Root, candidate.Name);
+            try
+            {
+                var current = new FileInfo(path);
+                if (!current.Exists)
+                {
+                    failures.Add(new(candidate.Name, "It was gone before it could be moved."));
+                }
+                else if (current.Length != candidate.Bytes
+                    || new DateTimeOffset(current.LastWriteTimeUtc, TimeSpan.Zero) != candidate.LastWriteUtc
+                    || SkipReason(current.Attributes, current.LinkTarget) is not null)
+                {
+                    // Replaced, rewritten or turned into a link since it was planned. What was approved is
+                    // not what is there now, so it stays.
+                    failures.Add(new(candidate.Name, "It changed after it was checked, so it was left alone."));
+                }
+                else if (recycleBin.Recycle(path))
+                {
+                    moved++;
+                    movedBytes += candidate.Bytes;
+                }
+                else
+                {
+                    failures.Add(new(candidate.Name, "The recycle bin would not take it."));
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // One file that cannot be moved is not a reason to leave the rest, or to stop the sweep.
+                failures.Add(new(candidate.Name, exception is UnauthorizedAccessException
+                    ? "It could not be moved: permission was denied."
+                    : "It could not be moved: another program has it, or the disk refused."));
+            }
+        }
+
+        var ledgerFailed = false;
+        if (ledger is not null && (moved > 0 || failures.Count > 0))
+        {
+            try
+            {
+                ledger.Append(new(
+                    now,
+                    plan.RetentionHours,
+                    moved,
+                    movedBytes,
+                    failures.Count,
+                    failures.GroupBy(failure => failure.Reason).ToDictionary(group => group.Key, group => group.Count())));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A full disk must not turn a tidy that worked into one that reads as failed.
+                ledgerFailed = true;
+            }
+        }
+
+        return new(false, plan, moved, movedBytes, failures, now, ledgerFailed);
+    }
+
+    private static TidySkipReason? SkipReason(FileAttributes attributes, string? linkTarget)
+    {
+        if (linkTarget is not null || ((attributes & FileAttributes.ReparsePoint) != 0 && !IsCloudOnlyByAttribute(attributes)))
+        {
+            return TidySkipReason.LinkOrReparsePoint;
+        }
+
+        return IsCloudOnly(attributes) ? TidySkipReason.CloudPlaceholder : null;
+    }
+
+    /// <summary>The cloud marks other than the generic reparse bit, which a symbolic link also carries.</summary>
+    private static bool IsCloudOnlyByAttribute(FileAttributes attributes) =>
+        (attributes & FileAttributes.Offline) != 0 || ((int)attributes & RecallOnDataAccess) != 0;
 
     /// <summary>Whether the file is a cloud placeholder rather than bytes on this disk.</summary>
     /// <remarks>

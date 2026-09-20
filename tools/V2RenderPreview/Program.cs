@@ -282,6 +282,9 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
@@ -297,6 +300,26 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // [#309] A screenshot folder of stand-in files (empty of pictures, named the way the game names
+            // them) pointed at the runtime, then Start tidying pressed: the preview and its confirm button.
+            if (shell?.SetupWorkspace is { Cleanup: { } cleanup } && args.Contains("--tidy-demo"))
+            {
+                var shots = Path.Combine(dataRoot, "tidy-demo-screenshots");
+                Directory.CreateDirectory(shots);
+                for (var day = 0; day < 6; day++)
+                {
+                    var path = Path.Combine(shots, $"2026-09-{10 + day:D2}[14-05]_demo_{day}.png");
+                    File.WriteAllText(path, new string('x', 900_000 + (day * 13_000)));
+                    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-8 + day));
+                }
+
+                File.WriteAllText(Path.Combine(shots, "notes.txt"), "not the game's");
+                var runtime = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                runtime.Update(snapshot => snapshot with { Observation = snapshot.Observation with { ScreenshotRoot = shots } });
+                cleanup.RequestToggleCommand.Execute(null);
+                Pump(60);
             }
 
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one

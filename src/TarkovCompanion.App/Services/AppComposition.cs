@@ -364,6 +364,9 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [#309] What the hourly tidy moved, or failed to, kept as counts and reasons across restarts.
+        services.AddSingleton<IScreenshotTidyLedger>(_ =>
+            new JsonFileScreenshotTidyLedger(Path.Combine(paths.Config, "screenshot-tidy-ledger.json")));
         // [V2 rough package 60 — appearance] #266/#315: the one versioned record that says how
         // the companion looks. Nothing persisted a theme, a text scale, a density or a motion
         // choice before this, so every palette the design system shipped was unreachable.
@@ -853,6 +856,15 @@ public static class AppComposition
             provider.GetRequiredService<NotificationBridge>(),
             () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#309] Setup > Privacy: preview before turning tidying on, a dry run, and the last-run ledger.
+        services.AddSingleton(provider => new SetupCleanupViewModel(
+            provider.GetRequiredService<ScreenshotRetentionService>(),
+            provider.GetRequiredService<IScreenshotRetentionStore>(),
+            provider.GetService<IScreenshotTidyLedger>(),
+            () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.ToggleScreenshotTidyingCommand,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.CanTidyScreenshots,
+            provider.GetRequiredService<TimeProvider>()));
         // [#269] What Setup › Game & Profile drives: create, switch, archive, restore. A first profile
         // waits for the V1 one to be seeded, so V1 progress always has a profile to belong to.
         services.AddSingleton(provider => new ProfileManagementService(
