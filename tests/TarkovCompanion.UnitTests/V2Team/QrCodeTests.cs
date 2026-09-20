@@ -17,12 +17,16 @@ namespace TarkovCompanion.UnitTests.V2Team;
 /// </remarks>
 public sealed class QrCodeTests
 {
-    /// <summary>A payload of the shape the pairing ceremony actually produces.</summary>
-    private const string PairingPayload = "TARKOV-COMPANION-PAIR/2.0/H7K2QM/9f2c4a1b8e6d3057";
+    /// <summary>
+    /// The shape the pairing ceremony actually draws (#289): a phone camera can only open a link,
+    /// so the QR is a URL to the relay's tablet page with the same payload in its fragment, not the
+    /// bare payload alone.
+    /// </summary>
+    private const string PairingPayload = "https://relay.example/tablet#TARKOV-COMPANION-PAIR/2.0/H7K2QM/9f2c4a1b8e6d3057";
 
     [Theory]
     [InlineData("A", 1)]
-    [InlineData(PairingPayload, 4)]
+    [InlineData(PairingPayload, 5)]
     public void TheSmallestSymbolThatFitsIsUsed(string text, int version) =>
         Assert.Equal(version, QrCode.Encode(text).Version);
 
@@ -59,8 +63,26 @@ public sealed class QrCodeTests
             }
         }
 
-        // And the fourth corner does not, which is how a reader knows the orientation.
-        Assert.False(code[last, last] && code[last + 6, last + 6]);
+        // And the fourth corner does not, which is how a reader knows the orientation. Checked
+        // against the same 49-bit ring/ring/core shape as the real finders above, not two of its
+        // pixels: at some versions (5 among them) an alignment pattern's own dark centre legitimately
+        // lands on one of those two pixels regardless of payload, which #289's longer, URL-shaped
+        // QR payload found — the two-pixel check could never pass there, for any content.
+        var isFinderShaped = true;
+        for (var y = 0; y < 7 && isFinderShaped; y++)
+        {
+            for (var x = 0; x < 7; x++)
+            {
+                var ring = Math.Max(Math.Abs(y - 3), Math.Abs(x - 3));
+                if (code[last + y, last + x] != (ring != 2))
+                {
+                    isFinderShaped = false;
+                    break;
+                }
+            }
+        }
+
+        Assert.False(isFinderShaped);
     }
 
     [Fact]
