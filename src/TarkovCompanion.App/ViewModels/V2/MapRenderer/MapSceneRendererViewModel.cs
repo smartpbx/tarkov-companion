@@ -120,6 +120,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     // itself is committed to the canonical scene once, when the drag ends.
     private double _panOffsetX;
     private double _panOffsetY;
+    private const int MinimumContentPoints = 8;
+    private const double MinimumContentSpan = 0.4;
+    private const double ContentMarginFraction = 0.04;
+
+    /// <summary>
+    /// [Issue 551] Whether the view is the fitted one: set by Fit and by a new map, cleared by
+    /// anything the player does to the camera themselves. While it holds, a change to what the
+    /// fit depends on (the card's size, the bearing, the plan) fits again rather than leaving a
+    /// fit that was right for a card or a bearing that is gone.
+    /// </summary>
+    private bool _isFitted;
+    private bool _refitting;
     private MapSceneCamera? _panStartCamera;
     private MapSceneCamera? _panTargetCamera;
 
@@ -149,6 +161,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
+        _isFitted = IsPlainFit(scene);
         ShowsDetailsPanel = showsDetailsPanel;
         _fillsViewport = fillsViewport;
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
@@ -676,6 +689,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         DispatchHighValueLootPresetChange();
+
+        // [Issue 551] A host opens a map on the plain fit (the plan's middle at zoom one) because
+        // it cannot know the card's size or where the map's features are. That is this view
+        // model's to refine, and to keep right while the view is still the fitted one.
+        if (changedSceneIdentity || boundsChanged)
+        {
+            _isFitted = IsPlainFit(scene);
+        }
+
+        if (changedSceneIdentity || boundsChanged || projectionChanged || objectDefinitionsChanged)
+        {
+            RefitIfFitted();
+        }
+    }
+
+    /// <summary>The camera a host opens a map with: the middle of the plan at zoom one.</summary>
+    private static bool IsPlainFit(MapSceneSnapshot scene)
+    {
+        var camera = scene.View.Camera;
+        var bounds = scene.Bounds;
+        return Math.Abs(camera.Zoom - 1) < 1e-9 &&
+            Math.Abs(camera.CenterX - (bounds.MinimumX + (bounds.Width / 2))) < 1e-6 &&
+            Math.Abs(camera.CenterY - (bounds.MinimumY + (bounds.Height / 2))) < 1e-6;
     }
 
     /// <summary>Whether two projections put the plan in the same rectangle at the same scale.</summary>
@@ -707,6 +743,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         RebuildProjectedObjects();
         UpdateBackgroundStatus(SelectedBackgroundAsset());
         RaiseProjectionChanged();
+        RefitIfFitted();
     }
 
     public void RequestMode(MapSceneMode mode)
@@ -827,7 +864,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// whatever size the card happens to be. Anything below it only adds empty surface around a
     /// map that already fits.
     /// </remarks>
-    public double MinimumZoom => 1;
+    /// <remarks>
+    /// [Issue 551] One, while the plan lies the way the projection fitted it. Turned, the same
+    /// rectangle can be taller than the card (Customs a quarter turn round is), and then the
+    /// whole plan is further out than one; the limit follows it so the whole map can always be
+    /// brought back on screen.
+    /// </remarks>
+    public double MinimumZoom => Math.Min(1, PlanFit()?.Zoom ?? 1);
 
     /// <summary>
     /// The furthest in the camera goes, from the artwork rather than from a constant.
@@ -908,6 +951,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var factor = direction > 0 ? 1.25 : 0.8;
         var camera = _scene.View.Camera;
+        _isFitted = false;
         Request(new(
             MapSceneViewChangeKind.SetCamera,
             Camera: Clamp(new(
@@ -1014,6 +1058,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         _panTargetCamera = null;
         if (target is { } camera)
         {
+            _isFitted = false;
             // Requested before the offset is cleared: the host applies and presents this
             // synchronously, so the committed camera replaces the drag offset within the same
             // frame and the plan does not flash back to where the drag started.
@@ -1063,6 +1108,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         // The projected centre has to move by the pointer offset scaled by the change in 1/zoom
         // for the point under the pointer to stay put.
         var change = (1 / camera.Zoom) - (1 / zoom);
+        _isFitted = false;
         var centre = _projection.Project(camera.CenterX, camera.CenterY);
         var moved = _projection.Unproject(centre.X + (planX * change), centre.Y + (planY * change));
         Request(new(
@@ -1104,19 +1150,149 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void FitPlan()
     {
-        var bounds = _scene.Bounds;
+        _isFitted = true;
         // [V2 rough package 22] The bearing survives a fit. Turning the map is how somebody reads
         // it while playing, and V1's Fit never undid it; resetting it here meant every fit (and
         // the automatic one on a new map) silently put the map back the way round they had
         // rejected.
-        Request(new(
-            MapSceneViewChangeKind.SetCamera,
-            Camera: new(
+        Request(new(MapSceneViewChangeKind.SetCamera, Camera: FittedCamera(_scene.View.Camera.BearingDegrees)));
+    }
+
+    /// <summary>
+    /// [Issue 551] The camera that fills the card with the map, turned to <paramref name="bearingDegrees"/>.
+    /// </summary>
+    /// <remarks>
+    /// See <see cref="MapFitGeometry"/>. What is fitted is where the map's own fixed features are
+    /// (extracts, transits, spawn areas, locks, hazards, place names) when there are enough of
+    /// them, spread widely enough, to say where the map is; otherwise the plan's rectangle. A
+    /// player, a ping or a waypoint never counts, so the fit does not shift as they move.
+    /// </remarks>
+    private MapSceneCamera FittedCamera(double bearingDegrees)
+    {
+        var bounds = _scene.Bounds;
+        var fit = ContentFit(bearingDegrees) ?? PlanFit(bearingDegrees);
+        if (fit is not { } found || !_projection.IsUsable)
+        {
+            return new(
                 bounds.MinimumX + (bounds.Width / 2),
                 bounds.MinimumY + (bounds.Height / 2),
-                MinimumZoom,
-                _scene.View.Camera.BearingDegrees,
-                0)));
+                1,
+                bearingDegrees,
+                0);
+        }
+
+        var centre = _projection.Unproject(found.CentreX, found.CentreY);
+        return new(
+            centre.X,
+            centre.Y,
+            Math.Clamp(found.Zoom, Math.Min(1, PlanFit(bearingDegrees)?.Zoom ?? 1), Math.Max(1, MaximumZoom)),
+            bearingDegrees,
+            0);
+    }
+
+    /// <summary>The whole plan rectangle on the card at a bearing, with the markers' own inset.</summary>
+    private MapFitGeometry.Fit? PlanFit(double? bearingDegrees = null)
+    {
+        if (!_projection.IsUsable)
+        {
+            return null;
+        }
+
+        var bounds = _scene.Bounds;
+        var topLeft = _projection.Project(bounds.MinimumX, bounds.MinimumY);
+        var bottomRight = _projection.Project(bounds.MaximumX, bounds.MaximumY);
+        return MapFitGeometry.For(
+            [(topLeft.X, topLeft.Y), (bottomRight.X, topLeft.Y), (bottomRight.X, bottomRight.Y), (topLeft.X, bottomRight.Y)],
+            bearingDegrees ?? _scene.View.Camera.BearingDegrees,
+            CanvasWidth,
+            CanvasHeight,
+            MapInset);
+    }
+
+    private MapFitGeometry.Fit? ContentFit(double bearingDegrees)
+    {
+        if (!_projection.IsUsable)
+        {
+            return null;
+        }
+
+        var bounds = _scene.Bounds;
+        var points = new List<(double X, double Y)>();
+        double minimumX = double.PositiveInfinity, minimumY = double.PositiveInfinity;
+        double maximumX = double.NegativeInfinity, maximumY = double.NegativeInfinity;
+        foreach (var item in _scene.Objects)
+        {
+            if (item.Kind is not (MapSceneObjectKind.Extract or MapSceneObjectKind.Transit or MapSceneObjectKind.SpawnArea
+                or MapSceneObjectKind.Lock or MapSceneObjectKind.Hazard or MapSceneObjectKind.Label))
+            {
+                continue;
+            }
+
+            foreach (var point in item.Geometry.Points)
+            {
+                // Something the catalog places off the plan is not where the map is.
+                if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) ||
+                    point.X < bounds.MinimumX || point.X > bounds.MaximumX ||
+                    point.Y < bounds.MinimumY || point.Y > bounds.MaximumY)
+                {
+                    continue;
+                }
+
+                var projected = _projection.Project(point);
+                points.Add((projected.X, projected.Y));
+                minimumX = Math.Min(minimumX, point.X);
+                maximumX = Math.Max(maximumX, point.X);
+                minimumY = Math.Min(minimumY, point.Y);
+                maximumY = Math.Max(maximumY, point.Y);
+            }
+        }
+
+        // A handful of features, or features bunched in one corner, do not say where the map is.
+        if (points.Count < MinimumContentPoints ||
+            maximumX - minimumX < bounds.Width * MinimumContentSpan ||
+            maximumY - minimumY < bounds.Height * MinimumContentSpan)
+        {
+            return null;
+        }
+
+        // A marker is drawn around its point and a pin above it, so the points need more room
+        // than a rectangle's edge does: the markers' inset, and about 4% of the card.
+        return MapFitGeometry.For(
+            points,
+            bearingDegrees,
+            CanvasWidth,
+            CanvasHeight,
+            MapInset + (ContentMarginFraction * Math.Min(CanvasWidth, CanvasHeight)));
+    }
+
+    /// <summary>
+    /// Fits again when the view is still the fitted one and what it was fitted to has changed:
+    /// the card's size, the plan, or where the map's features are.
+    /// </summary>
+    private void RefitIfFitted()
+    {
+        if (!_isFitted || _refitting || ViewChangeRequested is null)
+        {
+            return;
+        }
+
+        var wanted = FittedCamera(_scene.View.Camera.BearingDegrees);
+        var camera = _scene.View.Camera;
+        if (Math.Abs(wanted.CenterX - camera.CenterX) < 1e-6 && Math.Abs(wanted.CenterY - camera.CenterY) < 1e-6 &&
+            Math.Abs(wanted.Zoom - camera.Zoom) < 1e-9)
+        {
+            return;
+        }
+
+        _refitting = true;
+        try
+        {
+            Request(new(MapSceneViewChangeKind.SetCamera, Camera: wanted));
+        }
+        finally
+        {
+            _refitting = false;
+        }
     }
 
     /// <summary>
@@ -1139,6 +1315,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var zoom = minimumZoom is { } wanted && double.IsFinite(wanted) && wanted > camera.Zoom
             ? Math.Clamp(wanted, MinimumZoom, MaximumZoom)
             : camera.Zoom;
+        _isFitted = false;
         // Clamped like a pan, so following somebody standing near the edge of the map puts them
         // as close to the middle as the plan allows rather than leaving the camera on a centre
         // the next gesture would have to correct.
@@ -1162,9 +1339,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        // [Issue 551] A fitted map turned is fitted to the new way round, in the same change: a
+        // tall map turned to lie along a wide card should grow to fill it, not keep the scale
+        // that fitted it standing up.
         Request(new(
             MapSceneViewChangeKind.SetCamera,
-            Camera: new(camera.CenterX, camera.CenterY, camera.Zoom, bearing, camera.PitchDegrees)));
+            Camera: _isFitted
+                ? FittedCamera(bearing)
+                : new(camera.CenterX, camera.CenterY, camera.Zoom, bearing, camera.PitchDegrees)));
     }
 
     private void MoveSelection(int direction)
