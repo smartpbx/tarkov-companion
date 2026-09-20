@@ -352,9 +352,14 @@ public static class AppComposition
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
-        // anywhere, so it is composed here explicitly rather than discovered.
-        services.AddSingleton<IGroupSettingsStore>(_ =>
-            new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")));
+        // anywhere, so it is composed here explicitly rather than discovered. Decorated so
+        // saving a new relay address reconfigures the paired-tablet bridge at once instead of
+        // leaving it on whatever group.json said at startup (RelayMarksBridge is registered
+        // further down, but DI resolves it lazily on first use, not in registration order).
+        services.AddSingleton<IGroupSettingsStore>(provider =>
+            new RelayReconfiguringGroupSettingsStore(
+                new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")),
+                provider.GetRequiredService<RelayMarksBridge>()));
         // What the player is working on, for the group to see. Dead until tonight, because
         // there was no quest progress to send.
         services.AddSingleton<GroupQuestShare>();
@@ -1091,17 +1096,14 @@ public static class AppComposition
             }
 
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
-            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object ||
-                !document.RootElement.TryGetProperty("serverUri", out var server) ||
-                server.ValueKind != System.Text.Json.JsonValueKind.String ||
-                !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
-                uri.Scheme != Uri.UriSchemeHttps ||
-                IPAddress.TryParse(uri.IdnHost, out _))
-            {
-                return null;
-            }
-
-            return new Uri(uri.GetLeftPart(UriPartial.Authority));
+            // The shape check itself lives in CompanionRelayOrigin, shared with whatever
+            // reconfigures this live after a save (RelayReconfiguringGroupSettingsStore), so
+            // startup and a later change can never accept a different notion of "usable".
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("serverUri", out var server) &&
+                server.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? CompanionRelayOrigin.TryParse(server.GetString())
+                    : null;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
