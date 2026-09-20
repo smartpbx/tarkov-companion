@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using TarkovCompanion.App.Services.Diagnostics;
 
@@ -21,18 +20,16 @@ public sealed class ShutdownStagesTests
     [Fact]
     public async Task AStepThatOverrunsIsAbandonedAndSaysSo()
     {
+        // No stopwatch. The step is a task that is never completed, so this method returning at
+        // all is the proof that it was not waited out; a regression to an unbounded wait hangs the
+        // test rather than failing an assertion about how busy the machine was.
         var stages = new ShutdownStages(TimeSpan.FromSeconds(5));
-        var clock = Stopwatch.StartNew();
 
         await stages.RunAsync("stuck", () => new TaskCompletionSource().Task, TimeSpan.FromMilliseconds(120));
 
         Assert.False(stages.WithinBudget);
         Assert.Contains("stuck", stages.Report(), StringComparison.Ordinal);
         Assert.Contains("(abandoned)", stages.Report(), StringComparison.Ordinal);
-        // Generous on purpose. The claim is "it did not wait for a task that never completes",
-        // and the whole suite runs in parallel on a shared box, so a tight bound here would fail
-        // for load rather than for the behaviour under test.
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(10), $"Waited {clock.Elapsed} for a 120 ms allowance.");
     }
 
     /// <summary>
@@ -48,17 +45,28 @@ public sealed class ShutdownStagesTests
     public async Task AStepThatSpendsTheBudgetLeavesNoneForTheNext()
     {
         var stages = new ShutdownStages(TimeSpan.FromMilliseconds(150));
-        var clock = Stopwatch.StartNew();
 
         await stages.RunAsync("first", () => new TaskCompletionSource().Task, TimeSpan.FromSeconds(30));
         var remainingAfterFirst = stages.Remaining;
         await stages.RunAsync("second", () => new TaskCompletionSource().Task, TimeSpan.FromSeconds(30));
 
-        Assert.Equal(TimeSpan.Zero, remainingAfterFirst);
-        // Sixty seconds is what two unbounded steps would cost; fifteen is decisively less and
-        // survives the thread-pool contention of the full suite.
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"Two 30-second steps took {clock.Elapsed} of a 150 ms budget.");
-        Assert.Contains("second", stages.Report(), StringComparison.Ordinal);
+        // Both abandoned, neither given its own thirty seconds: that is the whole claim, and it
+        // is a fact about the report rather than about how fast the machine was.
+        var report = stages.Report();
+        Assert.False(stages.WithinBudget);
+        Assert.Equal(2, Regex.Matches(report, @"\(abandoned\)").Count);
+        Assert.Contains("first", report, StringComparison.Ordinal);
+        Assert.Contains("second", report, StringComparison.Ordinal);
+
+        // An upper bound, which is the safe direction: load only makes the elapsed time larger and
+        // so the remainder smaller. Not an equality — this failed on a CI runner at 0.15 ms left
+        // of a 150 ms budget, because the timer that ends the wait runs on its own clock and can
+        // be a fraction ahead of the stopwatch measuring it. Twenty milliseconds covers Windows's
+        // ~15.6 ms timer granularity; what it proves is that the first step spent the shared
+        // budget rather than having one of its own.
+        Assert.True(
+            remainingAfterFirst < TimeSpan.FromMilliseconds(20),
+            $"A step that overran a 150 ms budget left {remainingAfterFirst.TotalMilliseconds:0.###} ms of it.");
     }
 
     /// <summary>A step that fails is recorded and the rest of shutdown carries on.</summary>

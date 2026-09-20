@@ -16,15 +16,6 @@ namespace TarkovCompanion.App;
 
 public sealed class App(IServiceProvider services) : Avalonia.Application
 {
-    /// <summary>
-    /// How long a startup that is still running is given to notice it has been cancelled.
-    /// </summary>
-    /// <remarks>
-    /// One second, down from five. The remark on <see cref="StopAsync"/> explains why more is
-    /// waste: these continuations are posted to a dispatcher that has already stopped, so five
-    /// seconds bought nothing and spent a third of the whole shutdown budget doing it.
-    /// </remarks>
-    private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(1);
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
     private MainWindowViewModel? _mainViewModel;
@@ -105,8 +96,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     /// queue whose own drain awaits its writer with <see cref="CancellationToken.None"/>. One
     /// slow file write on the way out and the process never reached its own exit.
     ///
-    /// Now the drain the remark says can never complete gets a second rather than five, the
-    /// preview shell gets a deadline of its own, and what each step cost is in the log.
+    /// So the drain is gone rather than shortened: waiting on work that cannot finish is worth
+    /// removing outright, not budgeting for. A startup that has already completed is still
+    /// awaited, because that costs nothing and surfaces what it threw. The preview shell gets a
+    /// deadline of its own, and what each step cost is in the log.
     /// </remarks>
     public async Task<string> StopAsync(TimeSpan budget)
     {
@@ -120,12 +113,25 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         }
 
         _mainViewModel?.Map.Dispose();
-        // A second, not five. Cancellation has already been requested and these continuations are
-        // posted to a dispatcher that has stopped running them, so this is only long enough to
-        // collect work that had already left the interface thread.
-        await stages
-            .RunAsync("initialization-drain", () => _initialization, InitializationDrainTimeout)
-            .ConfigureAwait(false);
+        // Observed, not waited for. Startup's continuations are posted to a dispatcher that has
+        // already stopped running them, so a startup still in flight here can never finish and
+        // every second spent waiting on it is a second bought for nothing — five of them, out of
+        // a fifteen-second budget, before this. Awaiting a task that has *already* completed is
+        // free and surfaces anything it threw, so that is all this does; the rest is recorded and
+        // left behind with the process.
+        if (_initialization.IsCompleted)
+        {
+            // Whatever is left of the budget, which it cannot spend: the task is already
+            // complete, so this returns at once and only exists to surface what it threw.
+            await stages
+                .RunAsync("initialization", () => _initialization, stages.Remaining)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            stages.Skip("initialization", "still running; its continuations cannot complete");
+        }
+
         _stopping.Dispose();
         return stages.Report();
     }

@@ -87,6 +87,17 @@ internal sealed class ShutdownStages(TimeSpan budget)
             $"{name} {(_elapsed.Elapsed - started).TotalMilliseconds:0}ms{(overran ? " (abandoned)" : string.Empty)}"));
     }
 
+    /// <summary>
+    /// Records a step that was deliberately not run, and why.
+    /// </summary>
+    /// <remarks>
+    /// A step nobody waited for is not the same as a step that finished, and the log should not
+    /// let the two look alike. The one this exists for is a startup still in flight at shutdown:
+    /// its continuations are posted to a dispatcher that has stopped, so it cannot complete, and
+    /// waiting on it was five seconds of a fifteen-second budget spent on a certainty.
+    /// </remarks>
+    public void Skip(string name, string reason) => _costs.Add($"{name} skipped ({reason})");
+
     /// <summary>Where the time went, in the order it was spent.</summary>
     public string Report() => string.Create(
         CultureInfo.InvariantCulture,
