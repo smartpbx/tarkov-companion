@@ -171,6 +171,18 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         SetOwnerLink(RelayOwnerLinkState.None);
     }
 
+    /// <summary>The relay <see cref="Configure"/> last pointed this bridge at, or null before the first call.</summary>
+    public Uri? ConfiguredOrigin
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _origin;
+            }
+        }
+    }
+
     /// <summary>What is known about this desktop's owner session on the relay right now.</summary>
     public RelayOwnerLinkState OwnerLink
     {
