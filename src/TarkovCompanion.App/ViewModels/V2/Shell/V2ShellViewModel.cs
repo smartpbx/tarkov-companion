@@ -17,14 +17,15 @@ using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
-using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -81,6 +82,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly CoalescingDispatch _apply;
     private readonly SynchronizationContext? _dispatcherContext;
     private readonly ConcurrentQueue<V2ShellPersistenceResult> _persistenceResults = new();
+    private V2NavigationRail _navigationRail = V2NavigationRail.Labels;
     private readonly List<INotifyPropertyChanged> _legacyContextSources = [];
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _lifetimeToken;
@@ -156,7 +158,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
-        SetupSelfTestViewModel? selfTest = null)
+        SetupSelfTestViewModel? selfTest = null,
+        // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
+        // record the Appearance section writes. Optional for the same reason as the rest.
+        WorkspacePreferenceService? preferences = null,
+        // [#269] Setup's profile list, same reasoning again.
+        SetupProfilesViewModel? profiles = null,
+        // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
+        SetupAdminViewModel? admin = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -184,6 +193,21 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
+        }
+
+        if (preferences is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
+        }
+
+        if (profiles is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachProfiles(profiles);
+        }
+
+        if (admin is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAdmin(admin);
         }
     }
 
@@ -318,6 +342,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             V2ShellFocusTargets.Health,
             V2ShellFocusTargets.HealthDialog));
         DismissSurfaceBannerCommand = new DelegateCommand(DismissSurfaceBanner);
+        CycleNavigationRailCommand = new DelegateCommand(CycleNavigationRail);
+        ShowNavigationRailCommand = new DelegateCommand(ShowNavigationRail);
         PaletteCommand = new DelegateCommand(() => ToggleDialog(
             V2ShellDialogKind.Commands,
             V2ShellFocusTargets.Palette,
@@ -519,7 +545,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             "V2.Shell.Capture.Evidence",
             CultureInfo.CurrentCulture,
             review.Provenance,
-            review.CapturedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))
+            LocalTime.Moment(review.CapturedUtc))
         : string.Empty;
     public string CaptureShortcutStatus => V2ShellText.Get(
         CaptureShortcutEnabled ? "V2.Shell.Capture.ShortcutOn" : "V2.Shell.Capture.ShortcutOff");
@@ -533,7 +559,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public string LocalTimeLabel => V2ShellText.Format(
         "V2.Shell.Context.LocalTime",
         CultureInfo.CurrentCulture,
-        _clock.GetLocalNow().ToString("t", CultureInfo.CurrentCulture));
+        LocalTime.ShortTime(_clock.GetUtcNow()));
     public string RaidContextLabel => FormatRaidContext(_runtime.Current.Raid, _clock.GetUtcNow());
     /// <summary>The top bar's compact raid clock chip, e.g. "In raid · 12:34 left".</summary>
     public string RaidClockLabel => FormatRaidClock(_runtime.Current.Raid, _clock.GetUtcNow());
@@ -766,6 +792,86 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // variant's data can render, rather than branching on the variant's declared style.
     public bool UsesRailNavigation => WidthClass >= V2WidthClass.Standard;
     public bool UsesRowNavigation => !UsesRailNavigation;
+
+    /// <summary>
+    /// How much of the left rail is showing: its labels, only its icons, or nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] "The left sidebar should be collapsible ... more map is better."
+    /// Three states rather than two, because the middle one is the useful one: 56 pixels of icons
+    /// keeps every destination one press away and hands 112 pixels to the map, and hiding it
+    /// entirely hands over 168. Nothing becomes unreachable when it is away — a launcher button
+    /// floats over the workspace's top-left corner with the same destinations in it, the command
+    /// palette still lists every route, and Ctrl+B brings the rail straight back.
+    ///
+    /// Remembered, because a choice like this is made once. It is chrome, so it is kept in the
+    /// same preview state as the window's own placement rather than in a store of its own.
+    /// </remarks>
+    public V2NavigationRail NavigationRail
+    {
+        get => _navigationRail;
+        private set
+        {
+            if (_navigationRail == value)
+            {
+                return;
+            }
+
+            _navigationRail = value;
+            foreach (var destination in PrimaryDestinations)
+            {
+                destination.ShowsLabel = value == V2NavigationRail.Labels;
+            }
+
+            SetupDestination.ShowsLabel = value == V2NavigationRail.Labels;
+            OnPropertyChanged(nameof(NavigationRail));
+            OnPropertyChanged(nameof(ShowsNavigationRail));
+            OnPropertyChanged(nameof(ShowsNavigationLauncher));
+            OnPropertyChanged(nameof(NavigationRailWidth));
+            OnPropertyChanged(nameof(NavigationRailStateLabel));
+            OnPropertyChanged(nameof(NavigationRailToggleName));
+        }
+    }
+
+    public bool ShowsNavigationRail => UsesRailNavigation && NavigationRail != V2NavigationRail.Hidden;
+
+    /// <summary>The floating way back to the destinations while the rail is away.</summary>
+    public bool ShowsNavigationLauncher => UsesRailNavigation && NavigationRail == V2NavigationRail.Hidden;
+
+    public double NavigationRailWidth => NavigationRail == V2NavigationRail.Labels ? 168 : 60;
+
+    public string NavigationRailStateLabel => V2ShellText.Get(NavigationRail switch
+    {
+        V2NavigationRail.Labels => "V2.Shell.Nav.RailLabels",
+        V2NavigationRail.Icons => "V2.Shell.Nav.RailIcons",
+        _ => "V2.Shell.Nav.RailHidden",
+    });
+
+    public string NavigationRailToggleName => V2ShellText.Get("V2.Shell.Command.NavigationRail");
+
+    public string ShowNavigationRailLabel => V2ShellText.Get("V2.Shell.Nav.ShowRail");
+
+    public string NavigationLauncherLabel => V2ShellText.Get("V2.Shell.Nav.GoTo");
+
+    /// <summary>Labels to icons to away and round again, the way one control with three states works.</summary>
+    public void CycleNavigationRail()
+    {
+        NavigationRail = NavigationRail switch
+        {
+            V2NavigationRail.Labels => V2NavigationRail.Icons,
+            V2NavigationRail.Icons => V2NavigationRail.Hidden,
+            _ => V2NavigationRail.Labels,
+        };
+        Announce(NavigationRailStateLabel, V2Announcement.Polite);
+        QueueSave();
+    }
+
+    public void ShowNavigationRail()
+    {
+        NavigationRail = V2NavigationRail.Labels;
+        Announce(NavigationRailStateLabel, V2Announcement.Polite);
+        QueueSave();
+    }
     /// <summary>
     /// Opens a past raid's trail on the Raid map: moves the map to the raid's own map, starts the
     /// replay V1's History page started, and goes to the Raid workspace where it is drawn.
@@ -923,6 +1029,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ICommand CaptureCommand { get; }
     public ICommand HealthCommand { get; }
     public ICommand PaletteCommand { get; }
+
+    /// <summary>Labels, icons, away — one control with three states (package 46).</summary>
+    public ICommand CycleNavigationRailCommand { get; }
+
+    /// <summary>Brings the rail back from the launcher that floats over the workspace.</summary>
+    public ICommand ShowNavigationRailCommand { get; }
     public ICommand AddressCommand { get; }
     public ICommand SearchCommand { get; }
     public ICommand PinCommand { get; }
@@ -1118,6 +1230,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         OnPropertyChanged(nameof(WidthClassLabel));
         OnPropertyChanged(nameof(UsesCompactDensity));
         OnPropertyChanged(nameof(UsesRailNavigation));
+        OnPropertyChanged(nameof(ShowsNavigationRail));
+        OnPropertyChanged(nameof(ShowsNavigationLauncher));
         OnPropertyChanged(nameof(UsesRowNavigation));
         OnPropertyChanged(nameof(ShowsIntelBeside));
         OnPropertyChanged(nameof(ShowsIntelInsteadOfPage));
@@ -1180,6 +1294,35 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <see cref="CoalescingDispatch"/> follows for background-driven updates: run inline when
     /// there is no dispatcher or the caller is already on it (tests, headless), otherwise post.
     /// </remarks>
+    /// <summary>Opens the Intel page for the item a capture was read as (#287).</summary>
+    /// <remarks>
+    /// The same dispatcher dance as <see cref="ShowLootScanResult"/> and for the same reason: a
+    /// handoff completes on whatever thread finished the analysis, and navigation touches
+    /// observable collections the interface is bound to.
+    /// </remarks>
+    public void ShowScannedItem(string itemId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        void Apply()
+        {
+            if (HasOpenDialog)
+            {
+                CloseDialog(restoreInvoker: false);
+            }
+
+            Act(Router.OpenIntel(itemId, "v2-shell-capture-identified"));
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
     public void ShowLootScanResult(LootScanViewModel result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -1409,6 +1552,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         var loaded = _preview.Load();
         CaptureShortcutEnabled = loaded.State.CaptureShortcutEnabled;
+        NavigationRail = V2NavigationRailTokens.Parse(loaded.State.NavigationRail);
         Pins = loaded.State.Pins;
         Recents = loaded.State.Recents;
         _window = loaded.State.Window;
@@ -1473,6 +1617,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
+        // Every navigation funnels through here, which is what makes this the one place worth
+        // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
+        // a breadcrumb naming the destination is the difference between "it died" and "it died
+        // going to Plan".
+        CrashBreadcrumbs.Drop("navigate", CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
@@ -1525,32 +1674,71 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route = Router.Current.Location.Route;
         if (route == V2Routes.Stash && _stashScan is not null)
         {
-            _ = _stashScan.LoadAsync();
+            Load("stash", _stashScan.LoadAsync);
         }
         else if (route == V2Routes.Debrief && _debrief is not null)
         {
-            _ = _debrief.LoadAsync();
+            Load("debrief", _debrief.LoadAsync);
         }
         else if (route == V2Routes.Plan && _plan is not null)
         {
-            _ = _plan.LoadAsync();
+            Load("plan", _plan.LoadAsync);
         }
         else if (route == V2Routes.Hideout && _hideout is not null)
         {
-            _ = _hideout.LoadAsync();
+            Load("hideout", _hideout.LoadAsync);
         }
         else if (route == V2Routes.Keep && _keep is not null)
         {
-            _ = _keep.LoadAsync();
+            Load("keep", _keep.LoadAsync);
         }
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {
-            _ = _team.LoadAsync();
+            Load("team", _team.LoadAsync);
         }
         else if (route == V2Routes.Setup)
         {
             _homeOverviewLoaded = false;
             LoadHomeOverview(_runtime.Current);
+        }
+    }
+
+    /// <summary>
+    /// Starts a workspace load and watches it, rather than dropping the task on the floor.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these used to be <c>_ = workspace.LoadAsync();</c>. A load that faulted outside
+    /// the workspace's own catch — <c>TeamWorkspaceViewModel</c> had no catch at all — left a blank
+    /// pane, no message on it, and nothing anywhere saying why: the discarded task's exception
+    /// reached only <see cref="TaskScheduler.UnobservedTaskException"/>, whenever the collector got
+    /// round to it, if ever.
+    ///
+    /// Still not awaited, and deliberately so. Navigation must not wait for a database read, and a
+    /// workspace that is slow to fill is a workspace filling in, not a frozen window. What changes
+    /// is that the failure is now recorded where a player's log will show it, and that it fails
+    /// alone: every workspace here has its own Reload, and returning to the route reloads it, so a
+    /// pane that failed is recoverable without restarting the application.
+    /// </remarks>
+    private void Load(string surface, Func<Task> load) => _ = ObserveWorkspaceLoad(surface, load);
+
+    /// <summary>Awaits a workspace load and records whatever it throws.</summary>
+    /// <remarks>
+    /// Internal so it can be tested on its own. Building a whole shell to prove that a discarded
+    /// task's exception reaches the log would need a dozen real services, and the claim is about
+    /// this method and nothing else.
+    /// </remarks>
+    internal static async Task ObserveWorkspaceLoad(string surface, Func<Task> load)
+    {
+        try
+        {
+            await load().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write($"workspace-fault/{surface}", $"load: {exception}");
         }
     }
 
@@ -1696,6 +1884,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
         _team?.Apply(snapshot);
+        // [V2 rough package 60 — Team] #289: the pairing code's countdown rides the shell's own
+        // one-second pass rather than starting a second timer that would need its own shutdown.
+        _companionPairing?.TickExpiry();
         _team?.SetActiveSection(Router.Current.Location.Route == V2Routes.Group
             ? TeamWorkspaceSection.Group
             : Router.Current.Location.Route == V2Routes.Tablet
@@ -1998,7 +2189,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 ToggleDialog(V2ShellDialogKind.Capture, $"v2-shell-recovery-{action.Id}", V2ShellFocusTargets.CaptureDialog);
                 break;
             case "manage-pairing":
-                OpenCompanionPairingWindow();
+                // [V2 rough package 48] Pairing is a section of the Team workspace now, not a
+                // popout window, so recovery navigates to it like every other recovery action.
+                Act(Router.Navigate(V2Routes.Tablet, $"v2-shell-recovery-{action.Id}"));
                 break;
             case "sync":
                 if (Legacy is not null)
@@ -2017,36 +2210,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
-    /// <summary>
-    /// Opens the paired-device pairing panel as its own window.
-    /// </summary>
-    /// <remarks>
-    /// A separate window rather than a fourth <see cref="V2ShellDialogKind"/>: pairing is a
-    /// focused, occasional management task, not part of the shell's own navigation surface, and
-    /// this keeps the shell's dialog/focus-target plumbing untouched by a package that only owns
-    /// the Tablet route.
-    /// </remarks>
-    private void OpenCompanionPairingWindow()
-    {
-        if (_companionPairing is null)
-        {
-            Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
-            return;
-        }
-
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var window = new CompanionPairingWindow(_companionPairing);
-            if (desktop.MainWindow is { } owner)
-            {
-                window.Show(owner);
-            }
-            else
-            {
-                window.Show();
-            }
-        }
-    }
 
     private void OpenReadiness(V2ReadinessCheck check)
     {
@@ -2148,8 +2311,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 V2CaptureResolutionKind.AnalyzeAsArmed,
                 V2CaptureResolutionKind.AnalyzeAsDetected,
             },
+            // [V2 rough package 60 — Intel scan] #287: "Analyse as armed", not "as selected".
+            // The intent radio above can be changed while a decode waits, but the frame was taken
+            // under the intent that was armed when the shutter fired, and #271's coordinator has
+            // no action that re-analyses one artifact as a different intent. Offering a button
+            // that quietly does something else is worse than offering the honest one, and Retry
+            // is the way to ask the other question.
             V2CaptureAttentionKind.UnknownContext =>
-            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsSelected],
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsArmed, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.StillWriting =>
             [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.Duplicate =>
@@ -2626,6 +2795,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 RestorePaletteInvoker(paletteWasOpen, effectiveInvoker);
                 break;
             case V2ShellCommandKind.ResetPreview: ResetPreviewCommand.Execute(null); break;
+            case V2ShellCommandKind.CycleNavigationRail:
+                CycleNavigationRail();
+                RestorePaletteInvoker(paletteWasOpen, effectiveInvoker);
+                break;
             case V2ShellCommandKind.NextRegion: MoveRegion(reverse: false); break;
             case V2ShellCommandKind.PreviousRegion: MoveRegion(reverse: true); break;
         }
@@ -2879,6 +3052,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         Pins = Pins,
         Window = _window,
         CaptureShortcutEnabled = CaptureShortcutEnabled,
+        NavigationRail = NavigationRail.ToToken(),
     };
 
     private string DefaultPageFocusTarget() =>
@@ -3009,6 +3183,7 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
 {
     private readonly V2DestinationDefinition _definition;
     private bool _isCurrent;
+    private bool _showsLabel = true;
 
     public V2ShellDestinationViewModel(V2DestinationDefinition definition, Action<V2RouteId> navigate)
     {
@@ -3019,6 +3194,21 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
     public V2RouteId Route => _definition.Route;
     public string Label => V2ShellText.Get(_definition.LabelKey);
     public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
+
+    /// <summary>
+    /// Whether the rail is wide enough to be writing this destination's name beside its icon.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Set by the shell when the rail's width changes, rather than read out
+    /// of the shell by a binding that walks up out of the item template. An item that knows its
+    /// own presentation is also what lets the rail's tooltip carry the name while it is collapsed:
+    /// the label is hidden, never removed from the accessible name.
+    /// </remarks>
+    public bool ShowsLabel
+    {
+        get => _showsLabel;
+        set => SetProperty(ref _showsLabel, value);
+    }
     /// <summary>A decorative rail icon. Purely visual — the automation name is <see cref="Label"/>.</summary>
     // Decorative rail icons are small vector shapes built directly in the view (Rectangle/
     // Ellipse, not a font glyph — a Unicode dingbat from an uncovered font block rendered as

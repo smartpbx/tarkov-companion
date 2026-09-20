@@ -111,9 +111,19 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.Equal(1, reading.RaidsSeen);
     }
 
-    /// <summary>The game's own output log is the largest file and is duplicated into backend.</summary>
+    /// <summary>
+    /// Every file of the session is read, the output log included.
+    /// </summary>
+    /// <remarks>
+    /// This test used to assert the opposite: that output was skipped and one file was read, on
+    /// the grounds that output is the largest and is duplicated into backend. Both halves were
+    /// wrong. The duplication claim does not hold on 1.1.5.x, and reading one file -- whichever
+    /// had been written to last -- is how this reading came to report "0 quest notification(s)"
+    /// for a session in which quests had been handed in, and pass. The file set now comes from
+    /// EftLogFiles, which is what the watcher uses, so this reading describes the watcher.
+    /// </remarks>
     [Fact]
-    public async Task TheOutputLogIsNotTheFileThatIsRead()
+    public async Task EveryFileOfTheSessionIsReadIncludingTheOutputLog()
     {
         var session = Path.Combine(_root, "log_2026.09.18_20-31-04");
         Directory.CreateDirectory(session);
@@ -122,7 +132,12 @@ public sealed class SelfTestReaderTests : IDisposable
 
         var reading = await new SelfTestLogReader().ReadAsync(_root, CancellationToken.None);
 
-        Assert.Equal("2026.09.18_20-31-04 application.log", reading.FileName);
+        Assert.Equal(2, reading.Files.Count);
+        Assert.Contains(reading.Files, file => file.Name.Contains("output", StringComparison.Ordinal));
+        Assert.Contains(reading.Files, file => file.Name.Contains("application", StringComparison.Ordinal));
+        // Both files hold the same fixture lines, so everything countable doubles.
+        Assert.Equal(12, reading.LinesRead);
+        Assert.Equal(2, reading.QuestEvents);
     }
 
     [Theory]
@@ -143,6 +158,111 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.Contains("holds no session folder", reading.Problem ?? string.Empty, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// [V2 rough package 43a] The fix for "i cant alt tab back to the game and screenshot fast
+    /// enough": a shot from a couple of minutes ago is the same evidence and needs nobody.
+    /// </summary>
+    [Fact]
+    public async Task AScreenshotAlreadyOnDiskCountsAsEvidence()
+    {
+        var folder = Path.Combine(_root, "shots");
+        Directory.CreateDirectory(folder);
+        var name = InRaidName(DateTime.UtcNow.AddMinutes(-3));
+        var path = Path.Combine(folder, name);
+        File.WriteAllText(path, "x");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-3));
+
+        var reading = await new SelfTestScreenshotWatch(new ScreenshotFilenameParser())
+            .RecentAsync(folder, TimeSpan.FromMinutes(10), TimeSpan.Zero, CancellationToken.None);
+
+        Assert.Equal(name, reading.FileName);
+        Assert.True(reading.Parsed);
+        Assert.True(reading.WasAlreadyThere);
+        Assert.NotNull(reading.Age);
+        Assert.InRange(reading.Age!.Value.TotalMinutes, 2.5, 3.5);
+        Assert.Equal(ScreenshotNameKind.InRaid, reading.NameKind);
+    }
+
+    [Fact]
+    public async Task AScreenshotOlderThanTheLookBackIsNotEvidence()
+    {
+        var folder = Path.Combine(_root, "shots");
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, InRaidName(DateTime.UtcNow.AddHours(-3)));
+        File.WriteAllText(path, "x");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours(-3));
+
+        var reading = await new SelfTestScreenshotWatch(new ScreenshotFilenameParser())
+            .RecentAsync(folder, TimeSpan.FromMinutes(10), TimeSpan.Zero, CancellationToken.None);
+
+        Assert.Null(reading.FileName);
+    }
+
+    /// <summary>
+    /// The exact file from Clayton's run: a post-raid shot, which the game writes with no position.
+    /// </summary>
+    [Fact]
+    public async Task AShotTakenOutsideARaidComesBackAsOneRatherThanAsNothing()
+    {
+        var folder = Path.Combine(_root, "shots");
+        Directory.CreateDirectory(folder);
+        const string Name = "2026-09-18[19-03]_19.67 (1).png";
+        var path = Path.Combine(folder, Name);
+        File.WriteAllText(path, "x");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-1));
+
+        var reading = await new SelfTestScreenshotWatch(new ScreenshotFilenameParser())
+            .RecentAsync(folder, TimeSpan.FromMinutes(10), TimeSpan.Zero, CancellationToken.None);
+
+        Assert.Equal(Name, reading.FileName);
+        Assert.False(reading.Parsed);
+        Assert.Equal(ScreenshotNameKind.OutsideRaid, reading.NameKind);
+    }
+
+    /// <summary>
+    /// A menu screenshot does not end the wait; the raid shot that follows it is what is wanted.
+    /// </summary>
+    [Fact]
+    public async Task WatchingKeepsGoingPastAScreenshotWithNoPositionInIt()
+    {
+        var folder = Path.Combine(_root, "shots");
+        Directory.CreateDirectory(folder);
+        var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
+        var wanted = InRaidName(DateTime.UtcNow);
+
+        var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
+        await Task.Delay(120);
+        File.WriteAllText(Path.Combine(folder, "2026-09-18[19-03]_19.67 (1).png"), "x");
+        await Task.Delay(300);
+        File.WriteAllText(Path.Combine(folder, wanted), "x");
+        var reading = await watching;
+
+        Assert.Equal(wanted, reading.FileName);
+        Assert.True(reading.Parsed);
+    }
+
+    /// <summary>A wait that only ever saw menu shots reports one, rather than "nothing arrived".</summary>
+    [Fact]
+    public async Task AWaitThatOnlySawMenuScreenshotsSaysSo()
+    {
+        var folder = Path.Combine(_root, "shots");
+        Directory.CreateDirectory(folder);
+        var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
+
+        var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(1), TimeSpan.Zero, CancellationToken.None);
+        await Task.Delay(120);
+        File.WriteAllText(Path.Combine(folder, "2026-09-18[19-03]_19.67 (1).png"), "x");
+        var reading = await watching;
+
+        Assert.Equal("2026-09-18[19-03]_19.67 (1).png", reading.FileName);
+        Assert.Equal(ScreenshotNameKind.OutsideRaid, reading.NameKind);
+        Assert.False(reading.Parsed);
+    }
+
+    /// <summary>The game's own in-raid name, stamped for a given moment.</summary>
+    private static string InRaidName(DateTime whenUtc) =>
+        $"{whenUtc:yyyy-MM-dd}[{whenUtc:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
+
     [Fact]
     public async Task AScreenshotThatArrivesWhileWatchingIsParsedAndTimedEndToEnd()
     {
@@ -150,12 +270,12 @@ public sealed class SelfTestReaderTests : IDisposable
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "already-there.png"), "x");
         var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
-        // The name carries the time the shot was taken, and the watch reports the file's own write
-        // time as the clock only while the two agree to within the parser's hour of drift. Written
-        // from now rather than from the hour this test was: hardcoded, it passed for an hour on the
-        // day it was written and has failed on every run since.
-        var taken = DateTime.Now;
-        var name = $"{taken:yyyy-MM-dd}[{taken:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png";
+        // Named for this minute, not for the evening the test was written. The name used to be
+        // the constant "2026-09-18[20-58]...", and the parser believes a file's write time only
+        // when it is within an hour of the clock in its name. So this passed for the two hours
+        // around 20:58 UTC on that one day and has failed at every moment since, on every
+        // branch, in the job main requires. A test about "now" has to be written in terms of now.
+        var name = ScreenshotNamedFor(DateTimeOffset.UtcNow);
 
         var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
         await Task.Delay(120);
@@ -169,6 +289,36 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.NotNull(reading.EndToEnd);
         Assert.Equal("the file's own write time", reading.Clock);
     }
+
+    /// <summary>
+    /// The other side of the same rule, which is what the constant name was testing by accident.
+    /// </summary>
+    /// <remarks>
+    /// A write time hours away from the name's own clock is a sync client rewriting it, so the
+    /// name wins. Stated here on purpose, with a name three hours old, rather than left to
+    /// happen to the test above whenever the wall clock moves on.
+    /// </remarks>
+    [Fact]
+    public async Task AScreenshotWhoseNameIsHoursFromItsWriteTimeIsTimedByItsName()
+    {
+        var folder = Path.Combine(_root, "stale-shots");
+        Directory.CreateDirectory(folder);
+        var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
+        var name = ScreenshotNamedFor(DateTimeOffset.UtcNow.AddHours(-3));
+
+        var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
+        await Task.Delay(120);
+        File.WriteAllText(Path.Combine(folder, name), "x");
+        var reading = await watching;
+
+        Assert.True(reading.Parsed);
+        Assert.Equal("the clock in the name", reading.Clock);
+    }
+
+    /// <summary>A screenshot name as the game writes it, stamped with the given minute. The watch is given a zero offset, so the name is UTC.</summary>
+    private static string ScreenshotNamedFor(DateTimeOffset moment) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"{moment.UtcDateTime:yyyy-MM-dd}[{moment.UtcDateTime:HH-mm}]_140.2, 3.4, -77.9_-0.03, -0.13, 0.004, -0.99_21.87 (0).png");
 
     [Fact]
     public async Task AScreenshotWhoseNameYieldsNoPositionIsReportedRatherThanIgnored()

@@ -1,0 +1,110 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupProfilesView"
+             x:DataType="vm:SetupProfilesViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <UserControl.Styles>
+    <Style Selector="Border.v2-profile-row">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,10" />
+    </Style>
+    <Style Selector="Border.v2-profile-row.active">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="TextBlock.v2-label.error">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="TextBlock.v2-profile-badge">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+  <!-- [#269] The list of profiles, the switch, and a new profile for a mode and a wipe. Nothing here
+       is decoration: each button is the app changing which progress it reads and which game data it
+       loads, through the same service the tests drive. -->
+  <StackPanel Classes="v2-stack">
+    <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+    <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
+    <TextBlock Classes="v2-label" Text="{Binding Notice}" IsVisible="{Binding HasNotice}" TextWrapping="Wrap"
+               Foreground="{DynamicResource V2.Brush.Warning}"
+               AutomationProperties.AutomationId="v2-setup-profile-notice" />
+    <TextBlock Classes="v2-label" Text="{Binding ScopeLine}" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="v2-setup-profile-scope" />
+
+    <ItemsControl ItemsSource="{Binding Profiles}" AutomationProperties.AutomationId="v2-setup-profile-list">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SetupProfileRowViewModel">
+          <Border Classes="v2-profile-row" Classes.active="{Binding IsActive}"
+                  AutomationProperties.Name="{Binding AutomationName}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Grid.Column="0" Spacing="2">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Classes="v2-body" Text="{Binding Name}" FontWeight="SemiBold" />
+                  <TextBlock Classes="v2-profile-badge" Text="{Binding StatusLabel}" IsVisible="{Binding HasStatus}" />
+                </StackPanel>
+                <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+              </StackPanel>
+              <WrapPanel Grid.Column="1" Classes="v2-toolbar" VerticalAlignment="Center">
+                <Button Classes="v2-target" IsVisible="{Binding CanSwitch}"
+                        AutomationProperties.AutomationId="v2-setup-profile-switch"
+                        Content="{Binding SwitchLabel}"
+                        Command="{Binding SwitchCommand}" CommandParameter="{Binding}" />
+                <Button Classes="v2-target" IsVisible="{Binding CanArchive}"
+                        AutomationProperties.AutomationId="v2-setup-profile-archive"
+                        Content="{Binding ArchiveLabel}"
+                        Command="{Binding ArchiveCommand}" CommandParameter="{Binding}" />
+                <Button Classes="v2-target" IsVisible="{Binding CanRestore}"
+                        AutomationProperties.AutomationId="v2-setup-profile-restore"
+                        Content="{Binding RestoreLabel}"
+                        Command="{Binding RestoreCommand}" CommandParameter="{Binding}" />
+              </WrapPanel>
+            </Grid>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <CheckBox Content="{Binding ShowArchivedLabel}" IsChecked="{Binding ShowArchived}" IsVisible="{Binding HasArchived}"
+              AutomationProperties.AutomationId="v2-setup-profile-show-archived" />
+
+    <TextBlock Classes="v2-body" Text="{Binding NewHeading}" FontWeight="SemiBold" Margin="0,8,0,0" />
+    <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">
+      <StackPanel Grid.Column="0" Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding NameLabel}" />
+        <TextBox Classes="v2-field-input" Text="{Binding NewName}" PlaceholderText="{Binding NamePlaceholder}"
+                 AutomationProperties.AutomationId="v2-setup-profile-name"
+                 AutomationProperties.Name="{Binding NameLabel}" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding WipeLabel}" />
+        <TextBox Classes="v2-field-input" Text="{Binding NewWipe}" PlaceholderText="{Binding WipePlaceholder}"
+                 AutomationProperties.AutomationId="v2-setup-profile-wipe"
+                 AutomationProperties.Name="{Binding WipeLabel}" />
+      </StackPanel>
+      <StackPanel Grid.Column="2" Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding ModeFieldLabel}" />
+        <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding SelectedMode}" MinWidth="130"
+                  AutomationProperties.AutomationId="v2-setup-profile-mode"
+                  AutomationProperties.Name="{Binding ModeFieldLabel}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:SetupProfileModeOption">
+              <TextBlock Text="{Binding Label}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+      </StackPanel>
+    </Grid>
+    <Button Classes="v2-target primary" HorizontalAlignment="Left"
+            AutomationProperties.AutomationId="v2-setup-profile-create"
+            Content="{Binding CreateLabel}" Command="{Binding CreateCommand}" />
+    <TextBlock Classes="v2-label" Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap"
+               Classes.error="{Binding MessageIsError}"
+               AutomationProperties.AutomationId="v2-setup-profile-message" />
+  </StackPanel>
+</UserControl>

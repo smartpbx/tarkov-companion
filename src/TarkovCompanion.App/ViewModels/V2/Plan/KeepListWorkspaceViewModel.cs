@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profile;
@@ -162,7 +163,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         {
             Groups = [];
             Status = "Keep-list data isn't available yet.";
-            System.Diagnostics.Trace.TraceWarning($"Keep list refresh failed: {exception}");
+            WorkspaceFault.Record("keep", "refresh", exception);
         }
     }
 

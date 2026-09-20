@@ -75,7 +75,7 @@
               Content="{Binding RunLabel}"
               Command="{Binding RunCommand}" />
       <Button Classes="v2-target" AutomationProperties.AutomationId="v2-selftest-stop"
-              IsVisible="{Binding IsRunning}" Content="{Binding StopLabel}" Command="{Binding StopCommand}" />
+              IsVisible="{Binding CanStop}" Content="{Binding StopLabel}" Command="{Binding StopCommand}" />
       <Button Classes="v2-target" AutomationProperties.AutomationId="v2-selftest-copy"
               IsEnabled="{Binding CanCopy}" Content="{Binding CopyLabel}" Command="{Binding CopyCommand}" />
     </WrapPanel>

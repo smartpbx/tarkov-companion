@@ -96,13 +96,20 @@ public sealed class SetupSelfTestViewModelTests
         var gate = new TaskCompletionSource();
         var view = new SetupSelfTestViewModel(() => new PassingReadings { ScreenshotGate = gate.Task }, new SelfTestJournal());
 
-        var running = view.RunAsync();
-        await WaitUntilAsync(() => view.AsksForScreenshot);
+        // [V2 rough package 43a] The run finishes while this one capability is still open. That is
+        // the whole change: the other six are already answered and copyable, and nobody is being
+        // asked to alt-tab against a clock.
+        await view.RunAsync();
+        Assert.False(view.IsRunning);
         Assert.True(view.AsksForScreenshot);
+        var waiting = Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId);
+        Assert.Equal(SelfTestOutcome.Waiting, waiting.Outcome);
 
         gate.SetResult();
-        await running;
+        await view.Settling!;
+
         Assert.False(view.AsksForScreenshot);
+        Assert.Equal(SelfTestOutcome.Pass, Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId).Outcome);
     }
 
     [Fact]
@@ -111,14 +118,18 @@ public sealed class SetupSelfTestViewModelTests
         var gate = new TaskCompletionSource();
         var view = new SetupSelfTestViewModel(() => new PassingReadings { ScreenshotGate = gate.Task }, new SelfTestJournal());
 
-        var running = view.RunAsync();
-        await WaitUntilAsync(() => view.IsRunning && view.AsksForScreenshot);
+        // The run itself no longer waits for a screenshot, so Stop is about the background wait
+        // that outlives it: pressing it settles the open capability rather than leaving it open.
+        await view.RunAsync();
+        Assert.True(view.AsksForScreenshot);
+
         view.Stop();
-        await running;
+        await view.Settling!;
 
         Assert.False(view.IsRunning);
         var screenshots = Assert.Single(view.Rows, row => row.Id == SelfTestProbes.ScreenshotsId);
         Assert.Equal(SelfTestOutcome.Unknown, screenshots.Outcome);
+        Assert.Contains("Stopped", screenshots.Headline, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -183,6 +194,15 @@ public sealed class SetupSelfTestViewModelTests
 
             return SelfTestProbeTests.Screenshot();
         }
+
+        /// <summary>
+        /// Nothing already on disk when a gate is set, so the probe goes on waiting in the
+        /// background — which is the state these tests are about.
+        /// </summary>
+        public Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken) =>
+            Task.FromResult(ScreenshotGate is null
+                ? SelfTestProbeTests.Screenshot()
+                : SelfTestProbeTests.NoScreenshot());
 
         public Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken) =>
             Task.FromResult(SelfTestProbeTests.GameData());

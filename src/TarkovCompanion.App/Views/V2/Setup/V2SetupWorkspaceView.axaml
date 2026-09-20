@@ -45,14 +45,26 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
 
+    <!-- [#292] One switch for every path on every page. Off at each launch. -->
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-paths"
+              Content="{Binding Paths.ToggleLabel}" Command="{Binding Paths.ToggleCommand}" />
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Paths.Note}" />
+    </StackPanel>
+
     <Panel IsVisible="{Binding IsOverviewSelected}">
       <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
     </Panel>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameProfileSelected}">
       <StackPanel Classes="v2-stack">
+        <!-- [#269] Profiles first: the game mode they carry decides what data everything below shows. -->
+        <Panel IsVisible="{Binding HasProfiles}">
+          <setup:V2SetupProfilesView DataContext="{Binding Profiles}" />
+        </Panel>
+        <Separator Margin="0,6" />
         <TextBlock Classes="v2-body" Text="{Binding Settings.ProfileContext}" />
-        <TextBlock Classes="v2-body" Text="{Binding Settings.WatchedFolders}" />
+        <TextBlock Classes="v2-body" Text="{Binding WatchedFolders.Text}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.GameFolderStatus}" />
         <StackPanel Classes="v2-field">
           <TextBlock Classes="v2-label" Text="{Binding ScreenshotFolderLabel}" />
@@ -87,13 +99,17 @@
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Settings.DataStatus}" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.DatabasePath}" />
+        <TextBlock Classes="v2-label" Text="{Binding DatabasePath.Text}" />
         <TextBlock Classes="v2-label" Text="{Binding Settings.DiagnosticChannel}" />
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-sync"
                 Content="{Binding SyncLabel}" Command="{Binding Settings.SyncCommand}" />
         <TextBlock Classes="v2-label" Text="{Binding OfflineNote}" TextWrapping="Wrap"
                    IsVisible="{Binding Settings.IsOffline}" />
+        <!-- [#292] Source, coverage, last attempt, last success, next refresh, and why it is not current. -->
+        <Panel IsVisible="{Binding HasAdmin}">
+          <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
+        </Panel>
       </StackPanel>
     </Border>
 
@@ -196,6 +212,9 @@
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-open-team"
                 Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
+        <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
+                AutomationProperties.AutomationId="v2-setup-open-sharing-detail"
+                Content="{Binding OpenSharingDetailLabel}" Command="{Binding OpenSharingDetailCommand}" />
       </StackPanel>
     </Border>
 
@@ -224,7 +243,7 @@
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
                   IsEnabled="{Binding Settings.CanCheckForUpdate}"
-                  Content="{Binding CheckUpdateLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
+                  Content="{Binding CheckUpdateButtonLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
           <Button Classes="v2-target primary" IsVisible="{Binding Settings.CanUpdateNow}"
                   IsEnabled="{Binding Settings.IsUpdateIdle}"
                   AutomationProperties.AutomationId="v2-setup-update-now"
@@ -235,8 +254,18 @@
         </WrapPanel>
         <SelectableTextBlock Classes="v2-label" IsVisible="{Binding Settings.IsRunFromFolder}"
                              Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
-        <TextBlock Classes="v2-label" Text="{Binding Settings.UpdateDataFolder}" TextWrapping="Wrap"
+        <TextBlock Classes="v2-label" Text="{Binding UpdateDataFolder.Text}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-setup-update-data-folder" />
+        <!-- [#292] What is in the waiting build, and how to go back to an earlier one. -->
+        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.HasUpdateNotes}">
+          <TextBlock Classes="v2-label" Text="{Binding UpdateNotesHeading}" />
+          <TextBlock Classes="v2-body" Text="{Binding Settings.UpdateNotes}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-setup-update-notes" />
+        </StackPanel>
+        <StackPanel Classes="v2-field">
+          <TextBlock Classes="v2-label" Text="{Binding GoingBackHeading}" />
+          <TextBlock Classes="v2-body" Text="{Binding GoingBackNote}" TextWrapping="Wrap" />
+        </StackPanel>
       </StackPanel>
     </Border>
 
@@ -258,11 +287,110 @@
         </WrapPanel>
         <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
                    IsVisible="{Binding Settings.CanTidyScreenshots}" />
+        <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
+                AutomationProperties.AutomationId="v2-setup-open-privacy-detail"
+                Content="{Binding OpenPrivacyDetailLabel}" Command="{Binding OpenPrivacyDetailCommand}" />
       </StackPanel>
     </Border>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAppearanceSelected}">
       <StackPanel Classes="v2-stack">
+        <!-- [V2 rough package 60 — appearance] #266/#315. Each row is a set of toggles rather
+             than a combo box: the choice and what is in force are both readable without opening
+             anything, which is the point of the section. -->
+        <Panel IsVisible="{Binding HasAppearance}">
+        <StackPanel Classes="v2-stack" DataContext="{Binding Appearance}">
+          <TextBlock Classes="v2-body" AutomationProperties.AutomationId="v2-setup-appearance-summary"
+                     AutomationProperties.LiveSetting="Polite" Text="{Binding Summary}" />
+
+          <StackPanel Classes="v2-field">
+            <TextBlock Classes="v2-label" Text="{Binding ThemeLabel}" />
+            <ItemsControl ItemsSource="{Binding Themes}" AutomationProperties.AutomationId="v2-setup-appearance-themes">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.HelpText="{Binding AutomationState}"
+                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ThemeHint}" />
+          </StackPanel>
+
+          <StackPanel Classes="v2-field">
+            <TextBlock Classes="v2-label" Text="{Binding VisionLabel}" />
+            <ItemsControl ItemsSource="{Binding ColorVisions}" AutomationProperties.AutomationId="v2-setup-appearance-visions">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.HelpText="{Binding AutomationState}"
+                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding VisionHint}" />
+          </StackPanel>
+
+          <StackPanel Classes="v2-field">
+            <TextBlock Classes="v2-label" Text="{Binding TextScaleLabel}" />
+            <ItemsControl ItemsSource="{Binding TextScales}" AutomationProperties.AutomationId="v2-setup-appearance-textscales">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.HelpText="{Binding AutomationState}"
+                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding TextScaleHint}" />
+          </StackPanel>
+
+          <StackPanel Classes="v2-field">
+            <TextBlock Classes="v2-label" Text="{Binding DensityLabel}" />
+            <ItemsControl ItemsSource="{Binding Densities}" AutomationProperties.AutomationId="v2-setup-appearance-densities">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+                  <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          AutomationProperties.HelpText="{Binding AutomationState}"
+                          Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+
+          <StackPanel Classes="v2-field">
+            <TextBlock Classes="v2-label" Text="{Binding MotionLabel}" />
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-motion"
+                      Content="{Binding MotionToggleLabel}" Command="{Binding ReduceMotionCommand}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-reset"
+                      Content="{Binding ResetAllLabel}" Command="{Binding ResetCommand}" />
+            </WrapPanel>
+            <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
+          </StackPanel>
+        </StackPanel>
+        </Panel>
+
         <TextBlock Classes="v2-label" Text="{Binding ScaleLabel}" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-scale-smaller"
@@ -279,7 +407,25 @@
     </Border>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDisplaysSelected}">
-      <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" />
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding DisplaysInfo}" TextWrapping="Wrap" />
+        <!-- [#292] The monitors the machine has, and the game window a scan captures. -->
+        <Panel IsVisible="{Binding HasAdmin}">
+          <setup:V2SetupDisplaysView DataContext="{Binding Admin.Displays}" />
+        </Panel>
+      </StackPanel>
+    </Border>
+
+    <!-- [#292] What the data is and what leaves the machine; About. Both are layered and linkable. -->
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDataPrivacySelected}">
+      <Panel IsVisible="{Binding HasAdmin}">
+        <setup:V2SetupInfoPageView DataContext="{Binding Admin.DataPrivacy}" />
+      </Panel>
+    </Border>
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsAboutSelected}">
+      <Panel IsVisible="{Binding HasAdmin}">
+        <setup:V2SetupInfoPageView DataContext="{Binding Admin.About}" />
+      </Panel>
     </Border>
 
     <!-- V2 rough package 41 (#292, #281): the self-test comes first in Diagnostics, because
@@ -294,7 +440,7 @@
         </Panel>
         <StackPanel Classes="v2-field">
           <TextBlock Classes="v2-label" Text="{Binding LogLabel}" />
-          <TextBlock Classes="v2-body" Text="{Binding Settings.CompanionLogPath}" TextWrapping="Wrap" />
+          <TextBlock Classes="v2-body" Text="{Binding CompanionLogPath.Text}" TextWrapping="Wrap" />
         </StackPanel>
         <TextBlock Classes="v2-body" Text="{Binding Settings.DiagnosticsStatus}" />
         <WrapPanel Classes="v2-toolbar">

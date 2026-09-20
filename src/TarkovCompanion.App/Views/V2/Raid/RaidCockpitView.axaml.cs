@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Views.V2.Raid;
@@ -22,6 +23,7 @@ public sealed partial class RaidCockpitView : UserControl
     private const string IdleClass = "v2-raid-idle";
 
     private readonly DispatcherTimer _idleTimer;
+    private bool _panelDrag;
 
     public RaidCockpitView()
     {
@@ -30,11 +32,19 @@ public sealed partial class RaidCockpitView : UserControl
         _idleTimer.Tick += IdleElapsed;
     }
 
-    private void RendererPlanClicked(object? sender, MapScenePoint point)
+    /// <summary>
+    /// A right-click on bare map: a ping, or a waypoint when Shift is held.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] There is nothing to arm any more. The renderer raises this only when
+    /// the gesture hit no object — anything under the pointer is a removal instead — so this and
+    /// <see cref="RendererMarkerRightClicked"/> cannot both fire for one press.
+    /// </remarks>
+    private void RendererPlanRightClicked(object? sender, MapPlanGesture gesture)
     {
         if (DataContext is RaidCockpitViewModel cockpit)
         {
-            cockpit.PlaceArmedMarkAt(point);
+            cockpit.PlaceMarkAt(gesture.Point, RaidCockpitViewModel.MarkKindFor(gesture.IsSecondary));
         }
     }
 
@@ -44,6 +54,59 @@ public sealed partial class RaidCockpitView : UserControl
         {
             cockpit.RemoveMarkAt(objectId);
         }
+    }
+
+    /// <summary>
+    /// Dragging the Raid plan's edge.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Not a GridSplitter: the panel's width is a remembered number the
+    /// view model owns, and a splitter would own it instead and forget it on every rebuild.
+    /// Dragging left widens the panel, because the handle is on the panel's left edge, so the
+    /// width is the distance from the pointer to the workspace's right edge.
+    /// </remarks>
+    private void PanelHandlePressed(object? sender, PointerPressedEventArgs eventArgs)
+    {
+        if (sender is not Border handle ||
+            !eventArgs.GetCurrentPoint(handle).Properties.IsLeftButtonPressed ||
+            DataContext is not RaidCockpitViewModel { ShowsContextPanel: true })
+        {
+            return;
+        }
+
+        _panelDrag = true;
+        eventArgs.Pointer.Capture(handle);
+        eventArgs.Handled = true;
+    }
+
+    private void PanelHandleMoved(object? sender, PointerEventArgs eventArgs)
+    {
+        if (!_panelDrag || DataContext is not RaidCockpitViewModel cockpit)
+        {
+            return;
+        }
+
+        cockpit.ResizeContextPanel(Bounds.Width - eventArgs.GetPosition(this).X);
+        eventArgs.Handled = true;
+    }
+
+    // Two handlers rather than one: PointerReleased and PointerCaptureLost carry different
+    // argument types, and AXAML matches an event handler by its exact signature.
+    private void PanelHandleReleased(object? sender, PointerReleasedEventArgs eventArgs) =>
+        EndPanelDrag(eventArgs.Pointer);
+
+    private void PanelHandleCaptureLost(object? sender, PointerCaptureLostEventArgs eventArgs) =>
+        EndPanelDrag(eventArgs.Pointer);
+
+    private void EndPanelDrag(IPointer pointer)
+    {
+        if (!_panelDrag)
+        {
+            return;
+        }
+
+        _panelDrag = false;
+        pointer.Capture(null);
     }
 
     private void MapPointerActive(object? sender, PointerEventArgs eventArgs)

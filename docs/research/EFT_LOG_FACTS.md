@@ -46,10 +46,24 @@ enormously between sessions: one `output_000.log` was 2.4 MB and another 15.6 MB
 data, for the player **and for anyone they grouped with**: nicknames, numeric account and
 profile ids, full inventories, health state, and looted dogtags naming a killer and a victim.
 
-The companion reads `application`, `output` and `backend`. `backend` carries the
+The companion reads `application`, `output` and `backend` in full. `backend` carries the
 `userConfirmed` and `userMatchOver` notifications that give an exact raid start and end, and
-the group notifications, so it is opened deliberately for those. **`push-notifications` is
-never opened.** Nothing in the game's logs is ever transmitted, bundled or attached.
+the group notifications, so it is opened deliberately for those. Nothing in the game's logs is
+ever transmitted, bundled or attached.
+
+**`push-notifications` and `notifications` are also now read narrowly** (package 47), having
+previously not been opened at all. This is belt-and-braces rather than the fix: the quest events
+are in `backend` and `output` as well, under a different name (see below). A line from one of those files is looked at only if it
+already contains `ChatMessageReceived` or `RagfairOfferSold`, and is then offered to
+`QuestNotificationParser` and `FleaSaleParser` and to nothing else. `GroupNotificationParser`
+— the parser whose payloads are the group blobs described above — never sees a line from
+them, and neither does the raid parser. `EftLogFiles` is the one place that decides this, and
+the Setup self-test reports on exactly the files it names, so the report cannot describe a
+file set the watcher does not use.
+
+Why: on 1.1.5.1.47510 a session in which quests were demonstrably handed in produced 703
+lines of `backend`, two recognised raids and **zero** `ChatMessageReceived`. The notifications
+were there all along under the name `new_message`; see "Quest progress" below.
 
 Reading `backend` means the group blobs are in reach, so the boundary in `docs/SAFETY.md`
 governs what is taken from them: the player's own party and their own looted dogtags, never a
@@ -86,13 +100,47 @@ outcome, and that is correct rather than a gap. Duration is still derivable from
 status events exist, on the strength of a search for `conditionCounter` (every hit of which
 really is a stack frame) and two literal quest strings that turned out to be UI settings
 echoes. That search never looked at the notification the game actually sends: each quest
-starting, failing or being handed in arrives as a `ChatMessageReceived` notification — the same
-kind the flea sales below arrive as — with the message's `type` field at 10, 11 or 12 and a
-`templateId` whose first word is the quest's own (24-character) id. Measured against a live
-install: 380 of these lines across eight log folders, every one carrying a `new_message`
-payload. `QuestNotificationParser` reads them and `QuestLogProgressService` applies them to
+starting, failing or being handed in arrives as a websocket notification — the same kind the
+flea sales below arrive as — with the message's `type` field at 10, 11 or 12 and a `templateId`
+whose first word is the quest's own (24-character) id.
+
+**The announcement has two spellings, and which one you see depends on the file.** This note
+previously said the event "arrives as a `ChatMessageReceived` notification" and cited 380 such
+lines across eight log folders. That measurement was taken against `push-notifications_000.log`
+— the one file the companion deliberately does not open in full. Re-measured on
+1.1.5.1.47510, session `log_2026.09.18_22-11-05`:
+
+| File | Announces the quest event as | In this session |
+| --- | --- | --- |
+| `push-notifications_000.log` | `ChatMessageReceived` | present, not read in full (privacy) |
+| `backend_000.log` | `new_message` | 14 lines; **zero** `ChatMessageReceived` |
+| `output_000.log` | `new_message` | present |
+| everything else | — | none |
+
+The payload is identical either way, and unchanged on 1.1.5.1: a `new_message` envelope whose
+`message` object carries `_id`, `type` and `templateId`. Verbatim, truncated:
+
+```
+2026-09-18 22:57:50.161|1.1.5.1.47510|Info|backend|WebSocketSharp - message received: NOTIFICATION 6aadc1ee83c0d7b85607ca2d new_message
+[{"type":"new_message","eventId":"…","dialogId":"…","message":{"_id":"…","uid":"…","type":12,"dt":1789772270,"text":"quest started","templateId":"60896bca6ee58f38c417d4f2 successMessageText","items":{…
+```
+
+`QuestNotificationParser` accepted only `ChatMessageReceived`, so in the files it was actually
+reading it rejected every quest event on its first substring scan. It now accepts either
+spelling, with the shape checks behind it unchanged. **Key on `message.type`, never on `text`:**
+that field reads `"quest started"` on the hand-ins too. In the raid above, `type` was 10 nine
+times, 12 four times, 13 once, and 11 not at all. `QuestNotificationParser` reads them and `QuestLogProgressService` applies them to
 recorded progress, deduplicated on the message's own `_id` so a redelivered notification is not
-acted on twice and a quest never moves backwards out of Completed or Failed. The objectives
+acted on twice and a quest never moves backwards out of Completed or Failed.
+
+Reading the line was never the hard part. **The watcher starts every already-existing file at
+its end**, so the tail only delivers what is appended after the first poll, and everything
+written before that is recovered by a separate startup replay — which, until package 47, parsed
+each replayed line for raid evidence and never handed it to the observer. A companion started
+after the game (the ordinary case) therefore recognised the raid and dropped every quest in it.
+The replay now feeds the same parsers the tail does. That is safe to repeat because each
+observation is idempotent: a quest carries its own event id, a re-recorded state reports itself
+unchanged, a sale is keyed by its offer id. It is bounded to the last 16 MB of each file. The objectives
 inside a quest are not covered by this: only the quest's own state moves. Quest tracking is no
 longer manual-only, though a JSON import and a TarkovTracker token remain as ways to seed
 progress the game has not yet announced (ADR 0004).

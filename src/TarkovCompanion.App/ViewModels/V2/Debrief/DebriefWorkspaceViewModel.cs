@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Debrief;
 
@@ -102,7 +103,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     public string SelectedMapLabel => _selected?.MapId is { } mapId ? MapLabel(mapId) : string.Empty;
 
-    public string SelectedStartedLabel => _selected?.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown";
+    public string SelectedStartedLabel => LocalTime.Moment(_selected?.StartedUtc) ?? "Unknown";
 
     /// <summary>Package 17 (home): said once, beside the field it explains, instead of in the status line.</summary>
     public string OutcomeHint { get; } = "The game doesn't record outcomes; enter one by hand.";
@@ -112,7 +113,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public string SelectedDurationLabel => Duration(_selected);
 
     /// <summary>Package 29 (parity): V1's "Ended" column, which the list's Duration column only implied.</summary>
-    public string SelectedEndedLabel => _selected?.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress";
+    public string SelectedEndedLabel => LocalTime.Moment(_selected?.EndedUtc) ?? "In progress";
 
     /// <summary>
     /// How far the raid went, as V1's History page said it ("at least 1.4 km"); empty until there are
@@ -238,8 +239,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     raid.Id,
                     raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
                     raid.Mode,
-                    raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
-                    raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
+                    LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
+                    LocalTime.Moment(raid.EndedUtc) ?? "In progress",
                     Duration(raid),
                     raid.Outcome ?? "Not recorded")
                 {
@@ -331,7 +332,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             rows.Add(new(
                 name,
                 info.Count == 1 ? "1 sold" : $"{info.Count.ToString(CultureInfo.CurrentCulture)} sold",
-                info.Latest.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)));
+                LocalTime.ShortTime(info.Latest)));
         }
 
         return rows.OrderBy(row => row.ItemLabel, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -362,7 +363,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             rows.Add(new(
                 name,
                 DescribeTaskState(quest.State),
-                quest.ObservedUtc.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)));
+                LocalTime.ShortTime(quest.ObservedUtc)));
         }
 
         return rows;
@@ -587,7 +588,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             Directory.CreateDirectory(directory);
             var destination = Path.Combine(
                 directory,
-                $"{_clock.GetUtcNow():yyyyMMdd-HHmmss}-{fileName}");
+                $"{LocalTime.FileStamp(_clock.GetUtcNow())}-{fileName}");
             await using (var stream = File.Create(destination))
             {
                 await write(stream, CancellationToken.None).ConfigureAwait(true);

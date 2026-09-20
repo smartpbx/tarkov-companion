@@ -134,6 +134,48 @@ public sealed class TabletMapSurfaceTests
         Assert.Equal(TabletMapSurfaceBuilder.MaximumObjects, surface.Objects.Count);
     }
 
+    [Fact]
+    public void PotentialLootSpawnsReachTheTabletAsPotentialAndNeverAsLive()
+    {
+        var scene = Scene(new(0, 0, 100, 100), [Loot("spawn:a", 10, 20), Point("extract:water", 35, 70)]);
+
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
+
+        var spawn = Assert.Single(surface.Objects, item => item.Id == "spawn:a");
+        Assert.Equal("LootSpawn", spawn.Kind);
+        Assert.Equal("PotentialSpawn", spawn.Truth);
+        Assert.False(spawn.IsEstimate);
+        Assert.Equal([10d, 20d], spawn.Points);
+    }
+
+    [Fact]
+    public void ThousandsOfSpawnsCannotCrowdOutTheMarksAndPositionTheCapWouldHaveCut()
+    {
+        // The scene lists loot ahead of the player's own marks, position and quest objectives, so a
+        // plain Take() on a loot-heavy map kept the loot and dropped exactly those.
+        var loot = Enumerable.Range(0, TabletMapSurfaceBuilder.MaximumObjects + 100)
+            .Select(index => Loot($"spawn:{index}", index % 90, index % 90));
+        var mine = new[] { Point("waypoint:mine", 5, 5), Point("position:me", 6, 6), Point("objective:1", 7, 7) };
+        var scene = Scene(new(0, 0, 100, 100), [.. loot, .. mine]);
+
+        var surface = TabletMapSurfaceBuilder.Build(scene, "Customs", Artwork(), null, null, null, Now);
+
+        Assert.Equal(TabletMapSurfaceBuilder.MaximumObjects, surface.Objects.Count);
+        Assert.All(mine, item => Assert.Contains(surface.Objects, drawn => drawn.Id == item.Id.Value));
+        Assert.Equal(TabletMapSurfaceBuilder.MaximumObjects - mine.Length, surface.Objects.Count(drawn => drawn.Kind == "LootSpawn"));
+    }
+
+    private static MapSceneObject Loot(string id, double x, double y) => new(
+        new(id),
+        new("extracts"),
+        MapSceneObjectKind.LootSpawn,
+        MapSceneTruthKind.PotentialSpawn,
+        "Old gas station",
+        null,
+        MapSceneGeometry.At(new(x, y)),
+        [],
+        new("fixture", Now, Confidence: Confidence.Certain));
+
     private static TabletMapArtwork Artwork() => new("image/png", new string('b', 64), 2048, 1024);
 
     private static MapSceneObject Point(string id, double x, double y) => new(

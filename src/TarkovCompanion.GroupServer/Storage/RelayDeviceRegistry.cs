@@ -113,14 +113,31 @@ public sealed class RelayDeviceRegistry
         try
         {
             var now = Now();
-            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment) ||
-                grant.NewOwnerDeviceId != establishment.Assignment.DeviceId ||
-                grant.NewOwnerKeyId != deviceKey.KeyId ||
-                (_loadStatus != RelayRegistryLoadStatus.Corrupt &&
-                 _state.Devices.Any(device => device.Role == DeviceAuthorizationRole.Owner && IsLive(device, now))) ||
-                !_recovery.TryConsume(grant))
+            // [V2 rough package 48] One code for five causes cost an evening: a desktop was told
+            // "recovery-rejected" for a clock difference, and nothing on either side could tell
+            // that apart from a wrong grant or an owner that already existed. Each clause names
+            // itself now. None of them reveals anything a caller does not already hold — this route
+            // is behind the operator's admin key, and the material is the caller's own.
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("recovery-rejected");
+                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+            }
+
+            if (grant.NewOwnerDeviceId != establishment.Assignment.DeviceId ||
+                grant.NewOwnerKeyId != deviceKey.KeyId)
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("claim-grant-mismatch");
+            }
+
+            if (_loadStatus != RelayRegistryLoadStatus.Corrupt &&
+                _state.Devices.Any(device => device.Role == DeviceAuthorizationRole.Owner && IsLive(device, now)))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-already-live");
+            }
+
+            if (!_recovery.TryConsume(grant))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("recovery-grant-rejected");
             }
 
             var owner = CreateDevice(deviceKey, establishment, DeviceAuthorizationRole.Owner);
@@ -944,12 +961,21 @@ public sealed class RelayDeviceRegistry
     {
         deviceKey = null!;
         establishment = null!;
+        // The establishment was timestamped on another machine — the desktop that built it, or the
+        // tablet whose session it is — so it is compared with the same one-minute tolerance every
+        // other cross-machine timestamp in this relay uses (CompanionPairingMailbox.RegisterOffer's
+        // offer check, OwnerRecoveryProtector.TryConsume's grant check). It used to require
+        // `EstablishedUtc <= now` exactly, with no tolerance at all: a desktop whose clock was
+        // 250 ms ahead of the relay's had every owner claim refused as "recovery-rejected", which
+        // is two machines that are not NTP-tight with each other, which is most of them. Measured
+        // against the clamped instant so a future-dated establishment cannot buy extra lifetime.
         if (attempt.Stage != PairingAttemptStage.Completed || attempt.Request is null ||
             attempt.Establishment is not { } completed || completed.Purpose != HandshakePurpose.Pairing ||
             completed.DeviceKeyId != attempt.Request.DeviceKey.KeyId ||
             completed.Assignment.ProtocolVersion != attempt.Request.NegotiatedVersion ||
             !CompanionProtocolVersion.Current.CanRead(completed.Assignment.ProtocolVersion) ||
-            completed.EstablishedUtc > now || now - completed.EstablishedUtc > ProtocolBounds.MaximumPairingLifetime ||
+            completed.EstablishedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) ||
+            now - Earliest(completed.EstablishedUtc, now) > ProtocolBounds.MaximumPairingLifetime ||
             completed.Assignment.SessionExpiresUtc <= now)
         {
             return false;
@@ -959,6 +985,10 @@ public sealed class RelayDeviceRegistry
         establishment = completed;
         return true;
     }
+
+    /// <summary>The establishment's own instant, or the relay's if it is dated in the future.</summary>
+    private static DateTimeOffset Earliest(DateTimeOffset establishedUtc, DateTimeOffset now) =>
+        establishedUtc < now ? establishedUtc : now;
 
     private static RelayDeviceRecord CreateDevice(
         DevicePublicKey key,
@@ -1121,7 +1151,19 @@ public sealed class RelayDeviceRegistry
             device.Capabilities,
             establishment.EstablishedUtc);
         var secret = RelayCsrfProtector.Base64Url(RandomNumberGenerator.GetBytes(32));
-        var csrf = RelayCsrfProtector.Issue(session.SessionId, now, session.ExpiresUtc - now);
+        // [V2 rough package 48] Clamped to this relay's own bound, because the expiry it is derived
+        // from was chosen on another machine. A desktop asking for the protocol's maximum session
+        // (which DesktopRelayOwnerClaim did) while its clock read a second ahead of the relay's made
+        // this lifetime one second over the browser-session maximum, and RelayCsrfProtector.Issue
+        // threw — turning a clock difference into an unhandled 500 on the claim route. The bound is
+        // the relay's to enforce, never a remote timestamp's to set.
+        var csrfLifetime = session.ExpiresUtc - now;
+        if (csrfLifetime > RelaySecurityBounds.MaximumBrowserSessionLifetime)
+        {
+            csrfLifetime = RelaySecurityBounds.MaximumBrowserSessionLifetime;
+        }
+
+        var csrf = RelayCsrfProtector.Issue(session.SessionId, now, csrfLifetime);
         var record = new RelaySessionRecord(
             session,
             CredentialDigest(session.SessionId, secret),

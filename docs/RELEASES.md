@@ -70,6 +70,37 @@ Consequences accepted with it:
 - Public-good Sigstore records artifact digests and the source workflow identity in its
   transparency log. For a public source repository that is already public information.
 
+## What the version means
+
+Every build has one version, `MAJOR.MINOR.BUILD`, for example `2.0.1140`.
+
+| Part | Meaning |
+| --- | --- |
+| Major | The **product generation**. `2` is the V2 workspace. It changes when the product does, not when a release does. |
+| Minor | Nothing yet. It is `0` because nothing has earned a minor, and it stays `0` until something does. |
+| Build | The number of the Windows verification run that built it. A later run is always a newer build. |
+
+The number is decided in exactly one place. `PRODUCT_VERSION` at the repository root holds
+`MAJOR.MINOR`, and `scripts/build-version.sh <run>` appends the run number. Everything else reads
+the result: the workflow's `TARKOV_BUILD_VERSION`, the assemblies, `BUILD_INFO.txt`,
+`update.json`, the zip's name (`TarkovCompanion-v<version>-win-x64.zip`), the relay's `/health`,
+the Velopack installer and its feed. A build nobody stamped reads the same file through
+`Directory.Build.props` and calls itself `2.0.0-dev`. To move the major or minor, edit that one
+file.
+
+Builds before 2026-09-18 were numbered `1.0.<run>`. That `1.0` meant nothing: it was typed out twelve
+times (nine in the Windows workflow, three in the packaging script) and never revisited, so the
+V2 builds installed as 1.0.x. Records of those builds elsewhere on this page (run 608, the `1.0.650` floor example) are
+left as they were. An installed `1.0.x` updates to `2.0.x` by itself, because versions are
+compared as semantic versions and any `2.0` is newer than any `1.0`; for the same reason a
+machine on `2.0.x` is never offered a `1.0.y`, however large `y` is. A relay's minimum version
+and floor, where set, are lower bounds and need no change.
+
+Windows verification asserts the agreement rather than assuming it. The extracted and the
+installed `BUILD_INFO.txt`, the running application's own report from `--self-test`
+(`build.version`), the launch probe and the staged update feed are each compared with
+`TARKOV_BUILD_VERSION`, and the job refuses to start those comparisons with an empty value.
+
 ## What a release is
 
 A release is one **signed manifest** (`release-manifest.json`) naming every file with its role,
@@ -474,7 +505,7 @@ the files after the process has exited.
 | --- | --- |
 | Feed | `https://tarkov.mannerow.net/updates/rough/releases.win.json` |
 | Installer, run once | `https://tarkov.mannerow.net/updates/rough/TarkovCompanionDesktop-win-Setup.exe` |
-| Version | `1.0.<Windows verification run number>`, so a later run is always a newer build |
+| Version | `2.0.<Windows verification run number>`; see [What the version means](#what-the-version-means) |
 | Program | `%LOCALAPPDATA%\TarkovCompanionDesktop`, replaced by an update |
 | Data | `%LOCALAPPDATA%\TarkovCompanion`, never touched by an update |
 | Try another feed | set `TARKOV_UPDATE_FEED` to an `https://` folder or a local folder |
@@ -624,12 +655,14 @@ what already exists.
 ## Controls this repository cannot enforce
 
 `scripts/release/capture_controls.py` reads these from GitHub and records who captured them and
-when. It only reads. The state on **2026-09-15T04:08:06Z**, captured by `smartpbx`:
+when. It only reads. `scripts/require-checks.sh` holds the one list this repository can state
+for itself — the checks a pull request must pass — and applies or reports drift from it.
+The state on **2026-09-19T00:00:00Z**, captured by `smartpbx`:
 
 | Control | Required | Observed |
 | --- | --- | --- |
 | main: force pushes and deletion blocked | neither allowed | met |
-| main: verification checks required | `checks`, `windows-verify` among required checks | met (`checks`, `linux`, `windows-build`, `windows-verify`) |
+| main: verification checks required | `checks`, `windows-verify` among required checks | met (`linux`, `checks`, `windows-verify`), strict. Shortened to `linux`, `checks` on 2026-09-17 so a thirty-minute run would stop blocking merges; restored 2026-09-19 under #279, because in the interval the gallery caught "the package opens no window" three times and none of those could fail a merge |
 | main: supply-chain gate required | `supply-chain` (License lock) among required checks | **gap**: not required. A pull request that fails the dependency review, the workflow policy or the release fixtures can still be merged; publication's own release-time gates in `candidate` still apply |
 | main: reviewed before merge | at least one approving review | **gap**: no review requirement |
 | main: administrators cannot bypass | enforced for administrators | **gap** |

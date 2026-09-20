@@ -22,17 +22,37 @@ public sealed class QuestProgressCommandService(
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly string _language = options.NormalizedLanguage;
 
+    public Task<QuestProgressCommandResult> SetTaskStateAsync(
+        QuestProfileScope scope,
+        string taskId,
+        RecordedTaskState state,
+        CancellationToken cancellationToken) =>
+        SetTaskStateAsync(
+            scope,
+            taskId,
+            state,
+            QuestProgressActor.User,
+            QuestProgressSources.Manual,
+            cancellationToken);
+
     public async Task<QuestProgressCommandResult> SetTaskStateAsync(
         QuestProfileScope scope,
         string taskId,
         RecordedTaskState state,
+        QuestProgressActor actor,
+        string source,
         CancellationToken cancellationToken)
     {
         var context = await GetContextAsync(scope, cancellationToken).ConfigureAwait(false);
         var normalizedId = RequiredId(taskId, nameof(taskId));
         if (!context.Catalog.Tasks.Any(task => task.Id == normalizedId))
         {
-            throw new InvalidOperationException($"Task '{normalizedId}' is not present in the {scope.GameMode} catalog.");
+            // Its own exception type, because a quest the catalog has never heard of is a stale
+            // catalog and storage failing is a broken database, and the caller reading the
+            // game's logs has to report those differently.
+            throw new QuestCatalogEntryUnknownException(
+                $"Task '{normalizedId}' is not present in the {scope.GameMode} catalog.",
+                normalizedId);
         }
 
         return await progressStore.ApplyAsync(
@@ -41,8 +61,8 @@ public sealed class QuestProgressCommandService(
                 context.Profile.Name,
                 normalizedId,
                 state,
-                QuestProgressActor.User,
-                "Manual",
+                actor,
+                source,
                 Guid.NewGuid(),
                 _timeProvider.GetUtcNow()),
             cancellationToken).ConfigureAwait(false);

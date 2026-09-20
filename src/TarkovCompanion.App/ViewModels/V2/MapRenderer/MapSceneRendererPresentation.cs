@@ -88,6 +88,7 @@ public sealed class MapSceneRendererPresentation
             ["Map.Loot.Empty"] = "No loot-spawn rows to show.",
             ["Map.Loot.FilterUnavailable"] = "Loot filters are unavailable until the map host can rebuild the canonical layer.",
             ["Map.Loot.PresetConflict"] = "Map changed before the preset finished. Earlier layer changes remain applied; review the layers and try again.",
+            ["Map.Loot.MakeWaypoint"] = "Make waypoint",
             ["Map.Loot.Coverage"] = "{0} of {1} records positioned · {2} floor-resolved · {3} map-only",
             ["Map.Loot.Page"] = "Loot page {0} of {1} · {2} matching spawns",
             ["Map.Loot.Candidates"] = "{0} of {1} candidates above threshold · {2}",
@@ -197,7 +198,11 @@ public sealed class MapSceneRendererPresentation
             // V2 rough package 20: the notice itself is a small chip over the plan, not a
             // paragraph drawn across it; the sentences above are its tooltip.
             ["Map.Dense.Chip.Outside"] = "{0} off-plan",
-            ["Map.Dense.Chip.Many"] = "{0} map notes",
+            // [V2 rough package 46] Each names the condition it is about. "2 map notes" counted
+            // the sentences in the tooltip, which told the player nothing and invited exactly the
+            // question he asked about it.
+            ["Map.Dense.Chip.Grouped"] = "{0} grouped",
+            ["Map.Dense.Chip.Shapes"] = "{0} shapes hidden",
             ["Map.Cluster.Label"] = "{0} nearby items",
             ["Map.Cluster.Detail"] = "Approximate grouping of sourced points. Open this cluster to inspect every record.",
             ["Map.Cluster.Kind"] = "Point cluster",
