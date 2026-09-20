@@ -106,6 +106,17 @@
         <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.35" /></Transitions>
       </Setter>
     </Style>
+    <!-- [V2 rough package 60 — appearance] Reduce motion (#266) keeps the state change and drops
+         the transition, so the groups still dim, instantly. The class is put on the window by
+         V2AppearanceApplier: a DynamicResource duration inside a Transitions setter has no
+         resource host to resolve against and would silently keep the authored 0.35s. This style
+         has to live beside the one it overrides, because a control's own styles are applied after
+         the application's and would otherwise win. -->
+    <Style Selector="Window.v2-motion-reduced Border.v2-raid-float">
+      <Setter Property="Transitions">
+        <Transitions />
+      </Setter>
+    </Style>
     <Style Selector="Border.v2-raid-float.v2-raid-idle">
       <Setter Property="Opacity" Value="0.12" />
     </Style>
@@ -179,8 +190,13 @@
                                        PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
+          <!-- The only thing on the page when there is no map: the renderer, and its own
+               background-status line with it, is collapsed above. Named for automation so the
+               reason reaches a screen reader rather than being a card with text in it. -->
           <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}" Margin="16"
                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.Name="{Binding UnavailableReason}"
                   AutomationProperties.AutomationId="v2-raid-unavailable">
             <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
           </Border>
@@ -845,6 +861,36 @@
             </StackPanel>
           </Border>
 
+          <!-- [Issue 318] The spawn the player tapped, and the one action that leaves the map: a
+               waypoint at it. The renderer selects a spawn either way, but its own details panel is
+               hidden on this page, so without this card nothing said what had been selected. -->
+          <Panel DataContext="{Binding Renderer}">
+          <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section"
+                  IsVisible="{Binding HasLootSelection}"
+                  AutomationProperties.AutomationId="v2-raid-loot-selection">
+            <ContentControl Content="{Binding SelectedLootEntry}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="mapVm:HighValueLootEntryViewModel">
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="v2-heading-3" Text="{Binding Label}" TextWrapping="Wrap" />
+                    <WrapPanel ItemSpacing="8" LineSpacing="4">
+                      <TextBlock Classes="v2-label" Text="{Binding TierLabel}" />
+                      <TextBlock Classes="v2-label" Text="{Binding ValueLabel}" />
+                      <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
+                    </WrapPanel>
+                    <TextBlock Classes="v2-body" Text="{Binding PossibleItemsLabel}" TextWrapping="Wrap" />
+                    <TextBlock Classes="v2-label" Text="{Binding ProbabilityLabel}" TextWrapping="Wrap" />
+                    <Button Classes="v2-target" Content="{Binding MakeWaypointLabel}"
+                            Command="{Binding MakeWaypointCommand}" IsVisible="{Binding CanMakeWaypoint}"
+                            AutomationProperties.AutomationId="v2-raid-loot-waypoint"
+                            AutomationProperties.Name="{Binding MakeWaypointLabel}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </Border>
+          </Panel>
+
           <!-- Collapsed: the value-basis/tier/floor loot filter used to be its own always-open
                card in the map renderer's own side panel (now hidden in this embedding). It is a
                refinement on the High-value loot layer, not something every raid needs open. -->
@@ -865,6 +911,13 @@
                 <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
                   <StackPanel Classes="v2-stack">
                     <TextBlock Classes="v2-label" Text="{Binding StateMessage}" TextWrapping="Wrap" />
+                    <!-- [Issue 318] What this map's loot data covers, and how old it is. The label was
+                         computed and bound only in the renderer's own side panel, which this page hides,
+                         so a player on the Raid page never saw it. -->
+                    <TextBlock Classes="v2-label" Text="{Binding CoverageLabel}" IsVisible="{Binding HasCoverage}"
+                               AutomationProperties.AutomationId="v2-raid-loot-coverage" TextWrapping="Wrap" />
+                    <TextBlock Classes="v2-label" Text="{Binding FreshnessMessage}" IsVisible="{Binding HasFreshnessMessage}"
+                               TextWrapping="Wrap" />
                     <TextBlock Classes="v2-label" Text="{Binding ValueBasisLabel}" />
                     <ItemsControl ItemsSource="{Binding ValueBasisChoices}">
                       <ItemsControl.ItemsPanel>

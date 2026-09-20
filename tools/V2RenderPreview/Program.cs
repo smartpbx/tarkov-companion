@@ -17,7 +17,13 @@ using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.Services.V2.Appearance;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Personalization;
+using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
 using AppClass = TarkovCompanion.App.App;
@@ -76,6 +82,12 @@ internal static class Program
                 // printing them here lets a Linux run catch the same faults before CI does.
                 .LogToTextWriter(Console.Out, Avalonia.Logging.LogEventLevel.Warning, Avalonia.Logging.LogArea.Binding, Avalonia.Logging.LogArea.Layout)
                 .SetupWithoutStarting();
+
+            // [V2 rough package 60 — appearance] #266/#315. SetupWithoutStarting never reaches
+            // OnFrameworkInitializationCompleted, so the applier the running app installs there
+            // is installed here instead. Without it every render is Dark at 100%, which is the
+            // one combination the appearance work does not need proving.
+            var appearance = ApplyAppearance(services, args);
 
             if (options.MapRendererGallery)
             {
@@ -146,6 +158,7 @@ internal static class Program
             }
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+            appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
             if (seeding is not null)
@@ -248,6 +261,36 @@ internal static class Program
                 }
 
                 setup.Select(section);
+                Pump(20);
+            }
+
+            // [#269] Profiles made through the real management service, so Setup > Game & Profile
+            // renders the list a player would have: the first profile, a PvE one made active, and an
+            // archived one behind "Show archived".
+            if (shell is not null && args.Contains("--profiles-demo"))
+            {
+                var management = services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileManagementService>();
+                management.CreateAsync("Old wipe", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pvp, "Wipe 2", default).GetAwaiter().GetResult();
+                var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
+                management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
+                management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
+            // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
+            if (shell?.SetupWorkspace is { } setupPage)
+            {
+                if (args.Contains("--show-paths"))
+                {
+                    setupPage.Paths.ToggleCommand.Execute(null);
+                }
+
+                if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
+                    && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
+                {
+                    setupPage.OpenSection(openedTarget, openedAnchor);
+                }
+
                 Pump(20);
             }
 
@@ -557,6 +600,61 @@ internal static class Program
             // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
             // A headless run has no relay to join, and the offline group session republishes
             // "not sharing" on its own tick, so this goes straight to the view model last.
+            // [V2 rough package 60 — Intel scan] #287: the capture dialog holding a real decision.
+            // Nothing can reach these states in a render without a game writing a screenshot, so
+            // the shell's own projection is set to each one and the real view draws it.
+            // "disagreement" is the recognizer reading a different screen than the armed intent;
+            // "identified" is a finished read with its alternates.
+            if (shell is not null && StringOption(args, "--capture-demo") is { } captureDemo)
+            {
+                var captureSession = new CaptureSessionId(Guid.Parse("30000000-0000-0000-0000-000000000287"));
+                var now = DateTimeOffset.UtcNow;
+                shell.CaptureCommand.Execute(null);
+                shell.UpdateCaptureState(captureDemo switch
+                {
+                    "disagreement" => new V2CaptureShellState(
+                        ScanIntent.Stash,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.IntentMismatch,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Stash,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop,
+                            RecognizedContext.Flea)),
+                    "unknown" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.UnknownContext,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop)),
+                    "identified" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        review: new V2CaptureReview(
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            RecognizedContext.Item,
+                            now,
+                            "Graphics card · 82% sure · also Graphics tablet, GPU crate",
+                            "Screenshot · ambiguous_runner_up")),
+                    _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
+                });
+                Pump(20);
+            }
+
             if (shell is not null && args.Contains("--team-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
@@ -603,7 +701,11 @@ internal static class Program
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.ClaimedByThisDesktop,
                             CompanionPairingStage.AwaitingTablet,
-                            pairingCode: "K7M2-9QRT-4B");
+                            pairingCode: "K7M2-9QRT-4B",
+                            // [V2 rough package 60 — Team] #289: far enough out that the
+                            // countdown reads in minutes, which is the state it spends most of
+                            // its life in.
+                            codeExpiresUtc: DateTimeOffset.UtcNow.AddMinutes(4).AddSeconds(37));
                         break;
                     case "approving":
                         pairing.PresentForPreview(
@@ -1198,5 +1300,68 @@ internal static class Program
     {
         var index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>
+    /// Applies the appearance a render asks for, and returns the applier so a window can be
+    /// given the reduced-motion class the running app gives it.
+    /// </summary>
+    /// <remarks>
+    /// Named the way the Setup page names them ("light", "high-contrast", "red-green") rather
+    /// than by enum spelling, so a render command reads like the choice it is proving.
+    /// </remarks>
+    private static V2AppearanceApplier? ApplyAppearance(IServiceProvider services, string[] args)
+    {
+        var theme = StringOption(args, "--appearance");
+        var vision = StringOption(args, "--color-vision");
+        var density = StringOption(args, "--density");
+        var scale = IntOption(args, "--text-scale", 0);
+        var reduceMotion = args.Contains("--reduce-motion");
+        if (theme is null && vision is null && density is null && scale == 0 && !reduceMotion)
+        {
+            return null;
+        }
+
+        var preferences = new WorkspacePreferences(
+            theme switch
+            {
+                "light" => AppearanceTheme.Light,
+                "high-contrast" => AppearanceTheme.HighContrast,
+                "system" => AppearanceTheme.System,
+                null or "dark" => AppearanceTheme.Dark,
+                _ => throw new ArgumentException($"No appearance is named '{theme}'."),
+            },
+            vision switch
+            {
+                "red-green" => ColorVisionMode.RedGreenSafe,
+                "blue-yellow" => ColorVisionMode.BlueYellowSafe,
+                "mono" => ColorVisionMode.Monochrome,
+                null or "standard" => ColorVisionMode.Standard,
+                _ => throw new ArgumentException($"No colour-vision palette is named '{vision}'."),
+            },
+            scale == 0 ? 100 : scale,
+            density switch
+            {
+                "compact" => InterfaceDensity.Compact,
+                "comfortable" => InterfaceDensity.Comfortable,
+                null or "standard" => InterfaceDensity.Standard,
+                _ => throw new ArgumentException($"No density is named '{density}'."),
+            },
+            reduceMotion);
+
+        var service = services.GetRequiredService<WorkspacePreferenceService>();
+        DrainUntilComplete(service.UpdateAsync(preferences, CancellationToken.None));
+        var applier = new V2AppearanceApplier(
+            Avalonia.Application.Current ?? throw new InvalidOperationException("No application was built."),
+            // Headless has no platform colour values; "system" would otherwise mean "dark"
+            // silently and a --appearance system render would prove nothing.
+            () => new Avalonia.Platform.PlatformColorValues
+            {
+                ThemeVariant = Avalonia.Platform.PlatformThemeVariant.Light,
+            });
+        applier.Apply(preferences);
+        Console.WriteLine($"Appearance: {applier.Applied?.Key} text {preferences.TextScalePercent}% {preferences.Density}" +
+            (preferences.ReduceMotion ? " reduced-motion" : string.Empty));
+        return applier;
     }
 }

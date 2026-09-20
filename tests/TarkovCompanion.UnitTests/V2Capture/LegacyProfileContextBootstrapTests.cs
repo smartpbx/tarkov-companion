@@ -82,6 +82,32 @@ public sealed class LegacyProfileContextBootstrapTests
         Assert.False(legacy.WasRead);
     }
 
+    // [#269] A launch that finds profiles already there must still load the runtime context from them,
+    // or the Setup list and the catalog scope have no active profile until the player creates another.
+    [Fact]
+    public async Task LoadsTheRuntimeContextWhenProfilesAlreadyExist()
+    {
+        using var profiles = new ProfileContextService(new MemoryProfileStore(), new ProfileClock(DateTimeOffset.Parse("2026-09-16T00:00:00Z")));
+        await profiles.CreateAsync(
+            new CreateProfileRequest(
+                ProfileV2Fixtures.Context(ProfileV2Fixtures.Id(9), "generation-9", ProfileGameMode.Pve),
+                "Existing",
+                new ProfileProgress(3)),
+            CancellationToken.None);
+        using var runtime = new ProfileRuntimeContextService(profiles);
+        Assert.False(runtime.Current.IsInitialized);
+        var bootstrap = new LegacyProfileContextBootstrap(
+            new StubLegacyProfiles(null!),
+            profiles,
+            Options,
+            runtimeContext: runtime);
+
+        await bootstrap.EnsureSeededAsync(CancellationToken.None);
+
+        Assert.Equal(ProfileRuntimeContextState.Ready, runtime.Current.State);
+        Assert.Equal("Existing", runtime.Current.ActiveProfile!.Name);
+    }
+
     private sealed class StubLegacyProfiles(PlayerProfile profile) : IPlayerProfileService
     {
         public bool WasRead { get; private set; }

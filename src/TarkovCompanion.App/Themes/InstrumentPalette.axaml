@@ -1,0 +1,99 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- [V2 rough package 60 — appearance] #266/#315. The instrument palette, lifted out of
+       InstrumentStyles.axaml so it can be loaded and measured on its own: that file also sets a
+       Cursor, which needs a windowing platform, and a test that cannot load the palette cannot
+       say whether light still differs from dark. InstrumentStyles merges this and nothing else
+       changes for a caller. -->
+
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <!-- Ground: one material at four heights. -->
+      <SolidColorBrush x:Key="CanvasBrush" Color="#11151B" />
+      <SolidColorBrush x:Key="ChromeBrush" Color="#151B22" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="#1A212A" />
+      <SolidColorBrush x:Key="InsetBrush" Color="#161C24" />
+      <SolidColorBrush x:Key="ControlBrush" Color="#202933" />
+      <SolidColorBrush x:Key="ControlHoverBrush" Color="#28323D" />
+      <!-- Lines: a hairline groups, a strong line marks something pressable. -->
+      <SolidColorBrush x:Key="LineBrush" Color="#2A3541" />
+      <SolidColorBrush x:Key="LineStrongBrush" Color="#3B4855" />
+      <!-- Ink: bright for headings and values, plain for prose, muted for captions, faint for
+           provenance. -->
+      <SolidColorBrush x:Key="InkBrightBrush" Color="#E6EDF2" />
+      <SolidColorBrush x:Key="InkBrush" Color="#C6D0D8" />
+      <SolidColorBrush x:Key="InkMutedBrush" Color="#8F9BA6" />
+      <SolidColorBrush x:Key="InkFaintBrush" Color="#6B7884" />
+      <!-- Accents, one meaning each, as docs/DESIGN_SYSTEM.md sets out: cyan is a place, ochre
+           is a value or a warning, coral is a fault or a risk, sage is something live or safe. -->
+      <SolidColorBrush x:Key="CyanBrush" Color="#56B8C6" />
+      <SolidColorBrush x:Key="CyanDimBrush" Color="#1E3A42" />
+      <SolidColorBrush x:Key="CyanDeepBrush" Color="#28515A" />
+      <SolidColorBrush x:Key="OchreBrush" Color="#C6A15B" />
+      <SolidColorBrush x:Key="CoralBrush" Color="#DF6A62" />
+      <SolidColorBrush x:Key="SageBrush" Color="#77B895" />
+      <!-- The map's floating chrome is translucent so the artwork stays readable through it. -->
+      <SolidColorBrush x:Key="FloatingBrush" Color="#E014191F" />
+      <SolidColorBrush x:Key="FloatingLineBrush" Color="#4A5865" />
+      <SolidColorBrush x:Key="MapGroundBrush" Color="#171E26" />
+      <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DD11151B" />
+      <!-- Markers: a dark ring keeps every disc visible on pale and dark artwork alike; the
+           hollow fill is for a transit; the offered pair is the one bright thing on the map. -->
+      <SolidColorBrush x:Key="MarkerRingBrush" Color="#0B1016" />
+      <SolidColorBrush x:Key="MarkerHollowBrush" Color="#B311151B" />
+      <SolidColorBrush x:Key="MarkerOfferedBrush" Color="#A9E4C3" />
+      <SolidColorBrush x:Key="MarkerHaloBrush" Color="#5577B895" />
+      <!-- Lettering on the map: a name sits on a strip of the ground colour, a place name is
+           haloed in it. -->
+      <SolidColorBrush x:Key="MapNameTagBrush" Color="#BF11151B" />
+      <SolidColorBrush x:Key="MapHaloBrush" Color="#E011151B" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <!-- The same four heights inverted, matching V2ThemeVariants' Light canvas and surface so
+           a V2 card and the V1 control inside it are the same two materials. -->
+      <SolidColorBrush x:Key="CanvasBrush" Color="#F6F8F9" />
+      <SolidColorBrush x:Key="ChromeBrush" Color="#EDF1F3" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="InsetBrush" Color="#E8EDF0" />
+      <SolidColorBrush x:Key="ControlBrush" Color="#E2E8EC" />
+      <SolidColorBrush x:Key="ControlHoverBrush" Color="#D2DBE1" />
+      <SolidColorBrush x:Key="LineBrush" Color="#CBD5DB" />
+      <SolidColorBrush x:Key="LineStrongBrush" Color="#8496A1" />
+      <!-- Ink darkens rather than lightens, keeping the four steps and their contrast order. -->
+      <SolidColorBrush x:Key="InkBrightBrush" Color="#0E1A21" />
+      <SolidColorBrush x:Key="InkBrush" Color="#15232C" />
+      <SolidColorBrush x:Key="InkMutedBrush" Color="#40545F" />
+      <SolidColorBrush x:Key="InkFaintBrush" Color="#566C78" />
+      <!-- The same four meanings, darkened to the contrast the light palette needs. -->
+      <SolidColorBrush x:Key="CyanBrush" Color="#006D7A" />
+      <SolidColorBrush x:Key="CyanDimBrush" Color="#D3ECEF" />
+      <SolidColorBrush x:Key="CyanDeepBrush" Color="#AFDCE2" />
+      <SolidColorBrush x:Key="OchreBrush" Color="#805B00" />
+      <SolidColorBrush x:Key="CoralBrush" Color="#B3261E" />
+      <SolidColorBrush x:Key="SageBrush" Color="#167348" />
+      <SolidColorBrush x:Key="FloatingBrush" Color="#E6FFFFFF" />
+      <SolidColorBrush x:Key="FloatingLineBrush" Color="#9AACB6" />
+      <SolidColorBrush x:Key="MapGroundBrush" Color="#E9EEF1" />
+      <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DDF6F8F9" />
+      <!-- The marker ring stays dark in both: it exists to keep a disc visible against the
+           game's own artwork, which does not change with the application's theme. -->
+      <SolidColorBrush x:Key="MarkerRingBrush" Color="#0B1016" />
+      <SolidColorBrush x:Key="MarkerHollowBrush" Color="#B3FFFFFF" />
+      <SolidColorBrush x:Key="MarkerOfferedBrush" Color="#167348" />
+      <SolidColorBrush x:Key="MarkerHaloBrush" Color="#55167348" />
+      <SolidColorBrush x:Key="MapNameTagBrush" Color="#BFF6F8F9" />
+      <SolidColorBrush x:Key="MapHaloBrush" Color="#E0F6F8F9" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+  <!-- [V2 rough package 60 — appearance] The seven sizes below, as resources rather than as
+       literals in the setters, so the text-scale preference can multiply them. They do not
+       vary by theme, which is why they sit outside the theme dictionaries. -->
+  <x:Double x:Key="Instrument.Type.Display.Size">26</x:Double>
+  <x:Double x:Key="Instrument.Type.Title.Size">22</x:Double>
+  <x:Double x:Key="Instrument.Type.Metric.Size">20</x:Double>
+  <x:Double x:Key="Instrument.Type.Lede.Size">16</x:Double>
+  <x:Double x:Key="Instrument.Type.SectionTitle.Size">15</x:Double>
+  <x:Double x:Key="Instrument.Type.Body.Size">14</x:Double>
+  <x:Double x:Key="Instrument.Type.Label.Size">12</x:Double>
+  <x:Double x:Key="Instrument.Type.Caption.Size">11</x:Double>
+</ResourceDictionary>
