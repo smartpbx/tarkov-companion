@@ -315,6 +315,28 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
         Assert.True(clamped.IsMaximized);
     }
 
+    [Fact]
+    public void A_window_saved_taller_than_the_work_area_is_brought_back_above_the_taskbar()
+    {
+        // A 1080p screen with a 48-pixel taskbar: the work area ends at 1032.
+        ScreenBounds[] screens = [new(0, 0, 1920, 1032)];
+
+        var fullScreenSize = new V2ShellWindowPlacement(1920, 1080, 0, 0, false).ClampTo(screens);
+        Assert.Equal(1032d, fullScreenSize.Height);
+        Assert.Equal(0d, fullScreenSize.Top!.Value);
+        Assert.Equal(1920d, fullScreenSize.Width);
+
+        // Short enough to fit, but left hanging under the taskbar: moved up, not resized.
+        var lowDown = new V2ShellWindowPlacement(1500, 900, 200, 300, false).ClampTo(screens);
+        Assert.Equal(900d, lowDown.Height);
+        Assert.Equal(132d, lowDown.Top!.Value);
+        Assert.Equal(200d, lowDown.Left!.Value);
+
+        // Hanging off the side is deliberate and is left alone.
+        var offTheSide = new V2ShellWindowPlacement(900, 700, -40, 30, false);
+        Assert.Equal(offTheSide, offTheSide.ClampTo(screens));
+    }
+
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;

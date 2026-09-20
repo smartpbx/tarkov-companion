@@ -35,13 +35,15 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
         }
 
         const double grabbable = 80;
-        if (screens.Any(screen =>
-            left + Width - grabbable > screen.Left &&
-            left + grabbable < screen.Right &&
-            top + Height > screen.Top &&
-            top + grabbable < screen.Bottom))
+        foreach (var screen in screens)
         {
-            return this;
+            if (left + Width - grabbable > screen.Left &&
+                left + grabbable < screen.Right &&
+                top + Height > screen.Top &&
+                top + grabbable < screen.Bottom)
+            {
+                return FitVertically(screen);
+            }
         }
 
         var home = screens[0];
@@ -56,6 +58,29 @@ public sealed record V2ShellWindowPlacement(double Width, double Height, double?
             Width = clampedWidth,
             Height = clampedHeight,
         };
+    }
+
+    /// <summary>
+    /// Keeps the whole height of a reachable window inside the screen's work area.
+    /// </summary>
+    /// <remarks>
+    /// Hanging off the side of a screen is something people do on purpose and is left alone.
+    /// Hanging off the bottom is not: the work area ends where the taskbar begins, and a window
+    /// saved 1080 tall on a 1080p screen (work area about 1032) keeps its last 48 pixels under it.
+    /// That is where the navigation rail keeps Setup, reported as "the settings gear is clipped".
+    /// The window is made no taller than the work area and moved up until it ends inside it.
+    /// </remarks>
+    private V2ShellWindowPlacement FitVertically(ScreenBounds screen)
+    {
+        if (Top is not { } top)
+        {
+            return this;
+        }
+
+        var available = Math.Max(0, screen.Bottom - screen.Top);
+        var height = Math.Max(MinimumHeight, Math.Min(Height, available));
+        var fittedTop = Math.Max(screen.Top, Math.Min(top, screen.Bottom - height));
+        return height == Height && fittedTop == top ? this : this with { Height = height, Top = fittedTop };
     }
 
     private static bool IsCoordinate(double? coordinate) =>

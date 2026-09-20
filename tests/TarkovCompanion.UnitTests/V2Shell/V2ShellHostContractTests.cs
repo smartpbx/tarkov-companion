@@ -122,7 +122,9 @@ public sealed class V2ShellHostContractTests
         // V2 rough package 20: Clayton's Streets screenshot showed "P/S ?", "arrow ?" and "S ?"
         // in yellow boxes over the plan — text glyphs and letter badges, not markers.
         var map = File.ReadAllText(V2ShellTestData.RepositoryPath(
-            "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml"));
+            "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml")) +
+            File.ReadAllText(V2ShellTestData.RepositoryPath(
+                "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapPresentationControls.axaml"));
         var raid = File.ReadAllText(V2ShellTestData.RepositoryPath(
             "src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"));
 

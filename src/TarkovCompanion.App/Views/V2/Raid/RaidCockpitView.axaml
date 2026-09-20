@@ -94,6 +94,14 @@
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="ClipToBounds" Value="True" />
     </Style>
+    <!-- A caption on the plan's bottom edge: who made the artwork, what the map last did. Not a
+         control and not hit-testable; the plate is only so it reads over a photograph. -->
+    <Style Selector="Border.v2-raid-caption">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="Opacity" Value="0.8" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="6,2" />
+    </Style>
     <Style Selector="ToggleSwitch.v2-layer-switch">
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="Margin" Value="0" />
@@ -153,12 +161,12 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
     <Style Selector="Button.v2-raid-panel-toggle">
-      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="Padding" Value="0" />
       <Setter Property="Width" Value="14" />
       <Setter Property="Height" Value="44" />
-      <Setter Property="Opacity" Value="0.6" />
+      <Setter Property="Opacity" Value="0.9" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
@@ -174,6 +182,15 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="12,6" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <!-- Follow is the one view switch pressed mid-raid, so it stays on the strip; it is sized
+         like the two menu buttons beside it rather than like the small switches inside them. -->
+    <Style Selector="ToggleButton.v2-raid-strip-toggle">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="MinWidth" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <Style Selector="Button.v2-raid-layers-button Path.v2-icon">
@@ -197,14 +214,13 @@
        away entirely with the handle's own button — and then the map takes the whole width. -->
   <Grid ColumnDefinitions="*,Auto,Auto">
     <Grid Grid.Column="0" RowDefinitions="*,Auto" RowSpacing="12" Margin="16,4,16,16">
-      <Border Grid.Row="0" x:Name="MapCard" Classes="v2-raid-mapcard"
-              PointerEntered="MapPointerActive" PointerMoved="MapPointerActive" PointerExited="MapPointerLeft">
+      <Border Grid.Row="0" x:Name="MapCard" Classes="v2-raid-mapcard">
         <Grid>
           <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself: that element's
                own DataContext is overridden to Renderer below, and a binding on the same element
                would resolve against that override instead of this page's view model. -->
           <ContentControl IsVisible="{Binding HasRenderer}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
-            <map:MapSceneRendererView DataContext="{Binding Renderer}"
+            <map:MapSceneRendererView DataContext="{Binding Renderer}" DocksPresentation="True"
                                        PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
@@ -243,101 +259,27 @@
             </StackPanel>
           </Border>
 
-          <!-- Bottom-left: the renderer's own presentation/floor pill owns the top-left corner
-               and its zoom group the top-right. -->
-          <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Spacing="8">
-            <!-- V2 rough package 22: the V1 map's view controls. Everything here changes how the
-                 map is drawn or what it follows; what is *on* the map stays in the layer
-                 switches along the bottom strip. -->
-            <Border x:Name="ViewControlsGroup" Classes="v2-raid-viewgroup v2-raid-float"
-                    IsVisible="{Binding HasRenderer}" MaxWidth="620"
-                    AutomationProperties.AccessibilityView="Control"
-                    AutomationProperties.Name="Map view controls">
-              <StackPanel Spacing="6">
-                <WrapPanel ItemSpacing="6" LineSpacing="6">
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Follow"
-                                IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
-                                Command="{Binding ToggleFollowCommand}"
-                                AutomationProperties.AutomationId="v2-raid-follow"
-                                ToolTip.Tip="Move the map to you when you take a screenshot" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{Binding RotationLabel}"
-                                IsChecked="{Binding IsRotated, Mode=OneWay}"
-                                Command="{Binding RotateCommand}"
-                                AutomationProperties.AutomationId="v2-raid-rotate"
-                                AutomationProperties.Name="Turn the map a quarter"
-                                ToolTip.Tip="Turn the map a quarter turn, remembered per map" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{Binding VisitedLabel}"
-                                IsChecked="{Binding ShowsVisited, Mode=OneWay}"
-                                Command="{Binding ToggleVisitedCommand}"
-                                AutomationProperties.AutomationId="v2-raid-visited"
-                                AutomationProperties.Name="Show where you have been"
-                                ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Names"
-                                IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
-                                Command="{Binding ToggleGroupNamesCommand}"
-                                AutomationProperties.AutomationId="v2-raid-group-names"
-                                ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
-                  <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding FrameAreaText}"
-                          IsVisible="{Binding CanFrameArea}"
-                          Command="{Binding FrameAreaCommand}"
-                          AutomationProperties.AutomationId="v2-raid-frame-area"
-                          ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Auto-hide"
-                                IsChecked="{Binding HideControlsWhenIdle, Mode=OneWay}"
-                                Command="{Binding ToggleHideControlsCommand}"
-                                AutomationProperties.AutomationId="v2-raid-auto-hide"
-                                ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
-                </WrapPanel>
-                <!-- The one place artwork is chosen. It used to share the row above with a "Drawing"
-                     switch that did what this list's Drawing entry does, and the floors had a "Floors"
-                     and a "Stack" switch here beside the same controls in the plan's own top bar.
-                     Floors are chosen there now, and the artwork is chosen here.
-                     V2 rough package 39: every reviewed piece of artwork this map publishes,
-                     not just the drawn/photo pair. Remembered per map by V1's selection service,
-                     with the attribution for whichever one is showing beneath it (ADR 0015). -->
-                <StackPanel Spacing="4" IsVisible="{Binding HasArtworkVariants}">
-                  <ItemsControl ItemsSource="{Binding ArtworkVariants}"
-                                AutomationProperties.AutomationId="v2-raid-artwork-variants"
-                                AutomationProperties.AccessibilityView="Control"
-                                AutomationProperties.Name="Map artwork">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:RaidArtworkVariantViewModel">
-                        <ToggleButton Classes="v2-target v2-raid-viewcontrol"
-                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
-                                      Command="{Binding SelectCommand}"
-                                      Content="{Binding Name}"
-                                      AutomationProperties.AutomationId="{Binding AutomationId}"
-                                      AutomationProperties.Name="{Binding Name}"
-                                      ToolTip.Tip="{Binding Detail}" />
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
-                <!-- ADR 0015: whoever made the artwork on screen is credited beside it, whether
-                     or not this map offers a choice of artwork. -->
-                <TextBlock Classes="v2-label" Opacity="0.85" TextWrapping="Wrap" MaxWidth="480"
-                           AutomationProperties.AutomationId="v2-raid-artwork-attribution"
-                           IsVisible="{Binding HasArtworkAttribution}"
-                           Text="{Binding ArtworkAttribution}" />
-                <!-- V2 rough package 39 said what automatic floor selection did, or why it could
-                     not, here. [Package 46] It says it beside the floor ladder instead
-                     (v2-map-floor-source): the answer belongs where the choice is made, and this
-                     group fades when the pointer leaves the map. -->
-                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasFloorVariant}">
-                  <Button Classes="v2-target v2-raid-viewcontrol" Content="Floors…"
-                          Command="{Binding UseFloorVariantCommand}"
-                          AutomationProperties.AutomationId="v2-raid-floor-variant"
-                          AutomationProperties.Name="Use the artwork with floors"
-                          ToolTip.Tip="{Binding FloorVariantHint}" />
-                  <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
-                             VerticalAlignment="Center" MaxWidth="420" />
-                </StackPanel>
-              </StackPanel>
+          <!-- Nothing floats over the plan any more but the zoom group and this credit. The view
+               switches and the artwork chooser that stood here covered the plan's bottom-left corner
+               (on Factory, an extract), and the presentation pill covered its top-left; both are in
+               the strip under the map now. ADR 0015: whoever made the artwork on screen is credited
+               beside it, whether or not this map offers a choice of artwork. -->
+          <!-- V2 rough package 22: V1's status line, which is where the map says what it just did
+               or could not do ("no transform, so positions cannot be placed"). It shared the strip
+               with the controls and was trimmed to "160 of..."; as a caption it has the room. -->
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" VerticalAlignment="Bottom" Margin="8,0,8,6"
+                IsHitTestVisible="False">
+            <Border Grid.Column="0" Classes="v2-raid-caption" IsVisible="{Binding HasArtworkAttribution}">
+              <TextBlock Classes="v2-label" TextTrimming="CharacterEllipsis"
+                         AutomationProperties.AutomationId="v2-raid-artwork-attribution"
+                         Text="{Binding ArtworkAttribution}" />
             </Border>
-          </StackPanel>
+            <Border Grid.Column="1" Classes="v2-raid-caption" HorizontalAlignment="Right" IsVisible="{Binding HasStatusLine}">
+              <TextBlock Classes="v2-label" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" MaxLines="1"
+                         AutomationProperties.AutomationId="v2-raid-status"
+                         Text="{Binding StatusLine}" />
+            </Border>
+          </Grid>
         </Grid>
       </Border>
 
@@ -348,7 +290,10 @@
            a raid. They are one button now, which says how many layers are on, and opens the same
            switches in a menu — one press to reach any of them, and 60 pixels back to the map. -->
       <Border Grid.Row="1" Classes="v2-raid-strip" IsVisible="{Binding HasRenderer}">
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+        <!-- One row, left to right: the raid clock, how the plan is presented and which floor is
+             read, then what the map follows, how it is drawn, and what is on it.
+             Everything that used to float over the plan's corners is here, so the plan is clear. -->
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="14">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
             <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
@@ -356,16 +301,18 @@
             <TextBlock Classes="v2-label" VerticalAlignment="Center"
                        Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
           </StackPanel>
-          <!-- V2 rough package 22: V1's status line, which is where the map says what it just
-               did or could not do ("no transform, so positions cannot be placed"). -->
-          <TextBlock Grid.Column="1" Classes="v2-label" Opacity="0.85" VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis"
-                     AutomationProperties.AutomationId="v2-raid-status"
-                     IsVisible="{Binding HasStatusLine}" Text="{Binding StatusLine}"
-                     ToolTip.Tip="{Binding StatusLine}" />
+          <!-- The starred column: when the Raid plan is dragged wide the mode segment and the floor
+               ladder wrap onto a second line here instead of pushing the buttons off the strip. -->
+          <map:MapPresentationControls Grid.Column="1" DataContext="{Binding Renderer}"
+                                       HorizontalAlignment="Left" VerticalAlignment="Center" />
+          <ToggleButton Grid.Column="2" Classes="v2-target v2-raid-strip-toggle" Content="Follow" VerticalAlignment="Center"
+                        IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
+                        Command="{Binding ToggleFollowCommand}"
+                        AutomationProperties.AutomationId="v2-raid-follow"
+                        ToolTip.Tip="Move the map to you when you take a screenshot" />
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
-          <Button Grid.Column="2" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
+          <Button Grid.Column="4" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
                   DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
                   AutomationProperties.AutomationId="v2-raid-layers"
                   AutomationProperties.Name="{Binding LayersMenuLabel}"
@@ -404,6 +351,83 @@
               </Flyout>
             </Button.Flyout>
           </Button>
+          <!-- How the map is drawn: which way up, what of your own history, whose names, and which
+               artwork. Touched once a map, so one press away rather than on the plan. After the
+               layers button in this file only because a test reads the strip up to its first
+               closing border; the column is what places it. -->
+          <Button Grid.Column="3" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-raid-view-menu"
+                  AutomationProperties.Name="Map view"
+                  ToolTip.Tip="Turn the map, show where you have been, choose the artwork">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock VerticalAlignment="Center" Text="View" />
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
+            </StackPanel>
+            <Button.Flyout>
+              <Flyout Placement="TopEdgeAlignedRight">
+                <StackPanel Spacing="8" MinWidth="260" MaxWidth="420"
+                            AutomationProperties.AccessibilityView="Control"
+                            AutomationProperties.Name="Map view controls">
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                                Content="{Binding RotationLabel}"
+                                IsChecked="{Binding IsRotated, Mode=OneWay}"
+                                Command="{Binding RotateCommand}"
+                                AutomationProperties.AutomationId="v2-raid-rotate"
+                                AutomationProperties.Name="Turn the map a quarter"
+                                ToolTip.Tip="Turn the map a quarter turn, remembered per map" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                                Content="{Binding VisitedLabel}"
+                                IsChecked="{Binding ShowsVisited, Mode=OneWay}"
+                                Command="{Binding ToggleVisitedCommand}"
+                                AutomationProperties.AutomationId="v2-raid-visited"
+                                AutomationProperties.Name="Show where you have been"
+                                ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                                Content="Squad names"
+                                IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
+                                Command="{Binding ToggleGroupNamesCommand}"
+                                AutomationProperties.AutomationId="v2-raid-group-names"
+                                ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
+                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                          Content="{Binding FrameAreaText}"
+                          IsVisible="{Binding CanFrameArea}"
+                          Command="{Binding FrameAreaCommand}"
+                          AutomationProperties.AutomationId="v2-raid-frame-area"
+                          ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
+                  <!-- The one place artwork is chosen: every reviewed piece of artwork this map
+                       publishes, remembered per map by V1's selection service (package 39). -->
+                  <TextBlock Classes="v2-label" Text="Artwork" IsVisible="{Binding HasArtworkVariants}" />
+                  <ItemsControl ItemsSource="{Binding ArtworkVariants}" IsVisible="{Binding HasArtworkVariants}"
+                                AutomationProperties.AutomationId="v2-raid-artwork-variants"
+                                AutomationProperties.AccessibilityView="Control"
+                                AutomationProperties.Name="Map artwork">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="6" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:RaidArtworkVariantViewModel">
+                        <ToggleButton Classes="v2-target v2-raid-viewcontrol"
+                                      IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                      Command="{Binding SelectCommand}"
+                                      Content="{Binding Name}"
+                                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                                      AutomationProperties.Name="{Binding Name}"
+                                      ToolTip.Tip="{Binding Detail}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch" Content="Floors…"
+                          IsVisible="{Binding HasFloorVariant}"
+                          Command="{Binding UseFloorVariantCommand}"
+                          AutomationProperties.AutomationId="v2-raid-floor-variant"
+                          AutomationProperties.Name="Use the artwork with floors"
+                          ToolTip.Tip="{Binding FloorVariantHint}" />
+                  <TextBlock Classes="v2-label" Text="{Binding FloorVariantHint}" TextWrapping="Wrap"
+                             IsVisible="{Binding HasFloorVariant}" />
+                </StackPanel>
+              </Flyout>
+            </Button.Flyout>
+          </Button>
         </Grid>
       </Border>
     </Grid>
@@ -420,6 +444,12 @@
             PointerCaptureLost="PanelHandleCaptureLost"
             AutomationProperties.AccessibilityView="Control"
             AutomationProperties.Name="Raid plan width">
+      <!-- The handle was the page's own colour with a 60%-opaque icon on it: a working splitter
+           nobody could see, reported as "the context panel cannot be resized". The line is what
+           says there is an edge here to take hold of. -->
+      <Panel>
+      <Rectangle Width="2" HorizontalAlignment="Center" Margin="0,12" IsHitTestVisible="False"
+                 Fill="{DynamicResource V2.Brush.Border}" />
       <Button Classes="v2-target v2-raid-panel-toggle" VerticalAlignment="Center"
               AutomationProperties.AutomationId="v2-raid-panel-toggle"
               AutomationProperties.Name="{Binding ContextPanelToggleLabel}"
@@ -427,6 +457,7 @@
               Command="{Binding ToggleContextPanelCommand}">
         <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
       </Button>
+      </Panel>
     </Border>
 
     <Border Grid.Column="2" Classes="v2-raid-panel"
