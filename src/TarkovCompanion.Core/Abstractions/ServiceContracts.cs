@@ -840,6 +840,12 @@ public interface IRaidHistoryService
     /// <summary>Hard-deletes every raid still marked deleted, except the ones named.</summary>
     Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken);
 
+    /// <summary>What the player typed by hand about this raid, or null where nothing has been entered.</summary>
+    Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken);
+
+    /// <summary>Saves what the player typed by hand about this raid.</summary>
+    Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken);
+
     /// <summary>
     /// Every screenshot position recorded during one raid, oldest first.
     /// </summary>

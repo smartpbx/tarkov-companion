@@ -623,6 +623,50 @@ public sealed class SqliteRaidHistoryService(
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT manual_metadata_json FROM raids WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+        return ParseManualMetadata(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>Reads a stored payload, treating one that will not parse the same as none at all.</summary>
+    private static RaidManualMetadata? ParseManualMetadata(object? stored)
+    {
+        if (stored is not string json || string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<RaidManualMetadata>(json, JsonOptions);
+            return parsed is null || parsed.IsEmpty ? null : parsed;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public async Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE raids SET manual_metadata_json = $json WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+        command.Parameters.AddWithValue(
+            "$json",
+            metadata.IsEmpty ? DBNull.Value : (object)JsonSerializer.Serialize(metadata, JsonOptions));
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+        }
+    }
+
     public async Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
@@ -676,12 +720,28 @@ public sealed class SqliteRaidHistoryService(
             }
         }
 
+        var manual = new Dictionary<Guid, RaidManualMetadata>();
+        await using (var manualCommand = connection.CreateCommand())
+        {
+            manualCommand.CommandText = "SELECT id, manual_metadata_json FROM raids WHERE manual_metadata_json IS NOT NULL;";
+            await using var reader = await manualCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (Guid.TryParse(reader.GetString(0), out var raidId)
+                    && ParseManualMetadata(reader.GetString(1)) is { } metadata)
+                {
+                    manual[raidId] = metadata;
+                }
+            }
+        }
+
         return
         [
             .. raids.Select(raid => new RaidExportRecord(
                 raid,
                 RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
-                scans.GetValueOrDefault(raid.Id, []))),
+                scans.GetValueOrDefault(raid.Id, []),
+                manual.GetValueOrDefault(raid.Id))),
         ];
     }
 

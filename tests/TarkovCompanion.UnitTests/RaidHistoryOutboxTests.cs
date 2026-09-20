@@ -280,6 +280,12 @@ public sealed class RaidHistoryOutboxTests
         public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken) =>
+            Task.FromResult<RaidManualMetadata?>(null);
+
+        public Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
             Guid raidId,
             CancellationToken cancellationToken) =>

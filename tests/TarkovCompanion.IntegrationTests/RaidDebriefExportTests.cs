@@ -101,12 +101,36 @@ public sealed class RaidDebriefExportTests
         await using var json = new MemoryStream();
         await harness.History.ExportJsonAsync(json, CancellationToken.None);
         using var document = JsonDocument.Parse(json.ToArray());
-        Assert.Equal(2, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, document.RootElement.GetProperty("schemaVersion").GetInt32());
         var scan = document.RootElement.GetProperty("raids")[0].GetProperty("scans")[0];
         Assert.Equal("Graphics card", scan.GetProperty("itemName").GetString());
         Assert.Equal("inferred", scan.GetProperty("itemSource").GetString());
         Assert.Equal("estimated", scan.GetProperty("valueSource").GetString());
         Assert.Equal(0.93, scan.GetProperty("confidence").GetDouble());
+    }
+
+    [Fact]
+    public async Task Manual_kills_and_value_round_trip_through_the_real_database_and_the_export()
+    {
+        await using var harness = await Harness.CreateAsync();
+        var raidId = await harness.StartEndedRaidAsync("Survived", null);
+        Assert.Null(await harness.History.GetManualMetadataAsync(raidId, CancellationToken.None));
+
+        await harness.History.SetManualMetadataAsync(raidId, new RaidManualMetadata(2, 1, 0, 450_000), CancellationToken.None);
+
+        var stored = await harness.History.GetManualMetadataAsync(raidId, CancellationToken.None);
+        Assert.Equal(new RaidManualMetadata(2, 1, 0, 450_000), stored);
+
+        var row = Assert.Single(await ExportRowsAsync(harness));
+        Assert.Equal("2", row["pmc_kills"]);
+        Assert.Equal("manual", row["pmc_kills_source"]);
+        Assert.Equal("450000", row["value_roubles"]);
+        Assert.Equal("manual", row["value_roubles_source"]);
+
+        // Clearing every field back to null removes the row's stored JSON rather than keeping an
+        // all-null object: GetManualMetadataAsync and an unset raid must read the same way.
+        await harness.History.SetManualMetadataAsync(raidId, RaidManualMetadata.Empty, CancellationToken.None);
+        Assert.Null(await harness.History.GetManualMetadataAsync(raidId, CancellationToken.None));
     }
 
     private static async Task<IReadOnlyList<Dictionary<string, string>>> ExportRowsAsync(Harness harness)
