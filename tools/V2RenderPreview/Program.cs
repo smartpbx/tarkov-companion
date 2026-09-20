@@ -761,10 +761,70 @@ internal static class Program
                             RecognizedContext.Item,
                             captureNow,
                             "Graphics card · 82% sure · also Graphics tablet, GPU crate",
-                            "Screenshot · ambiguous_runner_up")),
+                            "Screenshot · ambiguous_runner_up",
+                            canCorrect: false)
+                        {
+                            // [f920 capture] The candidate list that replaced "Correct result".
+                            Candidates =
+                            [
+                                new("demo-graphics-card", "Graphics card", 0.82),
+                                new("demo-graphics-tablet", "Graphics tablet", 0.61),
+                                new("demo-gpu-crate", "GPU crate", 0.44),
+                            ],
+                            ChosenCandidateId = "demo-graphics-card",
+                        }),
                     _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
                 });
                 Pump(20);
+            }
+
+            // [f920 capture] --capture-image <file> [--capture-intent loot|stash|auto]: a picture
+            // handed to the shell the way the file picker hands one over, through the composed
+            // bridge, intake and pipeline. The panel is left open on whatever came of it.
+            if (shell is not null && StringOption(args, "--capture-image") is { } captureImage)
+            {
+                var wanted = Enum.Parse<ScanIntent>(StringOption(args, "--capture-intent") ?? "Auto", ignoreCase: true);
+                shell.CaptureCommand.Execute(null);
+                shell.CaptureIntents.Single(offered => offered.Intent == wanted).SelectCommand.Execute(null);
+                shell.SubmitManualImage(TarkovCompanion.App.ViewModels.V2.Shell.V2ManualImageOrigin.Picker, captureImage, null);
+                var sessions = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureSessionService>();
+                for (var turn = 0; turn < 1200 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal) && !shell.HasCaptureAttention; turn++)
+                {
+                    Pump(1);
+                    Thread.Sleep(25);
+                }
+
+                // --capture-analyse-as-armed presses the button a screen nobody could place offers,
+                // which on this host is every screen: OCR is Windows-only.
+                Pump(40);
+                if (args.Contains("--capture-analyse-as-armed") &&
+                    shell.CaptureAttentionActions.FirstOrDefault(action => action.Resolution == V2CaptureResolutionKind.AnalyzeAsArmed) is { } asArmed)
+                {
+                    asArmed.InvokeCommand.Execute(null);
+                    for (var turn = 0; turn < 2400 && !sessions.Snapshot.Sessions.Any(session => session.IsTerminal); turn++)
+                    {
+                        Pump(1);
+                        Thread.Sleep(25);
+                    }
+                }
+
+                // --capture-close shows what the capture left behind instead of the panel.
+                if (args.Contains("--capture-close"))
+                {
+                    if (shell.IsCaptureOpen)
+                    {
+                        shell.CaptureCommand.Execute(null);
+                    }
+
+                    DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>().LoadAsync());
+                }
+
+                Pump(40);
+                Console.WriteLine($"Capture image: {shell.CaptureManualStatus} | armed {shell.CaptureArmedStatus} | route {shell.Router.CurrentAddress}");
+                foreach (var notice in sessions.Snapshot.Notices.TakeLast(8))
+                {
+                    Console.WriteLine($"Capture notice: {notice.Kind} {notice.Code}");
+                }
             }
 
             if (shell is not null && args.Contains("--team-demo"))

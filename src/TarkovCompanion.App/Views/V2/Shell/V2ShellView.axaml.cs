@@ -25,6 +25,8 @@ public sealed partial class V2ShellView : UserControl
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += DataContextChangedHandler;
         AddHandler(GotFocusEvent, ShellGotFocus, RoutingStrategies.Bubble);
+        // [f920 capture] A picture the player already has. See V2ShellView.ManualCapture.cs.
+        AttachManualCapture();
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
@@ -67,6 +69,7 @@ public sealed partial class V2ShellView : UserControl
         _requestedInitialFocus = false;
         shell.FocusRequested += FocusRequested;
         shell.Clipboard = CopyToClipboardAsync;
+        shell.CaptureImagePicker = PickCaptureImageAsync;
     }
 
     private void Unwire()
@@ -78,6 +81,7 @@ public sealed partial class V2ShellView : UserControl
 
         _wiredShell.FocusRequested -= FocusRequested;
         _wiredShell.Clipboard = ClipboardUnavailableAsync;
+        _wiredShell.CaptureImagePicker = null;
         _wiredShell = null;
         _requestedInitialFocus = false;
     }

@@ -819,6 +819,8 @@ public static class AppComposition
         // Loot Scan workspace and read back by the scan.
         services.AddSingleton<LootScanWorkspaceControls>();
         services.AddSingleton<ILootScanWorkspaceControls>(provider => provider.GetRequiredService<LootScanWorkspaceControls>());
+        // [f920 capture] A picture the player pasted, dropped or picked, on the watcher's intake.
+        services.AddSingleton<ManualImageIntake>();
         services.AddSingleton<V2ShellCaptureBridge>();
         // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
         // paired device in Control mode moving it back. Refs #407.

@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -63,5 +64,36 @@ public sealed class CaptureRecognitionPipelineTests
         InventoryGridSurface? expected)
     {
         Assert.Equal(expected, CaptureRecognitionPipeline.GridSurfaceFor(intent, detected, inRaid));
+    }
+
+    /// <summary>
+    /// "Analyse as armed" on a screen nobody could place was refused by intake as "context
+    /// unknown, no change". A measured lattice under an armed Loot or Stash places the screen.
+    /// </summary>
+    [Theory]
+    [InlineData(ScanIntent.Loot, true, RecognizedContext.Loot)]
+    [InlineData(ScanIntent.Stash, true, RecognizedContext.Stash)]
+    [InlineData(ScanIntent.Loot, false, null)]
+    [InlineData(ScanIntent.Auto, true, null)]
+    [InlineData(ScanIntent.Flea, true, null)]
+    public void AnUnplacedScreenWithAMeasuredLatticeIsPlacedByTheArmedGridIntent(
+        ScanIntent intent,
+        bool latticeMeasured,
+        RecognizedContext? expected)
+    {
+        var placed = CaptureRecognitionPipeline.PlaceFromLattice(null, true, new(0), latticeMeasured, intent);
+
+        Assert.Equal(expected, placed.Context);
+        Assert.Equal(expected is null, placed.IsAmbiguous);
+        Assert.Equal(expected is null ? 0 : RecognitionThresholds.Ambiguous, placed.Confidence.Value);
+    }
+
+    [Fact]
+    public void AScreenTheTextDetectorPlacedIsLeftAsItWasRead()
+    {
+        var placed = CaptureRecognitionPipeline.PlaceFromLattice(RecognizedContext.Flea, false, new(0.93), true, ScanIntent.Loot);
+
+        Assert.Equal(RecognizedContext.Flea, placed.Context);
+        Assert.Equal(0.93, placed.Confidence.Value);
     }
 }
