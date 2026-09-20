@@ -346,7 +346,11 @@ public sealed record MapSceneObject
         MapSceneEstimateMetadata? estimate = null,
         MapFeatureFaction faction = MapFeatureFaction.Unknown,
         MapSceneOfferState offerState = MapSceneOfferState.Unknown,
-        double? headingDegrees = null)
+        double? headingDegrees = null,
+        // Issue 508: a quest objective still on the map once its own step is done is drawn
+        // dimmed with a check, not identically to one still outstanding. Never set for any other
+        // kind — a completed extract or a completed hazard is not a concept this scene has.
+        bool isCompleted = false)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -410,6 +414,7 @@ public sealed record MapSceneObject
         Faction = faction;
         OfferState = offerState;
         HeadingDegrees = headingDegrees;
+        IsCompleted = isCompleted;
     }
 
     public MapSceneObjectId Id { get; }
@@ -439,6 +444,9 @@ public sealed record MapSceneObject
     /// <summary>Which way whoever this marks was facing, in plan degrees, when it is known.</summary>
     public double? HeadingDegrees { get; }
 
+    /// <summary>Whether this is a quest objective whose own step is already done.</summary>
+    public bool IsCompleted { get; }
+
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 
     /// <summary>
@@ -463,6 +471,7 @@ public sealed record MapSceneObject
             Faction == other.Faction &&
             OfferState == other.OfferState &&
             HeadingDegrees == other.HeadingDegrees &&
+            IsCompleted == other.IsCompleted &&
             string.Equals(Label, other.Label, StringComparison.Ordinal) &&
             string.Equals(Detail, other.Detail, StringComparison.Ordinal) &&
             Geometry.HasSamePointsAs(other.Geometry) &&
@@ -640,7 +649,8 @@ public sealed record MapSceneListEntry(
     MapSceneTruthKind Truth,
     MapFeatureFaction Faction,
     MapSceneOfferState OfferState,
-    DataProvenance Provenance);
+    DataProvenance Provenance,
+    bool IsCompleted = false);
 
 /// <summary>The single renderer-neutral scene consumed by desktop and paired clients.</summary>
 public sealed record MapSceneSnapshot
@@ -774,7 +784,8 @@ public sealed record MapSceneSnapshot
             item.Truth,
             item.Faction,
             item.OfferState,
-            item.Provenance))
+            item.Provenance,
+            item.IsCompleted))
         .ToArray();
 
     private bool IsLayerVisible(MapSceneLayerId layerId) =>

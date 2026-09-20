@@ -92,9 +92,10 @@ public sealed class QuestObjectiveSceneBuilderTests
         Assert.Empty(entry.ObjectIds);
         Assert.DoesNotContain(scene.Objects, item => item.Id.Value.StartsWith("quest:5968eb9b", StringComparison.Ordinal));
 
-        // The numbers on the map run one, two, three with no gap where this one would have been.
+        // The letters on the map run A, B, C with no gap where this one would have been. Letters,
+        // not numbers (issue 508): a quest objective's marker must never read like a waypoint's.
         var numbers = scene.Entries.Where(item => item.IsPlaced).Select(item => item.Number).ToArray();
-        Assert.Equal(Enumerable.Range(1, numbers.Length).Select(number => number.ToString()), numbers);
+        Assert.Equal(Enumerable.Range(1, numbers.Length).Select(QuestObjectiveLetters.LetterFor), numbers);
     }
 
     [Fact]
