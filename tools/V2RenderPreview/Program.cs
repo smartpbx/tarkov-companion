@@ -1377,6 +1377,18 @@ internal static class Program
                     debrief.BeginBulkDeleteCommand.Execute(null);
                     Pump(20);
                 }
+
+                // #291 package 4: kills and the value brought out, typed on the selected raid, so a
+                // render can show the manual facts and the per-map stats that follow from them.
+                if (args.Contains("--debrief-manual-demo"))
+                {
+                    debrief.ManualPmcKills = 2;
+                    debrief.ManualScavKills = 1;
+                    debrief.ManualBossKills = 0;
+                    debrief.ManualValueRoubles = 450_000;
+                    debrief.SaveManualMetadataCommand.Execute(null);
+                    Pump(40);
+                }
             }
 
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan

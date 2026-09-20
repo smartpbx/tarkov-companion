@@ -23,7 +23,9 @@ public sealed class RaidHistoryExportTests
 
         var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(
-            "id,profile_id,map_id,mode,start_local,end_local,outcome,notes,schema_version,map_source,mode_source,start_source,end_source,outcome_source,notes_source,scans,scans_recognised",
+            "id,profile_id,map_id,mode,start_local,end_local,outcome,notes,schema_version,map_source,mode_source,"
+                + "start_source,end_source,outcome_source,notes_source,scans,scans_recognised,pmc_kills,scav_kills,"
+                + "boss_kills,value_roubles,pmc_kills_source,scav_kills_source,boss_kills_source,value_roubles_source",
             lines[0].TrimEnd('\r'));
         Assert.Equal(RaidHistoryExport.CsvColumns, lines[0].TrimEnd('\r').Split(','));
         Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes,", lines[0], StringComparison.Ordinal);
@@ -38,7 +40,7 @@ public sealed class RaidHistoryExportTests
         var header = RaidHistoryExport.CsvColumns.ToList();
         string Cell(string column) => row[header.IndexOf(column)];
 
-        Assert.Equal("2", Cell("schema_version"));
+        Assert.Equal("3", Cell("schema_version"));
         Assert.Equal("customs", Cell("map_id"));
         Assert.Equal("observed", Cell("map_source"));
         Assert.Equal("inferred", Cell("mode_source"));
@@ -61,6 +63,61 @@ public sealed class RaidHistoryExportTests
     }
 
     [Fact]
+    public async Task Manual_kills_and_value_export_as_manual_and_an_unset_field_stays_empty()
+    {
+        var text = await Csv([Record(manual: new RaidManualMetadata(2, 1, 0, 450_000))]);
+
+        var row = Cells(text.Split('\n', StringSplitOptions.RemoveEmptyEntries)[1].TrimEnd('\r'));
+        var header = RaidHistoryExport.CsvColumns.ToList();
+        string Cell(string column) => row[header.IndexOf(column)];
+
+        Assert.Equal("2", Cell("pmc_kills"));
+        Assert.Equal("1", Cell("scav_kills"));
+        Assert.Equal("0", Cell("boss_kills"));
+        Assert.Equal("450000", Cell("value_roubles"));
+        Assert.Equal("manual", Cell("pmc_kills_source"));
+        Assert.Equal("manual", Cell("scav_kills_source"));
+        Assert.Equal("manual", Cell("boss_kills_source"));
+        Assert.Equal("manual", Cell("value_roubles_source"));
+    }
+
+    [Fact]
+    public async Task A_raid_with_no_manual_fields_exports_them_all_empty()
+    {
+        var text = await Csv([Record()]);
+
+        var row = Cells(text.Split('\n', StringSplitOptions.RemoveEmptyEntries)[1].TrimEnd('\r'));
+        var header = RaidHistoryExport.CsvColumns.ToList();
+        string Cell(string column) => row[header.IndexOf(column)];
+
+        Assert.Equal(string.Empty, Cell("pmc_kills"));
+        Assert.Equal(string.Empty, Cell("value_roubles"));
+        Assert.Equal(string.Empty, Cell("pmc_kills_source"));
+        Assert.Equal(string.Empty, Cell("value_roubles_source"));
+    }
+
+    [Fact]
+    public async Task Manual_fields_export_to_json_under_the_raid_and_its_sources()
+    {
+        await using var stream = new MemoryStream();
+        await RaidHistoryExport.WriteJsonAsync(
+            stream,
+            [Record(manual: new RaidManualMetadata(2, 1, 0, 450_000))],
+            Start,
+            CancellationToken.None);
+
+        using var document = JsonDocument.Parse(stream.ToArray());
+        var raid = document.RootElement.GetProperty("raids")[0];
+        Assert.Equal(2, raid.GetProperty("pmcKills").GetInt32());
+        Assert.Equal(1, raid.GetProperty("scavKills").GetInt32());
+        Assert.Equal(0, raid.GetProperty("bossKills").GetInt32());
+        Assert.Equal(450_000, raid.GetProperty("valueRoubles").GetInt64());
+        var sources = raid.GetProperty("sources");
+        Assert.Equal("manual", sources.GetProperty("pmcKills").GetString());
+        Assert.Equal("manual", sources.GetProperty("valueRoubles").GetString());
+    }
+
+    [Fact]
     public async Task The_json_is_a_versioned_envelope_with_sources_and_scans_per_raid()
     {
         var exported = new DateTimeOffset(2026, 9, 19, 12, 0, 0, TimeSpan.Zero);
@@ -73,7 +130,7 @@ public sealed class RaidHistoryExportTests
 
         using var document = JsonDocument.Parse(stream.ToArray());
         var root = document.RootElement;
-        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal(3, root.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(exported, root.GetProperty("exportedUtc").GetDateTimeOffset());
         var raid = Assert.Single(root.GetProperty("raids").EnumerateArray());
         Assert.Equal("customs", raid.GetProperty("mapId").GetString());
@@ -153,10 +210,11 @@ public sealed class RaidHistoryExportTests
     private static RaidExportRecord Record(
         string? outcome = null,
         string? notes = null,
-        IReadOnlyList<RaidScanFact>? scans = null)
+        IReadOnlyList<RaidScanFact>? scans = null,
+        RaidManualMetadata? manual = null)
     {
         var raid = new RaidHistoryEntry(RaidId, ProfileId, "customs", "Regular", Start, Start.AddMinutes(24), outcome, notes);
-        return new(raid, RaidFactRules.Classify(raid, []), scans ?? []);
+        return new(raid, RaidFactRules.Classify(raid, []), scans ?? [], manual);
     }
 
     private static RaidScanFact Scan(bool recognised) => new(

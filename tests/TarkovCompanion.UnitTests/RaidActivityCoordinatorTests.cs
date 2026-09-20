@@ -380,6 +380,12 @@ public sealed class RaidActivityCoordinatorTests
         public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken) =>
+            Task.FromResult<RaidManualMetadata?>(null);
+
+        public Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task<IReadOnlyList<string>> ListEventPayloadsAsync(
             Guid raidId,
             string type,
@@ -457,6 +463,12 @@ public sealed class RaidActivityCoordinatorTests
             Task.CompletedTask;
 
         public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken) =>
+            Task.FromResult<RaidManualMetadata?>(null);
+
+        public Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
         public Task<IReadOnlyList<string>> ListEventPayloadsAsync(

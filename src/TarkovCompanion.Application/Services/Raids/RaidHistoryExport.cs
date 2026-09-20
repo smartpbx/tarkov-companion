@@ -81,11 +81,13 @@ public sealed record RaidScanFact(
             : null;
 }
 
-/// <summary>One raid as it is exported: the record, where each field came from, and what was scanned during it.</summary>
+/// <summary>One raid as it is exported: the record, where each field came from, what was scanned
+/// during it, and what the player typed by hand about it.</summary>
 public sealed record RaidExportRecord(
     RaidHistoryEntry Raid,
     RaidFactSources Sources,
-    IReadOnlyList<RaidScanFact> Scans);
+    IReadOnlyList<RaidScanFact> Scans,
+    RaidManualMetadata? Manual = null);
 
 /// <summary>
 /// Writes raid history as CSV or JSON with the source of every fact beside it.
@@ -109,10 +111,19 @@ public sealed record RaidExportRecord(
 /// Counts are per raid. A per-map numerator and denominator, which the issue also asks for, needs
 /// the offered-extract record this export does not have yet.
 /// </para>
+/// <para>
+/// Version 3 adds the raid's manual metadata — kills by who they were fighting and the value
+/// carried out, all typed by hand and so always <c>manual</c> where present, empty where not
+/// entered — as four more CSV columns and their sources, and as <c>pmcKills</c>/<c>scavKills</c>/
+/// <c>bossKills</c>/<c>valueRoubles</c> on the raid plus their sources on <c>sources</c> in JSON.
+/// Every version 2 column and field keeps its name and position; nothing moved.
+/// </para>
 /// </remarks>
 public static class RaidHistoryExport
 {
-    public const int SchemaVersion = 2;
+    // Version 3 adds the manual kills and carried-value fields and their source columns; version
+    // 2's columns, including its own additions over version 1, keep their names and positions.
+    public const int SchemaVersion = 3;
 
     // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
     // spreadsheet reads as a date-time (an ISO string with an offset arrives as text), and the
@@ -123,6 +134,8 @@ public static class RaidHistoryExport
         "schema_version",
         "map_source", "mode_source", "start_source", "end_source", "outcome_source", "notes_source",
         "scans", "scans_recognised",
+        "pmc_kills", "scav_kills", "boss_kills", "value_roubles",
+        "pmc_kills_source", "scav_kills_source", "boss_kills_source", "value_roubles_source",
     ];
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -143,6 +156,8 @@ public static class RaidHistoryExport
         {
             var raid = record.Raid;
             var sources = record.Sources;
+            var manual = record.Manual;
+            var manualSource = manual is null ? null : RaidFactKind.Manual.Slug();
             var row = string.Join(',', new[]
             {
                 Escape(raid.Id.ToString("D")),
@@ -162,6 +177,14 @@ public static class RaidHistoryExport
                 Escape(sources.Notes.Slug()),
                 record.Scans.Count.ToString(CultureInfo.InvariantCulture),
                 record.Scans.Count(scan => scan.Recognised).ToString(CultureInfo.InvariantCulture),
+                Escape(manual?.PmcKills?.ToString(CultureInfo.InvariantCulture)),
+                Escape(manual?.ScavKills?.ToString(CultureInfo.InvariantCulture)),
+                Escape(manual?.BossKills?.ToString(CultureInfo.InvariantCulture)),
+                Escape(manual?.ValueRoubles?.ToString(CultureInfo.InvariantCulture)),
+                Escape(manual?.PmcKills is null ? null : manualSource),
+                Escape(manual?.ScavKills is null ? null : manualSource),
+                Escape(manual?.BossKills is null ? null : manualSource),
+                Escape(manual?.ValueRoubles is null ? null : manualSource),
             });
             await writer.WriteLineAsync(row.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
@@ -184,39 +207,52 @@ public static class RaidHistoryExport
         await JsonSerializer.SerializeAsync(destination, document, JsonOptions, cancellationToken).ConfigureAwait(false);
     }
 
-    private static RaidDocument ToDocument(RaidExportRecord record) => new(
-        record.Raid.Id,
-        record.Raid.ProfileId,
-        record.Raid.MapId,
-        record.Raid.Mode,
-        // Local for the person who opens it, with the numeric offset so a program reads the same
-        // instant back — the keys drop "Utc" because the values are no longer written at offset
-        // zero (docs/DEBRIEF_EXPORT.md).
-        record.Raid.StartedUtc is { } started ? LocalTime.Iso(started) : null,
-        record.Raid.EndedUtc is { } ended ? LocalTime.Iso(ended) : null,
-        record.Raid.Outcome,
-        record.Raid.Notes,
-        new SourcesDocument(
-            record.Sources.Map.Slug(),
-            record.Sources.Mode.Slug(),
-            record.Sources.Started.Slug(),
-            record.Sources.Ended.Slug(),
-            record.Sources.Outcome.Slug(),
-            record.Sources.Notes.Slug()),
-        [
-            .. record.Scans.Select(scan => new ScanDocument(
-                scan.ObservedUtc,
-                scan.IsAvailable,
-                scan.Recognised,
-                scan.ItemId,
-                scan.ItemName,
-                scan.IdentityKind.Slug(),
-                scan.Confidence,
-                scan.ValueRoubles,
-                scan.ValuePerSlotRoubles,
-                scan.ValueKind.Slug(),
-                scan.Recommendation)),
-        ]);
+    private static RaidDocument ToDocument(RaidExportRecord record)
+    {
+        var manual = record.Manual;
+        var manualSource = manual is null ? null : RaidFactKind.Manual.Slug();
+        return new(
+            record.Raid.Id,
+            record.Raid.ProfileId,
+            record.Raid.MapId,
+            record.Raid.Mode,
+            // Local for the person who opens it, with the numeric offset so a program reads the
+            // same instant back — the keys drop "Utc" because the values are no longer written at
+            // offset zero (docs/DEBRIEF_EXPORT.md).
+            record.Raid.StartedUtc is { } started ? LocalTime.Iso(started) : null,
+            record.Raid.EndedUtc is { } ended ? LocalTime.Iso(ended) : null,
+            record.Raid.Outcome,
+            record.Raid.Notes,
+            manual?.PmcKills,
+            manual?.ScavKills,
+            manual?.BossKills,
+            manual?.ValueRoubles,
+            new SourcesDocument(
+                record.Sources.Map.Slug(),
+                record.Sources.Mode.Slug(),
+                record.Sources.Started.Slug(),
+                record.Sources.Ended.Slug(),
+                record.Sources.Outcome.Slug(),
+                record.Sources.Notes.Slug(),
+                manual?.PmcKills is null ? null : manualSource,
+                manual?.ScavKills is null ? null : manualSource,
+                manual?.BossKills is null ? null : manualSource,
+                manual?.ValueRoubles is null ? null : manualSource),
+            [
+                .. record.Scans.Select(scan => new ScanDocument(
+                    scan.ObservedUtc,
+                    scan.IsAvailable,
+                    scan.Recognised,
+                    scan.ItemId,
+                    scan.ItemName,
+                    scan.IdentityKind.Slug(),
+                    scan.Confidence,
+                    scan.ValueRoubles,
+                    scan.ValuePerSlotRoubles,
+                    scan.ValueKind.Slug(),
+                    scan.Recommendation)),
+            ]);
+    }
 
     private sealed record ExportDocument(int SchemaVersion, DateTimeOffset ExportedUtc, IReadOnlyList<RaidDocument> Raids);
 
@@ -229,6 +265,10 @@ public static class RaidHistoryExport
         string? Ended,
         string? Outcome,
         string? Notes,
+        int? PmcKills,
+        int? ScavKills,
+        int? BossKills,
+        long? ValueRoubles,
         SourcesDocument Sources,
         IReadOnlyList<ScanDocument> Scans);
 
@@ -238,7 +278,11 @@ public static class RaidHistoryExport
         string? Started,
         string? Ended,
         string? Outcome,
-        string? Notes);
+        string? Notes,
+        string? PmcKills,
+        string? ScavKills,
+        string? BossKills,
+        string? ValueRoubles);
 
     private sealed record ScanDocument(
         DateTimeOffset ObservedUtc,

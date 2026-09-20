@@ -73,7 +73,17 @@ public sealed record DebriefSaleRowViewModel(string ItemLabel, string CountLabel
 public sealed record DebriefQuestEventRowViewModel(string QuestLabel, string StateLabel, string TimeLabel);
 
 /// <summary>What the companion has measured on one map: how often it's played and how it goes.</summary>
-public sealed record DebriefMapStatRowViewModel(string MapLabel, string RaidsLabel, string DurationLabel, string LoadLabel);
+public sealed record DebriefMapStatRowViewModel(
+    string MapLabel,
+    string RaidsLabel,
+    string DurationLabel,
+    string LoadLabel,
+    string ManualLabel = "",
+    string ManualKindLabel = "")
+{
+    /// <summary>Whether any raid on this map has a manual kills or value field entered.</summary>
+    public bool HasManual => ManualLabel.Length > 0;
+}
 
 /// <summary>
 /// The outcome buckets the filter offers. The game never writes an outcome (see
@@ -163,8 +173,19 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private bool _isConfirmingBulkDelete;
     private DateTimeOffset? _deleteBeforeDate;
 
+    // Manual fields (#291 package 4): kills and the value brought out, typed by hand on a raid.
+    private decimal? _manualPmcKills;
+    private decimal? _manualScavKills;
+    private decimal? _manualBossKills;
+    private decimal? _manualValueRoubles;
+
     /// <summary>One raid plus what the workspace already knows about it, built once per load.</summary>
-    private sealed record DebriefRaidRecord(RaidHistoryEntry Raid, string? Side, RaidFactSources Sources, double? LoadSeconds);
+    private sealed record DebriefRaidRecord(
+        RaidHistoryEntry Raid,
+        string? Side,
+        RaidFactSources Sources,
+        double? LoadSeconds,
+        RaidManualMetadata? Manual);
 
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
@@ -193,6 +214,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         CancelBulkDeleteCommand = new DelegateCommand(CancelBulkDelete);
         ConfirmBulkDeleteCommand = new AsyncDelegateCommand(ConfirmBulkDeleteAsync);
         UndoDeleteCommand = new AsyncDelegateCommand(UndoDeleteAsync);
+        SaveManualMetadataCommand = new AsyncDelegateCommand(SaveManualMetadataAsync);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -392,6 +414,70 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     {
         get => _correctedNotes;
         set => SetProperty(ref _correctedNotes, value);
+    }
+
+    /// <summary>Kills and the value brought out, typed by hand on the selected raid. Always Manual.</summary>
+    public decimal? ManualPmcKills
+    {
+        get => _manualPmcKills;
+        set => SetProperty(ref _manualPmcKills, value);
+    }
+
+    public decimal? ManualScavKills
+    {
+        get => _manualScavKills;
+        set => SetProperty(ref _manualScavKills, value);
+    }
+
+    public decimal? ManualBossKills
+    {
+        get => _manualBossKills;
+        set => SetProperty(ref _manualBossKills, value);
+    }
+
+    public decimal? ManualValueRoubles
+    {
+        get => _manualValueRoubles;
+        set => SetProperty(ref _manualValueRoubles, value);
+    }
+
+    public ICommand SaveManualMetadataCommand { get; }
+
+    private void SetManualFields(RaidManualMetadata? metadata)
+    {
+        ManualPmcKills = metadata?.PmcKills;
+        ManualScavKills = metadata?.ScavKills;
+        ManualBossKills = metadata?.BossKills;
+        ManualValueRoubles = metadata?.ValueRoubles;
+    }
+
+    private async Task SaveManualMetadataAsync()
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        var raidId = _selected.Id;
+        var metadata = new RaidManualMetadata(
+            (int?)ManualPmcKills,
+            (int?)ManualScavKills,
+            (int?)ManualBossKills,
+            (long?)ManualValueRoubles);
+        try
+        {
+            await _raidHistoryService.SetManualMetadataAsync(raidId, metadata, CancellationToken.None).ConfigureAwait(true);
+            Status = "Saved.";
+            await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+            // LoadAsync only reselects when nothing is selected; this raid still is, so the fact
+            // rows (built from the selection, not the reload) need their own refresh to pick up
+            // what was just saved.
+            await SelectRaidAsync(raidId, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"That could not be saved: {exception.Message}";
+        }
     }
 
     public ICommand RefreshCommand { get; }
@@ -639,7 +725,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     ? []
                     : await LoadCorrectionsAsync(raid.Id, cancellationToken).ConfigureAwait(false));
             var facts = await ReadStateFactsAsync(raid.Id, cancellationToken).ConfigureAwait(false);
-            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds));
+            var manual = await _raidHistoryService.GetManualMetadataAsync(raid.Id, cancellationToken).ConfigureAwait(false);
+            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds, manual));
         }
 
         return records;
@@ -874,6 +961,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             _selectedSources = RaidFactRules.Classify(
                 new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
                 []);
+            SetManualFields(null);
         }
         else
         {
@@ -888,6 +976,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 _selected,
                 await LoadCorrectionsAsync(raidId, cancellationToken).ConfigureAwait(true));
             await LoadScansAsync(raidId, cancellationToken).ConfigureAwait(true);
+            SetManualFields(await _raidHistoryService.GetManualMetadataAsync(raidId, cancellationToken).ConfigureAwait(true));
         }
 
         SelectedFacts = BuildFacts();
@@ -925,6 +1014,31 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         if (SelectedNotesLabel.Length > 0)
         {
             facts.Add(new("Notes", SelectedNotesLabel, _selectedSources.Notes.Label()));
+        }
+
+        // Manual fields (#291 package 4): a player-entered zero is a real answer ("no PMC kills")
+        // and is shown; only an unentered field is left out.
+        if (ManualPmcKills is not null)
+        {
+            facts.Add(new("PMC kills", ManualPmcKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+        }
+
+        if (ManualScavKills is not null)
+        {
+            facts.Add(new("Scav kills", ManualScavKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+        }
+
+        if (ManualBossKills is not null)
+        {
+            facts.Add(new("Boss kills", ManualBossKills.Value.ToString(CultureInfo.CurrentCulture), RaidFactKind.Manual.Label()));
+        }
+
+        if (ManualValueRoubles is not null)
+        {
+            facts.Add(new(
+                "Value brought out",
+                string.Create(CultureInfo.CurrentCulture, $"{ManualValueRoubles.Value:N0} roubles"),
+                RaidFactKind.Manual.Label()));
         }
 
         return facts;
@@ -1076,6 +1190,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 .Select(record => record.LoadSeconds!.Value)
                 .ToList();
 
+            var manualLabel = BuildManualStatsLabel(raidsOnMap);
             rows.Add(new(
                 MapLabel(group.Key),
                 CountLabel(raidsOnMap.Length, "raid"),
@@ -1085,10 +1200,50 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 loadTimes.Count == 0
                     ? "Load time unknown"
                     : $"avg {loadTimes.Average().ToString("0.0", CultureInfo.CurrentCulture)}s "
-                        + $"({CountLabel(loadTimes.Count, "raid")} measured)"));
+                        + $"({CountLabel(loadTimes.Count, "raid")} measured)",
+                manualLabel,
+                manualLabel.Length == 0 ? string.Empty : RaidFactKind.Manual.Label()));
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Kills and the value brought out, summed across whichever raids on this map have each field
+    /// entered — a field nobody entered on any raid here is left out rather than shown as zero.
+    /// </summary>
+    private static string BuildManualStatsLabel(IReadOnlyList<DebriefRaidRecord> raidsOnMap)
+    {
+        var manual = raidsOnMap.Where(record => record.Manual is not null).Select(record => record.Manual!).ToArray();
+        if (manual.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var parts = new List<string>();
+        if (manual.Any(entry => entry.PmcKills is not null))
+        {
+            parts.Add($"{manual.Sum(entry => entry.PmcKills ?? 0).ToString(CultureInfo.CurrentCulture)} PMC");
+        }
+
+        if (manual.Any(entry => entry.ScavKills is not null))
+        {
+            parts.Add($"{manual.Sum(entry => entry.ScavKills ?? 0).ToString(CultureInfo.CurrentCulture)} Scav");
+        }
+
+        if (manual.Any(entry => entry.BossKills is not null))
+        {
+            parts.Add($"{manual.Sum(entry => entry.BossKills ?? 0).ToString(CultureInfo.CurrentCulture)} boss");
+        }
+
+        if (manual.Any(entry => entry.ValueRoubles is not null))
+        {
+            parts.Add(string.Create(
+                CultureInfo.CurrentCulture,
+                $"{manual.Sum(entry => entry.ValueRoubles ?? 0):N0} roubles"));
+        }
+
+        return string.Join(" · ", parts);
     }
 
     /// <summary>What a raid's "state" events carry beyond the lifecycle: queue/load time and which
@@ -1351,5 +1506,9 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(BulkDeletePreviewLabel));
         OnPropertyChanged(nameof(CanUndoDelete));
         OnPropertyChanged(nameof(UndoDeleteSummary));
+        OnPropertyChanged(nameof(ManualPmcKills));
+        OnPropertyChanged(nameof(ManualScavKills));
+        OnPropertyChanged(nameof(ManualBossKills));
+        OnPropertyChanged(nameof(ManualValueRoubles));
     }
 }

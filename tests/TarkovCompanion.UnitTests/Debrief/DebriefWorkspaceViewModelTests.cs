@@ -697,12 +697,94 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Single(viewModel.Raids);
     }
 
+    [Fact]
+    public async Task Saving_manual_kills_and_value_writes_through_and_shows_as_manual_facts()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        viewModel.ManualPmcKills = 2;
+        viewModel.ManualScavKills = 1;
+        viewModel.ManualBossKills = 0;
+        viewModel.ManualValueRoubles = 450_000;
+
+        await ((AsyncDelegateCommand)viewModel.SaveManualMetadataCommand).ExecuteAsync();
+
+        var stored = await service.GetManualMetadataAsync(RaidId, CancellationToken.None);
+        Assert.Equal(new RaidManualMetadata(2, 1, 0, 450_000), stored);
+        Assert.Contains(viewModel.SelectedFacts, fact => fact.Label == "PMC kills" && fact.Value == "2" && fact.KindLabel == "Manual");
+        Assert.Contains(viewModel.SelectedFacts, fact => fact.Label == "Boss kills" && fact.Value == "0" && fact.KindLabel == "Manual");
+        Assert.Contains(viewModel.SelectedFacts, fact => fact.Label == "Value brought out" && fact.KindLabel == "Manual");
+    }
+
+    [Fact]
+    public async Task A_raid_with_no_manual_fields_shows_none_of_them_as_facts()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+
+        Assert.DoesNotContain(viewModel.SelectedFacts, fact => fact.Label == "PMC kills");
+        Assert.DoesNotContain(viewModel.SelectedFacts, fact => fact.Label == "Value brought out");
+        Assert.Null(viewModel.ManualPmcKills);
+    }
+
+    [Fact]
+    public async Task Selecting_a_different_raid_loads_its_own_manual_fields()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        await service.SetManualMetadataAsync(RaidId, new RaidManualMetadata(3, 0, 1, 200_000), CancellationToken.None);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        Assert.Equal(3, viewModel.ManualPmcKills);
+
+        await viewModel.SelectRaidAsync(otherRaidId, CancellationToken.None);
+        Assert.Null(viewModel.ManualPmcKills);
+    }
+
+    [Fact]
+    public async Task Per_map_stats_sum_manual_kills_and_value_over_that_maps_raids_only()
+    {
+        var secondCustomsId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var woodsId = Guid.Parse("40000000-0000-0000-0000-000000000003");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(secondCustomsId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.Seed(new RaidHistoryEntry(woodsId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(15), null, null));
+        await service.SetManualMetadataAsync(RaidId, new RaidManualMetadata(2, 1, null, 100_000), CancellationToken.None);
+        await service.SetManualMetadataAsync(secondCustomsId, new RaidManualMetadata(1, null, null, 50_000), CancellationToken.None);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var customs = Assert.Single(viewModel.MapStats, stat => stat.MapLabel == "customs");
+        Assert.True(customs.HasManual);
+        Assert.Contains("3 PMC", customs.ManualLabel, StringComparison.Ordinal);
+        Assert.Contains("1 Scav", customs.ManualLabel, StringComparison.Ordinal);
+        Assert.Contains("150,000 roubles", customs.ManualLabel, StringComparison.Ordinal);
+        Assert.DoesNotContain("boss", customs.ManualLabel, StringComparison.Ordinal);
+        var woods = Assert.Single(viewModel.MapStats, stat => stat.MapLabel == "woods");
+        Assert.False(woods.HasManual);
+        Assert.Equal(string.Empty, woods.ManualLabel);
+    }
+
     private sealed class FakeRaidHistoryService : IRaidHistoryService
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
         private readonly Dictionary<Guid, IReadOnlyList<ScreenshotPosition>> _positions = [];
         private readonly Dictionary<(Guid RaidId, string Type), List<string>> _events = [];
         private readonly HashSet<Guid> _deleted = [];
+        private readonly Dictionary<Guid, RaidManualMetadata> _manual = [];
 
         public (string? Outcome, string? Notes)? LastCorrection { get; private set; }
 
@@ -785,6 +867,23 @@ public sealed class DebriefWorkspaceViewModelTests
                 _deleted.Remove(raidId);
                 _raids.Remove(raidId);
                 PurgedCount++;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<RaidManualMetadata?> GetManualMetadataAsync(Guid raidId, CancellationToken cancellationToken) =>
+            Task.FromResult(_manual.GetValueOrDefault(raidId));
+
+        public Task SetManualMetadataAsync(Guid raidId, RaidManualMetadata metadata, CancellationToken cancellationToken)
+        {
+            if (metadata.IsEmpty)
+            {
+                _manual.Remove(raidId);
+            }
+            else
+            {
+                _manual[raidId] = metadata;
             }
 
             return Task.CompletedTask;

@@ -280,11 +280,18 @@
               <ItemsControl ItemsSource="{Binding MapStats}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:DebriefMapStatRowViewModel">
-                    <Grid ColumnDefinitions="2*,*,2*,2*" ColumnSpacing="16" Margin="0,2">
+                    <Grid ColumnDefinitions="2*,*,2*,2*,3*" ColumnSpacing="16" Margin="0,2">
                       <TextBlock Grid.Column="0" Classes="v2-debrief-strong" Text="{Binding MapLabel}" />
                       <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding RaidsLabel}" />
                       <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
                       <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding LoadLabel}" />
+                      <!-- #291 package 4: kills and value brought out, summed over this map's raids. -->
+                      <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasManual}">
+                        <TextBlock Classes="v2-debrief-muted" Text="{Binding ManualLabel}" TextWrapping="Wrap" />
+                        <Border Classes="v2-debrief-kind">
+                          <TextBlock Text="{Binding ManualKindLabel}" />
+                        </Border>
+                      </StackPanel>
                     </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -481,6 +488,49 @@
                 <Button Classes="v2-target v2-debrief-primary" Margin="0,6,0,0"
                         AutomationProperties.AutomationId="v2-debrief-save-correction"
                         Content="Save correction" Command="{Binding SaveCorrectionCommand}" />
+              </StackPanel>
+            </Border>
+
+            <!-- #291 package 4: kills and the value brought out, typed by hand — the game announces
+                 neither, so both are always Manual once entered, in the export and the per-map stats. -->
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-debrief-strong" Text="Kills and value brought out" AutomationProperties.HeadingLevel="3" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Classes="v2-debrief-muted" Text="PMC kills" />
+                    <NumericUpDown FormatString="0" Increment="1" Minimum="0" Maximum="20"
+                                    Value="{Binding ManualPmcKills}"
+                                    AutomationProperties.Name="PMC kills"
+                                    AutomationProperties.AutomationId="v2-debrief-manual-pmc-kills" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Classes="v2-debrief-muted" Text="Scav kills" />
+                    <NumericUpDown FormatString="0" Increment="1" Minimum="0" Maximum="20"
+                                    Value="{Binding ManualScavKills}"
+                                    AutomationProperties.Name="Scav kills"
+                                    AutomationProperties.AutomationId="v2-debrief-manual-scav-kills" />
+                  </StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Classes="v2-debrief-muted" Text="Boss kills" />
+                    <NumericUpDown FormatString="0" Increment="1" Minimum="0" Maximum="20"
+                                    Value="{Binding ManualBossKills}"
+                                    AutomationProperties.Name="Boss kills"
+                                    AutomationProperties.AutomationId="v2-debrief-manual-boss-kills" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Classes="v2-debrief-muted" Text="Value brought out (roubles)" TextWrapping="Wrap" />
+                    <NumericUpDown FormatString="#,##0" Increment="1000" Minimum="0" Maximum="50000000"
+                                    Value="{Binding ManualValueRoubles}"
+                                    AutomationProperties.Name="Value brought out"
+                                    AutomationProperties.AutomationId="v2-debrief-manual-value" />
+                  </StackPanel>
+                </Grid>
+                <Button Classes="v2-target v2-debrief-primary" Margin="0,6,0,0"
+                        AutomationProperties.AutomationId="v2-debrief-save-manual"
+                        Content="Save" Command="{Binding SaveManualMetadataCommand}" />
               </StackPanel>
             </Border>
 
