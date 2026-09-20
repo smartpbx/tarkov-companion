@@ -149,8 +149,10 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         // Package 28: the cheapest-barter line V1's Hideout page carries. Optional, so a
         // composition without the barter catalog simply has no route lines.
         IBarterCatalog? barters = null,
-        ITraderCatalog? traders = null)
+        ITraderCatalog? traders = null,
+        IHideoutPrerequisiteCatalog? prerequisites = null)
     {
+        Upgrades = new(itemRepository, prerequisites);
         _barters = barters;
         _traders = traders;
         _requirements = requirements ?? throw new ArgumentNullException(nameof(requirements));
@@ -160,6 +162,9 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
+
+    /// <summary>The next upgrades, the path to a chosen level and their shopping list (#307).</summary>
+    public HideoutUpgradePlanViewModel Upgrades { get; }
 
     public IReadOnlyList<HideoutStationRowViewModel> Stations
     {
@@ -310,6 +315,9 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             var reselect = Stations.FirstOrDefault(station => station.StationId == selectedStationId)
                 ?? Stations[0];
             await SelectAsync(reselect, cancellationToken).ConfigureAwait(true);
+            await Upgrades
+                .UpdateAsync(stations, profile.HideoutStationLevels, _allRequirements, _ownedItemCounts, reselect.StationId, cancellationToken)
+                .ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -417,6 +425,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         }
 
         _ = SelectAsync(station, CancellationToken.None);
+        _ = Upgrades.TargetAsync(station.StationId, CancellationToken.None);
     }
 
     private Task ChangeLevelAsync(int direction) =>

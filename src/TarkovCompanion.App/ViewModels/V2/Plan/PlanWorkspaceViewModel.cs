@@ -150,7 +150,7 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
     /// <summary>What the quest is doing when it is not being played: available now, locked and why, completed, failed.</summary>
-    public string StatusLabel => PlanQuestRules.DescribeStatus(Task);
+    public string StatusLabel => PlanQuestRules.DescribeStatus(Task, _owner is null ? null : _owner.TaskNameOrNull);
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
@@ -261,6 +261,41 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
 
+    /// <summary>How many objective rows a map shows before the player asks for the rest.</summary>
+    internal const int ObjectivePageSize = 30;
+
+    private bool _showsAllObjectives;
+    private bool _isSuggested;
+    private ICommand? _showAllObjectives;
+
+    /// <summary>
+    /// The rows the list draws. Each row is a card with chips, two buttons and a twelve-entry
+    /// menu, and "All" on Customs is 150 of them: drawn at once they held the interface thread
+    /// for over a second. The first page is what fits a few screens; the rest is one press away.
+    /// </summary>
+    public IReadOnlyList<PlanObjectiveRowViewModel> VisibleObjectives =>
+        _showsAllObjectives || Objectives.Count <= ObjectivePageSize
+            ? Objectives
+            : [.. Objectives.Take(ObjectivePageSize)];
+
+    public bool HasMoreObjectives => !_showsAllObjectives && Objectives.Count > ObjectivePageSize;
+
+    public string MoreObjectivesLabel => $"Show all {Objectives.Count:N0}";
+
+    public ICommand ShowAllObjectivesCommand => _showAllObjectives ??= new DelegateCommand(() =>
+    {
+        _showsAllObjectives = true;
+        OnPropertyChanged(nameof(VisibleObjectives));
+        OnPropertyChanged(nameof(HasMoreObjectives));
+    });
+
+    /// <summary>The map <see cref="NextRaidPlanner"/> picks: one raid there moves the most quests.</summary>
+    public bool IsSuggested
+    {
+        get => _isSuggested;
+        internal set => SetProperty(ref _isSuggested, value);
+    }
+
     private IReadOnlyList<PlanRequirementRowViewModel> _requirements = [];
 
     /// <summary>What this map's objectives ask the player to bring, hand in or find, against what they hold.</summary>
@@ -340,6 +375,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private string? _mapPreviewSignature;
     private string _mapNote = string.Empty;
     private QuestBoardReadModel? _board;
+    private (QuestBoardReadModel Board, Dictionary<string, string> Names)? _taskNames;
     private QuestProfileScope? _scope;
     private string _status = "Loading your quest board…";
     private string _scopeLabel = "No profile loaded";
@@ -805,7 +841,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _ownedItems = profile.OwnedItemCounts;
             _missingItems.Clear();
-            _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
+            // Off the interface thread: the board is every quest and objective in the catalog
+            // joined to the profile, and read here it held one turn for up to 2.5 s.
+            var scope = _scope;
+            _board = await OffInterfaceThread
+                .Run(() => _readService.GetQuestBoardAsync(scope, cancellationToken), cancellationToken)
+                .ConfigureAwait(true);
             UiActivity.Step("plan:board");
             var board = _board;
             _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
@@ -926,6 +967,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         var composed = ComposeGroups(entries, Groups, NameOfMap, this, _selectGroup, _openInRaid);
         var composedChanged = !ReferenceEquals(composed, Groups);
         Groups = composed;
+        var suggested = MarkSuggestedRaid(composed);
+        _suggestedRaid = suggested;
+        OnPropertyChanged(nameof(HasSuggestedRaid));
+        OnPropertyChanged(nameof(SuggestedRaidLabel));
         RebuildRequirements(composedChanged);
         PlanMapGroupViewModel? keep = null;
         if (previousMapKey is not null)
@@ -940,8 +985,41 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             }
         }
 
-        SelectedGroup = keep ?? (Groups.Count > 0 ? Groups[0] : null);
+        SelectedGroup = keep ?? suggested ?? (Groups.Count > 0 ? Groups[0] : null);
         UpdateStatus();
+    }
+
+    private PlanMapGroupViewModel? _suggestedRaid;
+    private ICommand? _selectSuggestedRaid;
+
+    public bool HasSuggestedRaid => _suggestedRaid is not null;
+
+    /// <summary>"Suggested: Shoreline · 3 quests", under the page heading where it cannot scroll away.</summary>
+    public string SuggestedRaidLabel => _suggestedRaid is { } group
+        ? $"Suggested: {group.MapLabel} · {CountLabel(group.Quests.Count, "quest")}"
+        : string.Empty;
+
+    public ICommand SelectSuggestedRaidCommand => _selectSuggestedRaid ??= new DelegateCommand(() =>
+    {
+        if (_suggestedRaid is { } group)
+        {
+            SelectedGroup = group;
+        }
+    });
+
+    /// <summary>Flags the map the next raid should be on, and returns it. The choice is <see cref="NextRaidPlanner"/>'s.</summary>
+    internal static PlanMapGroupViewModel? MarkSuggestedRaid(IReadOnlyList<PlanMapGroupViewModel> groups)
+    {
+        var best = NextRaidPlanner.Suggest(groups.Select(group =>
+            new TarkovCompanion.Core.Domain.Planning.NextRaidCandidate(group.MapId ?? string.Empty, group.MapLabel, group.Quests.Count, group.Objectives.Count)));
+        PlanMapGroupViewModel? suggested = null;
+        foreach (var group in groups)
+        {
+            group.IsSuggested = best is not null && string.Equals(group.MapId, best.MapKey, StringComparison.OrdinalIgnoreCase);
+            suggested = group.IsSuggested ? group : suggested;
+        }
+
+        return suggested;
     }
 
     /// <summary>
@@ -1262,9 +1340,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     }
 
     /// <summary>Names a quest by id, including one the plan does not itself contain.</summary>
-    private string NameOfTask(string taskId) =>
-        _board?.Tasks.FirstOrDefault(task => string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Name
-        ?? taskId;
+    private string NameOfTask(string taskId) => TaskNameOrNull(taskId) ?? taskId;
 
     private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group)
     {
@@ -1695,6 +1771,28 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         return names;
+    }
+
+    /// <summary>A quest's name by id, for the line that says which quest opens a locked one.</summary>
+    internal string? TaskNameOrNull(string taskId)
+    {
+        if (_board is not { } board)
+        {
+            return null;
+        }
+
+        if (_taskNames is not { } cached || !ReferenceEquals(cached.Board, board))
+        {
+            var names = new Dictionary<string, string>(board.Tasks.Count, StringComparer.Ordinal);
+            foreach (var task in board.Tasks)
+            {
+                names[task.TaskId] = task.Name;
+            }
+
+            _taskNames = cached = (board, names);
+        }
+
+        return cached.Names.GetValueOrDefault(taskId);
     }
 
     private string NameOfMap(string mapId)

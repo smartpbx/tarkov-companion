@@ -131,7 +131,7 @@ public static class PlanQuestRules
     /// thing to show somebody deciding what to do next, so it reads as nothing rather than as
     /// a word: the quest is neither known to be available nor known to be locked.
     /// </remarks>
-    public static string DescribeStatus(QuestSummaryReadModel task)
+    public static string DescribeStatus(QuestSummaryReadModel task, Func<string, string?>? nameOfTask = null)
     {
         ArgumentNullException.ThrowIfNull(task);
         return task.RecordedState switch
@@ -142,9 +142,10 @@ public static class PlanQuestRules
             _ => task.Eligibility.State switch
             {
                 QuestEligibilityState.Available => "Available now",
+                // What opens it, not why it is shut (#288); the wording is QuestUnlockPlanner's.
                 QuestEligibilityState.Locked => task.Eligibility.Reasons.Count == 0
                     ? "Locked"
-                    : $"Locked · {task.Eligibility.Reasons[0].Detail}",
+                    : $"Locked · {QuestUnlockPlanner.Summarise(QuestUnlockPlanner.Steps(task, nameOfTask ?? (static _ => null)))}",
                 QuestEligibilityState.Delayed => "Waiting on a timer",
                 _ => string.Empty,
             },

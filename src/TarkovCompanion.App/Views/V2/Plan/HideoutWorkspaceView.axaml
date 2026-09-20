@@ -5,6 +5,7 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- Same visual language as the Plan tab's bundle cards and requirement list. -->
     <Style Selector="Button.v2-hideout-station">
       <Setter Property="Background" Value="Transparent" />
@@ -142,6 +143,7 @@
           <!-- The next level's needs beside what is short across every station, so a wide window is
                two readable columns rather than one narrow one with the rest empty. -->
           <WrapPanel ItemSpacing="16" LineSpacing="16" HorizontalAlignment="Left">
+          <StackPanel Width="600" Spacing="16" VerticalAlignment="Top">
           <Border Classes="v2-hideout-section" VerticalAlignment="Top" Width="600">
             <StackPanel Spacing="10">
               <TextBlock Classes="v2-heading-3" Text="Requirements" />
@@ -172,24 +174,110 @@
             </StackPanel>
           </Border>
 
-          <!-- Across every station: what is short for each one's next level, each item counted once. -->
-          <Border Classes="v2-hideout-card" Padding="16,12" VerticalAlignment="Top" Width="600" IsVisible="{Binding HasRollup}"
-                  AutomationProperties.AutomationId="v2-hideout-rollup">
+          <!-- #307: every unbuilt level between the profile and the chosen level of this station,
+               prerequisites first. The order is HideoutUpgradePlanner's. -->
+          <Border Classes="v2-hideout-card" Padding="16,12" DataContext="{Binding Upgrades}"
+                  IsVisible="{Binding HasPath}" AutomationProperties.AutomationId="v2-hideout-path">
             <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Still needed across stations" AutomationProperties.HeadingLevel="2" />
-              <TextBlock Classes="v2-label" Text="{Binding RollupHeading}" />
-              <ItemsControl ItemsSource="{Binding Rollup}">
+              <Grid ColumnDefinitions="*,Auto">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="v2-heading-3" Text="{Binding PathHeading}" AutomationProperties.HeadingLevel="2" />
+                  <TextBlock Classes="v2-label" Text="{Binding PathSummary}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Classes="v2-label" Text="Target" VerticalAlignment="Center" />
+                  <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanLowerTarget}"
+                          Command="{Binding LowerTargetCommand}"
+                          AutomationProperties.AutomationId="v2-hideout-target-down"
+                          AutomationProperties.Name="Lower the target level" ToolTip.Tip="Lower the target level">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
+                  </Button>
+                  <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanRaiseTarget}"
+                          Command="{Binding RaiseTargetCommand}"
+                          AutomationProperties.AutomationId="v2-hideout-target-up"
+                          AutomationProperties.Name="Raise the target level" ToolTip.Tip="Raise the target level">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Plus}" />
+                  </Button>
+                </StackPanel>
+              </Grid>
+              <ItemsControl ItemsSource="{Binding PathSteps}">
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:HideoutRollupRowViewModel">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Margin="0,3">
-                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis" />
-                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
+                  <DataTemplate x:DataType="vm:HideoutUpgradeStepRowViewModel">
+                    <Grid ColumnDefinitions="28,*,Auto" ColumnSpacing="8" Margin="0,4">
+                      <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
                     </Grid>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </StackPanel>
           </Border>
+          </StackPanel>
+
+          <!-- #307: what comes next for this profile, and one shopping list across it. The chips
+               choose how far ahead the list looks; "Path" makes it the list for the card on the left. -->
+          <StackPanel Width="600" Spacing="16" VerticalAlignment="Top" DataContext="{Binding Upgrades}">
+          <Border Classes="v2-hideout-card" Padding="16,12" IsVisible="{Binding HasNextUpgrades}"
+                  AutomationProperties.AutomationId="v2-hideout-next">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Next upgrades" AutomationProperties.HeadingLevel="2" />
+              <ItemsControl ItemsSource="{Binding NextUpgrades}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HideoutUpgradeStepRowViewModel">
+                    <Grid ColumnDefinitions="28,*,Auto" ColumnSpacing="8" Margin="0,4">
+                      <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
+                      <StackPanel Grid.Column="1" Spacing="2">
+                        <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-hideout-card" Padding="16,12" AutomationProperties.AutomationId="v2-hideout-shopping">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="{Binding ShoppingHeading}" AutomationProperties.HeadingLevel="2" />
+              <ItemsControl ItemsSource="{Binding Scopes}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HideoutScopeChipViewModel">
+                    <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsSelected}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="v2-label" Text="{Binding ShoppingTotal}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Shopping}" IsVisible="{Binding HasShopping}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:HideoutShoppingRowViewModel">
+                    <Grid ColumnDefinitions="*,Auto,72" ColumnSpacing="16" Margin="0,3">
+                      <StackPanel Spacing="1">
+                        <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="v2-label" Text="{Binding PriceLabel}" Opacity="0.8" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding CostLabel}" VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+          </StackPanel>
           </WrapPanel>
           </ScrollViewer>
         </Grid>
