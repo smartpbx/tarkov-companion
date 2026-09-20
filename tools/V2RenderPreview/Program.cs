@@ -274,6 +274,9 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
