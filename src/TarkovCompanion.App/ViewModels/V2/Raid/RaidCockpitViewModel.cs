@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -233,6 +234,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private readonly IRuntimeStateStore _stateStore;
     private readonly MapSceneAssembler _assembler;
     private readonly IHighValueLootRuntimeSource _lootSource;
+    private readonly HistoricalTrafficSource _traffic;
     private readonly IRaidMarkStore _marks;
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
@@ -277,6 +279,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private RaidSnapshot? _seenRaid;
     private GroupSnapshot? _seenGroup;
 
+    // The traffic line, and the bookkeeping that keeps a slow evaluation from overwriting a newer
+    // one: the version says which request is current, the time says when the clock last had a
+    // reason to move the raid into another phase.
+    private HistoricalTrafficView _trafficView = new(
+        HistoricalTrafficRuntimeStatus.NoInstalledModel,
+        HistoricalTrafficSource.NoModelNotice,
+        [],
+        null);
+    private int _trafficVersion;
+    private DateTimeOffset _trafficEvaluatedUtc = DateTimeOffset.MinValue;
+
     // When the player's marker next crosses from "fresh" to "from an older screenshot". It is the
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
     // has to be allowed to rebuild for.
@@ -288,9 +301,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IRuntimeStateStore stateStore,
         MapSceneAssembler assembler,
         IHighValueLootRuntimeSource lootSource,
-        // Registered so the historical-traffic layer degrades honestly instead of not existing;
-        // see TrafficLayerNotice.
-        HistoricalTrafficRuntimeService traffic,
+        // [Issue 311] The installed governed snapshot, evaluated for the map on screen; see
+        // TrafficLayerNotice.
+        HistoricalTrafficSource traffic,
         IRaidMarkStore marks,
         TarkovDevMapAssetCache assetCache,
         TimeProvider timeProvider,
@@ -311,7 +324,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _assembler = assembler ?? throw new ArgumentNullException(nameof(assembler));
         _lootSource = lootSource ?? throw new ArgumentNullException(nameof(lootSource));
-        ArgumentNullException.ThrowIfNull(traffic);
+        _traffic = traffic ?? throw new ArgumentNullException(nameof(traffic));
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
@@ -319,7 +332,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
-        _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, TimeZoneInfo.Local);
+        _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
         _rebuildRequest = new(
             synchronizationContext?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
@@ -467,9 +480,21 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     public bool HasMarks => Marks.Count > 0;
 
-    /// <summary>Registered but not evaluated: see the traffic remark on the constructor.</summary>
-    public string TrafficLayerNotice =>
-        "Historical traffic — estimate, no installed model yet";
+    /// <summary>What the installed historical-traffic snapshot says about this map, in one line.</summary>
+    /// <remarks>
+    /// It was the fixed words "no installed model yet", because the runtime was registered and
+    /// never asked. It is now the runtime's own answer for the map on screen, so it changes when a
+    /// snapshot is installed, when the map or raid changes and as the raid clock moves into a new
+    /// phase. Every state keeps the word "estimate": it is history, never a live position.
+    /// </remarks>
+    public string TrafficLayerNotice => _trafficView.Notice;
+
+    /// <summary>The busiest regions and routes the snapshot names, busiest first, as "Dorms · 100%".</summary>
+    public IReadOnlyList<string> TrafficRows =>
+        [.. _trafficView.Rows.Select(row =>
+            string.Create(CultureInfo.CurrentCulture, $"{row.Label} · {Math.Round(row.Relative * 100):0}%"))];
+
+    public bool HasTrafficRows => _trafficView.HasRows;
 
     // ---------------------------------------------------------------------------------------
     // [V2 rough package 22] V1 map parity. Every property below forwards to the one MapViewModel
@@ -1079,6 +1104,67 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         await RebuildAsync().ConfigureAwait(true);
     }
 
+    /// <summary>Where a spawn's waypoint goes: its marker's position, on the floor it belongs to.</summary>
+    internal readonly record struct SpawnWaypointPlacement(double X, double Y, string? FloorId);
+
+    /// <summary>
+    /// The place a waypoint for a loot spawn should be put, or null if its geometry somehow has no point.
+    /// </summary>
+    /// <remarks>
+    /// An area is placed at the middle of its outline, so the waypoint sits inside it rather than
+    /// on an edge. On a spawn that names several floors the floor being looked at wins when it is
+    /// one of them; otherwise the first named floor does, because a waypoint on the wrong floor
+    /// would be drawn on none of the floors the spawn is actually on.
+    /// </remarks>
+    internal static SpawnWaypointPlacement? PlaceSpawnWaypoint(MapSceneObject item, string? selectedFloorId)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        var points = item.Geometry.Points;
+        if (points.Count == 0)
+        {
+            return null;
+        }
+
+        var floor = item.FloorIds.Count == 0
+            ? selectedFloorId
+            : item.FloorIds.Contains(selectedFloorId ?? string.Empty, StringComparer.Ordinal)
+                ? selectedFloorId
+                : item.FloorIds[0];
+        return new SpawnWaypointPlacement(points.Average(point => point.X), points.Average(point => point.Y), floor);
+    }
+
+    /// <summary>Whether this map already has a waypoint on the spot, so a second click adds nothing.</summary>
+    internal static bool HasWaypointAt(
+        IEnumerable<RaidMark> marks,
+        string mapId,
+        SpawnWaypointPlacement place) =>
+        marks.Any(mark =>
+            mark.Kind == RaidMarkKind.Waypoint &&
+            string.Equals(mark.State.MapId, mapId, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(mark.State.FloorId, place.FloorId, StringComparison.Ordinal) &&
+            Math.Abs(mark.State.X - place.X) < 1e-6 &&
+            Math.Abs(mark.State.Y - place.Y) < 1e-6);
+
+    private void LootWaypointRequested(HighValueLootEntry entry)
+    {
+        if (Renderer is not { } renderer || _map.RenderModel is not { } model || entry.SceneObjectId is not { } id)
+        {
+            return;
+        }
+
+        var item = renderer.Scene.Objects.FirstOrDefault(candidate => candidate.Id == id);
+        if (item is null ||
+            PlaceSpawnWaypoint(item, renderer.Scene.View.SelectedFloorId) is not { } place ||
+            HasWaypointAt(_marks.Marks, model.Location.Id, place))
+        {
+            return;
+        }
+
+        // Its own name, so the marks list says which spawn it was. A waypoint is a note to the
+        // player, not a claim that anything is there.
+        _ = _marks.AddAsync(RaidMarkKind.Waypoint, model.Location.Id, place.FloorId, place.X, place.Y, entry.Spawn.Label);
+    }
+
     private async Task PlaceMarkAsync(RaidMarkKind kind, string mapId, string? floorId, double x, double y)
     {
         await _marks.AddAsync(kind, mapId, floorId, x, y, label: null).ConfigureAwait(true);
@@ -1402,6 +1488,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     _rebuildRequest.Request();
                 }
 
+                // The raid moves from early to mid to late on the clock alone, so the traffic
+                // line has to be asked again as it does, without a rebuild for every tick.
+                if (_timeProvider.GetUtcNow() - _trafficEvaluatedUtc >= TrafficRefreshInterval)
+                {
+                    RefreshTraffic();
+                }
+
                 break;
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
@@ -1507,6 +1600,45 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     private Task RenameMarkAsync(Guid id, string? name) => _marks.RenameAsync(id, name);
 
+    private static readonly TimeSpan TrafficRefreshInterval = TimeSpan.FromSeconds(30);
+
+    private void RefreshTraffic()
+    {
+        var version = Interlocked.Increment(ref _trafficVersion);
+        _trafficEvaluatedUtc = _timeProvider.GetUtcNow();
+        _ = RefreshTrafficAsync(_map.RenderModel?.Location.Id, _stateStore.Current.Raid, version);
+    }
+
+    private async Task RefreshTrafficAsync(string? mapId, RaidSnapshot raid, int version)
+    {
+        HistoricalTrafficView view;
+        try
+        {
+            view = await _traffic.EvaluateAsync(mapId, raid, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Nothing the snapshot store or the model can throw is a reason to lose the plan; the
+            // line falls back to the same words a machine with no snapshot shows.
+            view = new HistoricalTrafficView(
+                HistoricalTrafficRuntimeStatus.NoInstalledModel,
+                HistoricalTrafficSource.NoModelNotice,
+                [],
+                null);
+        }
+
+        if (_disposed || version != Volatile.Read(ref _trafficVersion) ||
+            (view.Notice == _trafficView.Notice && view.Rows.SequenceEqual(_trafficView.Rows)))
+        {
+            return;
+        }
+
+        _trafficView = view;
+        OnPropertyChanged(nameof(TrafficLayerNotice));
+        OnPropertyChanged(nameof(TrafficRows));
+        OnPropertyChanged(nameof(HasTrafficRows));
+    }
+
     private async Task RebuildAsync()
     {
         var cancellation = new CancellationTokenSource();
@@ -1527,6 +1659,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
         RefreshMarkRows();
+        RefreshTraffic();
         // Read once, before anything is built from it: a publication that lands while this runs
         // then differs from what was seen and asks for one more pass, instead of being taken for
         // something this pass already drew.
@@ -1606,6 +1739,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             var assetCacheKey = $"{variant.Key}::{selectedFloor?.Id ?? string.Empty}";
             if (_cachedAssetVariantKey != assetCacheKey || _cachedAsset is null)
             {
+                // Before the call, because the call is what died on 2026-09-19: rasterising a
+                // drawing faults natively, raising no managed exception for any handler to see.
+                CrashBreadcrumbs.Drop("map-asset", $"reading svg {assetCacheKey}");
                 var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
@@ -1778,6 +1914,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
+            // [Issue 318] "Make waypoint" on a selected spawn.
+            if (renderer.HighValueLoot is { } lootLayerViewModel)
+            {
+                lootLayerViewModel.WaypointRequested += LootWaypointRequested;
+            }
+
             renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
             OnPropertyChanged(nameof(Renderer));
@@ -2270,7 +2412,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 MapSceneTruthKind.LocalLastKnown,
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"You · {position.Timestamp.ToLocalTime():T} · facing {heading:F0}°"),
+                    $"You · {LocalTime.Time(position.Timestamp)} · facing {heading:F0}°"),
                 stale ? "From an older screenshot — you have probably moved since." : null,
                 MapSceneGeometry.At(here),
                 [],
@@ -2398,7 +2540,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 MapSceneObjectKind.Route,
                 MapSceneTruthKind.LocalLastKnown,
                 visited[index].StartedUtc is { } started
-                    ? $"Raid on {started.ToLocalTime():d}"
+                    ? $"Raid on {LocalTime.Date(started)}"
                     : "An earlier raid",
                 null,
                 new(MapSceneGeometryKind.Line, points),

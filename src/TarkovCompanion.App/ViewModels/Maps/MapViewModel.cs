@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -16,6 +17,7 @@ using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
 
@@ -3010,6 +3012,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _selectionLoad?.Dispose();
         _selectionLoad = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var cancellationToken = _selectionLoad.Token;
+        // Dropped before the load, not logged after it. Choosing a map is what killed the
+        // process on 2026-09-19 — a native fault inside the drawing's rasteriser, which raises
+        // no managed exception and so reached none of the handlers. A line written first is the
+        // only record such a run leaves.
+        CrashBreadcrumbs.Drop("map", $"loading {location.Id}/{variant.Key}");
         try
         {
             if (persist)
@@ -3085,6 +3092,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Status = $"{Status} · No floor named \"{asked}\" on this map";
             }
+
+            CrashBreadcrumbs.Drop("map", $"loaded {location.Id}/{variant.Key}");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -3092,6 +3101,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception)
         {
             Status = $"Map unavailable: {exception.Message}";
+            WorkspaceFault.Record("map", $"load {location.Id}/{variant.Key}", exception);
         }
         finally
         {
@@ -3306,7 +3316,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             QuestAssociations = _questProjection.Objectives.Select(objective => new QuestMapAssociationViewModel(
                 $"{objective.TaskName} · {objective.ObjectiveKind}",
                 objective.Availability,
-                $"{objective.Attribution} · quest catalog {FormatUtc(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {FormatUtc(objective.MapCatalogProvenance.RetrievedUtc)}",
+                $"{objective.Attribution} · quest catalog {LocalTime.Moment(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {LocalTime.Moment(objective.MapCatalogProvenance.RetrievedUtc)}",
                 QuestItemRequirementFormatter.DescribeForMap(
                     objective.ItemTargets,
                     objective.FoundInRaidRequired),
@@ -4638,7 +4648,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // list reads as missing data rather than as a quiet corner of the map.
         SpawnPanelDetail = near.Count == 0
             ? string.Empty
-            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {anchor.Timestamp.ToLocalTime():t}.";
+            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {LocalTime.ShortTime(anchor.Timestamp)}.";
     }
 
     /// <summary>
@@ -5687,7 +5697,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var rotation = _renderModel.Variant.Transform?.RotationDegrees ?? 0;
         var bearing = ((position.HeadingDegrees - rotation) % 360 + 360) % 360;
         var age = DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime();
-        var taken = position.Timestamp.ToLocalTime().ToString("T", CultureInfo.CurrentCulture);
+        var taken = LocalTime.Time(position.Timestamp);
         PlayerMarkers =
         [
             new(
@@ -6051,8 +6061,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestPanel = [];
         QuestLayerStatus = status;
     }
-
-    private static string FormatUtc(DateTimeOffset timestamp) => timestamp.ToUniversalTime().ToString("u");
 
     private void NotifyPresentationProperties()
     {

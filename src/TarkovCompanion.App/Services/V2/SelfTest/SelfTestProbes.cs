@@ -1,6 +1,7 @@
 using System.Globalization;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.Core.Common;
 
 using TarkovCompanion.Application.Services;
 
@@ -65,7 +66,7 @@ public static class SelfTestProbes
         foreach (var folder in reading.Folders)
         {
             var changed = folder.ChangedUtc is { } at
-                ? string.Create(culture, $"last changed {V2ShellText.Age(at, nowUtc, culture)} ({at:yyyy-MM-dd HH:mm} UTC)")
+                ? string.Create(culture, $"last changed {V2ShellText.Age(at, nowUtc, culture)} ({LocalTime.Sortable(at)})")
                 : "nothing in it has ever changed";
             if (folder.Path is null || !folder.Exists)
             {
@@ -86,7 +87,7 @@ public static class SelfTestProbes
         {
             stale = string.Create(
                 culture,
-                $"The log folder has stood still since {logChanged:yyyy-MM-dd HH:mm} UTC while screenshots kept arriving until {screenshotChanged:yyyy-MM-dd HH:mm} UTC — the game is writing its logs somewhere else.");
+                $"The log folder has stood still since {LocalTime.Sortable(logChanged)} while screenshots kept arriving until {LocalTime.Sortable(screenshotChanged)} — the game is writing its logs somewhere else.");
             facts.Add(new(stale, source));
         }
 
@@ -179,7 +180,7 @@ public static class SelfTestProbes
         if (reading.SessionStartedUtc is { } started)
         {
             facts.Add(new(
-                string.Create(culture, $"That session started {V2ShellText.Age(started, nowUtc, culture)} ({started:yyyy-MM-dd HH:mm} UTC)"),
+                string.Create(culture, $"That session started {V2ShellText.Age(started, nowUtc, culture)} ({LocalTime.Sortable(started)})"),
                 "the session folder's own name"));
         }
 
@@ -191,7 +192,7 @@ public static class SelfTestProbes
         if (reading.LastRaidAtUtc is { } lastRaid)
         {
             facts.Add(new(
-                string.Create(culture, $"That raid's last line was {V2ShellText.Age(lastRaid, nowUtc, culture)} ({lastRaid:yyyy-MM-dd HH:mm} UTC)"),
+                string.Create(culture, $"That raid's last line was {V2ShellText.Age(lastRaid, nowUtc, culture)} ({LocalTime.Sortable(lastRaid)})"),
                 source));
         }
 
@@ -307,7 +308,7 @@ public static class SelfTestProbes
         if (reading.WrittenUtc is { } written)
         {
             facts.Add(new(
-                string.Create(culture, $"The game wrote it at {written:yyyy-MM-dd HH:mm:ss} UTC, taken from {reading.Clock}"),
+                string.Create(culture, $"The game wrote it at {LocalTime.SortableSeconds(written)}, taken from {reading.Clock}"),
                 source));
         }
 
@@ -647,7 +648,7 @@ public static class SelfTestProbes
         new(id, title, SelfTestOutcome.Unknown, headline, facts, took);
 
     private static string ReadAt(DateTimeOffset at, string what, CultureInfo culture) =>
-        string.Create(culture, $"read from {what} at {at:HH:mm:ss} UTC");
+        string.Create(culture, $"read from {what} at {LocalTime.Time(at, culture)}");
 
     private static string Bytes(long bytes, CultureInfo culture) => bytes switch
     {

@@ -18,12 +18,14 @@ using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Intel;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -156,7 +158,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // v2r-team (package 9, wave 2): same reasoning — optional so this shape does not change.
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
-        SetupSelfTestViewModel? selfTest = null)
+        SetupSelfTestViewModel? selfTest = null,
+        // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
+        // record the Appearance section writes. Optional for the same reason as the rest.
+        WorkspacePreferenceService? preferences = null,
+        // [#269] Setup's profile list, same reasoning again.
+        SetupProfilesViewModel? profiles = null,
+        // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
+        SetupAdminViewModel? admin = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -184,6 +193,21 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
+        }
+
+        if (preferences is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
+        }
+
+        if (profiles is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachProfiles(profiles);
+        }
+
+        if (admin is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachAdmin(admin);
         }
     }
 
@@ -521,7 +545,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             "V2.Shell.Capture.Evidence",
             CultureInfo.CurrentCulture,
             review.Provenance,
-            review.CapturedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))
+            LocalTime.Moment(review.CapturedUtc))
         : string.Empty;
     public string CaptureShortcutStatus => V2ShellText.Get(
         CaptureShortcutEnabled ? "V2.Shell.Capture.ShortcutOn" : "V2.Shell.Capture.ShortcutOff");
@@ -535,7 +559,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public string LocalTimeLabel => V2ShellText.Format(
         "V2.Shell.Context.LocalTime",
         CultureInfo.CurrentCulture,
-        _clock.GetLocalNow().ToString("t", CultureInfo.CurrentCulture));
+        LocalTime.ShortTime(_clock.GetUtcNow()));
     public string RaidContextLabel => FormatRaidContext(_runtime.Current.Raid, _clock.GetUtcNow());
     /// <summary>The top bar's compact raid clock chip, e.g. "In raid · 12:34 left".</summary>
     public string RaidClockLabel => FormatRaidClock(_runtime.Current.Raid, _clock.GetUtcNow());
@@ -1270,6 +1294,35 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <see cref="CoalescingDispatch"/> follows for background-driven updates: run inline when
     /// there is no dispatcher or the caller is already on it (tests, headless), otherwise post.
     /// </remarks>
+    /// <summary>Opens the Intel page for the item a capture was read as (#287).</summary>
+    /// <remarks>
+    /// The same dispatcher dance as <see cref="ShowLootScanResult"/> and for the same reason: a
+    /// handoff completes on whatever thread finished the analysis, and navigation touches
+    /// observable collections the interface is bound to.
+    /// </remarks>
+    public void ShowScannedItem(string itemId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        void Apply()
+        {
+            if (HasOpenDialog)
+            {
+                CloseDialog(restoreInvoker: false);
+            }
+
+            Act(Router.OpenIntel(itemId, "v2-shell-capture-identified"));
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
     public void ShowLootScanResult(LootScanViewModel result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -1564,6 +1617,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
+        // Every navigation funnels through here, which is what makes this the one place worth
+        // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
+        // a breadcrumb naming the destination is the difference between "it died" and "it died
+        // going to Plan".
+        CrashBreadcrumbs.Drop("navigate", CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
@@ -1616,32 +1674,71 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route = Router.Current.Location.Route;
         if (route == V2Routes.Stash && _stashScan is not null)
         {
-            _ = _stashScan.LoadAsync();
+            Load("stash", _stashScan.LoadAsync);
         }
         else if (route == V2Routes.Debrief && _debrief is not null)
         {
-            _ = _debrief.LoadAsync();
+            Load("debrief", _debrief.LoadAsync);
         }
         else if (route == V2Routes.Plan && _plan is not null)
         {
-            _ = _plan.LoadAsync();
+            Load("plan", _plan.LoadAsync);
         }
         else if (route == V2Routes.Hideout && _hideout is not null)
         {
-            _ = _hideout.LoadAsync();
+            Load("hideout", _hideout.LoadAsync);
         }
         else if (route == V2Routes.Keep && _keep is not null)
         {
-            _ = _keep.LoadAsync();
+            Load("keep", _keep.LoadAsync);
         }
         else if ((route == V2Routes.Team || route == V2Routes.Group || route == V2Routes.Tablet) && _team is not null)
         {
-            _ = _team.LoadAsync();
+            Load("team", _team.LoadAsync);
         }
         else if (route == V2Routes.Setup)
         {
             _homeOverviewLoaded = false;
             LoadHomeOverview(_runtime.Current);
+        }
+    }
+
+    /// <summary>
+    /// Starts a workspace load and watches it, rather than dropping the task on the floor.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these used to be <c>_ = workspace.LoadAsync();</c>. A load that faulted outside
+    /// the workspace's own catch — <c>TeamWorkspaceViewModel</c> had no catch at all — left a blank
+    /// pane, no message on it, and nothing anywhere saying why: the discarded task's exception
+    /// reached only <see cref="TaskScheduler.UnobservedTaskException"/>, whenever the collector got
+    /// round to it, if ever.
+    ///
+    /// Still not awaited, and deliberately so. Navigation must not wait for a database read, and a
+    /// workspace that is slow to fill is a workspace filling in, not a frozen window. What changes
+    /// is that the failure is now recorded where a player's log will show it, and that it fails
+    /// alone: every workspace here has its own Reload, and returning to the route reloads it, so a
+    /// pane that failed is recoverable without restarting the application.
+    /// </remarks>
+    private void Load(string surface, Func<Task> load) => _ = ObserveWorkspaceLoad(surface, load);
+
+    /// <summary>Awaits a workspace load and records whatever it throws.</summary>
+    /// <remarks>
+    /// Internal so it can be tested on its own. Building a whole shell to prove that a discarded
+    /// task's exception reaches the log would need a dozen real services, and the claim is about
+    /// this method and nothing else.
+    /// </remarks>
+    internal static async Task ObserveWorkspaceLoad(string surface, Func<Task> load)
+    {
+        try
+        {
+            await load().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write($"workspace-fault/{surface}", $"load: {exception}");
         }
     }
 
@@ -1787,6 +1884,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // already are, rather than only while the Team route is current — presence should not go
         // stale between visits.
         _team?.Apply(snapshot);
+        // [V2 rough package 60 — Team] #289: the pairing code's countdown rides the shell's own
+        // one-second pass rather than starting a second timer that would need its own shutdown.
+        _companionPairing?.TickExpiry();
         _team?.SetActiveSection(Router.Current.Location.Route == V2Routes.Group
             ? TeamWorkspaceSection.Group
             : Router.Current.Location.Route == V2Routes.Tablet
@@ -2211,8 +2311,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 V2CaptureResolutionKind.AnalyzeAsArmed,
                 V2CaptureResolutionKind.AnalyzeAsDetected,
             },
+            // [V2 rough package 60 — Intel scan] #287: "Analyse as armed", not "as selected".
+            // The intent radio above can be changed while a decode waits, but the frame was taken
+            // under the intent that was armed when the shutter fired, and #271's coordinator has
+            // no action that re-analyses one artifact as a different intent. Offering a button
+            // that quietly does something else is worse than offering the honest one, and Retry
+            // is the way to ask the other question.
             V2CaptureAttentionKind.UnknownContext =>
-            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsSelected],
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsArmed, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.StillWriting =>
             [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.Duplicate =>

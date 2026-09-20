@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Intelligence.Gear;
 using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -130,9 +131,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
     /// and the order the price falls back through. Both totals still count a missing figure as
     /// zero, so both are floors; that is the part a player acts on and all that is left here.
     /// </remarks>
-    private const string ChecksNote = "Caliber and slot category are checked. Magazine and plate fit are not.";
+    private const string ChecksNote = "Caliber, slot category and plate fit are checked. Magazine fit is not.";
 
-    private const string DataNote = "Missing prices and weights count as zero, so both totals are floors.";
+    private const string DataNote = "A total with a missing price or weight is a floor, and says how many items it covers.";
 
     /// <summary>What the budget line says before anybody has typed one.</summary>
     private const string NoBudget = "No budget set. Type one to see what a kit leaves you.";
@@ -143,7 +144,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         new(LoadoutSlot.Ammunition, "Ammunition", false, "One round. Sets the ammo tier."),
         new(LoadoutSlot.Magazine, "Magazines", true, "Fit is not checked."),
         new(LoadoutSlot.Armor, "Body armor", false, "One armor rig or vest."),
-        new(LoadoutSlot.Plate, "Plates", true, "Fit is not checked."),
+        new(LoadoutSlot.Plate, "Plates", true, "Checked against the armor's plate slots."),
         new(LoadoutSlot.Helmet, "Helmet", false, "One helmet."),
         new(LoadoutSlot.Headset, "Headset", false, "One headset."),
         new(LoadoutSlot.Rig, "Rig", false, "One chest rig."),
@@ -517,8 +518,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
             Issues = evaluation.CompatibilityIssues.Select(message => new LoadoutFindingViewModel(message)).ToArray();
             Warnings = evaluation.Warnings.Select(message => new LoadoutFindingViewModel(message)).ToArray();
-            CostSummary = DescribeCost(evaluation, selectedIds);
-            WeightSummary = DescribeWeight(evaluation, selectedIds);
+            CostSummary = DescribeCost(evaluation);
+            WeightSummary = DescribeWeight(evaluation);
             AmmoTierSummary = DescribeAmmoTier(evaluation);
             _evaluatedCost = evaluation.ApproximateCostRoubles;
             _evaluatedWeight = evaluation.ApproximateWeightKg;
@@ -947,7 +948,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
                 items.Clear();
             }
 
-            items.Add(new(itemId, name, $"{category} · {DescribeCost(facts)} · {DescribeWeight(facts)}"));
+            items.Add(new(itemId, name, $"{category} · {DescribeCost(facts)} · {DescribeWeight(facts)}{DescribeGear(facts)}"));
             RefreshAssignments();
             AssignmentStatus = slot.AllowsMany
                 ? $"Added {name} to {slot.Name}."
@@ -1112,32 +1113,36 @@ public sealed class LoadoutPageViewModel : PageViewModel
             item.Category.ToString(),
             DescribeCost(fact),
             DescribeWeight(fact),
-            fact?.Caliber is { } caliber ? caliber : "No caliber recorded",
+            DescribeDetail(fact),
             new AsyncDelegateCommand(() => AssignAsync(item.Id, CancellationToken.None)));
     }
 
-    private string DescribeCost(LoadoutEvaluation evaluation, IReadOnlyCollection<string> selectedIds)
+    internal static string DescribeCost(LoadoutEvaluation evaluation)
     {
-        if (evaluation.ApproximateCostRoubles is not { } cost)
+        if (evaluation.ApproximateCostRoubles is { } cost)
         {
-            var unpriced = selectedIds.Count(id =>
-                _facts.GetValueOrDefault(id) is null or { ApproximateCostRoubles: null });
-            return $"No total · {unpriced} of {selectedIds.Count} assigned items have no price";
+            return Roubles(cost);
         }
 
-        return Roubles(cost);
+        // Not a total: some assigned items have no price. What is known is a floor, and it says how
+        // many of the kit it is a floor of, so a kit missing one price no longer reads as one missing all.
+        var coverage = evaluation.CostCoverage;
+        return evaluation.KnownCostRoubles is { } known
+            ? $"At least {Roubles(known)} · {coverage.Known} of {coverage.Total} priced"
+            : $"No total · {coverage.Known} of {coverage.Total} priced";
     }
 
-    private string DescribeWeight(LoadoutEvaluation evaluation, IReadOnlyCollection<string> selectedIds)
+    internal static string DescribeWeight(LoadoutEvaluation evaluation)
     {
-        if (evaluation.ApproximateWeightKg is not { } weight)
+        if (evaluation.ApproximateWeightKg is { } weight)
         {
-            // The service returns no weight at all when an assigned id is absent from the fact
-            // table, because a partial sum would read as a complete one.
-            return "No total · an assigned item is not in the fact table";
+            return Kilograms(weight);
         }
 
-        return Kilograms(weight);
+        var coverage = evaluation.WeightCoverage;
+        return evaluation.KnownWeightKg is { } known
+            ? $"At least {Kilograms(known)} · {coverage.Known} of {coverage.Total} weighed"
+            : $"No total · {coverage.Known} of {coverage.Total} weighed";
     }
 
     private static string DescribeAmmoTier(LoadoutEvaluation evaluation) =>
@@ -1150,6 +1155,17 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private static string DescribeWeight(LoadoutItemFacts? facts) =>
         facts?.WeightKg is { } weight ? Kilograms(weight) : "no weight";
+
+    // The figures the catalog states for a piece of gear, such as "Class 6 · Ceramic · 60 durability".
+    private static string DescribeGear(LoadoutItemFacts? facts) =>
+        facts?.Gear is { } gear && GearFactsReader.Summarize(gear) is { } summary ? $" · {summary}" : string.Empty;
+
+    private static string DescribeDetail(LoadoutItemFacts? facts) =>
+        facts?.Caliber is { } caliber
+            ? caliber
+            : facts?.Gear is { } gear
+                ? GearFactsReader.Summarize(gear) ?? "No figures recorded"
+                : "No caliber recorded";
 
     private void ResetEvaluation(string status)
     {

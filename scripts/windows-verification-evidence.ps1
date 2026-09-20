@@ -127,6 +127,10 @@ if ($null -ne $Gallery) {
         launchCount = $GalleryPages.Count
         failedCount = $Gallery.failedCount
         noWindowCount = $Gallery.noWindowCount
+        # A shot that put a window up and then stopped - a failed assertion, a hang, a process
+        # that had to be killed - is counted here rather than folded into noWindowCount, which
+        # used to read as a startup crash that had not happened.
+        unfinishedCount = $(Get-OptionalProperty $Gallery "unfinishedCount")
         insufficientVisualVariationCount = $Gallery.blankCount
         interfaceFaultLaunchCount = $(Get-OptionalProperty $Gallery "interfaceFaultCount")
         warningCaptureUnarmedCount = $(Get-OptionalProperty $Gallery "warningCaptureUnarmedCount")
@@ -141,6 +145,7 @@ if ($null -ne $Gallery) {
             [ordered]@{
                 page = $_.page
                 shellMode = $(Get-OptionalProperty $_ "shellMode")
+                windowShown = [bool]$(Get-OptionalProperty $_ "windowShown")
                 presented = [bool]$_.presented
                 visuallyVaried = [bool]$_.visuallyVaried
                 interactionRequired = [bool]$(Get-OptionalProperty $_ "interactionRequired")

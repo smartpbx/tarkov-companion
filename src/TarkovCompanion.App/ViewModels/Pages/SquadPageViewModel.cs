@@ -2,6 +2,7 @@ using System.Globalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -146,8 +147,8 @@ public sealed class SquadPageViewModel : PageViewModel
             ? squad.QueueEstimate is { } estimate
                 ? string.Create(
                     CultureInfo.CurrentCulture,
-                    $"Queued {queued.ToLocalTime():T} · game estimated {estimate.TotalSeconds:F0}s")
-                : string.Create(CultureInfo.CurrentCulture, $"Queued {queued.ToLocalTime():T}")
+                    $"Queued {LocalTime.Time(queued)} · game estimated {estimate.TotalSeconds:F0}s")
+                : string.Create(CultureInfo.CurrentCulture, $"Queued {LocalTime.Time(queued)}")
             : "Not queued";
         // A party that has never been observed has no update time, and printing the epoch as
         // one showed "updated 12:00:00 AM" on a page that had seen nothing at all.
@@ -158,8 +159,8 @@ public sealed class SquadPageViewModel : PageViewModel
         Evidence = squad.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "Nothing observed yet"
             : snapshot.Raid.State == RaidLifecycleState.InRaid
-                ? $"Lobby, {squad.UpdatedUtc.ToLocalTime():t} · the game stops publishing in raid"
-                : $"Updated {squad.UpdatedUtc.ToLocalTime():T}";
+                ? $"Lobby, {LocalTime.ShortTime(squad.UpdatedUtc)} · the game stops publishing in raid"
+                : $"Updated {LocalTime.Time(squad.UpdatedUtc)}";
         _ = ResolveGearNamesAsync(squad);
     }
 
@@ -178,7 +179,7 @@ public sealed class SquadPageViewModel : PageViewModel
             null => "Readiness unknown",
         },
         member.ScavLockedUntil is { } until
-            ? string.Create(CultureInfo.CurrentCulture, $"Scav {until.ToLocalTime():t}")
+            ? string.Create(CultureInfo.CurrentCulture, $"Scav {LocalTime.ShortTime(until)}")
             : "Scav timer unknown",
         DescribeGear(member),
         member.IsReady);

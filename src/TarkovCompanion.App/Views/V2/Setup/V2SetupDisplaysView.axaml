@@ -1,0 +1,31 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupDisplaysView"
+             x:DataType="vm:SetupDisplaysViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#292] The monitors this machine has and what a scan will capture. Read-only: window placement
+       restores itself, so this says what it sees rather than offering to move anything. -->
+  <StackPanel Classes="v2-stack">
+    <TextBlock Classes="v2-label" Text="{Binding UnavailableNote}" IsVisible="{Binding IsUnavailable}" />
+    <StackPanel Classes="v2-stack" IsVisible="{Binding IsAvailable}">
+      <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+      <ItemsControl ItemsSource="{Binding Displays}" AutomationProperties.AutomationId="v2-setup-displays">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:SetupDisplayRow">
+            <StackPanel Margin="0,2" Spacing="1">
+              <TextBlock Classes="v2-body" Text="{Binding Name}" />
+              <TextBlock Classes="v2-label" Text="{Binding Detail}" />
+              <TextBlock Classes="v2-label" Text="{Binding Badges}" IsVisible="{Binding HasBadges}" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Classes="v2-body" Text="{Binding CaptureHeading}" FontWeight="SemiBold" Margin="0,6,0,0" />
+      <TextBlock Classes="v2-body" Text="{Binding CaptureTarget}" TextWrapping="Wrap"
+                 AutomationProperties.AutomationId="v2-setup-capture-target" />
+      <TextBlock Classes="v2-label" Text="{Binding CaptureNote}" TextWrapping="Wrap" />
+    </StackPanel>
+    <Button Classes="v2-target" HorizontalAlignment="Left" AutomationProperties.AutomationId="v2-setup-displays-refresh"
+            Content="{Binding RefreshLabel}" Command="{Binding RefreshCommand}" />
+  </StackPanel>
+</UserControl>

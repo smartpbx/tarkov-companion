@@ -291,6 +291,24 @@ the lookup to the desktop registered for the code and learns only what the code 
 `TryParseQrPayload`). It is read by the tablet application's own scanner and is not a navigable URL,
 so the code never enters browser history.
 
+**Drawing it (#289).** Until this pass the payload was generated and never displayed, so the only
+way onto a tablet was to type the code. `Services/V2/Team/QrCode` encodes it — byte mode, error
+correction M, versions 1 to 10, written from ISO/IEC 18004, with no new dependency — and
+`QrGeometry` turns the symbol into path data the pairing panel fills. Path data rather than a
+`Geometry` object because building one needs a platform render interface, and a view model that
+cannot be constructed headless cannot be unit tested; the view's `Data` binding converts it. The
+quiet zone is part of the path, and the panel draws it on white in every theme, because a reader
+wants dark on light and the high-contrast palette's canvas is black.
+
+An encoder cannot be proved correct by structure, so it is proved by decoding: the tests shell out
+to `zbarimg` and read the payload back, and three symbols are pinned as module matrices that zbar
+had already read, so the suite still fails on a machine with no decoder. The rendered pairing panel
+itself has been decoded — `zbarimg` reads the payload out of a 1920x1080 screenshot of the running
+shell.
+
+The panel also shows what the offer has always carried and never displayed: how long the code has
+left, counting down, and saying it has expired rather than going quiet.
+
 **Rate limiting.** The desktop keys `PairingRateLimiter` with
 `base64url(HMAC-SHA-256(K, text("TarkovCompanion.PairedDevice/v2/pairing-source") ‖ bytes(source)))`
 (`ComputeSourceHash`), where `K` is at least 32 random bytes generated at desktop start and the

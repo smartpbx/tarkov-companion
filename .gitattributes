@@ -1,3 +1,25 @@
+# Source files check out with the line endings this repository stores.
+#
+# Several tests read a source file and assert on a substring that spans a line, such as
+# RaidMarkGestureTests' "gesture = pinchState();\n      cancelPress();". Git's Windows default
+# rewrites LF to CRLF on checkout, so those assertions failed on the Windows runner and only
+# there: one commit was green on `linux` and red on `windows-build` for a reason that had
+# nothing to do with the product, which is exactly the kind of noise that gets a Windows gate
+# declared unreliable and switched off. Named extensions rather than `*`, so the byte-exact
+# golden documents below keep their own rule and nothing under `fixtures/` is implicated.
+*.cs text eol=lf
+*.axaml text eol=lf
+*.csproj text eol=lf
+*.props text eol=lf
+*.targets text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=lf
+*.py text eol=lf
+
 *.sh text eol=lf
 docs/THIRD_PARTY_INVENTORY.json text eol=lf
 fixtures/licenses/*.json text eol=lf

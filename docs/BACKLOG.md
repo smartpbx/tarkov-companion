@@ -30,11 +30,11 @@ from. Ordered by how much it changes what he sees. Delete an entry when it ships
 
 ## Scanning
 
-- [ ] **Retire the GDI capture stack.** The global hotkey is gone — the window's bindings only
-      fire when the companion has focus, which is correct beside a fullscreen game — but
-      `GdiScreenCaptureService` is still registered and `ScanUseCase` still calls
-      `IScreenCaptureService.CaptureAsync`. Screenshot-driven scans are the path that matters
-      and they read a file. Roughly 380 lines, once nothing needs them.
+- [x] **Retire the GDI capture stack** (#316). `GdiScreenCaptureService` is deleted and
+      `UnavailableScreenCaptureService` fills its slot; a Scan click on the V1 Scanner page reports
+      "capture unavailable" and the scan use case is otherwise untouched. Still open: nothing calls
+      `IMonitorService` or `IGameWindowLocator` now, so per-monitor placement and capture-target
+      calibration wait for a real multi-monitor failure to be reported.
 - [ ] **Diagnose why recognition returns Unknown.** The diagnostic line reports how many text
       lines were read, at what frame size, and how the contexts scored. Still needs one
       screenshot of an extract list and one of the stash to settle whether it is the text

@@ -22,6 +22,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -1026,7 +1027,7 @@ public sealed class RaidPageViewModel : PageViewModel
             history = entry is null
                 ? "Not saved"
                 : entry.EndedUtc is { } endedUtc
-                    ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {endedUtc.ToLocalTime():g}")
+                    ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {LocalTime.Moment(endedUtc)}")
                     : "Saved · no end time";
 
             // Out of the raid's own record rather than counted as they went past. Counting
@@ -1297,7 +1298,7 @@ public sealed class ItemsPageViewModel : PageViewModel
                     $"{hit.Score:P0} · matched {hit.MatchedText}",
                     bestValue > 0 ? $"{bestValue:N0} ₽ · {hit.Item.ValuePerSlot(price!):N0} ₽ / slot" : "Price unavailable",
                     channel,
-                    $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}",
+                    $"json.tarkov.dev · {LocalTime.Moment(hit.Item.Provenance.SourceUpdatedUtc)}",
                     bestValue > 0 ? bestValue : null,
                     bestValue > 0 ? hit.Item.ValuePerSlot(price!) : null,
                     hit.Score,
@@ -1409,7 +1410,7 @@ public sealed class ScannerPageViewModel : PageViewModel
         entry.Name,
         entry.ObservedUtc == DateTimeOffset.UnixEpoch
             ? "at an unrecorded time"
-            : string.Create(CultureInfo.CurrentCulture, $"{entry.ObservedUtc.ToLocalTime():g}"),
+            : LocalTime.Moment(entry.ObservedUtc),
         string.Join(
             " · ",
             new[]
@@ -1514,7 +1515,7 @@ public sealed class ScannerPageViewModel : PageViewModel
         Source = scan.Source;
         Detail = scan.Detail;
         Evidence = scan.Succeeded
-            ? $"{Confidence} confidence · {scan.Source} · {scan.ObservedUtc.ToLocalTime():T}"
+            ? $"{Confidence} confidence · {scan.Source} · {LocalTime.Time(scan.ObservedUtc)}"
             : scan.Detail;
     }
 }
@@ -1672,8 +1673,8 @@ public sealed class HistoryPageViewModel : PageViewModel
                     raid.MapId ?? string.Empty,
                     _nameOfMap(raid.MapId),
                     raid.Mode,
-                    raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
-                    raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
+                    LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
+                    LocalTime.Moment(raid.EndedUtc) ?? "In progress",
                     raid.Outcome ?? "Not recorded",
                     raid.Notes ?? "No notes")
                 {
@@ -2159,6 +2160,31 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// <summary>Where the player's data is, and whether an update can touch it.</summary>
     public string UpdateDataFolder { get; }
 
+    /// <summary>[#292] The waiting build's release notes as plain lines, or empty.</summary>
+    public string UpdateNotes
+    {
+        get => _updateNotes;
+        private set
+        {
+            if (SetProperty(ref _updateNotes, value))
+            {
+                OnPropertyChanged(nameof(HasUpdateNotes));
+            }
+        }
+    }
+
+    public bool HasUpdateNotes => _updateNotes.Length > 0;
+
+    /// <summary>[#292] Whether the last check could not reach the feed, so "nothing newer" is not known.</summary>
+    public bool LastUpdateCheckFailed
+    {
+        get => _lastUpdateCheckFailed;
+        private set => SetProperty(ref _lastUpdateCheckFailed, value);
+    }
+
+    private string _updateNotes = string.Empty;
+    private bool _lastUpdateCheckFailed;
+
     /// <summary>The newer build the feed offers, or that there is not one.</summary>
     public string AvailableBuild
     {
@@ -2371,6 +2397,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     private void Apply(UpdateProgress progress)
     {
+        // [#292] What is new in the waiting build, and whether the last check could not reach the feed.
+        UpdateNotes = TarkovCompanion.App.Services.V2.Setup.SetupUpdateNotes.Plain(progress.Notes);
+        LastUpdateCheckFailed = progress.Failed;
         UpdateStatus = progress.Status;
         CanDownloadUpdate = progress.CanDownload;
         CanRestartForUpdate = progress.CanApply;
@@ -2616,6 +2645,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private string _lastScanAdvice = "No recommendation without observed evidence.";
     private string _lastScanEvidence = "No scan evidence";
     private bool _initialized;
+    private IReadOnlyList<string> _startupFaults = [];
     private bool _disposed;
     private bool _isRailCollapsed;
     private ShellLayout _layout = ShellLayout.Default;
@@ -2997,6 +3027,17 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         private set => SetProperty(ref _lastScanEvidence, value);
     }
 
+    /// <summary>Which pages did not load at startup, in the order they were tried.</summary>
+    /// <remarks>
+    /// Named rather than counted, because "the hideout page is empty" and "the map is empty" send
+    /// somebody to two different places. Empty on a healthy launch, which is the ordinary case.
+    /// </remarks>
+    public IReadOnlyList<string> StartupFaults
+    {
+        get => _startupFaults;
+        private set => SetProperty(ref _startupFaults, value);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await _initializationLock.WaitAsync(cancellationToken).ConfigureAwait(true);
@@ -3007,27 +3048,39 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 return;
             }
 
+            // The one genuine prerequisite: migrations and the database. Nothing below can mean
+            // anything if this fails, so it is the only step still allowed to end startup.
             await Task.Run(
                     () => _startupCoordinator.InitializeAsync(cancellationToken),
                     cancellationToken)
                 .ConfigureAwait(true);
             ApplySnapshot(_stateStore.Current);
-            await Items.InitializeAsync(cancellationToken).ConfigureAwait(true);
-            await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
-            await History.LoadAsync(cancellationToken).ConfigureAwait(true);
-            await Scanner.LoadHistoryAsync().ConfigureAwait(true);
-            await Hideout.LoadAsync(cancellationToken).ConfigureAwait(true);
-            await Ammo.LoadAsync(cancellationToken).ConfigureAwait(true);
-            await Keys.LoadAsync(cancellationToken).ConfigureAwait(true);
-            await Events.LoadAsync(cancellationToken).ConfigureAwait(true);
+
+            // Each page on its own, and this is the whole point of the change. These ten were a
+            // single await chain inside one try: a failure in any of them — Hideout, say —
+            // skipped every step after it for the rest of the session, so Ammo, Keys, Events, the
+            // background refresh, Group and the map were all never initialised, and the player
+            // saw several pages that simply never filled in until the application was restarted.
+            // "Panes/tabs not rendering at all until a restart", reported 2026-09-19.
+            //
+            // They are siblings, not a chain. One that fails now fails alone, says so in the log,
+            // and is named in StartupFaults; the other nine still load.
+            await InitializeSurfaceAsync("items", () => Items.InitializeAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("quests", () => Quests.InitializeAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("history", () => History.LoadAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("scanner", () => Scanner.LoadHistoryAsync()).ConfigureAwait(true);
+            await InitializeSurfaceAsync("hideout", () => Hideout.LoadAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("ammo", () => Ammo.LoadAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("keys", () => Keys.LoadAsync(cancellationToken)).ConfigureAwait(true);
+            await InitializeSurfaceAsync("events", () => Events.LoadAsync(cancellationToken)).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
             // Fire and forget, deliberately. Looking for a newer build must never be something
             // startup waits on, and a check that fails is not worth reporting at launch: the
             // gateway already reports a failure next to the button for anyone who goes looking.
             _ = Settings.WatchForUpdatesAsync(_lifetime.Token);
-            await Group.InitializeAsync(cancellationToken).ConfigureAwait(true);
+            await InitializeSurfaceAsync("group", () => Group.InitializeAsync(cancellationToken)).ConfigureAwait(true);
             _initialized = true;
-            await Map.InitializeAsync().ConfigureAwait(true);
+            await InitializeSurfaceAsync("map", () => Map.InitializeAsync()).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -3045,6 +3098,55 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         finally
         {
             _initializationLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Loads one page at startup without letting it stop the others.
+    /// </summary>
+    /// <remarks>
+    /// Recorded through <see cref="ILogger"/>, which the application routes to the same file the
+    /// crash log writes, rather than to <see cref="System.Diagnostics.Trace"/> — nothing listens to
+    /// Trace in an installed build, which is how the other half of this report came to have no
+    /// exception anywhere.
+    ///
+    /// Each page already shows its own empty or unavailable state and each has its own Reload, so a
+    /// page that failed here is recoverable without a restart. What was not recoverable was the
+    /// eight pages after it, which never ran at all.
+    /// </remarks>
+    private async Task InitializeSurfaceAsync(string surface, Func<Task> initialize)
+    {
+        if (await LoadSurfaceAsync(surface, initialize, _logger).ConfigureAwait(true) is { } failed)
+        {
+            StartupFaults = [.. StartupFaults, failed];
+        }
+    }
+
+    /// <summary>
+    /// Runs one page's load and names it if it failed, or null if it did not.
+    /// </summary>
+    /// <remarks>
+    /// Cancellation is deliberately not absorbed. A cancelled startup is the application shutting
+    /// down, and carrying on through the remaining nine pages is exactly what should not happen
+    /// then; a page that failed is a different thing entirely.
+    ///
+    /// Static and internal so the behaviour can be tested without a thirty-three parameter
+    /// constructor.
+    /// </remarks>
+    internal static async Task<string?> LoadSurfaceAsync(string surface, Func<Task> load, ILogger logger)
+    {
+        try
+        {
+            await load().ConfigureAwait(true);
+            return null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogError(
+                exception,
+                "Startup of the {Surface} page failed. The rest of the application continues; that page is empty until it is reloaded.",
+                surface);
+            return surface;
         }
     }
 
@@ -3488,7 +3590,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             new(
                 "Raid",
                 RaidStateText.Describe(raid.State),
-                raid.StartedUtc is null ? "No active session" : $"Started {raid.StartedUtc.Value.ToLocalTime():T}",
+                raid.StartedUtc is null ? "No active session" : $"Started {LocalTime.Time(raid.StartedUtc.Value)}",
                 raid.State switch
                 {
                     RaidLifecycleState.InRaid => SageColor,

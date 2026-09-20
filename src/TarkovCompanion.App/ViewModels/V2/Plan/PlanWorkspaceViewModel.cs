@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -11,6 +12,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Quests;
@@ -649,7 +651,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Groups = [];
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace refresh failed: {exception}");
+            WorkspaceFault.Record("plan", "refresh", exception);
         }
     }
 
@@ -686,9 +688,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var when = reading.LastObservedUtc?.ToLocalTime();
-        var heard = when is { } moment
-            ? $"The game last reported a quest at {moment:HH:mm}"
+        var heard = reading.LastObservedUtc is { } observed
+            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
             : "The game has reported quests";
         var what = reading.Recorded switch
         {
@@ -720,7 +721,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not refresh the map's quest layer: {exception.Message}");
+            WorkspaceFault.Record("plan", "refresh the map's quest layer", exception.Message);
         }
     }
 
@@ -972,7 +973,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 // One unreadable item costs one name, not the panel.
-                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name item {id}: {exception.Message}");
+                WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
             }
         }
 
@@ -1035,7 +1036,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not place objectives on {gameMapId}: {exception.Message}");
+            WorkspaceFault.Record("plan", $"place objectives on {gameMapId}", exception.Message);
             _projected[gameMapId] = [];
         }
         finally
@@ -1077,7 +1078,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not load map {mapId}: {exception.Message}");
+            WorkspaceFault.Record("plan", $"load map {mapId}", exception.Message);
         }
 
         RefreshMapPreview();
@@ -1299,7 +1300,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 // One unreadable map falls back to the catalog name below; it must not blank the page.
-                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name map {mapId}: {exception.Message}");
+                WorkspaceFault.Record("plan", $"name map {mapId}", exception.Message);
             }
         }
 

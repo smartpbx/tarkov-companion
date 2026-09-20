@@ -122,7 +122,11 @@ Generated explanations include personal incomplete-task count, lock count, loot,
 
 ## Loadout intelligence
 
-Loadout evaluation sums estimated cost and weight for every selected occurrence, including repeated magazines and medical items. It checks slot category, weapon/ammunition caliber, magazine/weapon and magazine/ammunition compatibility, and plate/armor compatibility. Missing catalog data produces a compatibility issue and makes weight unknown instead of presenting a partial number as complete.
+Loadout evaluation sums estimated cost and weight for every selected occurrence, including repeated magazines and medical items. It checks slot category, weapon/ammunition caliber, magazine/weapon and magazine/ammunition compatibility, and plate/armor compatibility. Missing catalog data produces a compatibility issue and makes the total unknown instead of presenting a partial number as complete.
+
+What is known is still reported, as a floor with its coverage: a nine-item kit missing one price reads "At least 36,000 ₽ · 8 of 9 priced", and a kit with nothing priced reads "0 of 9 priced", never zero. Of those checks, only the caliber match, the slot-category check and the plate/armor fit currently have data behind them on the synced catalog: a body armor states which plates fit each plate slot (`armorSlots[].allowedPlates`), and the catalog projection inverts that into each plate's armors. Magazine fit still abstains, because the catalog states no magazine-to-weapon list.
+
+Each piece of gear shows the figures the catalog states (`GearFacts`: armor class, durability, material, penalties, carry cells, uses), and a figure the catalog does not state is unknown, not zero. The ammunition-versus-kit warning is a heuristic held in `AmmoKitWarningPolicy` (default: C or D tier ammunition in a kit of 150,000 roubles or more, and only against a complete total), so it can be configured and is not a constant in the service. Subjective gear and headset notes are not part of the facts and are not built: there is no source for them, and inventing one would fabricate it.
 
 Warnings cover profile-unobtainable ammunition, low-tier ammunition paired with a kit worth at least 150,000 roubles, and armor with no selected plate. These are planning heuristics based on cached/public facts, not input automation or live gameplay detection.
 

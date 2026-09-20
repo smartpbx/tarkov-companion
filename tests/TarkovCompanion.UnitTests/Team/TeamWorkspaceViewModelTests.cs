@@ -423,11 +423,50 @@ public sealed class TeamWorkspaceViewModelTests
             CancellationToken cancellationToken) => respond(request);
     }
 
+    /// <summary>
+    /// A Team pane whose settings will not read says so, and can be told to try again.
+    /// </summary>
+    /// <remarks>
+    /// This was the only workspace load with no catch of its own, and the shell discarded the task
+    /// it returned, so an unreadable settings file produced an empty pane with nothing on it and
+    /// nothing in the log — and it stayed empty until the application was restarted. Reported on
+    /// 2026-09-19 as "panes/tabs not rendering at all until a restart".
+    /// </remarks>
+    [Fact]
+    public async Task A_settings_read_that_fails_says_so_on_the_pane_and_can_be_reloaded()
+    {
+        var store = new FakeGroupSettingsStore(GroupSharingSettings.Off with { IsEnabled = true }) { FailingReads = 1 };
+        var viewModel = new TeamWorkspaceViewModel(GroupSession(), store);
+
+        await viewModel.LoadAsync(CancellationToken.None);
+
+        Assert.Contains("couldn't be read", viewModel.Status, StringComparison.Ordinal);
+        Assert.False(viewModel.IsEnabled);
+
+        await ((AsyncDelegateCommand)viewModel.ReloadCommand).ExecuteAsync();
+
+        Assert.Equal("Saved", viewModel.Status);
+        Assert.True(viewModel.IsEnabled);
+    }
+
     private sealed class FakeGroupSettingsStore(GroupSharingSettings stored) : IGroupSettingsStore
     {
         public GroupSharingSettings? LastSaved { get; private set; }
 
-        public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken) => Task.FromResult(stored);
+        /// <summary>How many more reads throw before one succeeds.</summary>
+        public int FailingReads { get; set; }
+
+        public Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken)
+        {
+            if (FailingReads > 0)
+            {
+                FailingReads--;
+                return Task.FromException<GroupSharingSettings>(
+                    new IOException("The group settings file is in use by another process."));
+            }
+
+            return Task.FromResult(stored);
+        }
 
         public Task SaveAsync(GroupSharingSettings settings, CancellationToken cancellationToken)
         {
