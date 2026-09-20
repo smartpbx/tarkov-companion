@@ -19,6 +19,12 @@ public enum RelayClaimOutcome
     RateLimited,
     Refused,
     Unreachable,
+
+    /// <summary>
+    /// The relay does not know this desktop's key: never claimed from here, claimed since by
+    /// another desktop, or a relay too old to ask. Only the admin key can claim it.
+    /// </summary>
+    KeyNotRecognised,
 }
 
 /// <param name="Code">The relay's own refusal code, when it gave one.</param>
@@ -53,11 +59,102 @@ public sealed class RelayOwnerClaimClient
         _bridge = bridge;
     }
 
+    /// <summary>
+    /// Claims with nothing typed: proves to the relay that this desktop holds the key it first
+    /// claimed with. Works whatever became of the earlier session — expired, idle, or still live.
+    /// </summary>
+    /// <remarks>
+    /// [#289] This is what runs at startup and whenever the relay refuses the kept session, so the
+    /// admin key is typed once per machine rather than once per day. The relay hands out a nonce;
+    /// the claim built around it is signed by the identity key; the relay checks that signature
+    /// against the owner key it recorded at the first claim. A relay that does not know the key
+    /// answers <see cref="RelayClaimOutcome.KeyNotRecognised"/>, and the admin key is the way in.
+    /// </remarks>
+    public async Task<RelayClaimResult> ClaimByKeyAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var asked = await _relay.PostAsync("v2/companion/relay/possession/challenge", null, cancellationToken)
+                .ConfigureAwait(false);
+            if (asked.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                return new RelayClaimResult(RelayClaimOutcome.RateLimited);
+            }
+
+            if (!asked.IsSuccessStatusCode)
+            {
+                // A relay from before this route existed answers 404 or 405.
+                return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, "key-claim-unsupported");
+            }
+
+            var challenge = JsonSerializer.Deserialize<PossessionChallengeWire>(
+                await asked.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false),
+                JsonOptions);
+            if (challenge?.NonceBase64Url is not { Length: > 0 } nonce)
+            {
+                return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, "key-claim-unsupported");
+            }
+
+            var material = DesktopRelayOwnerClaim.Build(
+                _signer,
+                _authority.Snapshot.CanonicalState.DesktopDeviceId,
+                nowUtc,
+                nonce);
+            using var request = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/owner/resume")
+            {
+                Content = new ByteArrayContent(material.ToJsonBody()),
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+            using var response = await _relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                await AdoptAsync(response, cancellationToken).ConfigureAwait(false);
+                return new RelayClaimResult(RelayClaimOutcome.Claimed);
+            }
+
+            var code = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
+            return response.StatusCode == HttpStatusCode.TooManyRequests
+                ? new RelayClaimResult(RelayClaimOutcome.RateLimited)
+                : new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, code.Length is > 0 and <= 64 ? code : null);
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        {
+            return new RelayClaimResult(RelayClaimOutcome.Unreachable);
+        }
+        catch (JsonException)
+        {
+            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, "key-claim-unsupported");
+        }
+    }
+
+    private async Task AdoptAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        var claimedJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var credential = JsonSerializer.Deserialize<SessionCredentialWire>(claimedJson, JsonOptions);
+        if (credential is not null && _bridge is not null)
+        {
+            await _bridge.AdoptOwnerCredentialAsync(
+                credential.SessionId,
+                credential.Credential,
+                credential.ExpiresUtc,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     public async Task<RelayClaimResult> ClaimAsync(string adminKey, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(adminKey);
         try
         {
+            // [#289] The key first. A desktop that claimed this relay before is let back in on its
+            // key whatever state its earlier claim is in, which the admin-key route below would
+            // refuse as "owner-already-live" for two hours after "Forget this relay".
+            var byKey = await ClaimByKeyAsync(nowUtc, cancellationToken).ConfigureAwait(false);
+            if (byKey.Outcome is RelayClaimOutcome.Claimed)
+            {
+                return byKey;
+            }
+
             var material = DesktopRelayOwnerClaim.Build(
                 _signer,
                 _authority.Snapshot.CanonicalState.DesktopDeviceId,
@@ -98,17 +195,7 @@ public sealed class RelayOwnerClaimClient
             using var response = await _relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
-                var claimedJson = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                var credential = JsonSerializer.Deserialize<SessionCredentialWire>(claimedJson, JsonOptions);
-                if (credential is not null && _bridge is not null)
-                {
-                    await _bridge.AdoptOwnerCredentialAsync(
-                        credential.SessionId,
-                        credential.Credential,
-                        credential.ExpiresUtc,
-                        cancellationToken).ConfigureAwait(false);
-                }
-
+                await AdoptAsync(response, cancellationToken).ConfigureAwait(false);
                 return new RelayClaimResult(RelayClaimOutcome.Claimed);
             }
 
@@ -148,6 +235,8 @@ public sealed class RelayOwnerClaimClient
     // tell "claimed by this desktop" from "claimed by another" without the relay handing back
     // anything a passive listener could use.
     private sealed record OwnerStatusWire(bool Claimed, string? OwnerDeviceId);
+
+    private sealed record PossessionChallengeWire(Guid ChallengeId, string NonceBase64Url, DateTimeOffset ExpiresUtc);
 
     private sealed record SessionCredentialWire(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
 }

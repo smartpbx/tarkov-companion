@@ -88,6 +88,9 @@ public enum RelayOwnerLinkState
 /// <summary>What registering a just-paired device on the relay came to.</summary>
 /// <param name="Registered">Whether the relay now routes this device's traffic.</param>
 /// <param name="Code">The relay's own refusal code, or a local reason, when it does not.</param>
+/// <summary>A paired device that proved its key to the relay and is waiting for a fresh session.</summary>
+public sealed record RelayResumeTicket(Guid TicketId, string DeviceKeyId);
+
 public sealed record RelayDeviceRegistration(bool Registered, string Code)
 {
     public static RelayDeviceRegistration Done { get; } = new(true, "registered");
@@ -118,6 +121,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
     private long _afterDeliveryId;
     private string? _publishedArtworkSha;
     private RelayOwnerLinkState _ownerLink = RelayOwnerLinkState.None;
+    private readonly HashSet<Guid> _resumeTicketsSeen = [];
 
     public RelayMarksBridge(
         DesktopCompanionAuthority authority,
@@ -173,6 +177,23 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 
     /// <summary>Raised when <see cref="OwnerLink"/> changes, on whatever thread noticed.</summary>
     public event Action<RelayOwnerLinkState>? OwnerLinkChanged;
+
+    /// <summary>
+    /// How this desktop claims the relay again on its identity key, when it can. Asked whenever the
+    /// relay refuses the kept owner session, before that session is given up on.
+    /// </summary>
+    /// <remarks>
+    /// [#289] Set by whoever holds the identity signer (the pairing panel). Without it a refused
+    /// session is dropped and the panel asks for the admin key, which is what every refusal used
+    /// to come to: twelve hours after a claim, or two idle.
+    /// </remarks>
+    public Func<CancellationToken, Task<RelayClaimResult>>? OwnerReclaim { get; set; }
+
+    /// <summary>
+    /// A paired device came back to the relay on its key and is waiting for this desktop to open
+    /// it a session. Raised from the poll, once per ticket.
+    /// </summary>
+    public event Action<RelayResumeTicket>? ResumeRequested;
 
     /// <summary>
     /// Picks the relay link back up after a desktop restart: the stored owner session, and the
@@ -350,11 +371,44 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         ArgumentException.ThrowIfNullOrWhiteSpace(credential);
         lock (_gate)
         {
+            if (_owner?.SessionId != sessionId)
+            {
+                // The relay numbers deliveries per session, from one. A cursor carried over from
+                // the session this replaces would read past everything the new one is sent.
+                _afterDeliveryId = 0;
+            }
+
             _owner = new OwnerCredential(sessionId, credential, expiresUtc);
         }
 
         SetOwnerLink(RelayOwnerLinkState.Verified);
         EnsureLoopStarted();
+    }
+
+    /// <summary>
+    /// Answers a returning device's ticket with the code of the offer just opened for it, as this
+    /// relay's owner. False when the relay would not take it (the ticket lapsed, or no claim).
+    /// </summary>
+    public async Task<bool> AnswerResumeTicketAsync(Guid ticketId, string pairingCode, CancellationToken cancellationToken = default)
+    {
+        HttpClient? relay;
+        OwnerCredential? owner;
+        lock (_gate)
+        {
+            relay = _relay;
+            owner = _owner;
+        }
+
+        if (relay is null || owner is null)
+        {
+            return false;
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"v2/companion/relay/resume/requests/{ticketId:D}/offer");
+        request.Headers.Add("Tarkov-Pairing-Code", pairingCode);
+        AddBearer(request, owner);
+        using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        return response.IsSuccessStatusCode;
     }
 
     /// <summary>
@@ -567,7 +621,24 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            // The relay has ended this owner session (it expired, or another claim replaced it).
+            // [#289] The relay has ended this owner session: it expired (twelve hours, or two
+            // idle), or another claim replaced it. The first is every morning, so before giving
+            // the claim up this desktop asks to be let back in on its key.
+            if (OwnerReclaim is { } reclaim)
+            {
+                var reclaimed = await reclaim(cancellationToken).ConfigureAwait(false);
+                if (reclaimed.Outcome == RelayClaimOutcome.Claimed)
+                {
+                    return; // adopted; the next read is on the new session
+                }
+
+                if (reclaimed.Outcome is RelayClaimOutcome.Unreachable or RelayClaimOutcome.RateLimited)
+                {
+                    SetOwnerLink(RelayOwnerLinkState.Unreachable);
+                    return; // kept, and asked again on the next tick
+                }
+            }
+
             // Holding on to it would only repeat the refusal every two seconds and keep telling
             // the player the relay is claimed when it is not.
             var dropped = false;
@@ -602,6 +673,24 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         SetOwnerLink(RelayOwnerLinkState.Verified);
         var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         var frames = ParseFrameBatch(json);
+        foreach (var ticket in ParseResumeRequests(json))
+        {
+            bool first;
+            lock (_gate)
+            {
+                first = _resumeTicketsSeen.Add(ticket.TicketId);
+                if (_resumeTicketsSeen.Count > 256)
+                {
+                    _resumeTicketsSeen.Clear(); // tickets live five minutes; this is only a de-duplicator
+                    _resumeTicketsSeen.Add(ticket.TicketId);
+                }
+            }
+
+            if (first)
+            {
+                ResumeRequested?.Invoke(ticket);
+            }
+        }
 
         foreach (var (deliveryId, frame) in frames)
         {
@@ -1173,7 +1262,24 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         return results;
     }
 
+    /// <summary>The returning devices a frame batch names; none from a relay that predates them.</summary>
+    public static IReadOnlyList<RelayResumeTicket> ParseResumeRequests(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<RelayResumeBatchWire>(json, WireJsonOptions)?.ResumeRequests is { } waiting
+                ? waiting.Where(item => item.TicketId != Guid.Empty && !string.IsNullOrEmpty(item.DeviceKeyId)).ToArray()
+                : [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
     private static readonly JsonSerializerOptions WireJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record RelayResumeBatchWire(IReadOnlyList<RelayResumeTicket>? ResumeRequests);
 
     private sealed record RelayFrameBatchWire(int ProtocolVersion, bool RequiresReconnect, DateTimeOffset ServerUtc, IReadOnlyList<RelayFrameEnvelopeWire> Frames);
 

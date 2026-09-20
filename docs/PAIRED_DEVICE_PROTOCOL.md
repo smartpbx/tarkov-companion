@@ -155,6 +155,15 @@ session that has expired means pairing again.
 
 ## Session resume and re-keying
 
+**Coming back after the bounds have run out (#289, #290).** Twelve hours, or two idle, ends a
+session and then the device; neither bound moved. A tablet the desktop has approved and not revoked
+is answered without a code or an approval: it proves its device key at the relay's door (see
+`docs/GROUP_RELAY.md`), the desktop (`PairedDeviceResumeService`) opens it an ordinary pairing
+offer, and the pairing handshake above runs unchanged, its proof checked against the key on record
+for that device. The tablet page pins the desktop's identity key id from its first pairing and
+refuses an offer from any other. A device-key signature is DER, as WebAuthn carries it; the page
+converts WebCrypto's P1363 output (it used to send it raw, which never verified).
+
 A browser reload discards memory-only traffic keys. `SessionResumption` establishes a new session
 for an already paired device without a new pairing attempt:
 

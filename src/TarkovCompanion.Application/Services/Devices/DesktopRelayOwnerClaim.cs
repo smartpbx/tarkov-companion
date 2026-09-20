@@ -71,10 +71,16 @@ public static class DesktopRelayOwnerClaim
     private static readonly byte[] CoseEs256Prefix = [0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
     private static readonly byte[] CoseEs256YLabel = [0x22, 0x58, 0x20];
 
+    /// <param name="relayNonceBase64Url">
+    /// [#289] A nonce the relay has just issued, when this claim is the proof that this desktop
+    /// holds its identity key. It takes the place of the request's client nonce, which the signed
+    /// transcript covers, so the challenge's signature answers that nonce and no other.
+    /// </param>
     public static DesktopRelayOwnerClaimMaterial Build(
         IDesktopIdentitySigner signer,
         CompanionDeviceId desktopDeviceId,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? relayNonceBase64Url = null)
     {
         ArgumentNullException.ThrowIfNull(signer);
         // Every protocol timestamp built below requires exact millisecond precision
@@ -102,7 +108,7 @@ public static class DesktopRelayOwnerClaim
         var deviceEphemeralPublic = new EphemeralPublicKey(
             EphemeralKeyAlgorithm.EcdhP256,
             Base64Url(deviceEphemeral.PublicKey.ExportSubjectPublicKeyInfo()));
-        var clientNonce = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var clientNonce = relayNonceBase64Url ?? Base64Url(RandomNumberGenerator.GetBytes(32));
 
         var sharedSecret = PairingCryptography.DeriveP256SharedSecret(offerEphemeral, deviceEphemeralPublic);
         try
