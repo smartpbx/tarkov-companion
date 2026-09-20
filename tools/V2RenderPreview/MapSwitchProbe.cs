@@ -181,27 +181,6 @@ internal static class MapSwitchProbe
     }
 
     /// <summary>
-    /// <c>--last-map &lt;id&gt;</c>: a previous launch left this map on screen.
-    /// </summary>
-    /// <remarks>
-    /// Written through the app's own selection service into the file the app reads, before the app
-    /// is composed, so a render shows what the next launch opens on rather than what a fixture says.
-    /// </remarks>
-    public static void SeedLastMap(string dataRoot, bool demo, string? mapId)
-    {
-        if (mapId is null)
-        {
-            return;
-        }
-
-        var config = TarkovCompanion.App.Services.AppDataPaths.Resolve(dataRoot, demoMode: demo).Config;
-        Directory.CreateDirectory(config);
-        new TarkovCompanion.Application.Services.Maps.MapVariantSelectionService(
-                new TarkovCompanion.Infrastructure.Maps.JsonFileMapVariantPreferenceStore(Path.Combine(config, "map-defaults.json")))
-            .RememberLastMapAsync(mapId, CancellationToken.None).GetAwaiter().GetResult();
-    }
-
-    /// <summary>
     /// <c>--slow-network &lt;ms&gt;</c>: every request waits this long first, or null to leave the network alone.
     /// </summary>
     /// <remarks>
@@ -233,7 +212,7 @@ internal static class MapSwitchProbe
     /// launch ever and no launch after it. A link rather than a copy, so what one run fetched the
     /// next one finds. Removed again before the data root is deleted.
     /// </remarks>
-    public static void LinkMapCache(string dataRoot, string? shared, bool demo)
+    public static void LinkMapCache(string dataRoot, string? shared)
     {
         if (shared is null)
         {
@@ -241,14 +220,14 @@ internal static class MapSwitchProbe
         }
 
         Directory.CreateDirectory(shared);
-        var cache = TarkovCompanion.App.Services.AppDataPaths.Resolve(dataRoot, demoMode: demo).Cache;
+        var cache = TarkovCompanion.App.Services.AppDataPaths.Resolve(dataRoot, demoMode: true).Cache;
         Directory.CreateDirectory(cache);
         Directory.CreateSymbolicLink(Path.Combine(cache, "Maps"), Path.GetFullPath(shared));
     }
 
-    public static void UnlinkMapCache(string dataRoot, bool demo)
+    public static void UnlinkMapCache(string dataRoot)
     {
-        var link = Path.Combine(TarkovCompanion.App.Services.AppDataPaths.Resolve(dataRoot, demoMode: demo).Cache, "Maps");
+        var link = Path.Combine(TarkovCompanion.App.Services.AppDataPaths.Resolve(dataRoot, demoMode: true).Cache, "Maps");
         if (new DirectoryInfo(link) is { Exists: true, LinkTarget: not null } info)
         {
             info.Delete();

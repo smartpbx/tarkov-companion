@@ -2047,10 +2047,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // A named map wins over the default, and a name the catalog does not carry falls
             // back rather than opening on nothing: a diagnostic launch that silently showed a
             // different map than it was asked for is worse than one that shows the usual one.
-            // Then the map that was on screen last, and Customs only for somebody who has never
-            // had one: see MapVariantSelectionService.LastMapAsync.
             var initial = Find(_openOnMapId)
-                ?? Find(await _selectionService.LastMapAsync(_lifetime.Token).ConfigureAwait(true))
                 ?? Locations.FirstOrDefault(location =>
                     string.Equals(location.Id, "customs", StringComparison.OrdinalIgnoreCase))
                 ?? Locations.FirstOrDefault();
@@ -2157,15 +2154,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(location);
         SelectedLocation = location;
         Variants = location.Variants.Where(variant => variant.HasRuntimeAsset).ToArray();
-        try
-        {
-            await _selectionService.RememberLastMapAsync(location.Id, _lifetime.Token).ConfigureAwait(true);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Not being able to write a preference is no reason not to show the map.
-        }
-
         var selected = await _selectionService.SelectAsync(location, _lifetime.Token).ConfigureAwait(true);
         if (selected is not null)
         {

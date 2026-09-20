@@ -51,10 +51,7 @@ internal static class Program
         var search = StringOption(args, "--search");
         // Package 28: run a Flea lookup, so the Flea workspace can be rendered with results.
         var fleaQuery = StringOption(args, "--flea-query");
-        // --no-demo: the demo fixture is always mid-raid on Customs, so it can never show what a
-        // first launch shows, which is no raid and no map anybody chose.
-        var demoMode = !args.Contains("--no-demo");
-        var options = AppCommandLine.Parse(args) with { Demo = demoMode };
+        var options = AppCommandLine.Parse(args) with { Demo = true };
 
         var rendered = false;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
@@ -66,13 +63,12 @@ internal static class Program
         // startup migrates it forward, and it is deleted with the root afterwards.
         if (StringOption(args, "--seed-database") is { } seedDatabase)
         {
-            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Database;
+            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: true).Database;
             Directory.CreateDirectory(databaseDirectory);
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
 
-        MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
-        MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
+        MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"));
         try
         {
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
@@ -542,8 +538,7 @@ internal static class Program
 
                 // A page other than Raid picks its own map (Plan follows its selected map group),
                 // so only a Raid render, or an explicit --map, chooses one here.
-                // --no-map: leave the page as a first launch finds it, with nobody having chosen anything.
-                var picked = (mapId is null && options.StartPage is not null) || args.Contains("--no-map")
+                var picked = mapId is null && options.StartPage is not null
                     ? null
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
@@ -1228,7 +1223,7 @@ internal static class Program
         {
             try
             {
-                MapSwitchProbe.UnlinkMapCache(dataRoot, demoMode);
+                MapSwitchProbe.UnlinkMapCache(dataRoot);
                 Directory.Delete(dataRoot, recursive: true);
             }
             catch (IOException)
