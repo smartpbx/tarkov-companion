@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A second push to a branch supersedes the first; nobody is waiting on the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -85,6 +90,9 @@ jobs:
   # here, because a packaging failure is worth catching on a pull request; the result is
   # thrown away on purpose.
   windows-build:
+    # Trunk only. On a pull request `linux` is the merge gate; the Windows build, package and
+    # launch happen on `main`, where they gate publishing.
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 25
     env:

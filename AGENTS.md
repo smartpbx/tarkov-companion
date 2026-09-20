@@ -20,8 +20,8 @@ preventing work on the development host.
    resource check shows comfortable headroom. Prefer one shared verification job after parallel
    editing work instead of one full build per agent.
 5. Clean up agent, debugger, VM, and container processes when their work is finished.
-6. GitHub Actions remains the required integration evidence for substantive changes; local
-   verification on `dev` is supplementary and must not replace the CI gate.
+6. The merge gate is the `linux` job and nothing else. Windows verification runs on `main` after
+   the merge and gates publishing; never wait for a Windows run before merging.
 7. Every delegated task or handoff must name its worktree/owned paths, repeat the anti-cheat
    boundaries below, and tell the worker to keep heavy verification serialized.
 
@@ -71,10 +71,10 @@ The bill is dominated by re-reading context, not by writing code. So:
    or end the turn. Waiting must cost nothing.
 4. **Fail locally, not in CI.** Before any push run the gate on `dev` under the shared lock:
    `flock -o /tmp/tarkov-build.lock bash -c 'scripts/build.sh && scripts/test.sh'`. A compile error
-   found by CI costs a 13-minute round trip plus every context re-read while waiting.
-5. **Batch CI.** `main` requires a branch to be up to date before merging, so landing N related PRs
-   one by one costs N extra full CI runs. Merge green branches into one integration PR and run CI
-   once.
+   found by CI costs a ten-minute round trip plus every context re-read while waiting.
+5. **Merge and move on.** Open the pull request, run `gh pr merge --auto --merge`, and start
+   the next thing. A branch does not have to be current with `main`, so landing N pull requests
+   costs N short Linux runs that nobody watches. If `main` goes red, fix it forward.
 6. **Working product before hardening.** A feature is done when it is reachable in the running app,
    works end to end on real data, and looks like `docs/design/v2`. Do not loop
    audit → repair → re-audit on code nothing calls. One review per PR; fix its findings in that PR.
