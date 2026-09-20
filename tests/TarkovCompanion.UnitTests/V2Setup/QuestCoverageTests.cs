@@ -90,10 +90,16 @@ public sealed class QuestCoverageTests
 
             Assert.NotNull(services.GetRequiredService<IUserQuestMarkStore>());
             Assert.NotNull(services.GetRequiredService<RaidCockpitViewModel>());
-            var coverage = services.GetRequiredService<V2ShellViewModel>().SetupWorkspace?.QuestCoverage;
+            var setup = services.GetRequiredService<V2ShellViewModel>().SetupWorkspace;
+            var coverage = setup?.QuestCoverage;
             Assert.NotNull(coverage);
             await coverage.RefreshAsync();
             Assert.False(string.IsNullOrWhiteSpace(coverage.Status));
+            // [Issue 318] The loot-spawn coverage report is composed into the same Data section.
+            var lootCoverage = setup!.LootCoverage;
+            Assert.NotNull(lootCoverage);
+            await lootCoverage.RefreshAsync();
+            Assert.False(string.IsNullOrWhiteSpace(lootCoverage.Status));
         }
         finally
         {

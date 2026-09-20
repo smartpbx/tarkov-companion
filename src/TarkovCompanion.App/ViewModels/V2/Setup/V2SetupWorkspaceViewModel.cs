@@ -403,10 +403,31 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public void Select(V2SetupSection section)
     {
         Selected = section;
-        if (section == V2SetupSection.Data && QuestCoverage is { } coverage)
+        if (section == V2SetupSection.Data)
         {
-            _ = coverage.RefreshAsync();
+            if (QuestCoverage is { } coverage)
+            {
+                _ = coverage.RefreshAsync();
+            }
+
+            if (LootCoverage is { } lootCoverage)
+            {
+                _ = lootCoverage.RefreshAsync();
+            }
         }
+    }
+
+    /// <summary>The per-map loot-spawn coverage Data shows, or null in a shell built without one.</summary>
+    public LootCoverageViewModel? LootCoverage { get; private set; }
+
+    public bool HasLootCoverage => LootCoverage is not null;
+
+    /// <summary>Hands this page the loot coverage report after construction, like <see cref="AttachQuestCoverage"/>.</summary>
+    public void AttachLootCoverage(LootCoverageViewModel coverage)
+    {
+        LootCoverage = coverage ?? throw new ArgumentNullException(nameof(coverage));
+        OnPropertyChanged(nameof(LootCoverage));
+        OnPropertyChanged(nameof(HasLootCoverage));
     }
 
     /// <summary>The per-map quest objective coverage Data shows, or null in a shell built without one.</summary>

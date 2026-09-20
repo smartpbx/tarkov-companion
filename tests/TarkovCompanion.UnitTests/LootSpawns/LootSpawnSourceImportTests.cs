@@ -60,6 +60,48 @@ public sealed class LootSpawnSourceImportTests
     }
 
     [Fact]
+    public async Task Coverage_report_reads_the_measured_counts_for_each_map()
+    {
+        var bundle = await ReadAsync(Documents());
+
+        var row = Assert.Single(LootSpawnCoverageReport.From(bundle));
+
+        Assert.Equal("customs", row.MapId);
+        Assert.Equal(new LootSpawnMapCoverageRow("customs", 3, 2, 1, 1, 1), row);
+        Assert.Equal(1, row.LeftOut);
+    }
+
+    [Fact]
+    public async Task Setup_reports_the_stored_imports_coverage_and_says_so_when_there_is_none()
+    {
+        var bundle = await ReadAsync(Documents());
+        var withData = new TarkovCompanion.App.ViewModels.V2.Setup.LootCoverageViewModel(new FakeStore(bundle), () => []);
+        var without = new TarkovCompanion.App.ViewModels.V2.Setup.LootCoverageViewModel(new FakeStore(null), () => []);
+
+        await withData.RefreshAsync();
+        await without.RefreshAsync();
+
+        var line = Assert.Single(withData.Rows);
+        Assert.Equal("customs", line.MapName);
+        Assert.Equal("1 of 2 positioned · 1 on a known floor · 1 map-only · 1 left out", line.Summary);
+        Assert.Contains("1 of 2 published spawn records have a position", withData.Status, StringComparison.Ordinal);
+        Assert.False(without.HasRows);
+        Assert.Contains("No loot-spawn data imported yet", without.Status, StringComparison.Ordinal);
+    }
+
+    private sealed class FakeStore(LootSpawnSourceBundle? bundle) : ILootSpawnSourcePublicationStore
+    {
+        public ValueTask<LootSpawnSourceBundle?> ReadLastKnownGoodAsync(CancellationToken cancellationToken) => ValueTask.FromResult(bundle);
+
+        public ValueTask PublishAsync(LootSpawnSourceBundle value, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public ValueTask QuarantineAsync(
+            LootSpawnSourceDiagnostic diagnostic,
+            DateTimeOffset detectedUtc,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    [Fact]
     public async Task Missing_required_field_is_refused()
     {
         var documents = Documents(manifest => manifest.Remove("datasetVersion"));
