@@ -1252,6 +1252,31 @@ internal static class Program
                 }
             }
 
+            // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
+            // one exit marked offered, the card open. After
+            // --raid-demo, because that publishes a new raid and a new raid drops every correction. "return" then undoes the side, to show both states.
+            if (StringOption(args, "--raid-corrections-demo") is { } correctionsDemo &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel correcting)
+            {
+                var card = correcting.Corrections;
+                card.IsOpen = true;
+                card.SetScavCommand.Execute(null);
+                card.TimeLeftInput = "12:34";
+                card.SetTimeLeftCommand.Execute(null);
+                Pump(40);
+                card.ExtractChoices.FirstOrDefault()?.ToggleCommand.Execute(null);
+                Pump(40);
+                if (string.Equals(correctionsDemo, "return", StringComparison.OrdinalIgnoreCase))
+                {
+                    card.ReturnSideCommand.Execute(null);
+                    Pump(40);
+                }
+
+                Console.WriteLine(
+                    $"Corrections: side {card.SideText} ({card.SideSource}), clock {card.ClockText} ({card.ClockSource}), " +
+                    $"extracts {card.ExtractsSummary} ({card.ExtractsSource}); strip clock '{correcting.RaidPhaseLabel}'");
+            }
+
             // Package 29 (parity): raids written through the real history service, so Debrief lists
             // and selects them the way it does for a player's own. The newest carries a trail on the
             // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
@@ -1271,6 +1296,31 @@ internal static class Program
                         .WatchOnMapCommand.Execute(null);
                     // The shell picks the raid's map, opens the replay and navigates: three async steps.
                     Pump(120);
+                }
+
+                // #291 package 2: put the raid list on a search or a filter before the frame, the
+                // same way Plan does, so a render can show what a filtered history looks like.
+                var debriefSearch = StringOption(args, "--debrief-search");
+                var debriefOutcome = StringOption(args, "--debrief-filter-outcome");
+                var debriefSide = StringOption(args, "--debrief-filter-side");
+                if (debriefSearch is not null || debriefOutcome is not null || debriefSide is not null)
+                {
+                    if (debriefSearch is not null)
+                    {
+                        debrief.SearchText = debriefSearch;
+                    }
+
+                    if (debriefOutcome is not null)
+                    {
+                        debrief.OutcomeFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefOutcomeFilter>(debriefOutcome, ignoreCase: true);
+                    }
+
+                    if (debriefSide is not null)
+                    {
+                        debrief.SideFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefSideFilter>(debriefSide, ignoreCase: true);
+                    }
+
+                    Pump(20);
                 }
             }
 
@@ -1492,8 +1542,18 @@ internal static class Program
         }
 
         await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
-        await Raid("woods", TimeSpan.FromDays(1), TimeSpan.FromMinutes(38), null, "Ran the sawmill");
-        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, "Dorms then RUAF roadblock");
+        // The companion's own words for a raid it found closed on restart, so the preview shows an
+        // inferred end beside the hand-typed and observed ones.
+        await Raid(
+            "woods",
+            TimeSpan.FromDays(1),
+            TimeSpan.FromMinutes(38),
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartOutcome,
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartNotes);
+        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, null);
+        // A player's correction, through the same call Debrief's Save button makes, so it is stored
+        // as a correction event and reads as manual.
+        await history.CorrectAsync(newest, "Survived", "Dorms then RUAF roadblock", CancellationToken.None);
         // Re-timed to fall inside the raid they belong to: the demo trail is stamped minutes ago, and
         // the raid above started two hours back.
         var raidStart = now - TimeSpan.FromHours(2);
@@ -1509,6 +1569,34 @@ internal static class Program
                 System.Text.Json.JsonSerializer.Serialize(stamped, json),
                 CancellationToken.None);
         }
+
+        // Scans taken during that raid, written as the runtime writes them (default JSON options):
+        // two items it recognised, one screenshot that showed nothing it could name.
+        var scanned = raidStart + TimeSpan.FromMinutes(6);
+        foreach (var (name, id, value, confidence, action) in new[]
+        {
+            ("Graphics card", "57347ca924597744596b4e71", 232_000L, 0.94, "Take"),
+            ("Salewa first aid kit", "544fb45d4bdc2dee738b4568", 27_500L, 0.81, "Sell"),
+        })
+        {
+            scanned += TimeSpan.FromMinutes(4);
+            await history.RecordEventAsync(
+                newest,
+                "scan",
+                scanned,
+                System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                    true, true, id, name, value, value, action, new(confidence), scanned, "screenshot", "preview")),
+                CancellationToken.None);
+        }
+
+        scanned += TimeSpan.FromMinutes(3);
+        await history.RecordEventAsync(
+            newest,
+            "scan",
+            scanned,
+            System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                true, false, null, null, null, null, null, new(0), scanned, "screenshot", "preview")),
+            CancellationToken.None);
 
         return newest;
     }

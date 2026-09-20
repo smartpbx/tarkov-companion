@@ -484,7 +484,7 @@
 
                     <StackPanel Spacing="6" IsVisible="{Binding Pairing.IsAwaitingTablet}">
                       <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                                 Text="Scan this on the tablet, or open the relay's /tablet page and type the code:" />
+                                 Text="Scan this with the tablet's camera, or open the address below and type the code:" />
                       <Grid ColumnDefinitions="Auto,*" ColumnSpacing="18">
                         <!-- [V2 rough package 60 — Team] #289: the payload has always existed and
                              was never drawn, so the only way onto a tablet was to type. White
@@ -503,6 +503,14 @@
                           <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
                                      AutomationProperties.AutomationId="v2-team-pairing-code"
                                      Text="{Binding Pairing.PairingCode}" />
+                          <!-- The QR is this same URL, with the code in its fragment (#289): a
+                               phone camera can only open a link, and this is what it opens. Shown
+                               as text too, for typing when the camera or the QR is unavailable. -->
+                          <SelectableTextBlock Classes="v2-label" TextWrapping="Wrap"
+                                     FontFamily="monospace"
+                                     AutomationProperties.AutomationId="v2-team-pairing-url"
+                                     IsVisible="{Binding Pairing.HasRelayTabletUrl}"
+                                     Text="{Binding Pairing.RelayTabletUrl}" />
                           <TextBlock Classes="v2-label" TextWrapping="Wrap"
                                      AutomationProperties.AutomationId="v2-team-pairing-expiry"
                                      AutomationProperties.LiveSetting="Polite"

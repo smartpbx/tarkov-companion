@@ -37,6 +37,10 @@ public static class PairedTransportBinding
     /// </summary>
     public const string ConnectionPath = "/v2/companion/connect";
 
+    /// <summary>Where the relay serves the tablet page (also served at "/"). Shared so the desktop's
+    /// QR/typed-URL and the relay's own route never drift apart.</summary>
+    public const string TabletPagePath = "/tablet";
+
     public const string QrPayloadPrefix = "TARKOV-COMPANION-PAIR/2.0/";
 
     public const string SourceHashLabel = "TarkovCompanion.PairedDevice/v2/pairing-source";
@@ -125,8 +129,12 @@ public static class PairedTransportBinding
     }
 
     /// <summary>
-    /// The QR payload an in-app scanner reads: the prefix, the code, and the desktop identity key ID,
-    /// separated by '/'. It is not a navigable URL, so the code never enters browser history.
+    /// The prefix, the code, and the desktop identity key ID, separated by '/'. This alone is not a
+    /// navigable URL, but a phone camera cannot run the pairing ceremony — it can only open a link —
+    /// so the desktop places this payload in the fragment of a URL to the relay's tablet page
+    /// (<see cref="TabletPagePath"/>). A fragment is never sent to the server, so the relay never
+    /// sees the code; the page reads it from <c>location.hash</c> on load and clears it from history
+    /// at once. The typed-code path carries this same payload's code alone.
     /// </summary>
     public static string FormatQrPayload(string pairingCode, DeviceKeyId desktopIdentityKeyId) =>
         QrPayloadPrefix + NormalizePairingCode(pairingCode) + "/" + new DeviceKeyId(desktopIdentityKeyId.Value).Value;

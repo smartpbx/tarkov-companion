@@ -111,6 +111,7 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
                 () => SetTextScale(percent)))];
 
         ReduceMotionCommand = new DelegateCommand(() => SetReduceMotion(!Current.ReduceMotion));
+        FocusAlwaysVisibleCommand = new DelegateCommand(() => SetFocusAlwaysVisible(!Current.FocusAlwaysVisible));
         ResetCommand = new DelegateCommand(() => _ = _apply(WorkspacePreferences.Default));
         _preferences.Changed += OnPreferencesChanged;
         Refresh();
@@ -127,6 +128,8 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
     public IReadOnlyList<V2AppearanceChoiceViewModel> TextScales { get; }
 
     public ICommand ReduceMotionCommand { get; }
+
+    public ICommand FocusAlwaysVisibleCommand { get; }
 
     public ICommand ResetCommand { get; }
 
@@ -145,6 +148,14 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
     public string MotionToggleLabel => Current.ReduceMotion
         ? V2ShellText.Get("V2.Setup.Appearance.Motion.Reduced")
         : V2ShellText.Get("V2.Setup.Appearance.Motion.Full");
+
+    public string FocusLabel => V2ShellText.Get("V2.Setup.Appearance.FocusLabel");
+    public string FocusHint => V2ShellText.Get("V2.Setup.Appearance.FocusHint");
+
+    /// <summary>The focus toggle's own label, the same shape as <see cref="MotionToggleLabel"/>.</summary>
+    public string FocusToggleLabel => Current.FocusAlwaysVisible
+        ? V2ShellText.Get("V2.Setup.Appearance.Focus.Always")
+        : V2ShellText.Get("V2.Setup.Appearance.Focus.KeyboardOnly");
 
     /// <summary>What is in force now, in one line, so the section can be read without counting ticks.</summary>
     public string Summary => V2ShellText.Format(
@@ -169,6 +180,8 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
 
     private void SetReduceMotion(bool reduce) => _ = _apply(Current with { ReduceMotion = reduce });
 
+    private void SetFocusAlwaysVisible(bool always) => _ = _apply(Current with { FocusAlwaysVisible = always });
+
     private void OnPreferencesChanged(object? sender, WorkspacePreferences preferences) => Refresh();
 
     private void Refresh()
@@ -180,6 +193,7 @@ public sealed class V2AppearanceSettingsViewModel : BindableViewModel
         Mark(TextScales, $"text-{current.TextScalePercent}");
         OnPropertyChanged(nameof(Current));
         OnPropertyChanged(nameof(MotionToggleLabel));
+        OnPropertyChanged(nameof(FocusToggleLabel));
         OnPropertyChanged(nameof(Summary));
     }
 

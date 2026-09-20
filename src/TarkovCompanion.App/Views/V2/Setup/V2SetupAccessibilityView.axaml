@@ -1,0 +1,167 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupAccessibilityView"
+             x:DataType="vm:V2SetupAccessibilityViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- #292/#315: theme, colour vision, text size, density, reduced motion and the focus ring in
+       one place, with a live preview strip and the keyboard shortcut table (#292 task 1/4).
+       Every row is a set of toggles rather than a combo box: the choice and what is in force are
+       both readable without opening anything, which is the point of the section. -->
+  <StackPanel Classes="v2-stack">
+    <StackPanel Classes="v2-stack" DataContext="{Binding Appearance}" x:DataType="vm:V2AppearanceSettingsViewModel">
+      <TextBlock Classes="v2-body" AutomationProperties.AutomationId="v2-setup-appearance-summary"
+                 AutomationProperties.LiveSetting="Polite" Text="{Binding Summary}" />
+
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding ThemeLabel}" />
+        <ItemsControl ItemsSource="{Binding Themes}" AutomationProperties.AutomationId="v2-setup-appearance-themes">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      AutomationProperties.HelpText="{Binding AutomationState}"
+                      Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ThemeHint}" />
+      </StackPanel>
+
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding VisionLabel}" />
+        <ItemsControl ItemsSource="{Binding ColorVisions}" AutomationProperties.AutomationId="v2-setup-appearance-visions">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      AutomationProperties.HelpText="{Binding AutomationState}"
+                      Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding VisionHint}" />
+      </StackPanel>
+
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding TextScaleLabel}" />
+        <ItemsControl ItemsSource="{Binding TextScales}" AutomationProperties.AutomationId="v2-setup-appearance-textscales">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      AutomationProperties.HelpText="{Binding AutomationState}"
+                      Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding TextScaleHint}" />
+      </StackPanel>
+
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding DensityLabel}" />
+        <ItemsControl ItemsSource="{Binding Densities}" AutomationProperties.AutomationId="v2-setup-appearance-densities">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:V2AppearanceChoiceViewModel">
+              <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                      AutomationProperties.AutomationId="{Binding AutomationId}"
+                      AutomationProperties.Name="{Binding Label}"
+                      AutomationProperties.HelpText="{Binding AutomationState}"
+                      Content="{Binding DisplayLabel}" Command="{Binding ChooseCommand}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding MotionLabel}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-motion"
+                  Content="{Binding MotionToggleLabel}" Command="{Binding ReduceMotionCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-reset"
+                  Content="{Binding ResetAllLabel}" Command="{Binding ResetCommand}" />
+        </WrapPanel>
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding MotionHint}" />
+      </StackPanel>
+
+      <!-- #292 task 1: the one thing missing from the old Appearance section. -->
+      <StackPanel Classes="v2-field">
+        <TextBlock Classes="v2-label" Text="{Binding FocusLabel}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-appearance-focus"
+                  Content="{Binding FocusToggleLabel}" Command="{Binding FocusAlwaysVisibleCommand}" />
+        </WrapPanel>
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding FocusHint}" />
+      </StackPanel>
+    </StackPanel>
+
+    <!-- Live preview strip: real, themed controls, so every choice above redraws something here
+         immediately rather than only changing a word in a summary sentence. -->
+    <Border Classes="v2-card" AutomationProperties.AutomationId="v2-setup-accessibility-preview">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" Text="{Binding PreviewHeading}" />
+        <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding PreviewHint}" />
+        <WrapPanel Classes="v2-toolbar">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="v2-heading-3" Text="{Binding PreviewSampleHeading}" />
+            <TextBlock Classes="v2-body" Text="{Binding PreviewSampleBody}" />
+          </StackPanel>
+          <Button Classes="v2-target primary" Content="{Binding PreviewSampleButton}" />
+          <TextBox Classes="v2-field-input" Width="160" Text="{Binding PreviewSampleField}" />
+          <Panel Classes="v2-badge v2-availability-ready">
+            <Rectangle Classes="v2-badge-outline" AutomationProperties.AccessibilityView="Raw" />
+            <StackPanel Classes="v2-badge-content">
+              <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.Check}" />
+              <TextBlock Classes="v2-label" Text="{Binding PreviewSampleReady}" />
+            </StackPanel>
+          </Panel>
+          <Panel Classes="v2-badge v2-availability-failed">
+            <Rectangle Classes="v2-badge-outline" AutomationProperties.AccessibilityView="Raw" />
+            <StackPanel Classes="v2-badge-content">
+              <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.Cross}" />
+              <TextBlock Classes="v2-label" Text="{Binding PreviewSampleFailed}" />
+            </StackPanel>
+          </Panel>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- #292 task 4: every shortcut the window actually handles, read from the same list the
+         command palette offers rather than a second, hand-typed one. -->
+    <StackPanel Classes="v2-stack" IsVisible="{Binding HasShortcuts}"
+                AutomationProperties.AutomationId="v2-setup-accessibility-shortcuts">
+      <TextBlock Classes="v2-label" Text="{Binding ShortcutsHeading}" />
+      <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ShortcutsHint}" />
+      <ItemsControl ItemsSource="{Binding Shortcuts}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel ItemSpacing="16" LineSpacing="4" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:V2SetupShortcutViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+              <Border BorderBrush="{DynamicResource V2.Brush.Border}" BorderThickness="1"
+                      CornerRadius="4" Padding="6,2">
+                <TextBlock Classes="v2-label" Text="{Binding Gesture}" />
+              </Border>
+              <TextBlock Classes="v2-label" Text="{Binding Label}" />
+            </StackPanel>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

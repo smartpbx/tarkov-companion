@@ -355,12 +355,15 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         RelayClaimMessage = claimMessage;
         Stage = stage;
         PairingCode = pairingCode;
+        OnPropertyChanged(nameof(RelayTabletUrl));
+        OnPropertyChanged(nameof(HasRelayTabletUrl));
         // The shape the ceremony really produces, so a render shows the symbol a tablet would
         // actually be asked to scan rather than a placeholder that happens to be shorter.
         QrPayload = pairingCode is null
             ? null
-            : PairedTransportBinding.QrPayloadPrefix + pairingCode.Replace("-", string.Empty, StringComparison.Ordinal)
-                + "/" + new string('a', 43);
+            : BuildQrUrl(
+                PairedTransportBinding.QrPayloadPrefix + pairingCode.Replace("-", string.Empty, StringComparison.Ordinal)
+                    + "/" + new string('a', 43));
         _previewExpiry = codeExpiresUtc;
         TickExpiry();
         VerificationCode = verificationCode;
@@ -703,6 +706,24 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         ? $"This desktop owns the relay at {origin.Host}."
         : "This desktop owns the relay.";
 
+    /// <summary>
+    /// The relay's tablet page, as an absolute URL with no fragment. Shown as plain text so it can
+    /// be typed into a browser when the QR cannot be scanned (#289): a phone camera can only open a
+    /// link, so the QR itself has to be this same URL with the pairing payload in the fragment — see
+    /// <see cref="BuildQrUrl"/> and <see cref="PairedTransportBinding.FormatQrPayload"/>.
+    /// </summary>
+    public string? RelayTabletUrl => _relayOrigin is { } origin
+        ? origin.GetLeftPart(UriPartial.Authority) + PairedTransportBinding.TabletPagePath
+        : null;
+
+    public bool HasRelayTabletUrl => RelayTabletUrl is not null;
+
+    /// <summary>The QR symbol's payload: the relay's tablet page with the pairing payload in its
+    /// fragment, which a browser never sends to a server. Falls back to the bare payload (not a
+    /// navigable link) if the relay origin is somehow unknown, rather than drawing nothing.</summary>
+    private string BuildQrUrl(string rawPayload) =>
+        RelayTabletUrl is { } url ? $"{url}#{rawPayload}" : rawPayload;
+
     public string? RelayClaimMessage
     {
         get => _relayClaimMessage;
@@ -970,7 +991,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 return;
             }
 
-            QrPayload = invitation.QrPayload;
+            QrPayload = BuildQrUrl(invitation.QrPayload);
             PairingCode = invitation.PairingCode;
             Stage = CompanionPairingStage.AwaitingTablet;
             _ = PollForRequestAsync(_ceremony.Token);
