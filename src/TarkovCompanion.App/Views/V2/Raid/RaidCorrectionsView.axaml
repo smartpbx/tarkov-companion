@@ -1,0 +1,117 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Raid.RaidCorrectionsView"
+             x:DataType="vm:RaidCorrectionsViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Raid">
+  <!-- #286: what the companion read about this raid, and the player's way to overrule it. Each
+       value says Automatic or Manual beside it, and a Manual one has its way back. The classes
+       (v2-raid-expander, v2-raid-viewcontrol) are the Raid page's own, which hosts this. -->
+  <UserControl.Styles>
+    <Style Selector="Border.v2-raid-source">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-raid-source.v2-raid-manual">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Border.v2-raid-source.v2-raid-manual TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch" IsExpanded="{Binding IsOpen, Mode=TwoWay}"
+            AutomationProperties.AutomationId="v2-raid-corrections">
+    <Expander.Header>
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <TextBlock Classes="v2-heading-3" Text="Corrections" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" VerticalAlignment="Center" />
+      </Grid>
+    </Expander.Header>
+    <StackPanel Spacing="14">
+      <TextBlock Classes="v2-label" IsVisible="{Binding IsNotInRaid}" TextWrapping="Wrap"
+                 Text="Nothing to correct until a raid is running." />
+
+      <StackPanel Spacing="6" IsVisible="{Binding IsInRaid}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Classes="v2-label" Text="Side" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding SideText}"
+                     AutomationProperties.AutomationId="v2-raid-correct-side-value" VerticalAlignment="Center" />
+          <Border Grid.Column="2" Classes="v2-raid-source" Classes.v2-raid-manual="{Binding SideIsManual}">
+            <TextBlock Classes="v2-label" Text="{Binding SideSource}"
+                       AutomationProperties.AutomationId="v2-raid-correct-side-source" />
+          </Border>
+        </Grid>
+        <WrapPanel ItemSpacing="6" LineSpacing="6">
+          <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="PMC"
+                        IsChecked="{Binding IsPmc, Mode=OneWay}" Command="{Binding SetPmcCommand}"
+                        AutomationProperties.AutomationId="v2-raid-correct-side-pmc" />
+          <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Scav"
+                        IsChecked="{Binding IsScav, Mode=OneWay}" Command="{Binding SetScavCommand}"
+                        AutomationProperties.AutomationId="v2-raid-correct-side-scav" />
+          <Button Classes="v2-target v2-raid-viewcontrol" Content="Return to automatic"
+                  IsVisible="{Binding SideIsManual}" Command="{Binding ReturnSideCommand}"
+                  AutomationProperties.AutomationId="v2-raid-correct-side-return" />
+        </WrapPanel>
+      </StackPanel>
+
+      <StackPanel Spacing="6" IsVisible="{Binding IsInRaid}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Classes="v2-label" Text="Clock" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding ClockText}"
+                     AutomationProperties.AutomationId="v2-raid-correct-clock-value" VerticalAlignment="Center" />
+          <Border Grid.Column="2" Classes="v2-raid-source" Classes.v2-raid-manual="{Binding ClockIsManual}">
+            <TextBlock Classes="v2-label" Text="{Binding ClockSource}"
+                       AutomationProperties.AutomationId="v2-raid-correct-clock-source" />
+          </Border>
+        </Grid>
+        <WrapPanel ItemSpacing="6" LineSpacing="6">
+          <TextBox Width="92" MinHeight="32" Text="{Binding TimeLeftInput, Mode=TwoWay}"
+                   AutomationProperties.AutomationId="v2-raid-correct-time-left"
+                   AutomationProperties.Name="Time left, minutes and seconds"
+                   ToolTip.Tip="The time the game shows as left, like 23:10" />
+          <Button Classes="v2-target v2-raid-viewcontrol" Content="Set time left"
+                  Command="{Binding SetTimeLeftCommand}"
+                  AutomationProperties.AutomationId="v2-raid-correct-time-left-set" />
+          <Button Classes="v2-target v2-raid-viewcontrol" Content="Started now"
+                  Command="{Binding StartedNowCommand}"
+                  AutomationProperties.AutomationId="v2-raid-correct-started-now"
+                  ToolTip.Tip="Count this raid from this moment" />
+          <Button Classes="v2-target v2-raid-viewcontrol" Content="Return to automatic"
+                  IsVisible="{Binding ClockIsManual}" Command="{Binding ReturnClockCommand}"
+                  AutomationProperties.AutomationId="v2-raid-correct-clock-return" />
+        </WrapPanel>
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasInputNote}" Text="{Binding InputNote}" TextWrapping="Wrap" />
+      </StackPanel>
+
+      <StackPanel Spacing="6" IsVisible="{Binding IsInRaid}">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <TextBlock Classes="v2-label" Text="Extracts" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="v2-body" FontWeight="SemiBold" Text="{Binding ExtractsSummary}"
+                     AutomationProperties.AutomationId="v2-raid-correct-extracts-value" VerticalAlignment="Center" />
+          <Border Grid.Column="2" Classes="v2-raid-source" Classes.v2-raid-manual="{Binding ExtractsIsManual}">
+            <TextBlock Classes="v2-label" Text="{Binding ExtractsSource}"
+                       AutomationProperties.AutomationId="v2-raid-correct-extracts-source" />
+          </Border>
+        </Grid>
+        <TextBlock Classes="v2-label" IsVisible="{Binding HasExtractChoices}" Text="Press the ones this raid offers" />
+        <ItemsControl ItemsSource="{Binding ExtractChoices}" IsVisible="{Binding HasExtractChoices}">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:RaidExtractChoiceViewModel">
+              <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="{Binding Name}"
+                            IsChecked="{Binding IsOffered, Mode=OneWay}" Command="{Binding ToggleCommand}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Classes="v2-target v2-raid-viewcontrol" Content="Return to automatic" HorizontalAlignment="Left"
+                IsVisible="{Binding ExtractsIsManual}" Command="{Binding ReturnExtractsCommand}"
+                AutomationProperties.AutomationId="v2-raid-correct-extracts-return" />
+      </StackPanel>
+    </StackPanel>
+  </Expander>
+</UserControl>

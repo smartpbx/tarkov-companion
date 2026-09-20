@@ -6,7 +6,8 @@
              xmlns:appVm="using:TarkovCompanion.App.ViewModels"
              xmlns:mapVm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
              xmlns:mapvm="using:TarkovCompanion.App.ViewModels.Maps"
-             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+             xmlns:raid="using:TarkovCompanion.App.Views.V2.Raid">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a card row. -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -676,6 +677,11 @@
               <TextBlock Classes="v2-label" Text="{Binding Transits}"
                          IsVisible="{Binding HasTransits}" TextWrapping="Wrap" />
             </StackPanel>
+          </Border>
+
+          <!-- #286: side, clock and offered exits, each Automatic or Manual, each with its way back. -->
+          <Border Classes="v2-card v2-raid-section" Padding="4">
+            <raid:RaidCorrectionsView DataContext="{Binding Corrections}" />
           </Border>
 
           <!-- V2 rough package 20: always present, so "where do I remove this waypoint" has a
