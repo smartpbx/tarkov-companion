@@ -43,12 +43,35 @@ public sealed class HideoutPlannerTests
             new("workbench", 1, "item-b", 1),
         };
 
-        var short1 = Assert.Single(HideoutPlanner.Plan([Bench], Levels(), requirements, new Dictionary<string, int> { ["item-a"] = 2 }));
+        var short1 = Assert.Single(HideoutPlanner.Plan([Bench], Levels(), requirements, new Dictionary<string, int> { ["item-a"] = 2, ["item-b"] = 0 }));
         var enough = Assert.Single(HideoutPlanner.Plan([Bench], Levels(), requirements, new Dictionary<string, int> { ["item-a"] = 5, ["item-b"] = 1 }));
 
         Assert.False(short1.CanBuildNow);
         Assert.Equal(1, short1.MissingItemCount);
         Assert.True(enough.CanBuildNow);
+    }
+
+    [Fact]
+    public void An_item_nobody_counted_is_to_check_not_missing_and_still_stops_the_build()
+    {
+        // item-b is absent from the holdings: not recorded, which is not the same as none held.
+        // This used to read "1 missing", a claim made from having no information.
+        var requirements = new HideoutItemRequirement[]
+        {
+            new("workbench", 1, "item-a", 2),
+            new("workbench", 1, "item-b", 1),
+        };
+
+        var plan = Assert.Single(HideoutPlanner.Plan([Bench], Levels(), requirements, new Dictionary<string, int> { ["item-a"] = 2 }));
+
+        Assert.Equal(0, plan.MissingItemCount);
+        Assert.Equal(1, plan.UnknownItemCount);
+        // Not known to be missing, and not known to be held either.
+        Assert.False(plan.CanBuildNow);
+        var unknown = plan.NextLevelNeeds.Single(need => need.ItemId == "item-b");
+        Assert.Null(unknown.Owned);
+        // Nothing is taken off an unknown: the whole need is what is left to get.
+        Assert.Equal(1, unknown.Remaining);
     }
 
     [Fact]

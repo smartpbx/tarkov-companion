@@ -21,12 +21,12 @@ public enum RequirementHandling
 /// of them, and the first names it.
 /// </param>
 /// <param name="Need">How many are still needed. One for something carried in, however many objectives ask.</param>
-/// <param name="Have">How many the player holds, summed over the alternatives.</param>
+/// <param name="Have">How many the player holds, summed over the alternatives, or null where no holding of any of them is recorded.</param>
 public sealed record PlannedRequirement(
     IReadOnlyList<string> ItemIds,
     RequirementHandling Handling,
     int Need,
-    int Have)
+    int? Have)
 {
     /// <summary>The item that names the requirement.</summary>
     public string PrimaryItemId => ItemIds[0];
@@ -34,9 +34,9 @@ public sealed record PlannedRequirement(
     /// <summary>How many further items would do instead of the primary one.</summary>
     public int AlternativeCount => ItemIds.Count - 1;
 
-    public bool IsSatisfied => Have >= Need;
+    public bool IsSatisfied => HeldCount.Meets(Need, Have);
 
-    public int Remaining => Math.Max(0, Need - Have);
+    public int Remaining => HeldCount.Remaining(Need, Have);
 }
 
 /// <summary>Which quest requirement fields name something to carry, and which are not items to have at all.</summary>

@@ -290,12 +290,12 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public bool RequirementsReady => HasRequirements && StillNeededCount == 0;
 
-    /// <summary>"All ready", "2 still needed", or empty where the objectives ask for no item.</summary>
+    /// <summary>"All ready", "2 still needed", "3 to check", or empty where the objectives ask for no item.</summary>
     public string RequirementsSummary => !HasRequirements
         ? string.Empty
         : RequirementsReady
             ? "All ready"
-            : $"{StillNeededCount:N0} still needed";
+            : PlanQuestRules.SummariseUnmet(Requirements.Where(row => !row.IsSatisfied));
 
     public bool IsSelected
     {
@@ -1284,10 +1284,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         var unmet = Groups
             .SelectMany(group => group.Requirements.Where(row => !row.IsSatisfied))
-            .Select(row => (row.ItemName, row.HandlingLabel))
-            .Distinct()
-            .Count();
-        RequirementsRollup = unmet == 0 ? string.Empty : $"{CountLabel(unmet, "item")} still needed";
+            .DistinctBy(row => (row.ItemName, row.HandlingLabel));
+        RequirementsRollup = PlanQuestRules.SummariseUnmet(unmet, value => CountLabel(value, "item"));
     }
 
     /// <summary>
