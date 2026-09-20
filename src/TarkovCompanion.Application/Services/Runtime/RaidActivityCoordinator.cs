@@ -210,8 +210,8 @@ public sealed class RaidActivityCoordinator(
                 await raidHistoryService.EndAsync(
                     abandoned,
                     current.UpdatedUtc,
-                    "Closed on restart",
-                    "The companion was not running when this raid ended.",
+                    RaidClosure.ClosedOnRestartOutcome,
+                    RaidClosure.ClosedOnRestartNotes,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -262,8 +262,8 @@ public sealed class RaidActivityCoordinator(
             await raidHistoryService.EndAsync(
                 abandoned,
                 now,
-                "Closed on restart",
-                "The companion was not running when this raid ended.",
+                RaidClosure.ClosedOnRestartOutcome,
+                RaidClosure.ClosedOnRestartNotes,
                 cancellationToken).ConfigureAwait(false);
         }
     }
