@@ -6,6 +6,7 @@ using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.SelfTest;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
@@ -14,6 +15,8 @@ using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Infrastructure.Persistence.Inventory;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
@@ -23,6 +26,7 @@ using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
@@ -68,6 +72,8 @@ using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
+using TarkovCompanion.App.Services.V2.Notifications;
+using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -329,6 +335,20 @@ public static class AppComposition
             timeProvider));
         services.AddSingleton<IRaidMarkStore>(_ =>
             new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
+        // [Issue 379] Objective markers the player placed themselves, kept apart from the quest
+        // catalog because a sync replaces the catalog and a note of theirs must outlive it.
+        services.AddSingleton<IUserQuestMarkStore>(_ =>
+            new JsonFileUserQuestMarkStore(Path.Combine(paths.Config, "user-quest-markers.json"), timeProvider));
+        // [Issue 318] The last verified loot-spawn import's per-map coverage, for Setup > Data.
+        services.AddSingleton(provider => new LootCoverageViewModel(
+            provider.GetRequiredService<ILootSpawnSourcePublicationStore>(),
+            () => provider.GetRequiredService<MapViewModel>().Locations));
+        services.AddSingleton(provider => new QuestCoverageViewModel(
+            provider.GetRequiredService<IQuestCatalog>(),
+            provider.GetRequiredService<IUserQuestMarkStore>(),
+            provider.GetRequiredService<IMapDataService>(),
+            () => provider.GetRequiredService<MapViewModel>().Locations,
+            provider.GetRequiredService<IProfileRuntimeContextService>()));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
@@ -358,12 +378,18 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [#309] What the hourly tidy moved, or failed to, kept as counts and reasons across restarts.
+        services.AddSingleton<IScreenshotTidyLedger>(_ =>
+            new JsonFileScreenshotTidyLedger(Path.Combine(paths.Config, "screenshot-tidy-ledger.json")));
         // [V2 rough package 60 — appearance] #266/#315: the one versioned record that says how
         // the companion looks. Nothing persisted a theme, a text scale, a density or a motion
         // choice before this, so every palette the design system shipped was unreachable.
         services.AddSingleton<IWorkspacePreferenceStore>(_ =>
             new JsonFileWorkspacePreferenceStore(Path.Combine(paths.Config, "preferences.json")));
         services.AddSingleton<WorkspacePreferenceService>();
+        // [V2 rough package 60 — Plan] #288: saved kits, so a loadout survives closing the page.
+        services.AddSingleton<ILoadoutPresetStore>(_ =>
+            new JsonFileLoadoutPresetStore(Path.Combine(paths.Config, "loadouts.json")));
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -693,7 +719,10 @@ public static class AppComposition
             // too, through the same relay call the Team workspace uses.
             provider.GetRequiredService<GroupSessionService>(),
             // [Package 35] The wiki link on a selected quest objective.
-            provider.GetRequiredService<IWikiLinkOpener>()));
+            provider.GetRequiredService<IWikiLinkOpener>(),
+            // [Issue 379] The player's own objective markers. Named, so another optional parameter
+            // added before it cannot quietly take this one's place.
+            userMarkers: provider.GetRequiredService<IUserQuestMarkStore>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
@@ -727,14 +756,41 @@ public static class AppComposition
         services.AddSingleton<IIconContentFetcher>(provider => new HttpIconContentFetcher(provider.GetRequiredService<HttpClient>()));
         services.AddSingleton<IconEvidenceIndexer>();
         services.AddSingleton<IInvalidatableProjection>(provider => provider.GetRequiredService<IconEvidenceIndexer>());
-        services.AddSingleton<LootScanRecommendationSource>();
+        // [fin-recognition] #282: what a Loot Scan decides from. The profile's pins and item
+        // rules, outstanding quest and hideout needs, the published flea rates, how readily an
+        // item is had, the raid phase and risk, and a scanned stash where one exists.
+        services.AddSingleton<IItemMarketFactSource, SqliteItemMarketFactSource>();
+        services.AddSingleton(provider => new LootScanNeedSource(
+            provider.GetRequiredService<IPlayerProfileService>(),
+            provider.GetRequiredService<ProfileNeedAggregationService>(),
+            provider.GetRequiredService<IQuestReadService>(),
+            provider.GetRequiredService<IRequirementCatalog>()));
+        services.AddSingleton<LootScanRaidPreference>();
+        services.AddSingleton(provider => new LootScanRaidContextSource(
+            provider.GetRequiredService<IRaidStateService>(),
+            provider.GetRequiredService<IMapDataService>(),
+            provider.GetRequiredService<LootScanRaidPreference>()));
+        services.AddSingleton<ObservedInventoryRecognitionProjector>();
+        services.AddSingleton<IObservedInventoryEvidenceReader, SqliteObservedInventoryEvidenceReader>();
+        services.AddSingleton(provider => new LootScanRecommendationSource(
+            provider.GetRequiredService<IItemRepository>(),
+            provider.GetRequiredService<IItemMarketFactSource>(),
+            provider.GetRequiredService<LootScanNeedSource>(),
+            provider.GetRequiredService<LootScanRaidContextSource>()));
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
             provider.GetRequiredService<CaptureRecognitionPipeline>());
         services.AddSingleton<InventoryGridReconstructor>();
         services.AddSingleton<LootScanDecisionService>();
-        services.AddSingleton<LootScanCaptureHandoff>();
+        services.AddSingleton(provider => new LootScanCaptureHandoff(
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            provider.GetRequiredService<InventoryGridReconstructor>(),
+            provider.GetRequiredService<LootScanDecisionService>(),
+            timeProvider,
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<LootScanCaptureHandoff>>(),
+            provider.GetRequiredService<LootScanRecommendationSource>(),
+            provider.GetRequiredService<IObservedInventoryEvidenceReader>()));
         services.AddSingleton<StashScanCaptureHandoff>();
         // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
         // item. Every intent but Loot and Stash used to be acknowledged and dropped.
@@ -748,6 +804,13 @@ public static class AppComposition
             provider.GetRequiredService<ICaptureResultHandoff>(),
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
+        // [fin-recognition] #283: the caller StashOrganizationPlanner never had. The stash
+        // workspace takes it as an optional dependency and sorts each scan with it.
+        services.AddSingleton<StashPlanSource>();
+        // [fin-recognition] #282: pin, wishlist, item rule, raid phase and risk, set from the
+        // Loot Scan workspace and read back by the scan.
+        services.AddSingleton<LootScanWorkspaceControls>();
+        services.AddSingleton<ILootScanWorkspaceControls>(provider => provider.GetRequiredService<LootScanWorkspaceControls>());
         services.AddSingleton<V2ShellCaptureBridge>();
         // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
         // paired device in Control mode moving it back. Refs #407.
@@ -791,7 +854,34 @@ public static class AppComposition
             provider.GetRequiredService<SelfTestJournal>(),
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+        // [V2 rough package 43 (#314)] Tray presence and the five notifications. The tray host is
+        // registered here and attached once Avalonia is up; the bridge observes the runtime store
+        // for the life of the process and is resolved by the shell that shows Setup.
+        services.AddSingleton<TrayPresenceHost>();
+        services.AddSingleton<PopupNotificationHost>();
+        services.AddSingleton<INotificationSettingsStore>(_ =>
+            new JsonFileNotificationSettingsStore(Path.Combine(paths.Config, "notifications.json")));
+        services.AddSingleton(provider => new NotificationBridge(
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<INotificationSettingsStore>(),
+            provider.GetRequiredService<IGroupSettingsStore>(),
+            [provider.GetRequiredService<TrayPresenceHost>()],
+            provider.GetRequiredService<PopupNotificationHost>,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton(provider => new SetupNotificationsViewModel(
+            provider.GetRequiredService<NotificationBridge>(),
+            () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#309] Setup > Privacy: preview before turning tidying on, a dry run, and the last-run ledger.
+        services.AddSingleton(provider => new SetupCleanupViewModel(
+            provider.GetRequiredService<ScreenshotRetentionService>(),
+            provider.GetRequiredService<IScreenshotRetentionStore>(),
+            provider.GetService<IScreenshotTidyLedger>(),
+            () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.ToggleScreenshotTidyingCommand,
+            () => provider.GetRequiredService<MainWindowViewModel>().Settings.CanTidyScreenshots,
+            provider.GetRequiredService<TimeProvider>()));
         // [#269] What Setup › Game & Profile drives: create, switch, archive, restore. A first profile
         // waits for the V1 one to be seeded, so V1 progress always has a profile to belong to.
         services.AddSingleton(provider => new ProfileManagementService(
@@ -824,7 +914,11 @@ public static class AppComposition
                     provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline,
                     provider.GetRequiredService<SetupDataDetailViewModel>().Facts.FirstOrDefault()?.Value,
                     provider.GetRequiredService<MainWindowViewModel>().Group)),
-            provider.GetRequiredService<SetupDisplaysViewModel>()));
+            provider.GetRequiredService<SetupDisplaysViewModel>(),
+            // [#292/#309] The report a player reads before it is sent, and the send of exactly that text.
+            new SetupReportViewModel(
+                () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
+                (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token))));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

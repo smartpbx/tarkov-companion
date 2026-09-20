@@ -5,6 +5,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
@@ -29,7 +30,19 @@ public sealed record RuntimeDataState(
     int ItemCount,
     int SyncedEndpointCount,
     DateTimeOffset? UpdatedUtc,
-    string Detail);
+    string Detail)
+{
+    /// <summary>
+    /// The endpoints that did not refresh, by name. Empty after a clean refresh.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43] <see cref="Detail"/> has always named them, inside a sentence
+    /// assembled for a status line. A notification has to name them too, and parsing that sentence
+    /// back apart to find out which ones failed would be a second source of truth that drifts the
+    /// first time the wording changes.
+    /// </remarks>
+    public IReadOnlyList<string> FailedEndpoints { get; init; } = [];
+}
 
 public sealed record ScanExecutionResult(
     bool IsAvailable,
@@ -63,6 +76,7 @@ public sealed record ScanExecutionResult(
         {
             ScanCompletionStatus.Unavailable =>
                 $"Scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
+            _ when outcome.Flea is { ProviderAvailable: true } flea => DescribeFleaRows(flea),
             _ when selected is not null && recommendation is null && outcome.EconomicValue is { } worth =>
                 $"Resolved {selected.DisplayName}, worth {worth:N0} roubles. No recommendation, because that needs raid context the scan did not have.",
             _ when selected is not null && recommendation is null =>
@@ -92,6 +106,32 @@ public sealed record ScanExecutionResult(
     }
 
     /// <summary>
+    /// What a flea screenshot said, as the rows that were read and when. A flea scan selects no
+    /// item, so before this the player got "FleaListings scan finished with Complete" and the rows
+    /// the parser had just joined were counted and thrown away.
+    /// </summary>
+    /// <remarks>
+    /// The time is the capture's, said plainly: a listing was on the market when it was
+    /// photographed and nothing here says it still is. A quantity is shown only when one was read.
+    /// </remarks>
+    private static string DescribeFleaRows(FleaRecognitionResult flea)
+    {
+        var when = LocalTime.Time(flea.ObservedUtc);
+        if (flea.Listings.Count == 0)
+        {
+            return $"No flea rows could be read in this screenshot, taken at {when}.";
+        }
+
+        const int shown = 5;
+        var rows = flea.Listings.Take(shown).Select(listing => listing.Quantity is { } quantity
+            ? $"{listing.PriceRoubles:N0} ₽ ×{quantity}"
+            : $"{listing.PriceRoubles:N0} ₽");
+        var more = flea.Listings.Count > shown ? $" · +{flea.Listings.Count - shown} more" : string.Empty;
+        var partial = flea.DiagnosticCode is null ? string.Empty : " · partial read";
+        return $"Flea rows as of {when}: {string.Join(" · ", rows)}{more}{partial}.";
+    }
+
+    /// <summary>
     /// Whether this is worth putting in front of somebody, as opposed to merely having happened.
     /// </summary>
     /// <remarks>
@@ -104,6 +144,23 @@ public sealed record ScanExecutionResult(
     /// worth an answer, including a disappointing one, because they are waiting for it.
     /// </remarks>
     public bool IsWorthReporting => Succeeded || !IsAvailable;
+
+    /// <summary>
+    /// Whether a scan the game's screenshot key started should be published: it is worth reporting,
+    /// or it is a flea screenshot that read rows.
+    /// </summary>
+    /// <remarks>
+    /// A flea scan selects no item, so it never "succeeds", but rows read are something found. This is
+    /// decided from the outcome and not from a member of this record because the record crosses the
+    /// raid-history outbox and its shape is pinned; a field added for the interface's sake would have
+    /// changed what is stored.
+    /// </remarks>
+    public static bool IsWorthPublishing(ScanOutcome outcome, ScanExecutionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(result);
+        return result.IsWorthReporting || outcome.Flea is { ProviderAvailable: true, Listings.Count: > 0 };
+    }
 
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,

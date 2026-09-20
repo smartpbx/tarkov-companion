@@ -25,12 +25,53 @@ public sealed class V2ShellHostContractTests
         var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
         var model = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "ViewModels", "V2", "Shell", "V2ShellViewModel.cs"));
 
+        var legacy = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "Pages", "LegacyShellView.axaml"));
+
         Assert.Contains("LegacyPageHost", main, StringComparison.Ordinal);
         Assert.Contains("V2ShellView", main, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding IsPreviewShell}\"", main, StringComparison.Ordinal);
-        Assert.Contains("Content=\"{Binding LegacyPage}\"", shell, StringComparison.Ordinal);
         Assert.Contains("new V2ShellRouter(Variant, Registry)", model, StringComparison.Ordinal);
+        // [#294] One transform per shell, each over that shell alone, and neither inside
+        // V2ShellView — the scale is the window's business. V1's moved out of the shared window
+        // with the rest of the V1 shell; V2 gained one of its own, because the V1 transform
+        // wrapped only V1 and so Setup's Smaller/Larger/Reset moved a number nothing applied.
+        Assert.Contains("LayoutTransformControl", legacy, StringComparison.Ordinal);
+        Assert.Contains("ScaleX=\"{Binding InterfaceScale}\"", legacy, StringComparison.Ordinal);
+        Assert.Contains("ScaleX=\"{Binding InterfaceScale}\"", main, StringComparison.Ordinal);
+        Assert.Equal(1, main.Split("</LayoutTransformControl>").Length - 1);
         Assert.DoesNotContain("LayoutTransformControl", shell, StringComparison.Ordinal);
+        // And the V1 shell is content, not inline markup, so a V2 launch never builds it.
+        Assert.Contains("Content=\"{Binding LegacyShell}\"", main, StringComparison.Ordinal);
+        Assert.Contains("<pages:LegacyShellView />", main, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// [#294] The shell still marks Setup while a build waits, and the mark is still drawn.
+    /// </summary>
+    /// <remarks>
+    /// The behaviour is tested in V2UpdateNoticeTests against the seam; this is the other half,
+    /// because a correct helper nobody calls marks nothing. Nothing in this suite can build a
+    /// V2ShellViewModel to check the call at runtime — it needs the whole composition — so the
+    /// call and the markup are read.
+    ///
+    /// Both halves matter separately: delete the constructor line and the dot never appears;
+    /// delete the Ellipse and the shell knows but shows nothing, which is the state this issue
+    /// existed to end.
+    /// </remarks>
+    [Fact]
+    public void A_waiting_build_marks_setup_and_the_mark_is_drawn()
+    {
+        var model = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "ViewModels", "V2", "Shell", "V2ShellViewModel.cs"));
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+
+        Assert.Contains("MarkWhileUpdateWaits(legacy.Settings, SetupDestination)", model, StringComparison.Ordinal);
+        Assert.Contains("_updateNotice?.Dispose();", model, StringComparison.Ordinal);
+        // The rail's shared icon template, so every place a destination is drawn carries it.
+        Assert.Contains("IsVisible=\"{Binding HasNotice}\"", shell, StringComparison.Ordinal);
+        // And the header, which draws a label rather than that template (variant B's Setup).
+        Assert.Contains("IsVisible=\"{Binding SetupDestination.HasNotice}\"", shell, StringComparison.Ordinal);
+        // Said, not only drawn.
+        Assert.Contains("{Binding SetupDestination.StatusDescription}", shell, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -161,8 +202,10 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
         Assert.Contains("Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter", shell, StringComparison.Ordinal);
         Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
-        // V2 rough package 30 gave this host V1's own page inset; the binding is what matters here.
-        Assert.Contains("IsVisible=\"{Binding ShowsLegacyPage}\" Content=\"{Binding LegacyPage}\"", shell, StringComparison.Ordinal);
+        // [#294] The host that drew a V1 page inside the V2 shell is gone with the last route
+        // that named one; the workspace host beside it is what draws these pages now.
+        Assert.DoesNotContain("ShowsLegacyPage", shell, StringComparison.Ordinal);
+        Assert.Contains("IsVisible=\"{Binding ShowsWorkspace}\" Content=\"{Binding WorkspaceContent}\"", shell, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding SectionItems}\"", shell, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"v2-shell-sections\"", shell, StringComparison.Ordinal);
         // V2 rough package 21: the primary destinations row dropped DisplayLabel's "› " current
@@ -199,8 +242,10 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("AutomationProperties.GetAutomationId(control)", view, StringComparison.Ordinal);
         Assert.Contains("_wiredShell?.FocusFallbackTarget", view, StringComparison.Ordinal);
         Assert.Contains("focusedAutomationId", view, StringComparison.Ordinal);
+        // [#294] V1's rail, and the accessible name on it, moved into LegacyShellView with the
+        // rest of the V1 shell. The window keeps only the two hosts and the keyboard boundary.
         Assert.Contains("AutomationProperties.Name=\"{Binding Name}\"", File.ReadAllText(
-            V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "MainWindow.axaml")), StringComparison.Ordinal);
+            V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "Pages", "LegacyShellView.axaml")), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -11,6 +11,7 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
@@ -22,6 +23,8 @@ using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
+
+using TarkovCompanion.App.Services.V2.Shell;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -1765,7 +1768,7 @@ public sealed class HistoryPageViewModel : PageViewModel
     }
 }
 
-public sealed class SettingsPageViewModel : PageViewModel
+public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 {
     /// <summary>
     /// Updating the application from inside it, rather than by hand.
@@ -1800,6 +1803,18 @@ public sealed class SettingsPageViewModel : PageViewModel
     private ApplicationRuntimeSnapshot? _snapshot;
     private string _diagnosticsStatus = "Nothing copied yet.";
     private readonly SelfTestJournal? _selfTest;
+
+    /// <summary>
+    /// Which pages did not load at startup, asked of whoever knows, when a report is built.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than a list because this page is constructed before startup has finished
+    /// failing; a snapshot taken at construction would always be empty. Owned by
+    /// <see cref="MainWindowViewModel"/>, which is the only thing that runs the page loads and so
+    /// the only thing that knows. Left null by a hand-built test graph, and then the report says
+    /// none, which is the truthful answer for a graph that never ran a startup.
+    /// </remarks>
+    public Func<IReadOnlyList<string>>? StartupFaults { get; set; }
 
     /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
     public string DiagnosticsStatus
@@ -1846,7 +1861,8 @@ public sealed class SettingsPageViewModel : PageViewModel
                 snapshot,
                 snapshot.RecentScreenshotNames,
                 CrashLog.FilePath,
-                summary?.ToSupportFacts(CultureInfo.CurrentCulture));
+                summary?.ToSupportFacts(CultureInfo.CurrentCulture),
+                StartupFaults?.Invoke());
             // The clipboard stays on this machine, so it also carries the self-test's own
             // words — the folders, endpoints and reasons that are most of the answer, and the
             // part SupportBundle may not send anywhere.
@@ -2103,7 +2119,8 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// </remarks>
     public async Task ReportProblemAsync()
     {
-        if (_snapshot is not { } snapshot)
+        var report = BuildReport();
+        if (report is null)
         {
             DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
             return;
@@ -2112,17 +2129,45 @@ public sealed class SettingsPageViewModel : PageViewModel
         DiagnosticsStatus = "Sending…";
         try
         {
-            var report = SupportBundle.Describe(
-                snapshot,
-                snapshot.RecentScreenshotNames,
-                CrashLog.FilePath,
-                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture));
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
         }
+    }
+
+    /// <summary>
+    /// The exact text a problem report would send, or null before the application has a snapshot to describe.
+    /// </summary>
+    /// <remarks>
+    /// One producer for the report the player is shown and the report that is sent, so a preview cannot say one
+    /// thing and the send another (#292, #309). It is <see cref="SupportBundle"/>'s closed projection and nothing else:
+    /// the self-test's own text, which names folders, stays on the clipboard path.
+    /// </remarks>
+    public string? BuildReport() => _snapshot is { } snapshot
+        ? SupportBundle.Describe(
+            snapshot,
+            snapshot.RecentScreenshotNames,
+            CrashLog.FilePath,
+            _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture),
+            StartupFaults?.Invoke())
+        : null;
+
+    /// <summary>Sends text that <see cref="BuildReport"/> produced and the player has read, and says what happened.</summary>
+    public async Task<string> SendReviewedReportAsync(string report, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(report);
+        try
+        {
+            DiagnosticsStatus = await SendReport(report, cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+        }
+
+        return DiagnosticsStatus;
     }
 
     /// <summary>
@@ -2247,6 +2292,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     /// <summary>Whether a newer build is waiting, fetched or not, for the one-press update.</summary>
     public bool CanUpdateNow => CanDownloadUpdate || CanRestartForUpdate;
+
+    /// <summary>[#294] The same fact, under the name the V2 shell asks for it by.</summary>
+    bool IUpdateWaitingSource.IsUpdateWaiting => CanUpdateNow;
 
     /// <summary>
     /// Looks for a newer build, on a timer, without anybody asking.
@@ -2689,7 +2737,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         TimeProvider timeProvider,
         ILogger<MainWindowViewModel> logger,
         // V2 rough package 41 (#292, #281): optional so every hand-built test graph still builds.
-        SelfTestJournal? selfTest = null)
+        SelfTestJournal? selfTest = null,
+        // [V2 rough package 60 — Plan] #288: saved kits, optional for the same reason. With no
+        // store the Loadout page offers no presets rather than a Save button that does nothing.
+        ILoadoutPresetStore? loadoutPresets = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2731,10 +2782,14 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             // The relay does the filing, because a token on every player's disk is not a thing
             // to arrange, and the group session is the one component that already holds the key.
             SendReport = group.ReportProblemAsync,
+            // Asked at the moment a report is built, not now: startup has not run yet, and what
+            // this answers is which of its pages failed. Without it a player whose Hideout page
+            // never filled in sends a report that says "database ready" and stops there.
+            StartupFaults = () => StartupFaults,
         };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
-        Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
+        Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider);
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);
@@ -2958,12 +3013,30 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
                 OnPropertyChanged(nameof(IsLegacyShell));
                 OnPropertyChanged(nameof(IsPreviewShell));
+                OnPropertyChanged(nameof(LegacyShell));
                 OnPropertyChanged(nameof(WindowTitle));
             }
         }
     }
 
     public bool IsLegacyShell => PreviewShell is null;
+
+    /// <summary>
+    /// This view model when V1 is the shell, and null when it is not.
+    /// </summary>
+    /// <remarks>
+    /// [#294] The window binds the V1 shell's content to this rather than writing it inline, so
+    /// that a V2 launch never builds it. It used to be built every time and hidden with
+    /// IsVisible="False": all fourteen V1 pages constructed, all their bindings attached, none of
+    /// it ever drawn. A ContentControl with null content realises no template, so under V2 that
+    /// work does not happen at all.
+    ///
+    /// Not notified on its own: the shell is chosen once at process start and never swapped
+    /// (see <c>V2ShellMode</c>), and PreviewShell's setter already
+    /// raises <see cref="IsLegacyShell"/> for the one assignment that happens before the window
+    /// is shown.
+    /// </remarks>
+    public object? LegacyShell => PreviewShell is null ? this : null;
 
     public bool IsPreviewShell => PreviewShell is not null;
 

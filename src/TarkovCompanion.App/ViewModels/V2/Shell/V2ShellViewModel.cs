@@ -84,6 +84,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     private readonly ConcurrentQueue<V2ShellPersistenceResult> _persistenceResults = new();
     private V2NavigationRail _navigationRail = V2NavigationRail.Labels;
     private readonly List<INotifyPropertyChanged> _legacyContextSources = [];
+    /// <summary>[#294] Keeps the Setup mark in step with the updater for the life of the shell.</summary>
+    private readonly IDisposable? _updateNotice;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _lifetimeToken;
     private readonly object _disposeSync = new();
@@ -159,13 +161,21 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
         SetupSelfTestViewModel? selfTest = null,
+        // V2 rough package 43 (#314): Setup's notification switches, same reasoning again.
+        SetupNotificationsViewModel? notifications = null,
         // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
         // record the Appearance section writes. Optional for the same reason as the rest.
         WorkspacePreferenceService? preferences = null,
         // [#269] Setup's profile list, same reasoning again.
         SetupProfilesViewModel? profiles = null,
         // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
-        SetupAdminViewModel? admin = null)
+        SetupAdminViewModel? admin = null,
+        // [#309] Setup's screenshot-tidy preview and ledger, same reasoning again.
+        SetupCleanupViewModel? cleanup = null,
+        // [Issue 379] Setup's per-map quest objective coverage, same reasoning again.
+        QuestCoverageViewModel? questCoverage = null,
+        // [Issue 318] Setup's per-map loot-spawn coverage, same reasoning again.
+        LootCoverageViewModel? lootCoverage = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -195,6 +205,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             SetupWorkspace.AttachSelfTest(selfTest);
         }
 
+        if (notifications is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachNotifications(notifications);
+        }
+
         if (preferences is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAppearance(new V2AppearanceSettingsViewModel(preferences));
@@ -208,6 +223,21 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (admin is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAdmin(admin);
+        }
+
+        if (cleanup is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachCleanup(cleanup);
+        }
+
+        if (questCoverage is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachQuestCoverage(questCoverage);
+        }
+
+        if (lootCoverage is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachLootCoverage(lootCoverage);
         }
     }
 
@@ -297,6 +327,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         SetupDestination = new(
             Variant.Setup,
             route => GoTo(route, V2ShellFocusTargets.Destination(route)));
+        // [#294] V1 marked its rail when a build was waiting; V2 marked nothing, so an update
+        // arrived and told nobody who had not gone looking in Setup › Updates.
+        _updateNotice = legacy is null ? null : MarkWhileUpdateWaits(legacy.Settings, SetupDestination);
         // #292: built once, from the same view models V1's Settings page binds. Null only in the
         // handful of tests above that build a shell without a legacy graph to adapt.
         SetupWorkspace = legacy is null ? null : new(legacy.Settings, legacy.Group, legacy, GoTo);
@@ -403,7 +436,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         WireLegacyContext();
         Restore(requestedAddress);
-        SynchronizeLegacyRoute();
         RebuildSectionItems();
         LoadCurrentWorkspace();
         Refresh(announceBackgroundChange: false);
@@ -435,7 +467,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public AmmoWorkspaceViewModel? AmmoWorkspace { get; }
     public KeysWorkspaceViewModel? KeysWorkspace { get; }
     public FleaWorkspaceViewModel? FleaWorkspace { get; }
-    public object? LegacyPage => Legacy?.CurrentPage;
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
     public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
@@ -906,7 +937,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public bool ShowsWorkspaceSearch => Variant.SearchPlacement == V2SearchPlacement.InsideItemsWorkspace &&
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsSectionNavigation => SectionItems.Count > 1;
-    public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
     /// <summary>
     /// Whether the current route hosts a self-contained V2 workspace (stash scan, debrief).
     /// </summary>
@@ -949,7 +979,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ICommand ScanLootCommand { get; }
     public bool ShowsSetupWorkspace => Registry[Router.Current.Location.Route].Content == V2RouteContent.SetupWorkspace;
     public int ShellBodyRowSpan =>
-        ShowsLegacyPage || ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
+        ShowsWorkspace || ShowsRaidCockpit || ShowsLootScan || ShowsSetupWorkspace || ShowsIntelWorkspace ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     /// <summary>The plain checklist; Setup draws the same checks as its overview's steps instead.</summary>
     public bool ShowsReadinessChecklist => ShowsReadiness && !ShowsSetupWorkspace;
@@ -1615,7 +1645,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     {
         var resetting = Volatile.Read(ref _resetInProgress) != 0;
         _activeReadinessTarget = null;
-        SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
         // Every navigation funnels through here, which is what makes this the one place worth
         // recording. The crash on 2026-09-19 happened on navigation and left the log silent;
@@ -1775,15 +1804,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
     }
 
-    private void SynchronizeLegacyRoute()
-    {
-        if (Legacy is not null && Registry[Router.Current.Location.Route].LegacyPage is { } page)
-        {
-            Legacy.Navigate(page);
-            OnPropertyChanged(nameof(LegacyPage));
-        }
-    }
-
     private void WireLegacyContext()
     {
         if (Legacy is null)
@@ -1822,11 +1842,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             return;
         }
 
-        if (isLegacyRoot)
-        {
-            OnPropertyChanged(nameof(LegacyPage));
-        }
-
         _apply.Request();
     }
 
@@ -1839,6 +1854,40 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// </remarks>
     internal static bool ShouldRefreshLegacyContext(bool isLegacyRoot, string? propertyName) =>
         !isLegacyRoot || propertyName is null or nameof(MainWindowViewModel.CurrentPage);
+
+    /// <summary>
+    /// Marks a destination for as long as a build is waiting behind it.
+    /// </summary>
+    /// <remarks>
+    /// [#294] Static, and taking the two things it needs rather than reading them off the shell,
+    /// because that is the only way this wiring can be tested: nothing in the unit suite builds a
+    /// whole <see cref="V2ShellViewModel"/>, which needs the entire composition. A fake
+    /// <see cref="IUpdateWaitingSource"/> and a real destination prove the behaviour; a source
+    /// ratchet proves the constructor still calls this.
+    ///
+    /// Reads the current value before subscribing, because the event only fires on a change and
+    /// the updater may have found a build before this shell existed.
+    /// </remarks>
+    internal static IDisposable MarkWhileUpdateWaits(IUpdateWaitingSource source, V2ShellDestinationViewModel destination)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        destination.HasNotice = source.IsUpdateWaiting;
+        void Changed(object? sender, bool waiting) => destination.HasNotice = waiting;
+        source.UpdateWaitingChanged += Changed;
+        return new UpdateNoticeSubscription(() => source.UpdateWaitingChanged -= Changed);
+    }
+
+    private sealed class UpdateNoticeSubscription(Action unsubscribe) : IDisposable
+    {
+        private Action? _unsubscribe = unsubscribe;
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _unsubscribe, null)?.Invoke();
+        }
+    }
 
     private void SynchronizeLegacySelection()
     {
@@ -2707,7 +2756,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ShowsSurfaceBanner), nameof(SurfaceBannerText), nameof(ShowsHealthSurface),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsWorkspace), nameof(WorkspaceContent),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsWorkspace), nameof(WorkspaceContent),
             nameof(ShowsRaidCockpit),
             nameof(ShowsLootScan), nameof(LootScanResult), nameof(ShowsLootScanEmpty),
             nameof(ShowsSetupWorkspace), nameof(ShellBodyRowSpan),
@@ -3165,6 +3214,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _plan.OpenHideoutRequested -= PlanOpenHideoutRequested;
         }
 
+        _updateNotice?.Dispose();
         ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;
         _persistence.Completed -= PersistenceCompleted;
         foreach (var source in _legacyContextSources)
@@ -3183,6 +3233,7 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
 {
     private readonly V2DestinationDefinition _definition;
     private bool _isCurrent;
+    private bool _hasNotice;
     private bool _showsLabel = true;
 
     public V2ShellDestinationViewModel(V2DestinationDefinition definition, Action<V2RouteId> navigate)
@@ -3221,6 +3272,45 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
     public bool IsDebrief => Route == V2Routes.Debrief;
     public bool IsSetup => Route == V2Routes.Setup;
     public string AutomationId => V2ShellFocusTargets.Destination(Route);
+
+    /// <summary>
+    /// Whether this destination has something waiting behind it.
+    /// </summary>
+    /// <remarks>
+    /// [#294] Today this is only Setup, and only an update. V1 marked its rail the same way and
+    /// V2 marked nothing, so a build arrived and said nothing to anybody who did not open
+    /// Setup › Updates of their own accord.
+    ///
+    /// A dot rather than a count or a colour: what is waiting is a yes-or-no, the rail is small,
+    /// and the accessible name carries the words for anybody not looking at a dot.
+    /// </remarks>
+    public bool HasNotice
+    {
+        get => _hasNotice;
+        set
+        {
+            if (SetProperty(ref _hasNotice, value))
+            {
+                OnPropertyChanged(nameof(NoticeDescription));
+                OnPropertyChanged(nameof(StatusDescription));
+            }
+        }
+    }
+
+    /// <summary>What a screen reader says about the dot, or nothing when there is none.</summary>
+    public string NoticeDescription => HasNotice ? V2ShellText.Get("V2.Shell.Nav.UpdateWaiting") : string.Empty;
+
+    /// <summary>
+    /// Whether this is the current page, and what is waiting behind it.
+    /// </summary>
+    /// <remarks>
+    /// [#294] One string because a control has one ItemStatus. Announcing the mark instead of the
+    /// selection would trade one thing a screen reader was told for another; this adds.
+    /// </remarks>
+    public string StatusDescription => HasNotice
+        ? $"{SelectionDescription}. {NoticeDescription}"
+        : SelectionDescription;
+
     public string SelectionDescription => IsCurrent
         ? V2ShellText.Get("V2.Shell.Nav.Current")
         : V2ShellText.Get("V2.Shell.Nav.NotCurrent");
@@ -3232,6 +3322,7 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
             if (SetProperty(ref _isCurrent, value))
             {
                 OnPropertyChanged(nameof(SelectionDescription));
+                OnPropertyChanged(nameof(StatusDescription));
                 OnPropertyChanged(nameof(DisplayLabel));
             }
         }

@@ -389,6 +389,43 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     public bool HasFloorSourceNote => _floorSourceNote.Length > 0;
 
+    private bool _followsFloor;
+    private ICommand? _followFloorCommand;
+
+    /// <summary>
+    /// The switch that makes the plan follow the floor the player is standing on, in the floor menu.
+    /// </summary>
+    /// <remarks>
+    /// It lived in the Raid page's bottom strip as "Floors", beside a "Stack" switch that did what the
+    /// "Floor stack" mode in this control's own top bar does. Floors were controlled in two places, so
+    /// everything about them is here now: the mode, the ladder, why this floor is on screen, and
+    /// whether it follows you. The host owns what following means, so it hands over the state and the
+    /// command; a host with no such notion leaves this off and nothing is drawn.
+    /// </remarks>
+    public bool HasFollowFloorSwitch => _followFloorCommand is not null;
+
+    public bool FollowsFloor => _followsFloor;
+
+    public ICommand? FollowFloorCommand => _followFloorCommand;
+
+    public string FollowFloorLabel => Text("Map.Floor.Follow");
+
+    public void SetFollowFloor(bool isOn, ICommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var had = _followFloorCommand is not null;
+        _followFloorCommand = command;
+        if (_followsFloor == isOn && had)
+        {
+            return;
+        }
+
+        _followsFloor = isOn;
+        OnPropertyChanged(nameof(FollowsFloor));
+        OnPropertyChanged(nameof(FollowFloorCommand));
+        OnPropertyChanged(nameof(HasFollowFloorSwitch));
+    }
+
     /// <summary>
     /// The floor ladder, folded into the one line that says where you are.
     /// </summary>
@@ -536,9 +573,19 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             CancelPan();
         }
 
-        if (boundsChanged)
+        // The rectangle the plan is drawn into is a function of the scene's bounds, the card, and the
+        // stack (its mode, the floor being read, the floors that have artwork). It used to be rebuilt
+        // for a change of bounds alone and never told the view: MapLeft/MapTop/MapWidth/MapHeight were
+        // raised only when the card was resized or a decoded picture changed the plan's shape. So a
+        // player who went from Customs to Factory kept Factory's picture stretched into Customs'
+        // rectangle until something happened to resize the card. Every input that can move the
+        // rectangle rebuilds it here, and a map or variant change always announces it.
+        var projectionChanged = false;
+        if (changedSceneIdentity || boundsChanged || modeChanged || floorSelectionChanged || floorIdsChanged || assetsChanged)
         {
+            var previousProjection = _projection;
             _projection = CreateProjection();
+            projectionChanged = changedSceneIdentity || boundsChanged || !SameFrame(previousProjection, _projection);
         }
 
         if (modeChanged)
@@ -557,7 +604,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var visibleContentChanged = changedSceneIdentity || boundsChanged || objectDefinitionsChanged ||
-            layerDefinitionsChanged || layerVisibilityChanged || floorIdsChanged || floorSelectionChanged;
+            layerDefinitionsChanged || layerVisibilityChanged || floorIdsChanged || floorSelectionChanged ||
+            projectionChanged;
         if (visibleContentChanged)
         {
             var visibleObjects = RebuildProjectedObjects();
@@ -593,8 +641,23 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             visibleContentChanged,
             cameraChanged,
             changedSceneIdentity || assetsChanged || boundsChanged);
+        if (projectionChanged)
+        {
+            RaiseProjectionChanged();
+        }
+
         DispatchHighValueLootPresetChange();
     }
+
+    /// <summary>Whether two projections put the plan in the same rectangle at the same scale.</summary>
+    private static bool SameFrame(MapSceneProjection left, MapSceneProjection right) =>
+        left.IsUsable == right.IsUsable &&
+        Math.Abs(left.MapLeft - right.MapLeft) < 1e-9 &&
+        Math.Abs(left.MapTop - right.MapTop) < 1e-9 &&
+        Math.Abs(left.MapWidth - right.MapWidth) < 1e-9 &&
+        Math.Abs(left.MapHeight - right.MapHeight) < 1e-9 &&
+        Math.Abs(left.ScaleX - right.ScaleX) < 1e-12 &&
+        Math.Abs(left.ScaleY - right.ScaleY) < 1e-12;
 
     /// <summary>Updates only the projection; it does not create a new canonical camera state.</summary>
     public void SetViewportSize(double width, double height)

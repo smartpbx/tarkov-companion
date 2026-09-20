@@ -22,10 +22,10 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
+using TarkovCompanion.App.Views.Pages;
 using AppClass = TarkovCompanion.App.App;
 
 namespace TarkovCompanion.V2RenderPreview;
@@ -72,7 +72,15 @@ internal static class Program
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
             // nothing pumps once the frame is saved, so awaiting it hung the process after
             // "Saved" (package 17). The process exits right after the finally block instead.
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
+            // --now <utc>: a seeded database's prices are as old as the day it was copied, and
+            // anything that weighs them against the clock reads every one as expired.
+            var now = StringOption(args, "--now") is { } nowText
+                ? new ScanFrame.FixedClock(DateTimeOffset.Parse(
+                    nowText,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
+                : null;
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -157,9 +165,36 @@ internal static class Program
                 throw new ArgumentException($"No destination is named '{startPage}'.");
             }
 
+            // [#294] Photograph the waiting-build mark. This paints it directly rather than
+            // simulating the updater: what it proves is that the dot is drawn, where, and at what
+            // size. That the shell raises it from the real update signal is proved by
+            // V2UpdateNoticeTests and the host-contract ratchet, not by this.
+            if (shell is not null && args.Contains("--update-waiting"))
+            {
+                shell.SetupDestination.HasNotice = true;
+            }
+
+            // [#294] How large everything is drawn, so a render can show the scale actually
+            // applying under V2. It used to apply only under V1: the transform lived inside the
+            // legacy host, and Setup's Smaller/Larger/Reset moved a number nothing read.
+            if (IntOption(args, "--interface-scale", 0) is var scalePercent and > 0)
+            {
+                for (var guard = 0; guard < 12 && Math.Round(viewModel.InterfaceScale * 100) < scalePercent; guard++)
+                {
+                    viewModel.StepInterfaceScale(1);
+                }
+
+                Console.WriteLine($"Interface scale: {viewModel.InterfaceScaleLabel}");
+            }
+
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
+            // [#294] Whether the V1 shell was built at all. It used to be built on every launch
+            // and hidden, so "V2 is the default" was true of what was drawn and false of what was
+            // constructed. Printed rather than asserted: this tool reports, the ratchet test in
+            // MainWindowShellCompositionTests is what fails.
+            Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
             DrainUntilComplete(viewModel.InitializeAsync());
             if (seeding is not null)
             {
@@ -274,6 +309,9 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
@@ -291,6 +329,33 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#309] A screenshot folder of stand-in files (empty of pictures, named the way the game names
+            // them) pointed at the runtime, then Start tidying pressed: the preview and its confirm button.
+            if (shell?.SetupWorkspace is { Cleanup: { } cleanup } && args.Contains("--tidy-demo"))
+            {
+                var shots = Path.Combine(dataRoot, "tidy-demo-screenshots");
+                Directory.CreateDirectory(shots);
+                for (var day = 0; day < 6; day++)
+                {
+                    var path = Path.Combine(shots, $"2026-09-{10 + day:D2}[14-05]_demo_{day}.png");
+                    File.WriteAllText(path, new string('x', 900_000 + (day * 13_000)));
+                    File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-8 + day));
+                }
+
+                File.WriteAllText(Path.Combine(shots, "notes.txt"), "not the game's");
+                var runtime = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
+                runtime.Update(snapshot => snapshot with { Observation = snapshot.Observation with { ScreenshotRoot = shots } });
+                cleanup.RequestToggleCommand.Execute(null);
+                Pump(60);
+            }
+
+            // [#292/#309] The problem report as a player reads it before it is sent.
+            if (shell?.SetupWorkspace is { Admin.Report: { } reportReview } && args.Contains("--report-demo"))
+            {
+                reportReview.PreviewCommand.Execute(null);
+                Pump(30);
+            }
+
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
@@ -306,6 +371,23 @@ internal static class Program
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
                 Pump(20);
+
+                // [V2 rough package 60 — Plan] #288: the budget line and a saved kit to compare
+                // against, neither of which a cold render can reach on its own.
+                if (StringOption(args, "--loadout-budget") is { } budget)
+                {
+                    loadout.BudgetInput = budget;
+                    Pump(10);
+                }
+
+                if (StringOption(args, "--loadout-preset") is { } presetName)
+                {
+                    loadout.PresetName = presetName;
+                    DrainUntilComplete(loadout.SavePresetCommand.ExecuteAsync());
+                    Pump(20);
+                    loadout.Compare(presetName);
+                    Pump(40);
+                }
             }
 
             if (args.Contains("--events-demo"))
@@ -362,6 +444,45 @@ internal static class Program
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
                     : raid.MapPicker.FirstOrDefault(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase));
+                // First paint: the app opens on the raid's own map with nobody selecting it, and the tool
+                // used to select it again, which measures a second load, not the one a player sees
+                // every launch. --first-paint leaves the first load alone and prints how the plan's
+                // drawn rectangle and the artwork's own shape stand at each step of it.
+                if (args.Contains("--first-paint"))
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    string? last = null;
+                    for (var i = 0; i < 1200 && clock.Elapsed < TimeSpan.FromSeconds(60); i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        string current;
+                        if (raid.Renderer is { } probe)
+                        {
+                            var art = probe.BackgroundImage?.Size;
+                            var drawnAspect = probe.MapHeight > 0 ? probe.MapWidth / probe.MapHeight : double.NaN;
+                            var artAspect = art is { Height: > 0 } size ? size.Width / size.Height : double.NaN;
+                            var ci = System.Globalization.CultureInfo.InvariantCulture;
+                            current = string.Create(
+                                ci,
+                                $"scene r{probe.Scene.Revision} {probe.Scene.LocationId} card {probe.CanvasWidth:F0}x{probe.CanvasHeight:F0} drawn {probe.MapWidth:F1}x{probe.MapHeight:F1}={drawnAspect:F4} art {art?.Width:F0}x{art?.Height:F0}={artAspect:F4} v1canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0} tiles {viewModel.Map.Tiles.Count} drawing={raid.PrefersDrawing}");
+                        }
+                        else
+                        {
+                            current = $"no renderer yet; v1 status '{viewModel.Map.Status}' tiles {viewModel.Map.Tiles.Count} canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0}";
+                        }
+
+                        if (current != last)
+                        {
+                            Console.WriteLine($"[{clock.Elapsed.TotalSeconds:F2}s] {current}");
+                            last = current;
+                        }
+
+                        Thread.Sleep(20);
+                    }
+
+                    picked = null;
+                }
+
                 if (picked is not null)
                 {
                     picked.SelectCommand.Execute(null);
@@ -493,7 +614,10 @@ internal static class Program
                 Console.WriteLine("Objectives: " + string.Join(" | ", raid.QuestObjectives.Select(row => $"{(row.HasNumber ? row.Number : "-")} {row.Where}")));
                 if (StringOption(args, "--select-objective") is { } objectiveNumber)
                 {
-                    var row = raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
+                    // "none" picks the first objective with no number, which is one with no place.
+                    var row = objectiveNumber == "none"
+                        ? raid.QuestObjectives.FirstOrDefault(item => !item.HasNumber)
+                        : raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
                     if (row is null)
                     {
                         Console.Error.WriteLine($"No objective is numbered '{objectiveNumber}'.");
@@ -503,6 +627,17 @@ internal static class Program
                         row.SelectCommand.Execute(null);
                         Pump(40);
                         Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
+                        // Issue 379: put the selected objective on the middle of the plan, the way a click on
+                        // the map after "Place on map" would, so the "Placed by you" marker can be seen.
+                        if (args.Contains("--place-selected-objective") && raid.SelectedObjective is { CanPlace: true } selected &&
+                            raid.Renderer is { } placing)
+                        {
+                            selected.PlaceCommand.Execute(null);
+                            var bounds = placing.Scene.Bounds;
+                            raid.PlaceMarkAt(new(bounds.MinimumX + (bounds.Width / 2), bounds.MinimumY + (bounds.Height / 2)), TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(false));
+                            Pump(80);
+                            Console.WriteLine($"Placed: {raid.SelectedObjective?.Where} #{raid.SelectedObjective?.Number}");
+                        }
                     }
                 }
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
@@ -585,7 +720,7 @@ internal static class Program
             if (shell is not null && StringOption(args, "--capture-demo") is { } captureDemo)
             {
                 var captureSession = new CaptureSessionId(Guid.Parse("30000000-0000-0000-0000-000000000287"));
-                var now = DateTimeOffset.UtcNow;
+                var captureNow = DateTimeOffset.UtcNow;
                 shell.CaptureCommand.Execute(null);
                 shell.UpdateCaptureState(captureDemo switch
                 {
@@ -624,7 +759,7 @@ internal static class Program
                             0,
                             ScanIntent.Auto,
                             RecognizedContext.Item,
-                            now,
+                            captureNow,
                             "Graphics card · 82% sure · also Graphics tablet, GPU crate",
                             "Screenshot · ambiguous_runner_up")),
                     _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
@@ -765,9 +900,13 @@ internal static class Program
                     services,
                     lootFrame,
                     StringOption(args, "--icon-cache"),
-                    StringOption(args, "--loot-scan-now"));
+                    StringOption(args, "--loot-scan-now"),
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"));
                 DrainUntilComplete(scan);
-                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(scan.Result));
+                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
+                    scan.Result.Result,
+                    controls: scan.Result.Controls));
                 Pump(20);
             }
 
@@ -778,9 +917,29 @@ internal static class Program
                 var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
                     profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
                 var store = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashSnapshotStore>();
-                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope), CancellationToken.None));
-                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>()
-                    .LoadAsync());
+                // The demo's items carry invented ids. Over a seeded catalog each is looked up by
+                // name, so the sort plan is made from real prices and real needs or not at all.
+                var repository = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IItemRepository>();
+                string Resolve(string id, string name)
+                {
+                    var search = repository.SearchAsync(name, 1, CancellationToken.None);
+                    DrainUntilComplete(search);
+                    return search.Result.FirstOrDefault()?.Item.Id ?? id;
+                }
+
+                var seed = ScanFrame.SeedFleaRatesAsync(
+                    services,
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    services.GetRequiredService<TimeProvider>().GetUtcNow());
+                DrainUntilComplete(seed);
+                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope, Resolve), CancellationToken.None));
+                var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                DrainUntilComplete(stashWorkspace.LoadAsync());
+                if (args.Contains("--stash-list"))
+                {
+                    stashWorkspace.ShowListCommand.Execute(null);
+                }
+
                 Pump(20);
             }
 

@@ -5,6 +5,27 @@
              xmlns:pages="using:TarkovCompanion.App.ViewModels">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+    <!-- [V2 rough package 60 — Plan] #288. A slot tile reads as a place that holds a thing, so an
+         empty one is drawn as an outline and a filled one as a surface. The state is also in the
+         words on it ("Empty"), never the border alone. -->
+    <Style Selector="Button.v2-loadout-tile">
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="MinHeight" Value="54" />
+      <Setter Property="Padding" Value="10,8" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Button.v2-loadout-tile.filled">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+    </Style>
+    <Style Selector="Button.v2-loadout-tile.aimed">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
   </UserControl.Styles>
 
   <!-- V1's Loadout page in the workspace layout: pick a slot and search across the top, results
@@ -78,7 +99,7 @@
     </Grid>
 
     <!-- Context panel: the kit, and what evaluating it says. -->
-    <Border Grid.Column="1" Width="460" Classes="v2-intel-panel"
+    <Border Grid.Column="1" Width="520" Classes="v2-intel-panel"
             AutomationProperties.AccessibilityView="Control"
             AutomationProperties.LandmarkType="Complementary"
             AutomationProperties.AutomationId="v2-loadout-context">
@@ -92,8 +113,40 @@
                   <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Empty the kit" Command="{Binding ClearCommand}"
                           AutomationProperties.AutomationId="v2-loadout-clear" />
                 </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding SlotBoardSummary}" AutomationProperties.LiveSetting="Polite" />
+                <!-- Ten tiles, always. Pressing one aims the search at that slot; the small
+                     Clear appears only on a tile that holds something. -->
+                <ItemsControl ItemsSource="{Binding SlotBoard}"
+                              AutomationProperties.AutomationId="v2-loadout-board"
+                              AutomationProperties.AccessibilityView="Control">
+                  <!-- Two columns rather than a wrap: the panel is a fixed width, and ten tiles
+                       that wrapped by their own measure came out one per row and pushed the
+                       evaluation off the bottom of a 1080p window. -->
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="pages:LoadoutSlotTileViewModel">
+                      <Button Classes="v2-loadout-tile" Margin="0,0,8,8"
+                              Classes.filled="{Binding IsFilled}" Classes.aimed="{Binding IsSelected}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Name}"
+                              AutomationProperties.HelpText="{Binding Summary}"
+                              Command="{Binding SelectCommand}">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                          <TextBlock Classes="v2-label" Text="{Binding Name}" />
+                          <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Clear" Padding="6,0"
+                                  IsVisible="{Binding IsFilled}" Command="{Binding ClearSlotCommand}"
+                                  AutomationProperties.Name="Clear this slot" />
+                          <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="v2-body" TextWrapping="Wrap"
+                                     TextTrimming="CharacterEllipsis" MaxLines="2" Text="{Binding Summary}" />
+                        </Grid>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <TextBlock Classes="v2-label" Text="{Binding AssignmentStatus}" TextWrapping="Wrap" />
-                <ItemsControl ItemsSource="{Binding Assignments}">
+                <ItemsControl ItemsSource="{Binding MultiAssignments}">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="pages:LoadoutAssignmentViewModel">
                       <Border Classes="v2-intel-fact">
@@ -137,6 +190,88 @@
                   <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding AmmoTierSummary}" TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
+              <!-- The budget sits with the cost it measures rather than in a card of its own, and
+                   reads against the evaluated cost rather than a running total: both totals count
+                   a missing price as zero and are floors, so a figure that moved while items were
+                   being added would quote a number the page had not computed. -->
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock Classes="v2-label" Text="Budget" VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding BudgetInput}"
+                         PlaceholderText="What you will spend, e.g. 250k"
+                         AutomationProperties.AutomationId="v2-loadout-budget"
+                         AutomationProperties.Name="Kit budget in roubles" />
+              </Grid>
+              <TextBlock Classes="v2-body" Text="{Binding BudgetSummary}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-loadout-budget-summary"
+                         AutomationProperties.LiveSetting="Polite" />
+              <TextBlock Classes="v2-label v2-intel-poor" IsVisible="{Binding IsOverBudget}"
+                         Text="Over the budget." TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Classes="v2-intel-section" IsVisible="{Binding CanSavePresets}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Saved kits" AutomationProperties.HeadingLevel="2" />
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox Classes="v2-field-input" Text="{Binding PresetName}"
+                         PlaceholderText="Name this kit"
+                         AutomationProperties.AutomationId="v2-loadout-preset-name"
+                         AutomationProperties.Name="Name for the saved kit">
+                  <TextBox.KeyBindings>
+                    <KeyBinding Gesture="Enter" Command="{Binding SavePresetCommand}" />
+                  </TextBox.KeyBindings>
+                </TextBox>
+                <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Save"
+                        AutomationProperties.AutomationId="v2-loadout-preset-save"
+                        Command="{Binding SavePresetCommand}" />
+              </Grid>
+              <TextBlock Classes="v2-label" Text="{Binding PresetStatus}" TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Polite" />
+              <ItemsControl ItemsSource="{Binding Presets}" AutomationProperties.AutomationId="v2-loadout-presets">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:LoadoutPresetViewModel">
+                    <Border Classes="v2-intel-fact">
+                      <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+                        <StackPanel Spacing="1" VerticalAlignment="Center">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="v2-label" Text="{Binding Detail}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Load" Command="{Binding LoadCommand}"
+                                VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Classes="v2-target v2-plain" Command="{Binding CompareCommand}"
+                                VerticalAlignment="Center" Content="{Binding CompareLabel}" />
+                        <Button Grid.Column="3" Classes="v2-target v2-plain" Content="Delete" Command="{Binding DeleteCommand}"
+                                VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
+          <!-- The saved kit is re-evaluated rather than showing what it cost when it was saved:
+               prices move, and a comparison against last week's price is a comparison against
+               nothing in particular. -->
+          <Border Classes="v2-intel-section" IsVisible="{Binding HasComparison}">
+            <StackPanel Spacing="8">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="v2-heading-3" Text="Compared" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Stop comparing"
+                        Command="{Binding ClearComparisonCommand}" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding Comparison}" AutomationProperties.AutomationId="v2-loadout-comparison">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:LoadoutComparisonRowViewModel">
+                    <Grid ColumnDefinitions="140,*,*,90" ColumnSpacing="8" Margin="0,3">
+                      <TextBlock Classes="v2-label" Text="{Binding Measure}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Current}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding Other}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Difference}" TextWrapping="Wrap" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </Border>
 
@@ -148,7 +283,12 @@
               <ItemsControl ItemsSource="{Binding Issues}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
-                    <TextBlock Classes="v2-body v2-intel-poor" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                    <StackPanel Spacing="2" Margin="0,3">
+                      <TextBlock Classes="v2-body v2-intel-poor" Text="{Binding Message}" TextWrapping="Wrap" />
+                      <!-- Why the rule raised it, in fixed offline wording. -->
+                      <TextBlock Classes="v2-label" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                 IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -161,7 +301,12 @@
               <ItemsControl ItemsSource="{Binding Warnings}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
-                    <TextBlock Classes="v2-body v2-intel-fair" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                    <StackPanel Spacing="2" Margin="0,3">
+                      <TextBlock Classes="v2-body v2-intel-fair" Text="{Binding Message}" TextWrapping="Wrap" />
+                      <!-- Why the rule raised it, in fixed offline wording. -->
+                      <TextBlock Classes="v2-label" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                 IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

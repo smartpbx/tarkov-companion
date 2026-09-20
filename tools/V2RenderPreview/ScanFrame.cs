@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Profiles;
@@ -9,6 +10,8 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Core.Domain.Recommendations;
+using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 
@@ -26,11 +29,19 @@ namespace TarkovCompanion.V2RenderPreview;
 /// </remarks>
 internal static class ScanFrame
 {
-    internal static async Task<LootScanResult> EvaluateAsync(
+    /// <param name="fleaRates">
+    /// <c>--loot-scan-flea-rates 0.05,0.05</c>: a seeded database was copied before the rates
+    /// were kept, so its table is empty and every flea item would read "fee not known". This
+    /// writes the row an items refresh would have written, through the same table.
+    /// </param>
+    /// <param name="phase"><c>--loot-scan-phase early</c>: the preview is never in a raid.</param>
+    internal static async Task<(LootScanResult Result, ILootScanWorkspaceControls Controls)> EvaluateAsync(
         IServiceProvider services,
         string framePath,
         string? iconCacheDirectory,
-        string? evaluateAtUtc)
+        string? evaluateAtUtc,
+        string? fleaRates = null,
+        string? phase = null)
     {
         var image = await new SkiaScreenshotImageLoader().LoadAsync(framePath, CancellationToken.None)
             ?? throw new InvalidOperationException($"Could not decode {framePath}.");
@@ -47,14 +58,25 @@ internal static class ScanFrame
         var profiles = services.GetRequiredService<IProfileRuntimeContextService>();
         var profile = profiles.Current.ActiveProfile
             ?? throw new InvalidOperationException("The demo composition has no active profile.");
+        await SeedFleaRatesAsync(services, fleaRates, clock.GetUtcNow());
+
+        var preference = services.GetRequiredService<LootScanRaidPreference>();
+        if (phase is not null)
+        {
+            preference.Phase = Enum.Parse<RecommendationRaidPhase>(phase, ignoreCase: true);
+        }
+
+        // The composed source, so the render shows what the app decides from and not a
+        // catalog-only valuation. The clock stays the preview's own: see --loot-scan-now.
         var handoff = new LootScanCaptureHandoff(
             profiles,
             new InventoryGridReconstructor(),
             new LootScanDecisionService(clock),
             clock,
-            recommendations: new LootScanRecommendationSource(items));
+            recommendations: services.GetRequiredService<LootScanRecommendationSource>());
+        var controls = new LootScanWorkspaceControls(profiles, preference, handoff);
         var correlation = CaptureCorrelationId.New();
-        return await handoff.EvaluateAsync(
+        return (await handoff.EvaluateAsync(
             new LootScanFrame(
                 correlation.ToString(),
                 new CaptureSessionId(Guid.NewGuid()),
@@ -66,10 +88,35 @@ internal static class ScanFrame
                 "desktop",
                 grid),
             profile,
-            CancellationToken.None);
+            CancellationToken.None), controls);
     }
 
-    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    /// <summary>
+    /// Writes the row an items refresh would have written, and records that refresh, in a seeded
+    /// database copied before either was kept. Does nothing where no rates are given.
+    /// </summary>
+    internal static async Task SeedFleaRatesAsync(IServiceProvider services, string? fleaRates, DateTimeOffset now)
+    {
+        if (fleaRates?.Split(',') is not [var offer, var requirement])
+        {
+            return;
+        }
+
+        var observed = now.AddHours(-1).ToString("O", CultureInfo.InvariantCulture);
+        await using var connection = await services.GetRequiredService<SqliteConnectionFactory>().OpenAsync(CancellationToken.None);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR REPLACE INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc)
+            VALUES (1, $offer, $requirement, $observed);
+            UPDATE sync_state SET last_success_utc = $observed WHERE source_key = 'items';
+            """;
+        command.Parameters.AddWithValue("$offer", double.Parse(offer, CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$requirement", double.Parse(requirement, CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$observed", observed);
+        await command.ExecuteNonQueryAsync(CancellationToken.None);
+    }
+
+    internal sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
     }

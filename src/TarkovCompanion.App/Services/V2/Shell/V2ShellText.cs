@@ -34,6 +34,9 @@ public static class V2ShellText
         ["V2.Shell.Region.Main"] = "Current workspace",
         ["V2.Shell.Nav.Current"] = "Current page",
         ["V2.Shell.Nav.NotCurrent"] = "Available page",
+        // [#294] Said, not only drawn. The dot beside Setup means nothing to somebody using a
+        // screen reader, and "an update is ready" is the whole of what it is telling anybody.
+        ["V2.Shell.Nav.UpdateWaiting"] = "Update ready",
 
         ["V2.Shell.Route.Home"] = "Home",
         ["V2.Shell.Route.Raid"] = "Raid",
@@ -69,6 +72,11 @@ public static class V2ShellText
         ["V2.Setup.Section.Appearance"] = "Appearance",
         ["V2.Setup.Section.Displays"] = "Displays",
         ["V2.Setup.Section.Diagnostics"] = "Diagnostics",
+        // V2 rough package 43 (#314): the notifications section.
+        ["V2.Setup.Section.Notifications"] = "Notifications",
+        ["V2.Setup.Notifications.Intro"] = "The only five things this will interrupt you for.",
+        ["V2.Setup.Notifications.RaidNote"] = "Only squadmate marks reach you mid-raid. The rest wait until it ends.",
+        ["V2.Setup.Notifications.TestLabel"] = "Test this",
         ["V2.Setup.GameProfile.ScreenshotFolderLabel"] = "Screenshot folder",
         ["V2.Setup.GameProfile.LogFolderLabel"] = "Log folder",
         ["V2.Setup.GameProfile.SaveLabel"] = "Save",
@@ -148,6 +156,37 @@ public static class V2ShellText
         ["V2.Setup.Appearance.ResetAllLabel"] = "Back to defaults",
         ["V2.Setup.Appearance.Summary"] = "Now: {0}, text {1}%, {2} spacing.",
         ["V2.Setup.Displays.Info"] = "Window position and size are remembered, and return to a visible monitor if a display goes.",
+
+        // [#309] Setup > Privacy: the screenshot-tidy preview, dry run and last-run ledger.
+        ["V2.Setup.Cleanup.Preview"] = "Preview (dry run)",
+        ["V2.Setup.Cleanup.Start"] = "Start tidying",
+        ["V2.Setup.Cleanup.Stop"] = "Stop tidying",
+        ["V2.Setup.Cleanup.Confirm"] = "Turn on tidying",
+        ["V2.Setup.Cleanup.Cancel"] = "Cancel",
+        ["V2.Setup.Cleanup.Folder"] = "Folder",
+        ["V2.Setup.Cleanup.Policy"] = "Older than {0} h · the newest is always kept · only files the game named",
+        ["V2.Setup.Cleanup.Summary"] = "{0} screenshots ({1}) would move to the recycle bin.",
+        ["V2.Setup.Cleanup.SummaryOne"] = "1 screenshot ({0}) would move to the recycle bin.",
+        ["V2.Setup.Cleanup.SummaryNone"] = "Nothing would move.",
+        ["V2.Setup.Cleanup.MoreFiles"] = "and {0} more",
+        ["V2.Setup.Cleanup.Excluded"] = "Left alone: {0}",
+        ["V2.Setup.Cleanup.ExTooRecent"] = "{0} too recent",
+        ["V2.Setup.Cleanup.ExCloud"] = "{0} cloud-only",
+        ["V2.Setup.Cleanup.ExLink"] = "{0} links",
+        ["V2.Setup.Cleanup.ExOther"] = "{0} not named by the game",
+        ["V2.Setup.Cleanup.LedgerHeading"] = "Last runs",
+        ["V2.Setup.Cleanup.LedgerEmpty"] = "Nothing has been tidied yet.",
+        ["V2.Setup.Cleanup.LedgerEntry"] = "{0} · moved {1} ({2}) · {3} could not move",
+        // [#292/#309] Diagnostics: read the problem report, then send exactly that.
+        ["V2.Setup.Report.Review"] = "Review report",
+        ["V2.Setup.Report.Send"] = "Send this report",
+        ["V2.Setup.Report.Discard"] = "Discard",
+        ["V2.Setup.Report.Heading"] = "What would be sent",
+        ["V2.Setup.Report.Note"] = "This is the whole report. It is sent only when you press Send this report, and nothing else goes with it.",
+        ["V2.Setup.Report.Size"] = "{0:N0} characters",
+        ["V2.Setup.Report.Nothing"] = "Nothing to describe yet; the application is still starting.",
+        ["V2.Setup.Report.Sending"] = "Sending…",
+        ["V2.Setup.Report.Failed"] = "Could not send: {0}. Use Copy diagnostics instead.",
 
         // [#292] Setup: paths, data detail, updates, displays, About and Data & Privacy.
         ["V2.Setup.Section.DataPrivacy"] = "Data & Privacy",

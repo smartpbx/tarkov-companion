@@ -228,6 +228,29 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 ("$measuredUtc", item.Updated is { } measured ? FormatTimestamp(measured) : null)).ConfigureAwait(false);
         }
 
+        // A payload without usable rates leaves the last ones in place. They carry their own
+        // date, so a reader refuses them once they are old rather than this erasing them early.
+        if (data.FleaMarket is { SellOfferFeeRate: { } offerRate, SellRequirementFeeRate: { } requirementRate } &&
+            double.IsFinite(offerRate) && offerRate is >= 0 and <= 1 &&
+            double.IsFinite(requirementRate) && requirementRate is >= 0 and <= 1)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO flea_market_settings(id, sell_offer_fee_rate, sell_requirement_fee_rate, observed_utc)
+                VALUES (1, $offerRate, $requirementRate, $observedUtc)
+                ON CONFLICT(id) DO UPDATE SET
+                    sell_offer_fee_rate = excluded.sell_offer_fee_rate,
+                    sell_requirement_fee_rate = excluded.sell_requirement_fee_rate,
+                    observed_utc = excluded.observed_utc;
+                """,
+                cancellationToken,
+                ("$offerRate", offerRate),
+                ("$requirementRate", requirementRate),
+                ("$observedUtc", FormatTimestamp(observedUtc))).ConfigureAwait(false);
+        }
+
         if (commitAction is not null)
         {
             await commitAction(connection, transaction, cancellationToken).ConfigureAwait(false);

@@ -248,6 +248,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private long _revision;
     private CancellationTokenSource? _rebuildCancellation;
     private HighValueLootLayerFilterState _lootFilter = HighValueLootLayerFilterState.Default;
+
+    // [Issue 379] The objective whose marker the next right-click on bare map places, and the
+    // player's own markers. Optional: a cockpit built without a store offers no placing.
+    private string? _armedObjectiveId;
+    private readonly IUserQuestMarkStore? _userMarkers;
     private string _unavailableReason = "Loading the map…";
     private string? _cachedAssetVariantKey;
     private string? _modelFloorId;
@@ -317,7 +322,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // [V2 rough package 46] Remembers how wide he dragged the context panel, and whether he
         // put it away. Optional: without one the panel works and forgets, which is what the unit
         // tests and the map gallery want.
-        IWorkspaceLayoutStore? layout = null)
+        IWorkspaceLayoutStore? layout = null,
+        // [Issue 379] Where the player has put objectives the quest data gives no place for.
+        IUserQuestMarkStore? userMarkers = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
@@ -328,6 +335,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _marks = marks ?? throw new ArgumentNullException(nameof(marks));
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
+        _userMarkers = userMarkers;
         _layout = layout;
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
@@ -349,6 +357,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         RebuildMapPicker();
         RebuildArtworkVariants();
 
+        CancelPlacingObjectiveCommand = new DelegateCommand(() => ArmObjective(null));
 
         // [V2 rough package 22] Every one of these is V1's own behaviour on V1's own view model.
         // The cockpit owns where the control sits, not what pressing it means.
@@ -371,6 +380,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _raid.PropertyChanged += RaidPropertyChanged;
         _stateStore.Changed += RuntimeStateChanged;
         _marks.Changed += MarksChanged;
+        if (_userMarkers is not null)
+        {
+            _userMarkers.Changed += UserMarkersChanged;
+        }
 
         _ = InitializeAsync();
     }
@@ -576,6 +589,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (Renderer is { } renderer)
         {
             renderer.FloorSourceNote = _map.FloorSource;
+            // The switch beside it: whether the plan follows the floor you are on.
+            // It was the bottom strip's "Floors".
+            renderer.SetFollowFloor(_map.AutoSelectsFloor, ToggleAutoFloorCommand);
         }
     }
 
@@ -693,6 +709,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     public ICommand RemoveMarkCommand => _map.RemoveMarkCommand;
 
     /// <summary>
+    /// Whether the next right-click on bare map places an objective's marker rather than a ping.
+    /// </summary>
+    public bool IsPlacingObjective => _armedObjectiveId is not null;
+
+    public ICommand CancelPlacingObjectiveCommand { get; }
+
+    /// <summary>
     /// Package 29 (parity): V1's replay of a past raid, which Debrief's "Watch on map" opens. The map
     /// draws it already (the cockpit reads the same map view model); this is what steps and closes it.
     /// </summary>
@@ -762,6 +785,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </remarks>
     public void PlaceMarkAt(MapScenePoint point, RaidMarkKind kind)
     {
+        if (_armedObjectiveId is { } objectiveId && _userMarkers is not null && _map.RenderModel is { } objectiveModel)
+        {
+            // [Issue 379] An objective is waiting for its place, so this gesture is that place and
+            // not a ping or a waypoint, whichever modifier it carried. The floor is the one the plan
+            // is showing, like every other mark: the player clicked there.
+            var objectiveFloor = Renderer?.Scene.View.SelectedFloorId ?? objectiveModel.SelectedFloor?.Id;
+            ArmObjective(null);
+            _ = _userMarkers.PlaceAsync(objectiveId, objectiveModel.Location.Id, objectiveFloor, point.X, point.Y);
+            return;
+        }
+
         if (_map.RenderModel is not { } model)
         {
             return;
@@ -816,6 +850,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _raid.PropertyChanged -= RaidPropertyChanged;
         _stateStore.Changed -= RuntimeStateChanged;
         _marks.Changed -= MarksChanged;
+        if (_userMarkers is not null)
+        {
+            _userMarkers.Changed -= UserMarkersChanged;
+        }
         if (Renderer is { } renderer)
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
@@ -1101,8 +1139,35 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private async Task InitializeAsync()
     {
         await _marks.LoadAsync().ConfigureAwait(true);
+        if (_userMarkers is not null)
+        {
+            await _userMarkers.LoadAsync().ConfigureAwait(true);
+        }
+
         await RebuildAsync().ConfigureAwait(true);
     }
+
+    /// <summary>Puts the next right-click on bare map on this objective, or stops doing so.</summary>
+    private void ArmObjective(string? objectiveId)
+    {
+        if (_armedObjectiveId == objectiveId)
+        {
+            return;
+        }
+
+        _armedObjectiveId = objectiveId;
+        OnPropertyChanged(nameof(IsPlacingObjective));
+    }
+
+    private void RemoveObjectiveMarker(string objectiveId)
+    {
+        if (_userMarkers is not null && _map.RenderModel is { } model)
+        {
+            _ = _userMarkers.RemoveAsync(objectiveId, model.Location.Id);
+        }
+    }
+
+    private void UserMarkersChanged() => _rebuildRequest.Request();
 
     /// <summary>Where a spawn's waypoint goes: its marker's position, on the floor it belongs to.</summary>
     internal readonly record struct SpawnWaypointPlacement(double X, double Y, string? FloorId);
@@ -1241,7 +1306,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             }
         }
 
-        if (e.PropertyName is nameof(MapViewModel.FloorSource))
+        if (e.PropertyName is nameof(MapViewModel.FloorSource) or nameof(MapViewModel.AutoSelectsFloor))
         {
             // [V2 rough package 46] Beside the ladder that chooses the floor, not only in the
             // status line at the other end of the card. A map on the wrong floor looks the same
@@ -1823,7 +1888,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         // [V2 rough package 22] You, your trail, the squad and where you have been before.
         var live = BuildLiveLayers(model, nowUtc);
         _objectStyles = live.Styles;
-        _questScene = BuildQuestScene(_map.QuestSceneProjection, model, nowUtc);
+        _questScene = UserQuestMarkerScene.Apply(
+            BuildQuestScene(_map.QuestSceneProjection, model, nowUtc),
+            _userMarkers?.Markers ?? [],
+            model.Location.Id,
+            model.Floors);
         // The renderer requires the scene to already declare the exact loot layer it is handed
         // beside it (see EnsureHighValueLootMatchesScene), so the loot layer and its objects are
         // merged in here rather than attached only through the constructor/Present overload.
@@ -2105,7 +2174,13 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             })
             .ToArray();
         SelectedObjective = entries.FirstOrDefault(entry => entry.ObjectiveId == _selectedObjectiveId) is { } selected
-            ? new RaidObjectiveDetailViewModel(selected, _map.NameOfItem, uri => _wikiOpener?.TryOpen(uri) == true, ClearObjectiveSelection)
+            ? new RaidObjectiveDetailViewModel(
+                selected,
+                _map.NameOfItem,
+                uri => _wikiOpener?.TryOpen(uri) == true,
+                ClearObjectiveSelection,
+                _userMarkers is null ? null : ArmObjective,
+                _userMarkers is null ? null : RemoveObjectiveMarker)
             : null;
         OnPropertyChanged(nameof(QuestObjectives));
         OnPropertyChanged(nameof(HasQuestObjectives));
@@ -2120,6 +2195,12 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     /// </summary>
     private void SelectObjective(string objectiveId)
     {
+        // Choosing another objective abandons a placement waiting for this one.
+        if (_armedObjectiveId is not null && _armedObjectiveId != objectiveId)
+        {
+            ArmObjective(null);
+        }
+
         _selectedObjectiveId = objectiveId;
         if (Renderer is { } renderer &&
             _questScene.Entries.FirstOrDefault(entry => entry.ObjectiveId == objectiveId) is { } entry)
@@ -2140,6 +2221,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
     private void ClearObjectiveSelection()
     {
+        ArmObjective(null);
         _selectedObjectiveId = null;
         Renderer?.ClearSelection();
         RefreshObjectives();

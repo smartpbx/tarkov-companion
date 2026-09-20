@@ -110,6 +110,40 @@
         <Panel IsVisible="{Binding HasAdmin}">
           <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
         </Panel>
+        <!-- [Issue 318] The same for the loot-spawn layer: per map, how many of the published spawn records
+             have a position and a floor, from the last verified import (works offline). -->
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasLootCoverage}"
+                    AutomationProperties.AutomationId="v2-setup-loot-coverage">
+          <TextBlock Classes="v2-body" Text="{Binding LootCoverage.Title}" />
+          <TextBlock Classes="v2-label" Text="{Binding LootCoverage.Status}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding LootCoverage.Rows}" IsVisible="{Binding LootCoverage.HasRows}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LootCoverageRowViewModel">
+                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <!-- [Issue 379] How much of each map's quest objectives the quest data can place, so a gap is a
+             number here rather than a marker that is silently missing on the Raid map. -->
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasQuestCoverage}"
+                    AutomationProperties.AutomationId="v2-setup-quest-coverage">
+          <TextBlock Classes="v2-body" Text="{Binding QuestCoverage.Title}" />
+          <TextBlock Classes="v2-label" Text="{Binding QuestCoverage.Status}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding QuestCoverage.Rows}" IsVisible="{Binding QuestCoverage.HasRows}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:QuestCoverageRowViewModel">
+                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </StackPanel>
     </Border>
 
@@ -279,6 +313,7 @@
         <TextBlock Classes="v2-label" Text="{Binding Settings.RetentionStatus}" TextWrapping="Wrap" />
         <WrapPanel Classes="v2-toolbar">
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
+                  IsVisible="{Binding NoCleanup}"
                   IsEnabled="{Binding Settings.CanTidyScreenshots}"
                   Content="{Binding Settings.ScreenshotTidyingLabel}" Command="{Binding Settings.ToggleScreenshotTidyingCommand}" />
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-choose-retention"
@@ -287,9 +322,76 @@
         </WrapPanel>
         <TextBlock Classes="v2-label" Text="{Binding RecycleNote}" TextWrapping="Wrap"
                    IsVisible="{Binding Settings.CanTidyScreenshots}" />
+        <!-- [#309] Turning tidying on goes through a preview of exactly what it would move; a dry run and
+             the last runs are here too. -->
+        <Panel IsVisible="{Binding HasCleanup}">
+          <setup:V2SetupCleanupView DataContext="{Binding Cleanup}" />
+        </Panel>
         <Button Classes="v2-target" HorizontalAlignment="Left" IsVisible="{Binding HasAdmin}"
                 AutomationProperties.AutomationId="v2-setup-open-privacy-detail"
                 Content="{Binding OpenPrivacyDetailLabel}" Command="{Binding OpenPrivacyDetailCommand}" />
+      </StackPanel>
+    </Border>
+
+    <!-- V2 rough package 43 (#314): the five notifications. Every row says when it happens in
+         one sentence, whether it is allowed to interrupt a raid, and carries a button that sends
+         the real thing so the switch can be judged without waiting for the raid to go wrong. -->
+    <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsNotificationsSelected}"
+            AutomationProperties.AutomationId="v2-setup-notifications">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding NotificationsIntro}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding NotificationsRaidNote}" TextWrapping="Wrap" />
+        <!-- The visibility is the workspace's question and the rows are the notification view
+             model's, so they cannot share an element: x:DataType here would re-type the binding
+             above it. -->
+        <Panel IsVisible="{Binding HasNotifications}">
+        <StackPanel Classes="v2-stack" DataContext="{Binding Notifications}"
+                    x:DataType="vm:SetupNotificationsViewModel">
+          <TextBlock Classes="v2-label" Text="{Binding TrayStatusLine}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-setup-notifications-tray" />
+          <ItemsControl ItemsSource="{Binding Rows}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="10" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SetupNotificationRowViewModel">
+                <Border Classes="v2-card" Padding="12,10">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Title}" />
+                      <TextBlock Classes="v2-label" Text="{Binding Description}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding WhenLabel}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Center"
+                            AutomationProperties.AutomationId="{Binding TestAutomationId}"
+                            Content="Test this" Command="{Binding TestCommand}" />
+                    <ToggleSwitch Grid.Column="2" VerticalAlignment="Center"
+                                  IsChecked="{Binding IsEnabled, Mode=OneWay}"
+                                  OnContent="On" OffContent="Off"
+                                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                                  AutomationProperties.Name="{Binding Title}"
+                                  Command="{Binding ToggleCommand}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border Classes="v2-card" Padding="12,10">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding PopupTitle}" />
+                <TextBlock Classes="v2-label" Text="{Binding PopupDescription}" TextWrapping="Wrap" />
+              </StackPanel>
+              <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                            IsChecked="{Binding ShowsPopup, Mode=OneWay}"
+                            OnContent="On" OffContent="Off"
+                            AutomationProperties.AutomationId="v2-setup-notification-popup"
+                            AutomationProperties.Name="{Binding PopupTitle}"
+                            Command="{Binding TogglePopupCommand}" />
+            </Grid>
+          </Border>
+        </StackPanel>
+        </Panel>
       </StackPanel>
     </Border>
 
@@ -447,8 +549,13 @@
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
                   Content="{Binding CopyDiagnosticsLabel}" Command="{Binding Settings.CopyDiagnosticsCommand}" />
           <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
+                  IsVisible="{Binding !HasAdmin}"
                   Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
         </WrapPanel>
+        <!-- [#292/#309] Reporting is read-then-send: the whole report is shown, and Send sends that text. -->
+        <Panel IsVisible="{Binding HasAdmin}">
+          <setup:V2SetupReportView DataContext="{Binding Admin.Report}" />
+        </Panel>
         <!-- Where a report goes, said at the button that sends it, as V1 does. -->
         <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
       </StackPanel>

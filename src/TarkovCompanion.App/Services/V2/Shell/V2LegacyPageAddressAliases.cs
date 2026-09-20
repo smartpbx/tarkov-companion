@@ -7,16 +7,15 @@ namespace TarkovCompanion.App.Services.V2.Shell;
 /// became the default.
 /// </summary>
 /// <remarks>
-/// Most v1 names still resolve because <see cref="V2RouteRegistry"/> records them as
-/// <see cref="V2RouteDefinition.LegacyPage"/>, and <see cref="V2ShellAddress.Parse"/> already
-/// matches segments case-insensitively. Thirteen do not, for the same reason: the route each named
-/// v1 page used to pass through to now hosts a real V2 workspace instead, so there is no
-/// registry entry left to read. "Scanner" now hosts <c>LootScanView</c> (package 1, #282);
+/// Every one of the fourteen is listed below, because none of them is a route's own name any
+/// more: each V1 page's route hosts a real V2 workspace, and #294 removed the registry's
+/// <c>LegacyPage</c> field along with the last route that named one. "Scanner" now hosts <c>LootScanView</c> (package 1, #282);
 /// "Raid" now hosts the raid cockpit (package 2, #286); "History" now hosts the Debrief workspace
 /// (package 3, #291); "Quests" and "Hideout" now host the Plan workspace and its Hideout section
 /// (package 10, #288); "Squad" and "Group" now both host the Team workspace (package 9, #289);
 /// "Items" now hosts the Intel workspace (package 17); "Ammo", "Keys" and "Flea" now host their own
-/// Intel workspaces, and "Loadout" and "Events" their Plan workspaces (package 28).
+/// Intel workspaces, and "Loadout" and "Events" their Plan workspaces (package 28); "Settings" now hosts
+/// the V2 Setup workspace, whose address is spelled "setup" (#292).
 /// The overrides below are those historical mappings, not a general escape hatch — a route that
 /// never had a v1 page has nothing to alias, and gets none.
 /// </remarks>
@@ -38,6 +37,11 @@ public static class V2LegacyPageAddressAliases
             ["Flea"] = V2Routes.Flea,
             ["Loadout"] = V2Routes.Loadout,
             ["Events"] = V2Routes.Events,
+            // [#294] "Settings" was the one V1 page name with no entry, so `--page Settings`
+            // was fatal under the default shell while the other thirteen resolved. It was not
+            // spotted because the V1 name and the V2 address happen to differ only here: every
+            // other page's address either matches its V1 name or had an override written for it.
+            ["Settings"] = V2Routes.Setup,
         };
 
     /// <summary>The current variant's address for the route this v1 page name now belongs to, or null.</summary>
@@ -47,12 +51,12 @@ public static class V2LegacyPageAddressAliases
         ArgumentNullException.ThrowIfNull(variant);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedPage);
 
-        var matched = registry.Routes.FirstOrDefault(candidate =>
-            string.Equals(candidate.LegacyPage, requestedPage, StringComparison.OrdinalIgnoreCase));
-        var routeId = matched is { } route
-            ? route.Id
-            : HistoricalOverrides.TryGetValue(requestedPage, out var overridden) ? overridden : (V2RouteId?)null;
-
-        return routeId is { } id && variant.Addresses.TryGetValue(id, out var address) ? address : null;
+        // The registry is still taken, and still checked, so that a name in the table below
+        // cannot outlive the route it points at: [route] throws on an unknown id.
+        return HistoricalOverrides.TryGetValue(requestedPage, out var routeId) &&
+            registry.TryGet(routeId, out _) &&
+            variant.Addresses.TryGetValue(routeId, out var address)
+                ? address
+                : null;
     }
 }

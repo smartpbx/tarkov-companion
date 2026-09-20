@@ -46,6 +46,12 @@ public sealed class RuntimeCompositionTests
             // ones after it. A healthy launch names none: an entry here is a page that is empty on
             // screen and would have taken the rest of the list with it before.
             Assert.Empty(viewModel.StartupFaults);
+            // The wiring, not the property. Settings builds every outbound diagnostics report, and
+            // it is constructed before startup has failed anything, so it asks rather than holds.
+            // Removing the one line that connects them leaves this null and the report silent
+            // about the pages that did not load — which is the state it was in for a day.
+            Assert.NotNull(viewModel.Settings.StartupFaults);
+            Assert.Empty(viewModel.Settings.StartupFaults());
             Assert.Equal(DataAvailability.DemoFixture, snapshot.Data.Availability);
             Assert.Equal(1, snapshot.Data.ItemCount);
             Assert.Equal("demo-graphics-card", snapshot.Scan.CanonicalItemId);

@@ -1,0 +1,52 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupCleanupView"
+             x:DataType="vm:SetupCleanupViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#309] Turning tidying on is agreed to as a list, not a switch: press, read what would move, confirm.
+       Turning it off is one press. Preview is a dry run of the same planning the hourly tidy uses. -->
+  <StackPanel Classes="v2-stack">
+    <WrapPanel Classes="v2-toolbar">
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-tidying"
+              IsEnabled="{Binding CanTidy}"
+              Content="{Binding ToggleLabel}" Command="{Binding RequestToggleCommand}" />
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-preview-tidy"
+              Content="{Binding PreviewLabel}" Command="{Binding PreviewCommand}" />
+    </WrapPanel>
+
+    <Border Classes="v2-card" IsVisible="{Binding HasPreview}" AutomationProperties.AutomationId="v2-setup-tidy-preview">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-label" Text="{Binding PreviewRefusal}" IsVisible="{Binding IsRefused}" TextWrapping="Wrap" />
+        <StackPanel Classes="v2-field" IsVisible="{Binding !IsRefused}">
+          <TextBlock Classes="v2-label" Text="{Binding FolderLabel}" />
+          <TextBlock Classes="v2-body" Text="{Binding PreviewFolder}" TextWrapping="Wrap" />
+        </StackPanel>
+        <TextBlock Classes="v2-label" Text="{Binding PreviewPolicy}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-body" Text="{Binding PreviewSummary}" TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="v2-setup-tidy-summary" />
+        <ItemsControl ItemsSource="{Binding PreviewFiles}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String"><TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="v2-label" Text="{Binding PreviewExcluded}" IsVisible="{Binding HasPreviewExcluded}" TextWrapping="Wrap" />
+        <WrapPanel Classes="v2-toolbar" IsVisible="{Binding IsConfirming}">
+          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-confirm-tidying"
+                  Content="{Binding ConfirmLabel}" Command="{Binding ConfirmEnableCommand}" />
+          <Button Classes="v2-target" Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+
+    <StackPanel Classes="v2-field">
+      <TextBlock Classes="v2-label" Text="{Binding LedgerHeading}" />
+      <TextBlock Classes="v2-label" Text="{Binding LedgerEmpty}" IsVisible="{Binding HasNoLedger}" />
+      <ItemsControl ItemsSource="{Binding LastRuns}" IsVisible="{Binding HasLedger}"
+                    AutomationProperties.AutomationId="v2-setup-tidy-ledger">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="x:String"><TextBlock Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

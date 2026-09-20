@@ -141,7 +141,11 @@
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:LoadoutFindingViewModel">
                         <Border Classes="inset coral" Margin="0,0,0,5" Padding="9">
-                          <TextBlock Classes="coral" Text="{Binding Message}" TextWrapping="Wrap" />
+                          <StackPanel Spacing="3">
+                            <TextBlock Classes="coral" Text="{Binding Message}" TextWrapping="Wrap" />
+                            <TextBlock Classes="note" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                       IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                          </StackPanel>
                         </Border>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -155,7 +159,11 @@
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:LoadoutFindingViewModel">
                         <Border Classes="inset ochre" Margin="0,0,0,5" Padding="9">
-                          <TextBlock Classes="ochre" Text="{Binding Message}" TextWrapping="Wrap" />
+                          <StackPanel Spacing="3">
+                            <TextBlock Classes="ochre" Text="{Binding Message}" TextWrapping="Wrap" />
+                            <TextBlock Classes="note" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                       IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                          </StackPanel>
                         </Border>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>

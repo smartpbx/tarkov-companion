@@ -11,6 +11,18 @@ public enum StashSpecialistIntelligenceKind
     None = 1,
     Ammo,
     Key,
+
+    /// <summary>
+    /// Something the player uses rather than trades: a weapon, armour, a rig, a case, meds.
+    /// </summary>
+    /// <remarks>
+    /// Whether a rifle is surplus depends on the loadouts the player means to run, which the
+    /// loadout planner knows and a price does not. The first real render of a sorted stash put
+    /// an ammo case full of ammo, an M4A1 and the player's armour under "Sell", because nothing
+    /// needed them for a quest. Until the loadout planner answers, gear waits under Review with
+    /// what it would fetch, the way ammo and keys wait for their own services.
+    /// </remarks>
+    Gear,
 }
 
 /// <summary>
@@ -159,9 +171,12 @@ public sealed class StashOrganizationPlanner
 
         if (specialistUnresolved)
         {
-            reasonCodes.Insert(0, input.SpecialistKind == StashSpecialistIntelligenceKind.Ammo
-                ? "stash.specialist.ammo-unresolved"
-                : "stash.specialist.key-unresolved");
+            reasonCodes.Insert(0, input.SpecialistKind switch
+            {
+                StashSpecialistIntelligenceKind.Ammo => "stash.specialist.ammo-unresolved",
+                StashSpecialistIntelligenceKind.Gear => "stash.specialist.gear-unresolved",
+                _ => "stash.specialist.key-unresolved",
+            });
             if (reasonCodes.Count > StashScanBounds.MaximumReasonsPerItem)
             {
                 reasonCodes.RemoveAt(reasonCodes.Count - 1);
@@ -177,7 +192,7 @@ public sealed class StashOrganizationPlanner
                 input.Recommendation is null ? ResultCompleteness.Unknown : ResultCompleteness.Partial,
                 CombineFreshness(input.Recommendation?.Decision.Status.Freshness, input.SpecialistStatus.Freshness),
                 "stash.plan.specialist-unresolved",
-                "Ammo or key intelligence must come from the profile-aware specialist service before this item leaves Review.")
+                "Ammo, key or gear intelligence must come from the profile-aware specialist service before this item leaves Review.")
             : input.Recommendation?.Decision.Status ?? new ResultStatus(
                 ResultCompleteness.Unknown,
                 FreshnessState.Unknown,

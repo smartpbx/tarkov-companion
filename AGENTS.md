@@ -120,6 +120,7 @@ project lives only in somebody's head or only in an issue.
 | What is it for, as a product? | `docs/PRODUCT.md` |
 | What is left to do? | GitHub issues, then `docs/BACKLOG.md` for what has no issue |
 | How do I work on it? | `CONTRIBUTING.md` — branches, worktrees, the verification gate |
+| Where did the V1 page I used go? | `docs/V1_PARITY_LEDGER.md` — every V1 capability, its V2 home, and what proves it |
 | How do I run the tests? | `docs/TESTING.md`, and never on the workstation |
 | How fast is it over a raid, and what is guarded? | `docs/PERFORMANCE.md` |
 
@@ -129,6 +130,7 @@ Then by subject, when the task touches one:
 | --- | --- |
 | The map: tiles, layers, projection, markers | `docs/MAPS.md` |
 | Screenshots, OCR, what the game actually writes | `docs/RECOGNITION.md`, `docs/research/EFT_SCREENSHOT_FACTS.md` |
+| What a Loot Scan is decided from, the flea fee | `docs/LOOT_SCAN.md` |
 | The game's logs, line by line | `docs/research/EFT_LOG_FACTS.md` |
 | The database and its migrations | `docs/DATABASE.md` |
 | Where the game data comes from | `docs/DATA_SOURCES.md` |

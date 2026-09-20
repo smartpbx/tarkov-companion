@@ -78,7 +78,7 @@ public sealed class LootScanDecisionService
                 "Some visible loot could not be resolved; those cells remain review-only."));
         }
 
-        if (request.CarriedInventory.Outcome != GridReconstructionOutcome.Complete)
+        if (!CarriedIsPlannable(request.CarriedInventory))
         {
             issues.Add(new(
                 LootScanIssueKind.CarriedCoveragePartial,
@@ -99,7 +99,7 @@ public sealed class LootScanDecisionService
         var capacity = TryBuildCapacity(request, policies, cancellationToken, out var built)
             ? built
             : null;
-        if (capacity is null && request.CarriedInventory.Outcome == GridReconstructionOutcome.Complete)
+        if (capacity is null && CarriedIsPlannable(request.CarriedInventory))
         {
             issues.Add(new(
                 LootScanIssueKind.CapacityUnavailable,
@@ -364,7 +364,7 @@ public sealed class LootScanDecisionService
                 economics);
         }
 
-        if (request.CarriedInventory.Outcome != GridReconstructionOutcome.Complete || capacity is null)
+        if (capacity is null)
         {
             return Review(
                 cell.Anchor,
@@ -1153,7 +1153,7 @@ public sealed class LootScanDecisionService
     {
         capacity = null;
         var result = request.CarriedInventory;
-        if (result.Outcome != GridReconstructionOutcome.Complete || result.Recognition is not { } recognition ||
+        if (!CarriedIsPlannable(result) || result.Recognition is not { } recognition ||
             recognition.Geometry.Rows.Value is not { } rows || recognition.Geometry.Columns.Value is not { } columns ||
             !IsReliable(recognition.Geometry.Rows, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) ||
             !IsReliable(recognition.Geometry.Columns, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true))
@@ -1167,7 +1167,16 @@ public sealed class LootScanDecisionService
             cancellationToken.ThrowIfCancellationRequested();
             if (!TryExactItem(cell.Item, request.EvaluatedUtc, out var item, out var width, out var height))
             {
-                return false;
+                // What it is decides whether it may be dropped. Whether the space is taken is
+                // already answered by the footprint that was measured, so an item nobody could
+                // name stays where it is, holds its squares, and is never offered for dropping.
+                if (!TryObservedFootprint(cell, recognition.Geometry, request.EvaluatedUtc, out width, out height))
+                {
+                    return false;
+                }
+
+                items.Add(new(cell.Anchor, width, height, cell.Item, CapacityItemDisposition.Unresolved, null, null));
+                continue;
             }
 
             policies.TryGetValue(cell.Anchor, out var policy);
@@ -1211,6 +1220,62 @@ public sealed class LootScanDecisionService
 
         capacity = CapacityMap.Create(rows, columns, items);
         return capacity is not null;
+    }
+
+    /// <summary>
+    /// Whether free space can be worked out from the carried grid as read.
+    /// </summary>
+    /// <remarks>
+    /// This asked for a complete reconstruction, and a reconstruction is partial as soon as any
+    /// cell has one attribute unread. The game does not print found-in-raid on a carried item
+    /// any more than on a looted one, so every backpack ever read from pixels would arrive
+    /// partial and no fit or swap could be claimed at all: the same fault the loot side had.
+    /// What fitting depends on is where the grid is and which squares are taken. So an unread
+    /// name, count, rotation or attribute is tolerated, and anything that puts a footprint or
+    /// the grid itself in doubt still is not.
+    /// </remarks>
+    private static bool CarriedIsPlannable(GridReconstructionResult carried) =>
+        carried.Outcome == GridReconstructionOutcome.Complete ||
+        (carried.Outcome == GridReconstructionOutcome.Partial &&
+         carried.Recognition is not null &&
+         carried.Issues.All(issue => issue.Kind is
+             GridReconstructionIssueKind.ItemUnresolved or
+             GridReconstructionIssueKind.ItemAmbiguous or
+             GridReconstructionIssueKind.ItemPartial or
+             GridReconstructionIssueKind.RotationUncertain or
+             GridReconstructionIssueKind.QuantityUncertain or
+             GridReconstructionIssueKind.AttributesUncertain));
+
+    /// <summary>
+    /// The squares an unnamed carried item covers, from the region it was seen in.
+    /// </summary>
+    /// <remarks>
+    /// Only a region that is a whole number of cells counts. One that is not was measured against
+    /// something other than this grid, and guessing which way to round it is how a fit gets
+    /// claimed over an item that is there.
+    /// </remarks>
+    private bool TryObservedFootprint(
+        GridCellRecognition cell,
+        GridGeometry geometry,
+        DateTimeOffset evaluatedUtc,
+        out int width,
+        out int height)
+    {
+        width = 0;
+        height = 0;
+        if (cell.Item.Bounds is not { CoordinateSpace: EvidenceCoordinateSpace.SourcePixels } bounds ||
+            geometry.CellWidthPixels.Value is not { } cellWidth || cellWidth <= 0 ||
+            geometry.CellHeightPixels.Value is not { } cellHeight || cellHeight <= 0 ||
+            !IsReliable(geometry.CellWidthPixels, evaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) ||
+            !IsReliable(geometry.CellHeightPixels, evaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) ||
+            bounds.Width % cellWidth != 0 || bounds.Height % cellHeight != 0)
+        {
+            return false;
+        }
+
+        width = (int)(bounds.Width / cellWidth);
+        height = (int)(bounds.Height / cellHeight);
+        return width > 0 && height > 0;
     }
 
     private bool TryExactItem(
