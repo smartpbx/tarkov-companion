@@ -19,6 +19,7 @@ public static class Tablet
 {
     private const string ResourceName = "TarkovCompanion.GroupServer.Tablet.index.html";
     private const string RelayCryptoResourceName = "TarkovCompanion.GroupServer.Tablet.relay-crypto.js";
+    private const string CommandAcknowledgementResourceName = "TarkovCompanion.GroupServer.Tablet.command-acknowledgement.js";
 
     public static string Page { get; } = Read(ResourceName);
 
@@ -28,6 +29,13 @@ public static class Tablet
     /// (<c>scripts/test-relay-crypto.mjs</c>) rather than text embedded inside <see cref="Page"/>.
     /// </summary>
     public static string RelayCryptoScript { get; } = Read(RelayCryptoResourceName);
+
+    /// <summary>
+    /// What the desktop said about a command, in words a person can act on (#290), served
+    /// separately for the same reason as <see cref="RelayCryptoScript"/>: it is plain JavaScript
+    /// Node can test (<c>scripts/test-command-acknowledgement.mjs</c>).
+    /// </summary>
+    public static string CommandAcknowledgementScript { get; } = Read(CommandAcknowledgementResourceName);
 
     private static string Read(string resourceName)
     {

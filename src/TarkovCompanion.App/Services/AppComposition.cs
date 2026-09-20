@@ -857,7 +857,9 @@ public static class AppComposition
             provider.GetRequiredService<RelayMarksBridge>(),
             provider.GetRequiredService<IItemSearchService>(),
             provider.GetRequiredService<IItemRepository>(),
-            timeProvider));
+            timeProvider,
+            // #407: the same Allergic chip Intel draws (#287), now on a tablet's search results.
+            provider.GetRequiredService<IIntelEventStateCatalog>()));
         // [V2 rough package 41] Setup's self-test. Refs #292, #281. Every reading is read-only:
         // discovery re-probes folders, the log and screenshot readers open files for reading,
         // game data and the database are SELECTs, and the relay is asked only for its health.

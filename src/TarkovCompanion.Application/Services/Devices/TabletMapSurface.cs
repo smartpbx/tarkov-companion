@@ -58,7 +58,10 @@ public sealed record TabletSearchResult(
     string Name,
     string ShortName,
     long? FleaRoubles,
-    long? TraderRoubles);
+    long? TraderRoubles,
+    // #407: the same chip Intel draws (#287) for an item this raid's running event has marked
+    // allergic — the one state a search result has to stop somebody, not just note in passing.
+    bool IsAllergic = false);
 
 /// <summary>The lookup the desktop is currently showing, and what it found.</summary>
 public sealed record TabletSearch(string Query, IReadOnlyList<TabletSearchResult> Results);
