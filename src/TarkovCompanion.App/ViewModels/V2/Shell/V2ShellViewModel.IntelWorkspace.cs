@@ -719,6 +719,16 @@ public sealed partial class V2ShellViewModel
             return;
         }
 
+        // The landing loads in the background, so it can finish after the player has started
+        // typing. Opening a suggestion then would put an item nobody asked for beside a search that
+        // found nothing — which is how this surfaced: "a search that finds nothing selects nothing"
+        // failed in CI whenever the load lost the race. A search is a decision; the suggestion yields.
+        if (!string.IsNullOrWhiteSpace(SearchText))
+        {
+            _intelLandingAutoSelected = true;
+            return;
+        }
+
         var first = snapshot.NeededNow.Concat(snapshot.Pinned).Concat(snapshot.Recent).Concat(snapshot.HighestValue)
             .FirstOrDefault();
         if (first is null)
