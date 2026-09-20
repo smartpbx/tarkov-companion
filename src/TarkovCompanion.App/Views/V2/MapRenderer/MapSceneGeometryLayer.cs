@@ -96,6 +96,13 @@ public sealed class MapSceneGeometryLayer : Control
                 continue;
             }
 
+            // [Issue 286] A traffic hotspot is drawn by the heat picture under this layer; an
+            // outline round it would give a smooth field an edge it does not have.
+            if (item.SceneObject.Kind == MapSceneObjectKind.Traffic)
+            {
+                continue;
+            }
+
             var closes = item.Kind is MapSceneGeometryKind.Area or MapSceneGeometryKind.Region;
             var geometry = new StreamGeometry();
             using (var builder = geometry.Open())

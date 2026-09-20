@@ -260,6 +260,45 @@
             </StackPanel>
           </Border>
 
+          <!-- [Issue 286] What the heat on the plan is, said on the plan: modelled, from what, through
+               when. One line high and only while the layer is drawn; the legend's ramp is the
+               picture's own (TrafficHeatPicture.Colour), which is why its colours are written out. -->
+          <Border Classes="v2-raid-caption" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0"
+                  Padding="4" Opacity="0.95" IsVisible="{Binding ShowsTrafficBanner}" IsHitTestVisible="False"
+                  AutomationProperties.AutomationId="v2-raid-traffic-banner"
+                  AutomationProperties.Name="{Binding TrafficBannerBasis}">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border BorderBrush="{DynamicResource V2.Brush.Warning}" BorderThickness="1" Padding="8,4"
+                      CornerRadius="{DynamicResource V2.Shape.Control}" VerticalAlignment="Center">
+                <TextBlock Classes="v2-label" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
+                           Text="{Binding TrafficBannerTitle}" />
+              </Border>
+              <StackPanel VerticalAlignment="Center" Margin="0,0,6,0">
+                <TextBlock Classes="v2-label" Text="{Binding TrafficBannerBasis}" />
+                <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding TrafficBannerDetail}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+          <Border Classes="v2-raid-caption" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,34"
+                  Padding="8,6" IsVisible="{Binding ShowsTrafficBanner}" IsHitTestVisible="False"
+                  AutomationProperties.AutomationId="v2-raid-traffic-legend">
+            <StackPanel Spacing="3" Width="210">
+              <Border Height="8" CornerRadius="4">
+                <Border.Background>
+                  <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
+                    <GradientStop Offset="0" Color="#33FFC446" />
+                    <GradientStop Offset="0.5" Color="#FFFF7824" />
+                    <GradientStop Offset="1" Color="#FFDC2C22" />
+                  </LinearGradientBrush>
+                </Border.Background>
+              </Border>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="v2-label" Text="Lower modelled traffic" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Higher" />
+              </Grid>
+            </StackPanel>
+          </Border>
+
           <!-- Nothing floats over the plan any more but the zoom group and this credit. The view
                switches and the artwork chooser that stood here covered the plan's bottom-left corner
                (on Factory, an extract), and the presentation pill covered its top-left; both are in
