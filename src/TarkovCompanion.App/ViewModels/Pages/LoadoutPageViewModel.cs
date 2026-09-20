@@ -1,4 +1,6 @@
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.Application.Services.Planning;
 using System.Globalization;
 using TarkovCompanion.Core.Common;
 using System.Windows.Input;
@@ -59,7 +61,13 @@ public sealed record LoadoutAssignmentViewModel(
     string ItemName,
     string Detail,
     ICommand RemoveCommand,
-    bool AllowsMany = false);
+    bool AllowsMany = false)
+{
+    /// <summary>"Allergic · event name" where the Events page records an allergy to this food or medicine (#285).</summary>
+    public string AllergyWarning { get; init; } = string.Empty;
+
+    public bool HasAllergyWarning => AllergyWarning.Length > 0;
+}
 
 /// <summary>A single line returned by the evaluation, issue or warning.</summary>
 /// <summary>An issue or warning, with the plain reason the rule raised it (empty when there is none).</summary>
@@ -167,6 +175,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private readonly ILoadoutPresetStore? _presets;
     private readonly TimeProvider _clock;
     private readonly Dictionary<LoadoutSlot, List<AssignedItem>> _selection = [];
+    private readonly AllergyWarningService? _allergies;
+    private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
 
     private IReadOnlyList<LoadoutItemFacts> _factList = [];
     private IReadOnlyDictionary<string, LoadoutItemFacts> _facts = NoFacts;
@@ -211,13 +221,15 @@ public sealed class LoadoutPageViewModel : PageViewModel
         IItemSearchService searchService,
         IItemRepository itemRepository,
         ILoadoutPresetStore? presets = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        AllergyWarningService? allergies = null)
         : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
         _searchService = searchService;
         _itemRepository = itemRepository;
         _presets = presets;
+        _allergies = allergies;
         _clock = clock ?? TimeProvider.System;
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         EvaluateCommand = new AsyncDelegateCommand(EvaluateAsync);
@@ -656,6 +668,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             items.Add(new(item.ItemId, item.Name, SlotOptions.First(option => option.Slot == slot).Name));
         }
 
+        await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
         RefreshAssignments();
         ResetEvaluation("Loaded. Evaluate to price and weigh it.");
         PresetStatus = $"Loaded {saved.Name}";
@@ -952,6 +965,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             }
 
             items.Add(new(itemId, name, $"{category} · {DescribeCost(facts)} · {DescribeWeight(facts)}{DescribeGear(facts)}"));
+            await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
             RefreshAssignments();
             AssignmentStatus = slot.AllowsMany
                 ? $"Added {name} to {slot.Name}."
@@ -960,6 +974,30 @@ public sealed class LoadoutPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             AssignmentStatus = $"Not assigned · {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Re-reads which foods and medicines the player is recorded allergic to. Read when the kit
+    /// changes rather than once, because the record is made on another page in the same session.
+    /// A failure here costs the warning, never the assignment.
+    /// </summary>
+    private async Task RefreshAllergyWarningsAsync(CancellationToken cancellationToken)
+    {
+        if (_allergies is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _allergyWarnings = await OffInterfaceThread
+                .Run(() => _allergies.GetAsync(cancellationToken), cancellationToken)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            WorkspaceFault.Record("loadout", "read allergies", exception);
         }
     }
 
@@ -1003,7 +1041,10 @@ public sealed class LoadoutPageViewModel : PageViewModel
                     items[index].Name,
                     items[index].Detail,
                     new DelegateCommand(() => Remove(slot, position)),
-                    option.AllowsMany));
+                    option.AllowsMany)
+                {
+                    AllergyWarning = _allergyWarnings.GetValueOrDefault(items[index].ItemId, string.Empty),
+                });
             }
         }
 

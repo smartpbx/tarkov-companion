@@ -6,6 +6,11 @@
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
+    <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
+         colour is a class of its own rather than an attribute on the text. -->
+    <Style Selector="TextBlock.v2-label.v2-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- A bundle card in the left column: flat surface, cyan outline only while selected. -->
     <Style Selector="Button.v2-plan-bundle">
@@ -455,6 +460,10 @@
                         <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                           <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
                           <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                          <!-- #285: the Events page records an allergy to this food or medicine. -->
+                          <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AllergyWarning}" FontWeight="SemiBold"
+                                     IsVisible="{Binding HasAllergyWarning}"
+                                     AutomationProperties.AutomationId="v2-plan-requirement-allergy" />
                         </StackPanel>
                         <TextBlock Grid.Column="2" Classes="v2-body" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
                       </Grid>

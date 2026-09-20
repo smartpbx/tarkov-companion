@@ -2,6 +2,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -516,6 +517,51 @@ public sealed class EventsPageViewModel : PageViewModel
         }
     }
 
+    private readonly EventStateUndo _undo = new();
+    private AsyncDelegateCommand? _undoCommand;
+
+    /// <summary>Takes back the last state recorded on this page (#285). One step.</summary>
+    public AsyncDelegateCommand UndoCommand => _undoCommand ??= new(() => UndoAsync(CancellationToken.None));
+
+    public bool CanUndo => _undo.CanUndo;
+
+    public string UndoLabel => _undo.Last is { } last
+        ? $"Undo · {last.ItemName} back to {DescribeState(last.Previous)}"
+        : string.Empty;
+
+    private void NotifyUndo()
+    {
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(UndoLabel));
+    }
+
+    internal async Task UndoAsync(CancellationToken cancellationToken)
+    {
+        if (_undo.Take() is not { } change)
+        {
+            return;
+        }
+
+        try
+        {
+            await _tracker.SetItemStateAsync(change.EventId, change.ItemId, change.Previous, cancellationToken).ConfigureAwait(true);
+            if (Selected is { } selected)
+            {
+                await ShowEventAsync(selected, cancellationToken).ConfigureAwait(true);
+            }
+
+            Detail = $"Undone · {change.ItemName} is {DescribeState(change.Previous)} again";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Detail = $"Not undone · {exception.Message}";
+        }
+        finally
+        {
+            NotifyUndo();
+        }
+    }
+
     private async Task SetStateAsync(
         string eventId,
         string itemId,
@@ -533,13 +579,17 @@ public sealed class EventsPageViewModel : PageViewModel
 
         try
         {
+            var previous = await _tracker.GetItemStateAsync(eventId, itemId, cancellationToken).ConfigureAwait(true);
             await _tracker.SetItemStateAsync(eventId, itemId, state, cancellationToken).ConfigureAwait(true);
+            var itemName = Items.FirstOrDefault(row => string.Equals(row.ItemId, itemId, StringComparison.Ordinal))?.ItemName ?? itemId;
+            _undo.Record(new(eventId, itemId, itemName, previous, state));
             if (Selected is { } selected)
             {
                 await ShowEventAsync(selected, cancellationToken).ConfigureAwait(true);
             }
 
             Detail = $"Recorded {DescribeState(state)} in {definition.Name}";
+            NotifyUndo();
         }
         catch (KeyNotFoundException)
         {
@@ -782,6 +832,8 @@ public sealed class EventsPageViewModel : PageViewModel
         try
         {
             await _authoring.DeleteAsync(summary.EventId, cancellationToken).ConfigureAwait(true);
+            _undo.Forget(summary.EventId);
+            NotifyUndo();
             ConfirmingDelete = false;
             await LoadAsync(cancellationToken, null).ConfigureAwait(true);
             Status = $"Deleted {summary.Name}";
@@ -864,6 +916,12 @@ public sealed class EventsPageViewModel : PageViewModel
         {
             await _authoring.SaveAsync(definition with { ApplicableItemIds = items }, cancellationToken)
                 .ConfigureAwait(true);
+            if (_undo.Last is { } remembered && !items.Contains(remembered.ItemId))
+            {
+                _undo.Forget(eventId, remembered.ItemId);
+                NotifyUndo();
+            }
+
             var query = ItemQuery;
             await LoadAsync(cancellationToken, eventId).ConfigureAwait(true);
             ItemQuery = query;

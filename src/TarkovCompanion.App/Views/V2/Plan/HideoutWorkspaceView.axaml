@@ -5,6 +5,11 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Plan"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.Styles>
+    <!-- A class-selected style outranks a Foreground set inside a data template, so the warning
+         colour is a class of its own rather than an attribute on the text. -->
+    <Style Selector="TextBlock.v2-label.v2-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- Same visual language as the Plan tab's bundle cards and requirement list. -->
     <Style Selector="Button.v2-hideout-station">
@@ -207,8 +212,8 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
-                                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" />
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
                     </Grid>
@@ -233,8 +238,8 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
-                                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" />
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
                     </Grid>

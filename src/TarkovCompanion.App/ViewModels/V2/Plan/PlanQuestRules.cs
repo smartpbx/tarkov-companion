@@ -80,6 +80,11 @@ public sealed record PlanRequirementRowViewModel(
     /// <summary>Whether any holding is recorded for it. Where none is, the row says so instead of "0".</summary>
     public bool IsHeldKnown => Have is not null;
 
+    /// <summary>"Allergic · event name" where the Events page records an allergy to this food or medicine (#285).</summary>
+    public string AllergyWarning { get; init; } = string.Empty;
+
+    public bool HasAllergyWarning => AllergyWarning.Length > 0;
+
     /// <summary>"2 / 5": held against needed, the right-hand figure of the row; "? / 5" where the holding is not recorded.</summary>
     public string ProgressLabel => Have is { } have
         ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
@@ -177,7 +182,8 @@ public static class PlanQuestRules
         IEnumerable<QuestObjectiveReadModel> objectives,
         Func<string, string> nameOf,
         IReadOnlyDictionary<string, int> owned,
-        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null)
+        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null,
+        IReadOnlyDictionary<string, string>? allergyWarnings = null)
     {
         ArgumentNullException.ThrowIfNull(nameOf);
 
@@ -191,7 +197,15 @@ public static class PlanQuestRules
                         : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),
                     HandlingLabel(requirement.Handling),
                     requirement.Need,
-                    requirement.Have))
+                    requirement.Have)
+                {
+                    // Any of the alternatives: the row offers all of them, so it warns for each.
+                    AllergyWarning = allergyWarnings is null
+                        ? string.Empty
+                        : requirement.ItemIds
+                            .Select(id => allergyWarnings.GetValueOrDefault(id))
+                            .FirstOrDefault(warning => warning is not null) ?? string.Empty,
+                })
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
         ];

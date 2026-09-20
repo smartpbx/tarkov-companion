@@ -375,6 +375,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private string? _mapPreviewSignature;
     private string _mapNote = string.Empty;
     private QuestBoardReadModel? _board;
+    private readonly AllergyWarningService? _allergies;
+    private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
     private (QuestBoardReadModel Board, Dictionary<string, string> Names)? _taskNames;
     private QuestProfileScope? _scope;
     private string _status = "Loading your quest board…";
@@ -437,8 +439,11 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // what clock stamps it. Optional like the rest, so a composition without app paths still
         // plans; without them Export copies to the clipboard and writes no file.
         AppDataPaths? paths = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        // #285: which foods and medicines the Events page records an allergy to.
+        AllergyWarningService? allergies = null)
     {
+        _allergies = allergies;
         _paths = paths;
         _clock = clock ?? TimeProvider.System;
         _itemRepository = itemRepository;
@@ -848,6 +853,14 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                 .Run(() => _readService.GetQuestBoardAsync(scope, cancellationToken), cancellationToken)
                 .ConfigureAwait(true);
             UiActivity.Step("plan:board");
+            if (_allergies is { } allergies)
+            {
+                // Re-read with the board: the record is made on the Events tab beside this one.
+                _allergyWarnings = await OffInterfaceThread
+                    .Run(() => allergies.GetAsync(cancellationToken), cancellationToken)
+                    .ConfigureAwait(true);
+            }
+
             var board = _board;
             _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
             UiActivity.Step("plan:mapnames");
@@ -1360,7 +1373,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             group.Objectives.Select(row => row.Objective),
             NameOfItem,
             _ownedItems,
-            objective => handedOver.TryGetValue(objective, out var items) ? items : EmptyItemIds);
+            objective => handedOver.TryGetValue(objective, out var items) ? items : EmptyItemIds,
+            _allergyWarnings);
     }
 
     private static readonly IReadOnlySet<string> EmptyItemIds = new HashSet<string>(StringComparer.Ordinal);

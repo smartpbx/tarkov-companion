@@ -76,8 +76,14 @@
             <Button Grid.Column="1" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
                     Content="{Binding DeleteLabel}" IsVisible="{Binding CanEdit}" />
           </Grid>
-          <TextBlock Grid.Row="1" Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
-                     Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+          <StackPanel Grid.Row="1" Spacing="4">
+            <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+            <!-- #285: one press takes back the last state recorded here. -->
+            <Button Classes="v2-target v2-outline" HorizontalAlignment="Left" Command="{Binding UndoCommand}"
+                    Content="{Binding UndoLabel}" IsVisible="{Binding CanUndo}"
+                    AutomationProperties.AutomationId="v2-events-undo" />
+          </StackPanel>
           <TextBlock Grid.Row="2" Classes="v2-heading-3" Text="{Binding Progress}" TextWrapping="Wrap" />
           <TextBlock Grid.Row="3" Classes="v2-label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
 
