@@ -24,6 +24,8 @@ using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
 
+using TarkovCompanion.App.Services.V2.Shell;
+
 namespace TarkovCompanion.App.ViewModels;
 
 public abstract class BindableViewModel : INotifyPropertyChanged
@@ -1766,7 +1768,7 @@ public sealed class HistoryPageViewModel : PageViewModel
     }
 }
 
-public sealed class SettingsPageViewModel : PageViewModel
+public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 {
     /// <summary>
     /// Updating the application from inside it, rather than by hand.
@@ -2262,6 +2264,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     /// <summary>Whether a newer build is waiting, fetched or not, for the one-press update.</summary>
     public bool CanUpdateNow => CanDownloadUpdate || CanRestartForUpdate;
+
+    /// <summary>[#294] The same fact, under the name the V2 shell asks for it by.</summary>
+    bool IUpdateWaitingSource.IsUpdateWaiting => CanUpdateNow;
 
     /// <summary>
     /// Looks for a newer build, on a timer, without anybody asking.

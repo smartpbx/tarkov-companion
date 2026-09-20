@@ -67,6 +67,18 @@
         <Path Classes="v2-icon" IsVisible="{Binding IsTeam}" Data="{DynamicResource V2.Icon.People}" />
         <Path Classes="v2-icon" IsVisible="{Binding IsDebrief}" Data="{DynamicResource V2.Icon.Chart}" />
         <Path Classes="v2-icon" IsVisible="{Binding IsSetup}" Data="{DynamicResource V2.Icon.Gear}" />
+        <!-- [#294] Something is waiting behind this destination. V1 marked its rail beside
+             Settings when a build had arrived and V2 marked nothing at all, so an update reached
+             the machine and told nobody who had not opened Setup of their own accord.
+
+             In the shared icon template, so every place a destination is drawn carries it and
+             none of them has to remember to. Decorative like the icon it sits on: the words are
+             on the button, in NoticeDescription. -->
+        <Ellipse Width="8" Height="8" Margin="0,0,1,1"
+                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                 IsVisible="{Binding HasNotice}"
+                 Fill="{DynamicResource V2.Brush.Info}"
+                 AutomationProperties.AccessibilityView="Raw" />
       </Panel>
     </DataTemplate>
   </UserControl.Resources>
@@ -325,14 +337,24 @@
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-header-search-open"
                     Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
           </StackPanel>
+          <!-- [#294] Variant B puts Setup in the header rather than the rail, and the header
+               draws a label instead of the shared icon template, so the waiting mark is placed
+               here too rather than only where the gear is. -->
           <Button Grid.Column="11" Classes="v2-target v2-destination"
                   Classes.selected="{Binding SetupDestination.IsCurrent}"
                   IsVisible="{Binding ShowsHeaderSetup}"
                   AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                   AutomationProperties.Name="{Binding SetupDestination.Label}"
-                  AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
-                  Content="{Binding SetupDestination.DisplayLabel}"
-                  Command="{Binding SetupDestination.NavigateCommand}" />
+                  AutomationProperties.ItemStatus="{Binding SetupDestination.StatusDescription}"
+                  Command="{Binding SetupDestination.NavigateCommand}">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock VerticalAlignment="Center" Text="{Binding SetupDestination.DisplayLabel}" />
+              <Ellipse Width="8" Height="8" VerticalAlignment="Center"
+                       IsVisible="{Binding SetupDestination.HasNotice}"
+                       Fill="{DynamicResource V2.Brush.Info}"
+                       AutomationProperties.AccessibilityView="Raw" />
+            </StackPanel>
+          </Button>
           <Button Grid.Column="12" Classes="v2-target v2-icon-btn v2-topbar-plain" VerticalAlignment="Center"
                   AutomationProperties.AutomationId="v2-shell-capture" ToolTip.Tip="{Binding CaptureLabel}"
                   AutomationProperties.Name="{Binding CaptureLabel}" Command="{Binding CaptureCommand}">
@@ -447,7 +469,7 @@
               <Button Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
                       AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
                       AutomationProperties.Name="{Binding SetupDestination.Label}"
-                      AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                      AutomationProperties.ItemStatus="{Binding SetupDestination.StatusDescription}"
                       Content="{Binding SetupDestination.DisplayLabel}" Command="{Binding SetupDestination.NavigateCommand}" />
             </StackPanel>
           </StackPanel>

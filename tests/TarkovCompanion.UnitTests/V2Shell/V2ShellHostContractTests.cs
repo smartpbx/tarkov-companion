@@ -33,6 +33,35 @@ public sealed class V2ShellHostContractTests
         Assert.DoesNotContain("LayoutTransformControl", shell, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// [#294] The shell still marks Setup while a build waits, and the mark is still drawn.
+    /// </summary>
+    /// <remarks>
+    /// The behaviour is tested in V2UpdateNoticeTests against the seam; this is the other half,
+    /// because a correct helper nobody calls marks nothing. Nothing in this suite can build a
+    /// V2ShellViewModel to check the call at runtime — it needs the whole composition — so the
+    /// call and the markup are read.
+    ///
+    /// Both halves matter separately: delete the constructor line and the dot never appears;
+    /// delete the Ellipse and the shell knows but shows nothing, which is the state this issue
+    /// existed to end.
+    /// </remarks>
+    [Fact]
+    public void A_waiting_build_marks_setup_and_the_mark_is_drawn()
+    {
+        var model = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "ViewModels", "V2", "Shell", "V2ShellViewModel.cs"));
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+
+        Assert.Contains("MarkWhileUpdateWaits(legacy.Settings, SetupDestination)", model, StringComparison.Ordinal);
+        Assert.Contains("_updateNotice?.Dispose();", model, StringComparison.Ordinal);
+        // The rail's shared icon template, so every place a destination is drawn carries it.
+        Assert.Contains("IsVisible=\"{Binding HasNotice}\"", shell, StringComparison.Ordinal);
+        // And the header, which draws a label rather than that template (variant B's Setup).
+        Assert.Contains("IsVisible=\"{Binding SetupDestination.HasNotice}\"", shell, StringComparison.Ordinal);
+        // Said, not only drawn.
+        Assert.Contains("{Binding SetupDestination.StatusDescription}", shell, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void DialogHostAndAllRequiredSurfaceStatesAreExplicitInThePreviewHost()
     {

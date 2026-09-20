@@ -164,6 +164,15 @@ internal static class Program
                 throw new ArgumentException($"No destination is named '{startPage}'.");
             }
 
+            // [#294] Photograph the waiting-build mark. This paints it directly rather than
+            // simulating the updater: what it proves is that the dot is drawn, where, and at what
+            // size. That the shell raises it from the real update signal is proved by
+            // V2UpdateNoticeTests and the host-contract ratchet, not by this.
+            if (shell is not null && args.Contains("--update-waiting"))
+            {
+                shell.SetupDestination.HasNotice = true;
+            }
+
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
