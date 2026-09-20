@@ -10,6 +10,24 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.MapRenderer"
              xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+  <UserControl.Resources>
+    <!-- [Issue 551] A mark on the plan is a button with nothing of the theme's button about it:
+         no background in any state (the hover square), no pressed scale, no clip. A theme of its
+         own rather than setters over the Fluent one, whose pointer-over, pressed and checked
+         styles all reach for a presenter by this name. -->
+    <ControlTheme x:Key="V2.MapMarkTheme" TargetType="Button">
+      <Setter Property="Background" Value="{x:Null}" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter x:Name="PART_ContentPresenter"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+  </UserControl.Resources>
   <UserControl.Styles>
     <Style Selector="ToggleButton.v2-map-choice, Button.v2-map-choice">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
@@ -32,10 +50,47 @@
       <Setter Property="MinWidth" Value="44" />
       <Setter Property="MinHeight" Value="44" />
       <Setter Property="Padding" Value="0" />
-      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Background" Value="{x:Null}" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
+      <!-- [Issue 551] "pins dont look right they are cut off, so is the vision cone ... pings are
+           cutoff too and waypoints are even worse. and mousing over them shows a highlighted
+           square". Both were this button. A templated control clips to its bounds here (the clip
+           probe in tools/V2RenderPreview reads ClipToBounds=True off it), and a pin is drawn
+           upward from its tip at the middle of this 44px box, so everything above the box's top
+           edge was cut: 14 of a pin's 36px, the arc of the facing cone, a nudged ping's rings.
+           The square was the theme's pointer-over and checked backgrounds filling the same box.
+           So the button draws nothing of its own and clips nothing: its theme (V2.MapMarkTheme,
+           above) is a bare presenter with no background, which also means the empty corners of the box no longer
+           take the pointer. Each mark's own shape does (see v2-map-mark-hit below), and hover
+           and selection are drawn on that shape. -->
+      <Setter Property="ClipToBounds" Value="False" />
+    </Style>
+    <!-- [Issue 551] What takes the pointer for a mark: its own outline, drawn invisibly and a
+         few pixels fat so the target is the shape plus a margin rather than the 44px square. -->
+    <Style Selector="Path.v2-map-mark-hit">
+      <Setter Property="Fill" Value="Transparent" />
+      <Setter Property="Stroke" Value="Transparent" />
+      <Setter Property="StrokeThickness" Value="8" />
+      <Setter Property="StrokeJoin" Value="Round" />
+    </Style>
+    <Style Selector="Ellipse.v2-map-mark-hit">
+      <Setter Property="Fill" Value="Transparent" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-map-mark-hit">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Width" Value="40" />
+      <Setter Property="Height" Value="40" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <!-- Every layer on the camera surface is as big as the card but is turned and scaled with the
+         plan, so a layer that clips to its own bounds cuts marks along an edge that is nowhere
+         near the card's. Only PlanViewport clips. -->
+    <Style Selector="Canvas#CameraSurface > ItemsControl">
+      <Setter Property="ClipToBounds" Value="False" />
     </Style>
     <Style Selector="Border.v2-map-marker-chip">
       <Setter Property="Width" Value="32" />
@@ -78,6 +133,12 @@
     </Style>
     <Style Selector="ToggleButton.v2-map-marker.offer-unknown Border.v2-map-marker-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- [Issue 551] Hover is drawn on the mark, not on a square around it. After the truth and
+         offer states above, so it shows whichever of them the mark carries. -->
+    <Style Selector="ToggleButton.v2-map-marker:pointerover Border.v2-map-marker-chip,
+                     Button.v2-map-marker:pointerover Border.v2-map-marker-chip">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     </Style>
     <Style Selector="TextBlock.v2-map-offered">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
@@ -198,6 +259,19 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
       <Setter Property="StrokeThickness" Value="1.5" />
       <Setter Property="Opacity" Value="0.35" />
+    </Style>
+    <!-- [Issue 551] Hover and selection for a person and a ping, on their own shapes. After the
+         base styles above: the later style wins. -->
+    <Style Selector="ToggleButton.v2-map-marker:pointerover Ellipse.v2-map-person-dot">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Focus}" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-marker:checked Ellipse.v2-map-person-dot">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Focus}" />
+      <Setter Property="StrokeThickness" Value="3" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-marker:pointerover Ellipse.v2-map-ping-ring-inner,
+                     ToggleButton.v2-map-marker:checked Ellipse.v2-map-ping-ring-inner">
+      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Border.v2-map-grid">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
@@ -429,7 +503,7 @@
                 <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
                   <!-- The generated ContentPresenter stays at the Canvas origin in Avalonia.
                        Position inside the template, where the transform is applied to the real control. -->
-                  <ToggleButton Classes="v2-map-marker"
+                  <ToggleButton Classes="v2-map-marker" Theme="{StaticResource V2.MapMarkTheme}"
                                 Classes.historical="{Binding IsHistorical}"
                                 Classes.local-observed="{Binding IsLocalObserved}"
                                 Classes.team-observed="{Binding IsTeamObserved}"
@@ -462,7 +536,7 @@
                          with a glyph in it. The cone is outside the chip so it is not clipped by
                          it, and it turns with the recorded heading rather than with the marker. -->
                     <Panel>
-                    <Panel IsVisible="{Binding IsPersonIcon}" Width="44" Height="44" IsHitTestVisible="False">
+                    <Panel IsVisible="{Binding IsPersonIcon}" Width="44" Height="44">
                       <!-- [V2 rough package 46] The 44x44 box and Stretch="None" are what keep the
                            cone on the dot. A Path with no size measures to its own geometry, which
                            for this cone is 36 wide and 22 tall, so 50% of it was (18,11) and the
@@ -471,14 +545,16 @@
                            attached to anybody. V1 turns a Panel filling the same square, which is
                            why V1 never showed it. -->
                       <Path Classes="v2-map-person-cone" Data="{Binding ConeGeometry}"
-                            Width="44" Height="44" Stretch="None"
+                            Width="44" Height="44" Stretch="None" IsHitTestVisible="False"
                             RenderTransformOrigin="50%,50%">
                         <Path.RenderTransform>
                           <RotateTransform Angle="{Binding ConeDegrees}" />
                         </Path.RenderTransform>
                       </Path>
+                      <!-- [Issue 551] The dot and a margin take the pointer; the cone does not. -->
+                      <Ellipse Classes="v2-map-mark-hit" Width="24" Height="24" />
                       <Ellipse Classes="v2-map-person-dot" Classes.teammate="{Binding IsTeammateIcon}"
-                               Width="14" Height="14"
+                               Width="14" Height="14" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Panel>
                     <!-- [Issue 508] A waypoint or a quest objective is a pin: its own head shape
@@ -488,9 +564,15 @@
                          that fixed, always-upright box the pin's own bottom-centre tip has to be
                          drawn to land on that centre. See MapPinGeometry and MapPinAnchorTests. -->
                     <Panel IsVisible="{Binding IsPinMark}" Width="44" Height="44">
-                      <Canvas Width="44" Height="44" IsHitTestVisible="False">
+                      <Canvas Width="44" Height="44">
                         <Panel Canvas.Left="{Binding PinLeft}" Canvas.Top="{Binding PinTop}"
                                Width="{x:Static map:MapPinGeometry.Width}" Height="{x:Static map:MapPinGeometry.Height}">
+                          <!-- [Issue 551] The pin's own outline, 4px fatter all round, is what
+                               takes the pointer: not the 44px box, most of which is below the tip. -->
+                          <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
+                                IsVisible="{Binding IsWaypointMark}" Data="{DynamicResource V2.Icon.PinRound}" />
+                          <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
+                                IsVisible="{Binding IsObjectiveMark}" Data="{DynamicResource V2.Icon.PinShield}" />
                           <Path Classes="v2-map-pin-round"
                                 IsVisible="{Binding IsWaypointMark}"
                                 Width="{x:Static map:MapPinGeometry.Width}" Height="{x:Static map:MapPinGeometry.Height}"
@@ -509,17 +591,19 @@
                     </Panel>
                     <!-- A ping: a transient pulse centred exactly on the point, never a pin, and
                          a third colour so it cannot be mistaken for either one even mid-glance. -->
-                    <Panel IsVisible="{Binding IsPingMark}" Width="44" Height="44" IsHitTestVisible="False">
+                    <Panel IsVisible="{Binding IsPingMark}" Width="44" Height="44">
                       <Panel.RenderTransform>
                         <TranslateTransform X="{Binding PinOffsetX}" Y="{Binding PinOffsetY}" />
                       </Panel.RenderTransform>
-                      <Ellipse Classes="v2-map-ping-ring-outer" Width="28" Height="28"
+                      <Ellipse Classes="v2-map-mark-hit" Width="32" Height="32" />
+                      <Ellipse Classes="v2-map-ping-ring-outer" Width="28" Height="28" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                      <Ellipse Classes="v2-map-ping-ring-inner" Width="16" Height="16"
+                      <Ellipse Classes="v2-map-ping-ring-inner" Width="16" Height="16" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
-                      <Ellipse Classes="v2-map-ping-dot" Width="8" Height="8"
+                      <Ellipse Classes="v2-map-ping-dot" Width="8" Height="8" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Panel>
+                    <Border Classes="v2-map-mark-hit" IsVisible="{Binding ShowsLegacyChip}" />
                     <Border Classes="v2-map-marker-chip" IsHitTestVisible="False"
                             IsVisible="{Binding ShowsLegacyChip}">
                       <Grid Width="26" Height="26">
@@ -551,7 +635,7 @@
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
-                  <Button Classes="v2-map-marker cluster"
+                  <Button Classes="v2-map-marker cluster" Theme="{StaticResource V2.MapMarkTheme}"
                           RenderTransformOrigin="50%,50%"
                           AutomationProperties.AutomationId="{Binding AutomationId}"
                           AutomationProperties.Name="{Binding AutomationName}"
@@ -564,12 +648,15 @@
                         <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
                       </TransformGroup>
                     </Button.RenderTransform>
-                    <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
-                      <Grid Width="40" Height="40">
-                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                                   Text="{Binding MarkerGlyph}" />
-                      </Grid>
-                    </Border>
+                    <Panel>
+                      <Border Classes="v2-map-mark-hit" />
+                      <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                        <Grid Width="40" Height="40">
+                          <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Text="{Binding MarkerGlyph}" />
+                        </Grid>
+                      </Border>
+                    </Panel>
                   </Button>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
