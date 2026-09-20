@@ -1311,7 +1311,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         await _marks.AddAsync(kind, mapId, floorId, x, y, label: null).ConfigureAwait(true);
     }
 
-    private async Task SelectMapAsync(string mapId)
+    // internal rather than private: a paired tablet holding the control lease switches the
+    // desktop's map the same way the manual picker above does (#407) — see
+    // TabletMapSurfacePublisher.OnDesktopWorkspaceRequested.
+    internal async Task SelectMapAsync(string mapId)
     {
         await _map.FollowRaidAsync(mapId).ConfigureAwait(true);
     }

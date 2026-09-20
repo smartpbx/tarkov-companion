@@ -341,7 +341,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private const int MaximumSearchResults = 12;
 
     /// <summary>A paired device holding a control lease has moved the map; the desktop follows it.</summary>
-    private void OnDesktopWorkspaceRequested(WorkspaceProjection projection)
+    private async void OnDesktopWorkspaceRequested(WorkspaceProjection projection)
     {
         if (_disposed || _cockpit.Renderer is not { } renderer || projection.Viewport is not { } viewport)
         {
@@ -353,6 +353,22 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         _applyingRemoteView = true;
         try
         {
+            // [#407] A tablet in Control always sent workspace: "Raid" and its own current map,
+            // and this read only the floor/viewport/selection fields below — a request to switch
+            // maps went nowhere. Switching rebuilds the renderer (RaidCockpitViewModel.
+            // SelectMapAsync -> V1's own FollowRaidAsync), so everything after this applies to
+            // whichever renderer instance comes out the other side, not the one this started with.
+            if (!string.Equals(renderer.Scene.LocationId, viewport.Center.MapId, StringComparison.Ordinal))
+            {
+                await _cockpit.SelectMapAsync(viewport.Center.MapId).ConfigureAwait(true);
+                if (_disposed || _cockpit.Renderer is not { } switched)
+                {
+                    return;
+                }
+
+                renderer = switched;
+            }
+
             if (!string.Equals(renderer.Scene.View.SelectedFloorId, projection.FloorId, StringComparison.Ordinal))
             {
                 renderer.SelectFloor(projection.FloorId);
