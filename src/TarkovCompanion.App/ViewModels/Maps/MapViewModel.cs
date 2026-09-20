@@ -17,6 +17,7 @@ using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
 
@@ -3315,7 +3316,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             QuestAssociations = _questProjection.Objectives.Select(objective => new QuestMapAssociationViewModel(
                 $"{objective.TaskName} · {objective.ObjectiveKind}",
                 objective.Availability,
-                $"{objective.Attribution} · quest catalog {FormatUtc(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {FormatUtc(objective.MapCatalogProvenance.RetrievedUtc)}",
+                $"{objective.Attribution} · quest catalog {LocalTime.Moment(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {LocalTime.Moment(objective.MapCatalogProvenance.RetrievedUtc)}",
                 QuestItemRequirementFormatter.DescribeForMap(
                     objective.ItemTargets,
                     objective.FoundInRaidRequired),
@@ -4647,7 +4648,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // list reads as missing data rather than as a quiet corner of the map.
         SpawnPanelDetail = near.Count == 0
             ? string.Empty
-            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {anchor.Timestamp.ToLocalTime():t}.";
+            : $"Player spawns within {SpawnProximity.DefaultRadiusMetres:F0} m of your first screenshot, {LocalTime.ShortTime(anchor.Timestamp)}.";
     }
 
     /// <summary>
@@ -5696,7 +5697,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var rotation = _renderModel.Variant.Transform?.RotationDegrees ?? 0;
         var bearing = ((position.HeadingDegrees - rotation) % 360 + 360) % 360;
         var age = DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime();
-        var taken = position.Timestamp.ToLocalTime().ToString("T", CultureInfo.CurrentCulture);
+        var taken = LocalTime.Time(position.Timestamp);
         PlayerMarkers =
         [
             new(
@@ -6060,8 +6061,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestPanel = [];
         QuestLayerStatus = status;
     }
-
-    private static string FormatUtc(DateTimeOffset timestamp) => timestamp.ToUniversalTime().ToString("u");
 
     private void NotifyPresentationProperties()
     {

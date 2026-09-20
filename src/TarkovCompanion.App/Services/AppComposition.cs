@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -26,6 +27,7 @@ using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -366,6 +368,12 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [V2 rough package 60 — appearance] #266/#315: the one versioned record that says how
+        // the companion looks. Nothing persisted a theme, a text scale, a density or a motion
+        // choice before this, so every palette the design system shipped was unreachable.
+        services.AddSingleton<IWorkspacePreferenceStore>(_ =>
+            new JsonFileWorkspacePreferenceStore(Path.Combine(paths.Config, "preferences.json")));
+        services.AddSingleton<WorkspacePreferenceService>();
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -378,10 +386,21 @@ public static class AppComposition
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
 
-        services.AddSingleton<IPlayerProfileService>(provider => new JsonFilePlayerProfileService(
+        // [#269] profile.json stays the first profile's progress; every other profile gets its own file
+        // under profiles/, and IPlayerProfileService hands each caller the active profile's file.
+        services.AddSingleton(provider => new JsonFilePlayerProfileService(
             provider.GetRequiredService<JsonProfileOptions>(),
             timeProvider,
             provider.GetRequiredService<SqliteConnectionFactory>()));
+        services.AddSingleton<IPlayerProfileService>(provider => new ProfileScopedPlayerProfileService(
+            provider.GetRequiredService<JsonFilePlayerProfileService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            Path.Combine(paths.Config, "profiles"),
+            path => new JsonFilePlayerProfileService(
+                new JsonProfileOptions(path),
+                timeProvider,
+                provider.GetRequiredService<SqliteConnectionFactory>()),
+            provider.GetService<ILogger<ProfileScopedPlayerProfileService>>()));
         services.AddSingleton(provider => new ProjectQuestProgressJson(
             provider.GetRequiredService<ProjectQuestProgressJsonOptions>(),
             timeProvider));
@@ -730,6 +749,9 @@ public static class AppComposition
         services.AddSingleton<LootScanDecisionService>();
         services.AddSingleton<LootScanCaptureHandoff>();
         services.AddSingleton<StashScanCaptureHandoff>();
+        // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
+        // item. Every intent but Loot and Stash used to be acknowledged and dropped.
+        services.AddSingleton<IntelCaptureHandoff>();
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());
@@ -775,13 +797,47 @@ public static class AppComposition
             provider.GetService<DesktopCompanionAuthority>(),
             provider.GetService<TabletMapSurfacePublisher>(),
             provider.GetRequiredService<CompanionPairingAvailability>().RelayOrigin ?? companionOrigin,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>()));
         services.AddSingleton(provider => new SetupSelfTestViewModel(
             provider.GetRequiredService<ISelfTestReadings>,
             provider.GetRequiredService<SelfTestJournal>(),
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#269] What Setup › Game & Profile drives: create, switch, archive, restore. A first profile
+        // waits for the V1 one to be seeded, so V1 progress always has a profile to belong to.
+        services.AddSingleton(provider => new ProfileManagementService(
+            provider.GetRequiredService<ProfileContextService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            timeProvider,
+            provider.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync));
+        services.AddSingleton(provider => new SetupProfilesViewModel(
+            provider.GetRequiredService<ProfileManagementService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+        // [#292] Setup's data detail, About, Data & Privacy and Displays.
+        services.AddSingleton(provider => new SetupDataDetailViewModel(
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            runtimeOptions,
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+            () => provider.GetRequiredService<ApplicationStartupCoordinator>().RefreshAsync(force: true, CancellationToken.None)));
+        services.AddSingleton(provider => new SetupDisplaysViewModel(
+            provider.GetService<IMonitorService>(),
+            provider.GetService<IGameWindowLocator>()));
+        services.AddSingleton(provider => new SetupAdminViewModel(
+            provider.GetRequiredService<SetupDataDetailViewModel>(),
+            new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),
+            new SetupInfoPageViewModel(
+                "Data & Privacy",
+                SetupPageContent.DataPrivacy,
+                anchor => SetupPageFacts.ForDataPrivacy(
+                    anchor,
+                    provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline,
+                    provider.GetRequiredService<SetupDataDetailViewModel>().Facts.FirstOrDefault()?.Value,
+                    provider.GetRequiredService<MainWindowViewModel>().Group)),
+            provider.GetRequiredService<SetupDisplaysViewModel>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

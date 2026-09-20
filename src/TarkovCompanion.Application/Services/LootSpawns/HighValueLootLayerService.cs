@@ -611,7 +611,7 @@ public sealed class HighValueLootLayerService
             freshness,
             incomplete ? "loot-spawns.partial" : "loot-spawns.ready");
         var through = snapshot.Provenance.EvidenceThroughUtc;
-        var legend = $"Potential spawns · Updated {through:yyyy-MM-dd}" +
+        var legend = $"Potential spawns · Updated {LocalTime.SortableDate(through)}" +
                      (freshness switch
                      {
                          FreshnessState.Stale => " · Stale",

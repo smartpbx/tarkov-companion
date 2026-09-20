@@ -477,6 +477,26 @@ function Invoke-ShellInteraction {
                 throw "'$Description' measured '$BoundsLabel' at $($Bounds.Width)x$($Bounds.Height), below ${MinimumWidth}x${MinimumHeight}."
             }
 
+            # V2 rough package 32: some repairs are about a control being the size of what it
+            # holds, which is true whatever data the machine has — unlike how much of it is
+            # drawn on, which is not. Debrief's raid table is one: a full-height card holding a
+            # single row was the fault, and it is a fault with no raids as much as with one.
+            $MaximumHeightFraction = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "maximumHeightFraction" -Default (-1))
+            if ($MaximumHeightFraction -ge 0) {
+                Initialize-GalleryBounds
+                $HeightWindow = New-Object TarkovCompanionGalleryBounds+RECT
+                if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $HeightWindow)) {
+                    throw "'$Description' could not read the packaged window bounds."
+                }
+
+                $WindowHeight = [Math]::Max(1, $HeightWindow.Bottom - $HeightWindow.Top)
+                $Share = $Bounds.Height / $WindowHeight
+                if ($Share -gt $MaximumHeightFraction) {
+                    throw ("'$Description' left '$BoundsLabel' $([Math]::Round($Share * 100, 1))% of the window tall " +
+                        "(bound $([Math]::Round($MaximumHeightFraction * 100, 1))%): it is not the size of what it holds.")
+                }
+            }
+
             # V2 rough package 30 (acceptance sweep): a control the player is expected to press
             # must actually be on the window. Every V1 page hosted inside the V2 shell drew
             # without the page inset V1 gives it, so Ammo/Keys "Reload", Flea "Look up value",
@@ -848,6 +868,13 @@ function New-ShotResult {
     return [pscustomobject]@{
         page = $Page
         shellMode = $ShellMode
+        # Two different facts, because they were one and it cost two branches a day each.
+        # windowShown is "the packaged app put a window up"; presented is "the whole shot ran to
+        # the end". A shot that fails an assertion halfway, or whose process has to be killed,
+        # leaves presented false - and reporting that as "no window" sent #434 and #423 both
+        # looking for a startup crash that was not there, and read as a Loadout fault on
+        # 2026-09-20 when the packaged app was simply not exiting in time.
+        windowShown = $false
         presented = $false
         visuallyVaried = $false
         interactionRequired = $InteractionRequired
@@ -1256,8 +1283,17 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
         expected = @("v2-shell-navigation-rail") },
+    # Height, not fill: with no raids recorded the table holds its empty state, which is mostly
+    # card either way, so "how much of it is drawn on" says nothing. "It is the height of the
+    # raids in it" is the repair, and it holds with no raids as well as with one — on today's
+    # main this pane is the full height of the window whatever is in it.
+    #
+    # Read against the history this gallery photographs, which is a first run's: none, or the one
+    # the launch probe opened. A machine with thirty raids would fill the window legitimately and
+    # trip this, the same way the readiness denominators above are written against a first run.
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
-        expected = @("v2-shell-navigation-rail") },
+        expected = @("v2-shell-navigation-rail", "v2-debrief-history")
+        bounds = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumHeightFraction = 0.50 }) },
     [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
         expected = @("v2-shell-navigation-rail") }
 )
@@ -1276,7 +1312,6 @@ foreach ($Route in $V2AcceptanceRoutes) {
         if ($null -ne (Get-InteractionProperty -Object $Route -Name "forbidden")) {
             $Step["forbiddenAutomationIds"] = @($Route.forbidden)
         }
-
         $Shot = [ordered]@{
             name = "v2-a-$($Route.key)-$($Size.suffix)"
             args = @("--ui-shell", "v2-a")
@@ -1442,6 +1477,7 @@ foreach ($Shot in $Shots) {
             # the run green, interactionRequired drops to false so the report does not say an
             # assertion passed, and skipped plus detail say what actually happened.
             $Result.skipped = $true
+            $Result.windowShown = $true
             $Result.presented = $true
             $Result.visuallyVaried = $true
             $Result.warningCaptureArmed = $true
@@ -1482,6 +1518,12 @@ foreach ($Shot in $Shots) {
             $Result.detail = "No window within $WindowTimeoutSeconds second(s)."
             continue
         }
+
+        # There is a window. Whatever this shot goes on to find - an assertion it fails, a hang,
+        # a process that has to be killed a moment later - "no window" is no longer one of the
+        # things that can be wrong with it, and saying so is the difference between hunting a
+        # startup crash and reading the reason.
+        $Result.windowShown = $true
 
         # Window creation is not page readiness. Two consecutive responsive samples only make
         # the visual capture less racy. The declared V2 UIA steps prove only their named route,
@@ -1527,7 +1569,8 @@ foreach ($Shot in $Shots) {
         }
 
         if ($null -ne $Interaction) {
-            $Result.interactionDetail = Invoke-ShellInteraction -WindowHandle $Process.MainWindowHandle -Interaction $Interaction
+            $Result.interactionDetail = Invoke-ShellInteraction `
+                -WindowHandle $Process.MainWindowHandle -Interaction $Interaction
             $Result.interactionSmoke = $true
             if (-not [bool](Get-InteractionProperty -Object $Shot -Name "closeImmediately" -Default $false)) {
                 Start-Sleep -Milliseconds 300
@@ -1615,7 +1658,8 @@ foreach ($Shot in $Shots) {
     }
 }
 
-$NoWindow = @($Results | Where-Object { -not $_.presented })
+$NoWindow = @($Results | Where-Object { -not $_.windowShown })
+$Incomplete = @($Results | Where-Object { $_.windowShown -and -not $_.presented })
 $Blank = @($Results | Where-Object { $_.presented -and -not $_.visuallyVaried })
 $Faulted = @($Results | Where-Object { $_.interfaceFaultCount -gt 0 })
 $Unarmed = @($Results | Where-Object { -not $_.warningCaptureArmed })
@@ -1634,6 +1678,7 @@ $Report = [pscustomobject]@{
     pages = $Results
     failedCount = $Failed.Count
     noWindowCount = $NoWindow.Count
+    unfinishedCount = $Incomplete.Count
     blankCount = $Blank.Count
     interfaceFaultCount = $Faulted.Count
     warningCaptureUnarmedCount = $Unarmed.Count
@@ -1652,6 +1697,17 @@ foreach ($Result in $Results) {
     $Mark = if ($Failed -contains $Result) { "FAIL" } elseif ($Result.skipped) { "skip" } else { "ok  " }
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
     Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Dead"
+    # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
+    # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
+    # without downloading anything.
+    if (($Failed -contains $Result) -and -not [string]::IsNullOrWhiteSpace($Result.detail)) {
+        Write-Host "     $($Result.detail)"
+    }
+
+    if ($Result.interactionRequired -and -not $Result.interactionSmoke -and
+        -not [string]::IsNullOrWhiteSpace($Result.interactionDetail)) {
+        Write-Host "     $($Result.interactionDetail)"
+    }
     foreach ($Line in @($Result.interfaceFaults | Select-Object -First 5)) {
         Write-Host "     $Line"
     }
@@ -1663,6 +1719,9 @@ foreach ($Result in $Results) {
 # every usability/accessibility behavior or that map/data tiles are ready.
 $Problems = @()
 if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Object { $_.page }) -join ', ')" }
+# A shot that showed a window and then stopped. Its own detail is the only thing that says why, so
+# it is carried here rather than left in an artifact nobody downloads until the log has misled them.
+if ($Incomplete.Count -gt 0) { $Problems += "the shot did not finish: $(($Incomplete | ForEach-Object { "$($_.page) ($($_.detail))" }) -join '; ')" }
 if ($Blank.Count -gt 0) { $Problems += "insufficient visual variation: $(($Blank | ForEach-Object { $_.page }) -join ', ')" }
 if ($Faulted.Count -gt 0) { $Problems += "interface faults: $(($Faulted | ForEach-Object { $_.page }) -join ', ')" }
 if ($Unarmed.Count -gt 0) { $Problems += "warning capture was not armed: $(($Unarmed | ForEach-Object { $_.page }) -join ', ')" }

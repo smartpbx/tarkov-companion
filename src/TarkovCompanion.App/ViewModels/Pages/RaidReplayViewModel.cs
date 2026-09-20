@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -77,7 +78,7 @@ public sealed class RaidReplayViewModel : BindableViewModel
         ? string.Empty
         : string.Create(
             CultureInfo.CurrentCulture,
-            $"{_step + 1} of {_positions.Count} · {_positions[_step].Timestamp.ToLocalTime():T}");
+            $"{_step + 1} of {_positions.Count} · {LocalTime.Time(_positions[_step].Timestamp)}");
 
     public bool IsPlaying
     {
