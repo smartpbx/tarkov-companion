@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
@@ -787,11 +788,17 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
+    /// <summary>Shown in the pane when the board could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
             UiActivity.Step("plan:start");
+            LoadFaultInjection.ThrowIfInjected("plan");
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             UiActivity.Step("plan:profile");
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
@@ -813,6 +820,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
             UiActivity.Step("plan:questlayer");
+            LoadFault.Clear();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -823,6 +831,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Groups = [];
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
+            LoadFault.Show("Quests did not load", "Nothing is lost. Retry reads them again.");
             WorkspaceFault.Record("plan", "refresh", exception);
         }
     }
@@ -843,7 +852,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         UpdateGameLogStatus(reading);
-        _ = RefreshAsync(CancellationToken.None);
+        RefreshAsync(CancellationToken.None).Observe("plan", "refresh after the game reported a quest");
     }
 
     private void UpdateGameLogStatus(QuestLogProgressReading? reading)

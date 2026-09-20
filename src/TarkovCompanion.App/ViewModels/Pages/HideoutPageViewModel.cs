@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -162,7 +163,7 @@ public sealed class HideoutPageViewModel : PageViewModel
             return;
         }
 
-        _ = LoadAsync();
+        LoadAsync().Observe("hideout-page", "reload");
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);

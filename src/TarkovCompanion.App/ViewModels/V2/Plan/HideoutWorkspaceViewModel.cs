@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
@@ -230,11 +231,18 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
 
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
+    /// <summary>Shown in the pane when the hideout could not be read, with Retry (#453).</summary>
+    public LoadFaultNoticeViewModel LoadFault => _loadFault ??= new(() => RefreshAsync(CancellationToken.None));
+
+    private LoadFaultNoticeViewModel? _loadFault;
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         try
         {
+            LoadFaultInjection.ThrowIfInjected("hideout");
             var stations = await _requirements.GetStationsAsync(cancellationToken).ConfigureAwait(true);
+            LoadFault.Clear();
             if (stations.Count == 0)
             {
                 Stations = [];
@@ -279,6 +287,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
             Stations = [];
             Items = [];
             Status = "Hideout data isn't available yet.";
+            LoadFault.Show("The hideout did not load", "Nothing is lost. Retry reads it again.");
             WorkspaceFault.Record("hideout", "refresh", exception);
         }
     }

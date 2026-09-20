@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Windows.Input;
@@ -233,6 +234,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     {
         try
         {
+            LoadFaultInjection.ThrowIfInjected("debrief");
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
             Raids = raids
                 .Select(raid => new DebriefRaidRowViewModel(
@@ -265,6 +267,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             Raids = [];
             MapStats = [];
             Status = $"Raid history unavailable: {exception.Message}";
+            WorkspaceFault.Record("debrief", "load", exception);
             RaiseAll();
         }
     }

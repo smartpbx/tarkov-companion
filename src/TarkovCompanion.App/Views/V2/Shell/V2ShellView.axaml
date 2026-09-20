@@ -14,7 +14,8 @@
              xmlns:raidVm="using:TarkovCompanion.App.ViewModels.V2.Raid"
              xmlns:pages="using:TarkovCompanion.App.ViewModels"
              xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
-             xmlns:intelViews="using:TarkovCompanion.App.Views.V2.Intel">
+             xmlns:intelViews="using:TarkovCompanion.App.Views.V2.Intel"
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
@@ -514,6 +515,9 @@
             </Button>
           </Grid>
         </Border>
+
+        <!-- #453: pages that did not load at startup, named, with Retry. -->
+        <prim:V2LoadFaultNotice DataContext="{Binding StartupFaultNotice}" />
 
         <Border Classes="v2-card" IsVisible="{Binding HasPersistenceFailure}"
                 AutomationProperties.AccessibilityView="Control"

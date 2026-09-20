@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -135,7 +136,7 @@ public sealed class FleaPageViewModel : PageViewModel
         {
             if (SetProperty(ref _selected, value) && value is not null)
             {
-                _ = LoadHistoryAsync(value, CancellationToken.None);
+                LoadHistoryAsync(value, CancellationToken.None).Observe("flea", "load price history");
             }
         }
     }
