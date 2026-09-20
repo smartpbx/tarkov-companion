@@ -826,6 +826,14 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.");
                         break;
+                    case "restored":
+                        // [#289] Claimed on an earlier run and picked back up at startup: nothing
+                        // was attempted this run, so there is no attempt message to show.
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            devices: [DemoPairedDevice("Kitchen tablet")]);
+                        break;
                     case "pairing":
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.ClaimedByThisDesktop,

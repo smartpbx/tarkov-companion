@@ -140,10 +140,18 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
     device-key proof cannot complete pairing.
 
 Private device material is outside the wire contract. The desktop identity key and desktop
-private material are DPAPI-protected downstream. A browser keeps session traffic keys in memory
-and uses the platform authenticator for reusable device proof; it may keep the desktop identity
-public key, device ID, and credential ID, but it does not place a reusable bearer credential in
-local storage, session storage, IndexedDB, a URL, JSON, diagnostics, or logs.
+private material are DPAPI-protected downstream, and since 2026-09-20 that includes each paired
+session's traffic keys and the desktop's relay owner session, so a desktop restart keeps both for
+as long as those sessions live. The tablet page keeps its own session across a reload in
+IndexedDB: the two traffic keys as non-extractable `CryptoKey`s, its relay session credential, and
+the sender-sequence block it has reserved (a sequence is the frame's AES-GCM nonce, so a reload
+must start above anything sent). That is one device's session, which the desktop revokes and which
+expires with the session bounds below; a group key, an owner credential or the relay's admin key
+never reaches the page. Nothing is placed in local storage, session storage, a URL, JSON,
+diagnostics, or logs. A reloaded page holds no canonical state and sends `ReconnectRequest`
+without a cache; it repeats that every five minutes, which is also the only sign of life a tablet
+that just follows ever gives. Session resume (below) is still not wired to any transport, so a
+session that has expired means pairing again.
 
 ## Session resume and re-keying
 
