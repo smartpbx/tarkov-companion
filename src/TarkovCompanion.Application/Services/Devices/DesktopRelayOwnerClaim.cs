@@ -74,15 +74,8 @@ public static class DesktopRelayOwnerClaim
     public static DesktopRelayOwnerClaimMaterial Build(
         IDesktopIdentitySigner signer,
         CompanionDeviceId desktopDeviceId,
-        DateTimeOffset now,
-        TimeSpan? maximumSessionLifetime = null)
+        DateTimeOffset now)
     {
-        // The relay's own bound when it is an older build with a shorter one; see
-        // ProtocolBounds.LegacyMaximumSessionLifetime.
-        var sessionLifetime = maximumSessionLifetime is { } bound &&
-            bound > TimeSpan.FromMinutes(10) && bound < ProtocolBounds.MaximumSessionLifetime
-                ? bound - TimeSpan.FromMinutes(5)
-                : SessionLifetime;
         ArgumentNullException.ThrowIfNull(signer);
         // Every protocol timestamp built below requires exact millisecond precision
         // (ProtocolGuard.Utc); TimeProvider.System.GetUtcNow() is sub-millisecond, so a caller
@@ -137,7 +130,7 @@ public static class DesktopRelayOwnerClaim
                 new RelayChannelId(Guid.NewGuid()),
                 keyEpoch: 1,
                 RelayCipherSuite.P256HkdfSha256Aes256Gcm,
-                now.Add(sessionLifetime));
+                now.Add(SessionLifetime));
             var transcript = HandshakeTranscript.ForPairing(
                 offer,
                 request,

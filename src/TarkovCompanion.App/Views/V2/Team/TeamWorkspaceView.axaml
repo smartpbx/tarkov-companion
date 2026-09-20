@@ -463,7 +463,7 @@
                   <Button Grid.Column="1" Classes="v2-team-plain" VerticalAlignment="Center"
                           Content="Forget this relay"
                           AutomationProperties.AutomationId="v2-team-forget-relay"
-                          ToolTip.Tip="Drops the kept claim. The admin key is needed to claim again."
+                          ToolTip.Tip="Drops the kept claim. Claiming again needs the admin key, and the relay holds the old claim for up to two hours."
                           Command="{Binding Pairing.ForgetRelayCommand}" />
                 </Grid>
 

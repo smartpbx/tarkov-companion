@@ -54,15 +54,6 @@ public sealed record RelaySessionRoute(
 public sealed class RelayDeviceRegistry
 {
     private static readonly TimeSpan DeviceLifetime = TimeSpan.FromDays(30);
-
-    /// <summary>
-    /// How long an owner must have been silent before a different desktop may claim the relay.
-    /// </summary>
-    /// <remarks>
-    /// This was the device inactivity expiry while that was two hours. Inactivity is now measured
-    /// in days so a tablet survives a night on the desk, and a replaced PC must not wait that long.
-    /// </remarks>
-    private static readonly TimeSpan OwnerTakeoverGrace = TimeSpan.FromHours(2);
     private readonly TimeProvider _timeProvider;
     private readonly OwnerRecoveryProtector _recovery;
     private readonly VerifiedRelayRegistryStore? _store;
@@ -138,22 +129,8 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("claim-grant-mismatch");
             }
 
-            // [#289] The same desktop claiming again: same device id, same identity key. It used
-            // to be refused as "owner-already-live" like anybody else, which left a desktop that
-            // had lost its session (a restart, before sessions were kept) locked out of its own
-            // relay until the old one lapsed — and when the claim did go through it emptied the
-            // registry, so every tablet had to be paired again as well. Only a different desktop
-            // is a takeover. That one still waits for the owner to have been silent for
-            // OwnerTakeoverGrace, and still starts from an empty registry, because the devices
-            // there were paired to the other desktop's keys.
-            var usable = _loadStatus != RelayRegistryLoadStatus.Corrupt;
-            var sameDesktop = usable && _state.Devices.Any(device =>
-                device.Role == DeviceAuthorizationRole.Owner &&
-                device.DeviceId == establishment.Assignment.DeviceId &&
-                device.DeviceKey.KeyId == deviceKey.KeyId);
-            if (usable && !sameDesktop &&
-                _state.Devices.Any(device => device.Role == DeviceAuthorizationRole.Owner &&
-                    IsLive(device, now) && now - device.LastUsedUtc < OwnerTakeoverGrace))
+            if (_loadStatus != RelayRegistryLoadStatus.Corrupt &&
+                _state.Devices.Any(device => device.Role == DeviceAuthorizationRole.Owner && IsLive(device, now)))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("owner-already-live");
             }
@@ -166,16 +143,6 @@ public sealed class RelayDeviceRegistry
             var owner = CreateDevice(deviceKey, establishment, DeviceAuthorizationRole.Owner);
             var issued = IssueSession(owner, establishment, surface, now);
             var retainedAudit = _loadStatus == RelayRegistryLoadStatus.Corrupt ? [] : _state.Audit;
-            IReadOnlyList<RelayDeviceRecord> keptDevices = [];
-            List<RelaySessionRecord> keptSessions = [];
-            if (sameDesktop)
-            {
-                keptDevices = _state.Devices.Where(device => device.Role != DeviceAuthorizationRole.Owner).ToArray();
-                var keptIds = keptDevices.Select(device => device.DeviceId).ToHashSet();
-                keptSessions = MakeRoomForSession(
-                    _state.Sessions.Where(record => keptIds.Contains(record.Session.DeviceId)));
-            }
-
             var audit = AppendAudit(retainedAudit, new RelayAuditEvent(
                 Guid.NewGuid(),
                 RelayAuditAction.OwnerRecovered,
@@ -184,7 +151,7 @@ public sealed class RelayDeviceRegistry
                 subjectDeviceId: owner.DeviceId,
                 sessionId: issued.Credential.SessionId));
             await CommitAsync(
-                new RelayRegistryState(true, [owner, .. keptDevices], [issued.Record, .. keptSessions], audit),
+                new RelayRegistryState(true, [owner], [issued.Record], audit),
                 cancellationToken).ConfigureAwait(false);
             return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
         }

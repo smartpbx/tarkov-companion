@@ -756,9 +756,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         RelayClaimOutcome.AdminKeyRefused => (current, "That admin key was not accepted."),
         RelayClaimOutcome.RateLimited => (current, "Too many claim attempts. Try again in a minute."),
         RelayClaimOutcome.Unreachable => (current, "Could not reach the group relay."),
-        // An older relay refuses the same desktop claiming twice while its first claim is live.
+        // The relay will not replace an owner it has heard from recently, this desktop included.
         _ when result.Code == "owner-already-live" =>
-            (current, "The relay still holds this desktop's earlier claim. Update the relay, or try again in two hours."),
+            (current, "The relay still holds an earlier claim. It can be claimed again once that one has been idle for two hours."),
         _ => (current, result.Code is { Length: > 0 } code
             ? $"The relay refused the claim: {code}."
             : "The relay refused the claim."),
@@ -1014,14 +1014,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 ],
                 Now().AddDays(90),
                 CompanionTransportKind.EndToEndRelay,
-                CompanionSurfaceKind.TabletLandscape)
-            {
-                // The relay carries the challenge and reads it, so a session longer than its own
-                // build allows is refused there and the ceremony dies at this step.
-                SessionLifetime = _claimClient is null
-                    ? null
-                    : await _claimClient.ReadSessionBoundAsync(_lifetime.Token).ConfigureAwait(true),
-            };
+                CompanionSurfaceKind.TabletLandscape);
             _grant = grant;
             var challenge = await _coordinator.ApproveAsync(
                 _attemptId,

@@ -53,47 +53,15 @@ public sealed class RelayOwnerClaimClient
         _bridge = bridge;
     }
 
-    /// <summary>
-    /// The longest paired session this relay accepts. A relay that does not say is an older build,
-    /// which refuses anything over twelve hours before it reads another field.
-    /// </summary>
-    public async Task<TimeSpan> ReadSessionBoundAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var response = await _relay.GetAsync("health", cancellationToken).ConfigureAwait(false);
-            if (response.IsSuccessStatusCode)
-            {
-                var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                using var document = JsonDocument.Parse(json);
-                if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                    document.RootElement.TryGetProperty("pairedSessionHours", out var hours) &&
-                    hours.TryGetInt32(out var value) && value > 0)
-                {
-                    var stated = TimeSpan.FromHours(value);
-                    return stated < ProtocolBounds.MaximumSessionLifetime ? stated : ProtocolBounds.MaximumSessionLifetime;
-                }
-            }
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
-        {
-            // Asked for the shorter session below; the claim itself reports an unreachable relay.
-        }
-
-        return ProtocolBounds.LegacyMaximumSessionLifetime;
-    }
-
     public async Task<RelayClaimResult> ClaimAsync(string adminKey, DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(adminKey);
         try
         {
-            var bound = await ReadSessionBoundAsync(cancellationToken).ConfigureAwait(false);
             var material = DesktopRelayOwnerClaim.Build(
                 _signer,
                 _authority.Snapshot.CanonicalState.DesktopDeviceId,
-                nowUtc,
-                bound);
+                nowUtc);
 
             // Asked first so a relay another desktop owns is reported without spending this
             // desktop's claim-route budget on an attempt that can only fail.
@@ -116,8 +84,9 @@ public sealed class RelayOwnerClaimClient
 
                 // This desktop owns the relay but no longer holds the session that goes with it
                 // (it was forgotten, or protected storage was cleared). Owning without a session
-                // can neither pair nor route, so the claim is made again: a relay from 2026-09-20
-                // on lets the same desktop re-claim and keeps its paired devices.
+                // can neither pair nor route, so the claim is attempted rather than reported as
+                // done. The relay refuses it as "owner-already-live" until the earlier claim has
+                // been idle for its inactivity window; that rule is the relay's and stays as it is.
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Post, "admin/relay/claim")

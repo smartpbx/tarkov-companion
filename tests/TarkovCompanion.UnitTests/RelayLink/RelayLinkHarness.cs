@@ -59,8 +59,7 @@ internal sealed class LinkRelay : IAsyncDisposable
 
     public RelayDeviceRegistry Registry { get; }
 
-    /// <param name="pairedSessionHours">What <c>/health</c> states, or null for a relay older than 2026-09-20.</param>
-    public static async Task<LinkRelay> StartAsync(RelayTestClock clock, int? pairedSessionHours = 720)
+    public static async Task<LinkRelay> StartAsync(RelayTestClock clock)
     {
         var previous = Environment.GetEnvironmentVariable(RelayAdmin.Variable);
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, AdminKey);
@@ -80,10 +79,6 @@ internal sealed class LinkRelay : IAsyncDisposable
             new RelayOwnerClaimGate(clock),
             new RelayMapSurfaceStore(registry, clock));
         app.MapCompanionPairingMailboxRoutes();
-        // The one piece of Program.cs these tests touch that is still a top-level statement.
-        app.MapGet("/health", () => pairedSessionHours is { } hours
-            ? Results.Ok(new { status = "ok", pairedSessionHours = hours })
-            : Results.Ok(new { status = "ok" }));
         await app.StartAsync();
         var address = app.Services.GetRequiredService<IServer>().Features
             .Get<IServerAddressesFeature>()!.Addresses.First();

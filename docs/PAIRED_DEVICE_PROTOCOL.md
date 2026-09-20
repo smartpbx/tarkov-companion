@@ -118,7 +118,7 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
    nonce was known, so a substituted request matches the tablet's code with probability one in a
    million per attempt, and a failed attempt consumes the one-time code.
 7. On approval, `CreateChallenge` allocates `SessionAssignment` (negotiated version, device ID,
-   session ID, relay channel ID, key epoch, cipher suite, session expiry of at most thirty days),
+   session ID, relay channel ID, key epoch, cipher suite, session expiry of at most twelve hours),
    builds the transcript, and signs its hash with the desktop identity key. `Approve` accepts the
    challenge only if it reproduces the transcript of this offer, request, and nonce.
 8. The tablet rebuilds the transcript from its own offer, request, and reveal with
@@ -141,15 +141,17 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
 
 Private device material is outside the wire contract. The desktop identity key and desktop
 private material are DPAPI-protected downstream, and since 2026-09-20 that includes each paired
-session's traffic keys and the desktop's relay owner session, so a desktop restart keeps both. The
-tablet page keeps its own session across a reload in IndexedDB: the two traffic keys as
-non-extractable `CryptoKey`s, its relay session credential, and the sender-sequence block it has
-reserved (a sequence is the frame's AES-GCM nonce, so a reload must start above anything sent).
-That is one device's session, which the desktop revokes and which expires; a group key, an owner
-credential or the relay's admin key never reaches the page. Nothing is placed in local storage,
-session storage, a URL, JSON, diagnostics, or logs. A reloaded page holds no canonical state and
-sends `ReconnectRequest` without a cache; it repeats that every five minutes, which is also the
-only sign of life a tablet that just follows ever gives.
+session's traffic keys and the desktop's relay owner session, so a desktop restart keeps both for
+as long as those sessions live. The tablet page keeps its own session across a reload in
+IndexedDB: the two traffic keys as non-extractable `CryptoKey`s, its relay session credential, and
+the sender-sequence block it has reserved (a sequence is the frame's AES-GCM nonce, so a reload
+must start above anything sent). That is one device's session, which the desktop revokes and which
+expires with the session bounds below; a group key, an owner credential or the relay's admin key
+never reaches the page. Nothing is placed in local storage, session storage, a URL, JSON,
+diagnostics, or logs. A reloaded page holds no canonical state and sends `ReconnectRequest`
+without a cache; it repeats that every five minutes, which is also the only sign of life a tablet
+that just follows ever gives. Session resume (below) is still not wired to any transport, so a
+session that has expired means pairing again.
 
 ## Session resume and re-keying
 
@@ -180,7 +182,7 @@ earlier epoch cannot re-establish a session even if the attempt store is lost, s
 replay a resume to reset a receiver's replay window. Sessions also re-key before a sender sequence
 would exceed 2³²−1 and whenever the device key is replaced. A revoked, expired, or replaced device
 cannot resume. `DeviceLifecycle.RecordUse` refreshes the device's and session's last use for every
-accepted frame, so only real absence reaches the fourteen-day inactivity expiry.
+accepted frame, so only real absence reaches the two-hour inactivity expiry.
 
 ## Handshake encodings
 
@@ -830,14 +832,14 @@ All transports call `CompanionProtocolJson` rather than default serializer optio
 | Pairing code | ten Crockford base32 symbols; five attempts per source hash per five minutes; 160 observations, then fail closed |
 | Pairing offer | five minutes normally, ten minutes maximum |
 | Handshake challenge | pairing offer lifetime for pairing; two minutes for session resume |
-| Session | thirty days (twelve hours before 2026-09-20), and never past the device's expiry |
+| Session | twelve hours, and never past the device's expiry |
 | Control lease | two minutes normally, five minutes maximum, whole milliseconds |
 | Capture intent | two minutes |
 | Profile preference items / protected rules / overrides | 256 each |
 | Favorite loadouts / items per loadout | 64 / 64 |
 | Shared-personalization entries | 64 |
 | Preference quantity and sort order | 0–1,000,000; loadout quantity starts at 1 |
-| Device absence expiry | fourteen days (two hours before 2026-09-20) since the last recorded use unless explicitly revoked/replaced sooner |
+| Device absence expiry | two hours since the last recorded use unless explicitly revoked/replaced sooner |
 | Key epoch | 1 through 2³²−1, strictly increasing per device |
 | Sender sequence | 1 through 2³²−1 per session direction |
 | Maintenance scan | at least hourly, with exact server-time expiry still enforced on use |

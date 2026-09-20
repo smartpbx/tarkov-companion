@@ -372,13 +372,12 @@ attempt that can only fail.
 
 The claim is kept (2026-09-20, #289). The session the relay issues is stored in the desktop's
 protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
-panel reads claimed after a restart with nothing typed; "Forget this relay" drops it. The same
-desktop may claim again at any time and keeps its paired devices; a different desktop still waits
-until the owner has been silent for two hours, and starts from an empty registry. `GET /health`
-states `pairedSessionHours`; a desktop asks for twelve hours from a relay that does not say.
+panel reads claimed after a restart with nothing typed, for as long as the relay honours that
+session (twelve hours, two hours idle); "Forget this relay" drops it. The owner-recovery rule is
+unchanged: no claim, this desktop's included, replaces an owner the relay still counts as live.
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
-reaches the relay, and registering a tablet whose device key is already known replaces its old
-record.
+reaches the relay, and an owner registering a tablet whose device key is already known replaces
+that tablet's old record.
 
 The route answers **501 before it reads the admin key** when `TARKOV_RELAY_OWNER_RECOVERY_SECRET` is
 unset, because without it no owner can ever be recovered. The desktop reports that as its own state

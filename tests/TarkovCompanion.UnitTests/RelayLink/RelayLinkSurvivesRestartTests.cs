@@ -44,7 +44,8 @@ public sealed class RelayLinkSurvivesRestartTests
             Assert.NotNull(tablet.AuthorityEpoch);
         }
 
-        clock.Advance(TimeSpan.FromHours(20));
+        // Inside the protocol's own bounds: a session lives twelve hours and a device two idle.
+        clock.Advance(TimeSpan.FromMinutes(45));
         tablet.Reload();
 
         await using var secondRun = await DesktopRun.StartAsync(disk, relay.Origin, clock);
@@ -159,7 +160,7 @@ public sealed class RelayLinkSurvivesRestartTests
     }
 
     [Fact]
-    public async Task ForgettingTheRelayClearsTheKeptClaimAndTheSameDesktopCanClaimAgain()
+    public async Task ForgettingTheRelayClearsTheKeptClaimAndLeavesTheRelaysOwnRuleAlone()
     {
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         await using var relay = await LinkRelay.StartAsync(clock);
@@ -178,28 +179,14 @@ public sealed class RelayLinkSurvivesRestartTests
         await using var secondRun = await DesktopRun.StartAsync(disk, relay.Origin, clock);
         Assert.True(secondRun.Panel.NeedsClaim);
 
-        // The relay still counts this desktop as its live owner. It is the same desktop asking,
-        // so it is let back in, and the tablet it had paired is still registered afterwards.
+        // The relay does not replace an owner it has heard from recently, and forgetting here does
+        // not change that: the panel says so rather than pretending the claim went through.
+        await secondRun.ClaimAsync();
+        Assert.False(secondRun.Panel.IsClaimedByThisDesktop);
+        Assert.Contains("two hours", secondRun.Panel.RelayClaimMessage, StringComparison.Ordinal);
+
+        clock.Advance(ProtocolBounds.DeviceInactivityExpiry);
         await secondRun.ClaimAsync();
         Assert.True(secondRun.Panel.IsClaimedByThisDesktop, secondRun.Panel.RelayClaimMessage);
-        using var tabletStillKnown = await tablet.ReadFramesRawAsync();
-        Assert.Equal(HttpStatusCode.OK, tabletStillKnown.StatusCode);
-    }
-
-    [Fact]
-    public async Task ARelayThatDoesNotStateItsSessionBoundIsAskedForTheOldTwelveHours()
-    {
-        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
-        await using var relay = await LinkRelay.StartAsync(clock, pairedSessionHours: null);
-        using var disk = new DesktopDisk();
-        using var tablet = new TabletSimulator(relay.Origin, clock);
-        await using var desktop = await DesktopRun.StartAsync(disk, relay.Origin, clock);
-        await desktop.ClaimAsync();
-        await desktop.PairAsync(tablet, "Raid tablet");
-
-        // Both sessions fit inside what a relay built before 2026-09-20 accepts; it refuses a
-        // longer one before reading anything else, which would end the ceremony at the challenge.
-        var session = Assert.Single(desktop.Authority.Snapshot.Sessions);
-        Assert.True(session.ExpiresUtc - clock.UtcNow <= ProtocolBounds.LegacyMaximumSessionLifetime);
     }
 }

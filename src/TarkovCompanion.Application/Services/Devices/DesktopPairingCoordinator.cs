@@ -37,14 +37,7 @@ public sealed record PairingDeviceGrant(
     IReadOnlyList<DeviceCapability> SessionCapabilities,
     DateTimeOffset DeviceExpiresUtc,
     CompanionTransportKind Transport,
-    CompanionSurfaceKind Surface)
-{
-    /// <summary>
-    /// How long the first session may live, or null for the protocol's maximum. Shorter only when
-    /// the relay carrying the ceremony is an older build that refuses a longer one.
-    /// </summary>
-    public TimeSpan? SessionLifetime { get; init; }
-}
+    CompanionSurfaceKind Surface);
 
 /// <summary>
 /// One established session and its fresh direction-specific traffic keys.
@@ -385,12 +378,8 @@ public sealed class DesktopPairingCoordinator : IDisposable
             var challengeExpiresUtc = Earlier(
                 nowUtc.Add(ProtocolBounds.HandshakeChallengeLifetime),
                 pending.Attempt.ExpiresUtc);
-            var sessionLifetime = grant.SessionLifetime is { } asked &&
-                asked > TimeSpan.Zero && asked < ProtocolBounds.MaximumSessionLifetime
-                    ? asked
-                    : ProtocolBounds.MaximumSessionLifetime;
             var sessionExpiresUtc = Earlier(
-                nowUtc.Add(sessionLifetime),
+                nowUtc.Add(ProtocolBounds.MaximumSessionLifetime),
                 validatedGrant.DeviceExpiresUtc);
             if (sessionExpiresUtc <= challengeExpiresUtc)
             {

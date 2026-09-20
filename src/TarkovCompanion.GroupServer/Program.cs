@@ -348,10 +348,6 @@ app.MapGet("/health", () => Results.Ok(new
     // the same rules against the same Kestrel. Counted separately because they are bounded
     // separately, and the only way to see either bound being reached is from outside.
     heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
-    // [#290] The longest paired session this build accepts. A desktop asks before it claims or
-    // pairs, because a relay older than 2026-09-20 refuses anything over twelve hours outright and
-    // says nothing here at all.
-    pairedSessionHours = (int)TarkovCompanion.CompanionProtocol.ProtocolBounds.MaximumSessionLifetime.TotalHours,
 }));
 
 // The second screen.
