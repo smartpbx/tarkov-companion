@@ -86,7 +86,7 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -747,7 +747,6 @@ internal static class Program
                 // Change map inside the run, and say what the view drew and how long it took.
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {
-                    MapSwitchProbe.FirstPicturePath = StringOption(args, "--then-map-first");
                     MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
                 }
 
