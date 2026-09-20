@@ -389,6 +389,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _map.PropertyChanged += MapPropertyChanged;
         _map.PlayerFollowRequested += PlayerFollowRequested;
         _raid.PropertyChanged += RaidPropertyChanged;
+        Corrections = new(_raid.Corrections, _timeProvider);
+        Corrections.ShowClock(_raid.Clock);
+        _raid.Corrections.Changed += CorrectionsChanged;
         _stateStore.Changed += RuntimeStateChanged;
         _marks.Changed += MarksChanged;
         if (_userMarkers is not null)
@@ -893,6 +896,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         _map.PropertyChanged -= MapPropertyChanged;
         _map.PlayerFollowRequested -= PlayerFollowRequested;
         _raid.PropertyChanged -= RaidPropertyChanged;
+        _raid.Corrections.Changed -= CorrectionsChanged;
         _stateStore.Changed -= RuntimeStateChanged;
         _marks.Changed -= MarksChanged;
         if (_userMarkers is not null)
@@ -1627,6 +1631,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             case nameof(RaidPageViewModel.Clock):
                 OnPropertyChanged(nameof(RaidPhaseLabel));
+                Corrections.ShowClock(_raid.Clock);
                 break;
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
@@ -1690,6 +1695,15 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         _seenRaid = raid;
         _seenGroup = group;
+        OnPropertyChanged(nameof(RaidPhaseLabel));
+        _rebuildRequest.Request();
+    }
+
+    /// <summary>The Raid plan's Corrections card: side, clock and offered exits, read or set by hand (#286).</summary>
+    public RaidCorrectionsViewModel Corrections { get; }
+
+    private void CorrectionsChanged(object? sender, EventArgs e)
+    {
         OnPropertyChanged(nameof(RaidPhaseLabel));
         _rebuildRequest.Request();
     }
@@ -1975,7 +1989,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 cached.RetrievedUtc);
         }
 
-        var raidSnapshot = runtime.Raid;
+        // What the player corrected by hand is laid over what was read (#286), here as in the
+        // shell, so an exit they marked offered is drawn offered.
+        var raidSnapshot = _raid.Corrections.Apply(runtime.Raid);
         // [V2 rough package 22] Place names, spawn areas and locked doors too, not only extracts
         // and objectives. The assembler has always adapted all five; the cockpit asked for two of
         // them, which is why V2 had no street names and why its own "Spawn areas" card was always
@@ -2374,6 +2390,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private void RefreshSceneLists(MapSceneSnapshot scene)
     {
         MapExtracts = BuildExtractRows(scene.Objects);
+        Corrections.Refresh(
+            _raid.Corrections.Apply(_stateStore.Current.Raid),
+            [.. MapExtracts.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
         SpawnAreas = scene.Objects
             .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
             .Select(item => item.Label)

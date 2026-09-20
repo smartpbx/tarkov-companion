@@ -1218,6 +1218,31 @@ internal static class Program
                 Pump(20);
             }
 
+            // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
+            // one exit marked offered, the card open. After
+            // --raid-demo, because that publishes a new raid and a new raid drops every correction. "return" then undoes the side, to show both states.
+            if (StringOption(args, "--raid-corrections-demo") is { } correctionsDemo &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel correcting)
+            {
+                var card = correcting.Corrections;
+                card.IsOpen = true;
+                card.SetScavCommand.Execute(null);
+                card.TimeLeftInput = "12:34";
+                card.SetTimeLeftCommand.Execute(null);
+                Pump(40);
+                card.ExtractChoices.FirstOrDefault()?.ToggleCommand.Execute(null);
+                Pump(40);
+                if (string.Equals(correctionsDemo, "return", StringComparison.OrdinalIgnoreCase))
+                {
+                    card.ReturnSideCommand.Execute(null);
+                    Pump(40);
+                }
+
+                Console.WriteLine(
+                    $"Corrections: side {card.SideText} ({card.SideSource}), clock {card.ClockText} ({card.ClockSource}), " +
+                    $"extracts {card.ExtractsSummary} ({card.ExtractsSource}); strip clock '{correcting.RaidPhaseLabel}'");
+            }
+
             // Package 29 (parity): raids written through the real history service, so Debrief lists
             // and selects them the way it does for a player's own. The newest carries a trail on the
             // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
