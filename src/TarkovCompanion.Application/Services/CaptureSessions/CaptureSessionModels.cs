@@ -324,7 +324,11 @@ public sealed record CaptureAnalysis(
     GridReconstructionRequest? Grid = null,
     // Additive and defaulted: every existing producer and consumer predates it, and a capture
     // whose screen holds no single item legitimately identifies nothing.
-    IReadOnlyList<CaptureIdentifiedItem>? Identified = null)
+    IReadOnlyList<CaptureIdentifiedItem>? Identified = null,
+    // The player's own backpack or rig where the same frame showed it and something measured it.
+    // Nothing in the shipped pipeline does yet (it needs the loot screen's second panel told
+    // apart from the first); the Loot Scan plans a fit against it whenever it is present.
+    GridReconstructionRequest? CarriedGrid = null)
 {
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))

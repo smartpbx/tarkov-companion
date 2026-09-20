@@ -61,7 +61,7 @@ public sealed class CaptureRecognitionPipeline(
         var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
 
         GridReconstructionRequest? grid = null;
-        if (GridSurfaceFor(request.RequestedIntent) is { } surface)
+        if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
         {
             grid = await _gridBuilder
                 .BuildAsync(request.Image, surface, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
@@ -148,6 +148,23 @@ public sealed class CaptureRecognitionPipeline(
         ScanIntent.Stash => InventoryGridSurface.Stash,
         _ => null,
     };
+
+    /// <summary>
+    /// The same, for a frame nobody armed an intent for.
+    /// </summary>
+    /// <remarks>
+    /// An armed intent lasts thirty seconds, and nobody looting a container alt-tabs to arm one
+    /// first. An unarmed screenshot of a container was detected as a grid, handed to the Loot
+    /// Scan as its effective intent, and arrived there with no grid at all, because only an armed
+    /// Loot or Stash asked for one: the page showed "no usable result" for the one capture the
+    /// product is for. During a raid a container screen is loot, so its lattice is measured.
+    /// Outside one it may be the stash, a trader or a case, and the armed intent still decides.
+    /// </remarks>
+    internal static InventoryGridSurface? GridSurfaceFor(ScanIntent intent, ScanContext detected, bool inRaid) =>
+        GridSurfaceFor(intent) ??
+        (intent == ScanIntent.Auto && detected == ScanContext.Container && inRaid
+            ? InventoryGridSurface.VisibleLoot
+            : null);
 
     internal static RecognizedContext Map(ScanContext context, ScanIntent requestedIntent) => context switch
     {

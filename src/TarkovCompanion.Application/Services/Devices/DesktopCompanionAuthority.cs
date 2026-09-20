@@ -79,6 +79,39 @@ public sealed class DesktopCompanionAuthority : IDisposable
                 role,
                 deviceCapabilities,
                 deviceExpiresUtc);
+            // [#290] The same tablet pairing again. Its browser keeps one device key for good, so
+            // every pairing after the first used to land on the uniqueness check below and throw:
+            // a tablet that had been revoked, had expired, or had simply lost its page could never
+            // be paired to this desktop again. A completed ceremony for that key — approved here,
+            // code compared, proof verified — is the owner saying this is that tablet now, so the
+            // old record gives way to it instead of blocking it.
+            var updates = new List<CanonicalUpdate>();
+            if (state.Devices.FirstOrDefault(existing => existing.DeviceKey.KeyId == device.DeviceKey.KeyId) is { } prior)
+            {
+                var supersededUtc = completedPairing.Establishment!.EstablishedUtc;
+                var canonical = state.CanonicalState;
+                foreach (var priorSession in state.Sessions.Where(item =>
+                             item.DeviceId == prior.DeviceId && item.Status == DeviceSessionStatus.Active))
+                {
+                    var ended = DeviceLifecycle.EndSession(priorSession, DeviceSessionStatus.Replaced, supersededUtc, "device-repaired");
+                    var sessionReduction = DesktopCanonicalStateMachine.ApplySessionTermination(canonical, ended);
+                    canonical = sessionReduction.State;
+                    updates.AddRange(sessionReduction.Updates);
+                }
+
+                var terminated = prior.Status == DeviceLifecycleStatus.Active
+                    ? DeviceLifecycle.Revoke(prior, supersededUtc, "device-repaired")
+                    : prior;
+                var deviceReduction = DesktopCanonicalStateMachine.ApplyDeviceTermination(canonical, terminated);
+                canonical = deviceReduction.State;
+                updates.AddRange(deviceReduction.Updates);
+                state = state.With(
+                    canonicalState: canonical,
+                    devices: state.Devices.Where(existing => existing.DeviceId != prior.DeviceId).ToArray(),
+                    sessions: state.Sessions.Where(item => item.DeviceId != prior.DeviceId).ToArray(),
+                    deliveryLedger: state.DeliveryLedger.RemoveDevice(prior.DeviceId));
+            }
+
             if (state.Devices.Count >= ProtocolBounds.MaxDevices ||
                 state.Devices.Any(existing =>
                     existing.DeviceId == device.DeviceId || existing.DeviceKey.KeyId == device.DeviceKey.KeyId))
@@ -87,6 +120,8 @@ public sealed class DesktopCompanionAuthority : IDisposable
             }
 
             var establishment = completedPairing.Establishment!;
+            var others = Broadcast(state, updates, state.CanonicalState.DesktopDeviceId, establishment.EstablishedUtc);
+            state = others.State;
             if (establishment.Assignment.SessionExpiresUtc > device.ExpiresUtc)
             {
                 throw new InvalidOperationException("The initial session cannot outlive its paired device.");
@@ -108,7 +143,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
                 devices: state.Devices.Append(device).ToArray(),
                 sessions: state.Sessions.Append(session).ToArray(),
                 deliveryLedger: ledger.Ledger);
-            return (next, (IReadOnlyList<AuthorityDelivery>)[new(device.DeviceId, ledger.Item)]);
+            return (next, (IReadOnlyList<AuthorityDelivery>)[.. others.Deliveries, new(device.DeviceId, ledger.Item)]);
         }, cancellationToken).ConfigureAwait(false);
     }
 

@@ -146,6 +146,18 @@ public enum IntegrationSecretKind
     TarkovTrackerProgressToken,
     /// <summary>Read-only credential for the private signed release feed.</summary>
     ReleaseFeedReadToken,
+
+    /// <summary>
+    /// This desktop's owner session on its group relay, so a restart does not ask for the relay's
+    /// admin key again. A session the relay issued and can end, never the admin key itself.
+    /// </summary>
+    RelayOwnerSession,
+
+    /// <summary>
+    /// One paired device's session traffic keys, so a desktop restart can still open that device's
+    /// frames. Deleted when the device is revoked.
+    /// </summary>
+    PairedDeviceSession,
 }
 
 public sealed record IntegrationSecretReference(

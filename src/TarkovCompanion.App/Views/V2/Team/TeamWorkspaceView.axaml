@@ -447,10 +447,25 @@
                   </StackPanel>
                 </Border>
 
-                <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="v2-team-claimed"
-                           Text="{Binding Pairing.RelayClaimMessage}"
-                           IsVisible="{Binding Pairing.IsClaimedByThisDesktop}" />
+                <!-- [#289] Claimed, including after a restart, where nothing was typed and so
+                     there is no attempt message to show. Forgetting is the way back out. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"
+                      IsVisible="{Binding Pairing.IsClaimedByThisDesktop}">
+                  <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-claimed"
+                               Text="{Binding Pairing.ClaimedSummary}" />
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-team-claimed-message"
+                               Text="{Binding Pairing.RelayClaimMessage}"
+                               IsVisible="{Binding Pairing.HasRelayClaimMessage}" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="v2-team-plain" VerticalAlignment="Center"
+                          Content="Forget this relay"
+                          AutomationProperties.AutomationId="v2-team-forget-relay"
+                          ToolTip.Tip="Drops the kept claim. Claiming again needs the admin key, and the relay holds the old claim for up to two hours."
+                          Command="{Binding Pairing.ForgetRelayCommand}" />
+                </Grid>
 
                 <Border Classes="v2-team-row" IsVisible="{Binding CanPairDevice}">
                   <StackPanel Spacing="10">
