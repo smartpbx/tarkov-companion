@@ -67,6 +67,8 @@ internal static class Program
             Directory.CreateDirectory(databaseDirectory);
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
+
+        MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"));
         try
         {
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
@@ -640,6 +642,12 @@ internal static class Program
                         }
                     }
                 }
+                // Change map inside the run, and say what the view drew and how long it took.
+                if (StringOption(args, "--then-map") is { } thenMaps)
+                {
+                    MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
+                }
+
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
                 // that shows no chooser says whether that is a bug or a one-variant map.
                 Console.WriteLine("Artwork: " + string.Join(
@@ -685,10 +693,15 @@ internal static class Program
             // layout has settled at its final requested size, leaving the canvas sized to an
             // earlier, smaller pass. A nudge-and-restore forces one more SizeChanged once
             // everything else (map data, the details-panel toggle) has already settled.
-            window.Width = width - 1;
-            Pump(5);
-            window.Width = width;
-            Pump(10);
+            // Not after --then-map: resizing the card is exactly what used to put a stale plan
+            // rectangle right, so the nudge would hide the fault that option exists to show.
+            if (StringOption(args, "--then-map") is null)
+            {
+                window.Width = width - 1;
+                Pump(5);
+                window.Width = width;
+                Pump(10);
+            }
 
             // [V2 rough package 39] The Raid workspace's context panel is a scroller taller than
             // any screen, so a card further down it cannot be photographed without scrolling to
@@ -1003,6 +1016,7 @@ internal static class Program
         {
             try
             {
+                MapSwitchProbe.UnlinkMapCache(dataRoot);
                 Directory.Delete(dataRoot, recursive: true);
             }
             catch (IOException)
