@@ -6,6 +6,8 @@ using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
+using TarkovCompanion.Core.Domain.Recommendations;
+using V2RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
 
 namespace TarkovCompanion.App.ViewModels.V2.LootScan;
 
@@ -20,26 +22,46 @@ public sealed class LootScanViewModel : BindableViewModel
     private int _pageIndex;
     private LootScanVerdict? _filter;
     private LootScanDecisionViewModel? _selected;
+    private readonly ILootScanWorkspaceControls? _controls;
 
     public LootScanViewModel(
         LootScanResult result,
         Action<LootScanDecision>? openEvidence = null,
         CultureInfo? culture = null,
-        LootScanPresentationText? text = null)
+        LootScanPresentationText? text = null,
+        ILootScanWorkspaceControls? controls = null,
+        GridCellAddress? select = null)
     {
         Result = result ?? throw new ArgumentNullException(nameof(result));
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
+        _controls = controls;
+        PhaseChoices =
+        [
+            new(null, _text.PhaseCounted),
+            new(RecommendationRaidPhase.Early, _text.PhaseEarly),
+            new(RecommendationRaidPhase.Middle, _text.PhaseMiddle),
+            new(RecommendationRaidPhase.Late, _text.PhaseLate),
+            new(RecommendationRaidPhase.Extracting, _text.PhaseExtracting),
+        ];
+        RiskChoices =
+        [
+            new(RecommendationRaidRisk.Low, _text.RiskLow),
+            new(RecommendationRaidRisk.Elevated, _text.RiskElevated),
+            new(RecommendationRaidRisk.High, _text.RiskHigh),
+            new(RecommendationRaidRisk.Critical, _text.RiskCritical),
+        ];
         // Decided calls keep the planner's order. What could only be valued follows, dearest
         // square first, and what could not be read at all comes last: during a raid the top of
         // the list has to be the part worth acting on.
         Decisions = result.Decisions
-            .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text)
+            .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text, controls)
             {
                 SelectAction = Select,
             })
             .Select((decision, index) => (Decision: decision, Index: index))
             .OrderBy(entry => entry.Decision.IsReview)
+            .ThenByDescending(entry => entry.Decision.IsAdvisedTake)
             .ThenByDescending(entry => entry.Decision.IsReview ? entry.Decision.CatalogValuePerSquareRoubles ?? -1 : 0)
             .ThenBy(entry => entry.Index)
             .Select(entry => entry.Decision)
@@ -59,13 +81,50 @@ public sealed class LootScanViewModel : BindableViewModel
         LootGrid = BuildLootGrid();
         CarriedGrid = BuildCarriedGrid();
 
-        // The concept opens on its most consequential call: a swap first, then a take.
-        Select(Decisions.FirstOrDefault(item => item.IsSwap) ??
+        // A scan decided again after the player pinned something keeps them on that item. Failing
+        // that the concept opens on its most consequential call: a swap first, then a take.
+        Select((select is { } anchor ? Decisions.FirstOrDefault(item => item.SourceAnchor == anchor) : null) ??
+               Decisions.FirstOrDefault(item => item.IsSwap) ??
                Decisions.FirstOrDefault(item => item.IsTake) ??
                Decisions.FirstOrDefault());
     }
 
     public LootScanResult Result { get; }
+
+    /// <summary>Whether the raid phase and risk can be set from here.</summary>
+    public bool HasControls => _controls is not null;
+
+    public IReadOnlyList<LootScanChoice<RecommendationRaidPhase?>> PhaseChoices { get; }
+
+    public IReadOnlyList<LootScanChoice<RecommendationRaidRisk>> RiskChoices { get; }
+
+    public LootScanChoice<RecommendationRaidPhase?> SelectedPhase
+    {
+        get => PhaseChoices.First(choice => choice.Value == _controls?.Phase);
+        set
+        {
+            if (value is not null && _controls is not null && value.Value != _controls.Phase)
+            {
+                _ = _controls.SetPhaseAsync(value.Value);
+            }
+        }
+    }
+
+    public LootScanChoice<RecommendationRaidRisk> SelectedRisk
+    {
+        get => RiskChoices.First(choice => choice.Value == (_controls?.Risk ?? RecommendationRaidRisk.Low));
+        set
+        {
+            if (value is not null && _controls is not null && value.Value != _controls.Risk)
+            {
+                _ = _controls.SetRiskAsync(value.Value);
+            }
+        }
+    }
+
+    public string PhaseLabel => _text.PhaseLabel;
+
+    public string RiskLabel => _text.RiskLabel;
 
     public IReadOnlyList<LootScanDecisionViewModel> Decisions { get; }
 
@@ -457,15 +516,64 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         DateTimeOffset evaluatedUtc,
         Action<LootScanDecision>? openEvidence,
         CultureInfo? culture = null,
-        LootScanPresentationText? text = null)
+        LootScanPresentationText? text = null,
+        ILootScanWorkspaceControls? controls = null)
     {
         _decision = decision ?? throw new ArgumentNullException(nameof(decision));
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
+        _controls = controls;
+        TogglePinCommand = new DelegateCommand(() => Change(id => _controls!.SetPinnedAsync(id, !IsPinned)));
+        ToggleWishlistCommand = new DelegateCommand(() => Change(id => _controls!.SetWishlistedAsync(id, !IsWishlisted)));
+        ToggleAlwaysTakeCommand = new DelegateCommand(() => Change(id => _controls!.SetRuleAsync(
+            id,
+            IsAlwaysTake ? LootScanItemRule.None : LootScanItemRule.AlwaysTake)));
+        ToggleAlwaysLeaveCommand = new DelegateCommand(() => Change(id => _controls!.SetRuleAsync(
+            id,
+            IsAlwaysLeave ? LootScanItemRule.None : LootScanItemRule.AlwaysLeave)));
         EvaluatedUtc = evaluatedUtc;
         OpenEvidenceCommand = new DelegateCommand(() => openEvidence?.Invoke(_decision));
         CanOpenEvidence = openEvidence is not null;
         SelectCommand = new DelegateCommand(() => SelectAction?.Invoke(this));
+    }
+
+    private readonly ILootScanWorkspaceControls? _controls;
+
+    private string? ItemId => _decision.Item.Value?.CanonicalId.Value;
+
+    /// <summary>A named item can be pinned, wished for or given a rule. A cell nobody named cannot.</summary>
+    public bool CanSetItemChoices => _controls is not null && ItemId is not null;
+
+    public bool IsPinned => ItemId is { } id && _controls?.IsPinned(id) == true;
+
+    public bool IsWishlisted => ItemId is { } id && _controls?.IsWishlisted(id) == true;
+
+    public bool IsAlwaysTake => ItemId is { } id && _controls?.RuleFor(id) == LootScanItemRule.AlwaysTake;
+
+    public bool IsAlwaysLeave => ItemId is { } id && _controls?.RuleFor(id) == LootScanItemRule.AlwaysLeave;
+
+    public string PinLabel => IsPinned ? _text.Unpin : _text.Pin;
+
+    public string WishlistLabel => IsWishlisted ? _text.Unwish : _text.Wish;
+
+    public string AlwaysTakeLabel => _text.AlwaysTake;
+
+    public string AlwaysLeaveLabel => _text.AlwaysLeave;
+
+    public ICommand TogglePinCommand { get; }
+
+    public ICommand ToggleWishlistCommand { get; }
+
+    public ICommand ToggleAlwaysTakeCommand { get; }
+
+    public ICommand ToggleAlwaysLeaveCommand { get; }
+
+    private void Change(Func<string, Task> change)
+    {
+        if (_controls is not null && ItemId is { } id)
+        {
+            _ = change(id);
+        }
     }
 
     /// <summary>Set by the owning result so a row or grid tile can make this the selected decision.</summary>
@@ -503,7 +611,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             // a reason to take an item nobody had identified.
             if (_decision.Verdict == LootScanVerdict.Review)
             {
-                return RefusalHeadline;
+                return IsAdvisedTake ? AdviceHeadline : RefusalHeadline;
             }
 
             // The planner's own reasons are full sentences meant for the evidence disclosure; a
@@ -517,8 +625,10 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 "swap.cost-exceeds-value" => _text.ReasonSwapCosts,
                 _ => null,
             };
+            // Strongest first. This read weakest first, and nobody saw it because no scan had
+            // ever produced a profile reason: a pinned quest item would have been headed "Pinned".
             var category = _decision.Recommendation?.Decision.Value?.Reasons
-                .OrderBy(reason => reason.Priority)
+                .OrderByDescending(reason => reason.Priority)
                 .Select(reason => (RecommendationReasonCategory?)reason.Category)
                 .FirstOrDefault(value => value is not (RecommendationReasonCategory.Economics or RecommendationReasonCategory.EvidenceQuality));
             if (category is null && planner is not null)
@@ -544,6 +654,104 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     }
 
     internal EvidencedValue<RecognizedItem> ItemField => _decision.Item;
+
+    /// <summary>
+    /// The engine says take it and the planner could not finish the call.
+    /// </summary>
+    /// <remarks>
+    /// Two things stop a take becoming a verdict while the advice itself stands: the backpack
+    /// was not read, so no fit can be claimed, or one piece of evidence is missing, such as a
+    /// stash scan to subtract holdings from. The contract keeps these as review, because a take
+    /// verdict claims a fit. The player is looking at their own backpack and can judge the fit
+    /// themselves, so what they are owed is the advice and what it is missing, not a refusal
+    /// that reads the same as "nothing is known".
+    /// </remarks>
+    public bool IsAdvisedTake =>
+        _decision.Verdict == LootScanVerdict.Review &&
+        _decision.Item.Value is not null &&
+        _decision.Recommendation?.Decision.Value?.Action is
+            V2RecommendationAction.Take or V2RecommendationAction.Keep or V2RecommendationAction.Swap;
+
+    /// <summary>Why the engine says take it: the strongest reason that is not about evidence.</summary>
+    private string AdviceHeadline =>
+        _decision.Recommendation?.Decision.Value?.Reasons
+            .OrderByDescending(reason => reason.Priority)
+            .Select(reason => reason.Category)
+            .Where(category => category != RecommendationReasonCategory.EvidenceQuality)
+            .Select(category => (string?)(category switch
+            {
+                RecommendationReasonCategory.ExplicitOverride => _text.ReasonExplicit,
+                RecommendationReasonCategory.Safety => _text.ReasonProtected,
+                RecommendationReasonCategory.CurrentFoundInRaidQuest => _text.ReasonCurrentQuestFir,
+                RecommendationReasonCategory.CurrentQuest => _text.ReasonCurrentQuest,
+                RecommendationReasonCategory.FutureQuest => _text.ReasonFutureQuest,
+                RecommendationReasonCategory.Hideout => _text.ReasonHideout,
+                RecommendationReasonCategory.CraftOrBarter => _text.ReasonCraft,
+                RecommendationReasonCategory.SpecialistUtility => _text.ReasonUtility,
+                RecommendationReasonCategory.PinOrWishlist => _text.ReasonPinned,
+                RecommendationReasonCategory.ScarcityOrObtainability => _text.ReasonScarce,
+                _ => _text.ReasonWorthItsSquares,
+            }))
+            .FirstOrDefault() ?? _text.ReasonWorthItsSquares;
+
+    /// <summary>
+    /// What the engine could not settle, in the player's words, from its own evidence reasons.
+    /// </summary>
+    /// <remarks>
+    /// This was one fixed sentence: "the flea fee, your needs and your free space aren't known".
+    /// It was true of every scan when it was written and would be false of most now, so it is
+    /// built from what this item's evaluation actually reported missing.
+    /// </remarks>
+    private IReadOnlyList<string> Gaps
+    {
+        get
+        {
+            var gaps = new List<string>();
+            foreach (var code in (_decision.Recommendation?.Decision.Value?.Reasons ?? [])
+                         .Where(reason => reason.Category == RecommendationReasonCategory.EvidenceQuality)
+                         .Select(reason => reason.Code))
+            {
+                var gap = code switch
+                {
+                    "raid-context.missing" or "raid-context.phase-unknown" or "raid-context.phase-untrusted" => _text.GapRaidPhase,
+                    "raid-context.risk-unknown" or "raid-context.risk-untrusted" => _text.GapRaidRisk,
+                    "economics.flea-net-untrusted" => _text.GapFleaNet,
+                    "economics.trader-untrusted" or "economics.price-missing" => _text.GapPrice,
+                    "scarcity.unknown" or "scarcity.untrusted" => _text.GapScarcity,
+                    "profile.incomplete" => _text.GapProfile,
+                    "profile.override-untrusted" => _text.GapItemRule,
+                    "inventory.missing" or "inventory.partial" or "inventory.stale" or "inventory.untrusted" or "inventory.incompatible" => _text.GapHoldings,
+                    "candidate.fir-untrusted" => _text.GapFoundInRaid,
+                    _ => null,
+                };
+                if (gap is not null && !gaps.Contains(gap, StringComparer.Ordinal))
+                {
+                    gaps.Add(gap);
+                }
+            }
+
+            if (_decision.Reasons.Any(reason => reason.Code == "carried.capacity-incomplete"))
+            {
+                gaps.Add(_text.GapBackpack);
+            }
+
+            return gaps;
+        }
+    }
+
+    private string GapSentence(string lead)
+    {
+        var gaps = Gaps;
+        return gaps.Count switch
+        {
+            0 => lead,
+            1 => $"{lead} {Message(_text.GapOneTemplate, ("first", gaps[0]))}",
+            _ => $"{lead} {Message(
+                _text.GapManyTemplate,
+                ("list", string.Join(", ", gaps.Take(gaps.Count - 1))),
+                ("last", gaps[^1]))}",
+        };
+    }
 
     /// <summary>Why this cell has no take, swap or leave, in a few words.</summary>
     private string RefusalHeadline
@@ -658,7 +866,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         }
     }
 
-    public string VerdictLabel => _decision.Verdict.ToString().ToUpperInvariant();
+    public string VerdictLabel => IsAdvisedTake ? _text.VerdictAdvisedTake : _decision.Verdict.ToString().ToUpperInvariant();
 
     public string AutomationSummary => Message(
         _text.AutomationSummaryTemplate,
@@ -697,10 +905,18 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 return _text.WhyAttributesUnread;
             }
 
+            if (IsAdvisedTake)
+            {
+                var strongest = _decision.Recommendation!.Decision.Value!.Reasons
+                    .OrderByDescending(reason => reason.Priority)
+                    .FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality);
+                return GapSentence(strongest?.Explanation ?? _text.WhyWorthItsSquares);
+            }
+
             return _decision.Reasons.FirstOrDefault()?.Code switch
             {
                 "recommendation.incomplete" or "economics.incomplete" or "recommendation.missing" =>
-                    CatalogValueRoubles is null ? _text.WhyNoPrice : _text.WhyValuedOnly,
+                    CatalogValueRoubles is null ? _text.WhyNoPrice : GapSentence(_text.WhyValuedOnly),
                 _ => string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation)),
             };
         }
@@ -1107,7 +1323,39 @@ public sealed record LootScanPresentationText
     public string WhyLookalikes { get; init; } = "These icons are too alike to tell apart from the picture, so none is chosen.";
     public string WhyAttributesUnread { get; init; } = "Its stack count or remaining uses can't be read from the screenshot, so it isn't valued.";
     public string WhyNoPrice { get; init; } = "The catalog has no flea or trader price for it.";
-    public string WhyValuedOnly { get; init; } = "Priced from the catalog. No take or leave call yet: the flea fee, your needs and your free space aren't known.";
+    public string WhyValuedOnly { get; init; } = "Priced from the catalog. No take or leave call yet.";
+    public string WhyWorthItsSquares { get; init; } = "Worth the squares it takes.";
+    public string ReasonWorthItsSquares { get; init; } = "Worth its squares";
+    public string VerdictAdvisedTake { get; init; } = "TAKE?";
+    public string Pin { get; init; } = "Pin";
+    public string Unpin { get; init; } = "Pinned";
+    public string Wish { get; init; } = "Wishlist";
+    public string Unwish { get; init; } = "On wishlist";
+    public string AlwaysTake { get; init; } = "Always take";
+    public string AlwaysLeave { get; init; } = "Always leave";
+    public string PhaseLabel { get; init; } = "Raid";
+    public string RiskLabel { get; init; } = "Risk";
+    public string PhaseCounted { get; init; } = "From the clock";
+    public string PhaseEarly { get; init; } = "Early";
+    public string PhaseMiddle { get; init; } = "Middle";
+    public string PhaseLate { get; init; } = "Late";
+    public string PhaseExtracting { get; init; } = "Heading out";
+    public string RiskLow { get; init; } = "Normal";
+    public string RiskElevated { get; init; } = "Careful";
+    public string RiskHigh { get; init; } = "High";
+    public string RiskCritical { get; init; } = "Critical";
+    public string GapOneTemplate { get; init; } = "Not known: {first}.";
+    public string GapManyTemplate { get; init; } = "Not known: {list} and {last}.";
+    public string GapRaidPhase { get; init; } = "the raid phase (pick it above)";
+    public string GapRaidRisk { get; init; } = "how much risk you'll carry it through";
+    public string GapFleaNet { get; init; } = "what the flea returns after its fee";
+    public string GapPrice { get; init; } = "a current price";
+    public string GapScarcity { get; init; } = "how readily another turns up";
+    public string GapProfile { get; init; } = "your quest progress";
+    public string GapItemRule { get; init; } = "what your rule for this item means";
+    public string GapHoldings { get; init; } = "what you already hold (no stash scan yet)";
+    public string GapFoundInRaid { get; init; } = "whether it is found in raid";
+    public string GapBackpack { get; init; } = "whether it fits (your backpack wasn't read)";
     public string FleaAverageBasis { get; init; } = "24-hour flea average, before the fee";
     public string CatalogValuePerSquareTemplate { get; init; } = "{value} per square";
     public string ReasonFits { get; init; } = "Fits the free space";

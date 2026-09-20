@@ -72,7 +72,15 @@ internal static class Program
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
             // nothing pumps once the frame is saved, so awaiting it hung the process after
             // "Saved" (package 17). The process exits right after the finally block instead.
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true));
+            // --now <utc>: a seeded database's prices are as old as the day it was copied, and
+            // anything that weighs them against the clock reads every one as expired.
+            var now = StringOption(args, "--now") is { } nowText
+                ? new ScanFrame.FixedClock(DateTimeOffset.Parse(
+                    nowText,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
+                : null;
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -765,9 +773,13 @@ internal static class Program
                     services,
                     lootFrame,
                     StringOption(args, "--icon-cache"),
-                    StringOption(args, "--loot-scan-now"));
+                    StringOption(args, "--loot-scan-now"),
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"));
                 DrainUntilComplete(scan);
-                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(scan.Result));
+                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
+                    scan.Result.Result,
+                    controls: scan.Result.Controls));
                 Pump(20);
             }
 
@@ -778,9 +790,29 @@ internal static class Program
                 var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
                     profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
                 var store = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashSnapshotStore>();
-                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope), CancellationToken.None));
-                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>()
-                    .LoadAsync());
+                // The demo's items carry invented ids. Over a seeded catalog each is looked up by
+                // name, so the sort plan is made from real prices and real needs or not at all.
+                var repository = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IItemRepository>();
+                string Resolve(string id, string name)
+                {
+                    var search = repository.SearchAsync(name, 1, CancellationToken.None);
+                    DrainUntilComplete(search);
+                    return search.Result.FirstOrDefault()?.Item.Id ?? id;
+                }
+
+                var seed = ScanFrame.SeedFleaRatesAsync(
+                    services,
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    services.GetRequiredService<TimeProvider>().GetUtcNow());
+                DrainUntilComplete(seed);
+                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope, Resolve), CancellationToken.None));
+                var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                DrainUntilComplete(stashWorkspace.LoadAsync());
+                if (args.Contains("--stash-list"))
+                {
+                    stashWorkspace.ShowListCommand.Execute(null);
+                }
+
                 Pump(20);
             }
 

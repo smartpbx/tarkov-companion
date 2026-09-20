@@ -6,6 +6,7 @@ using TarkovCompanion.App.Services.V2;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.SelfTest;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
@@ -14,6 +15,8 @@ using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Infrastructure.Persistence.Inventory;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
@@ -729,14 +732,41 @@ public static class AppComposition
         services.AddSingleton<IIconContentFetcher>(provider => new HttpIconContentFetcher(provider.GetRequiredService<HttpClient>()));
         services.AddSingleton<IconEvidenceIndexer>();
         services.AddSingleton<IInvalidatableProjection>(provider => provider.GetRequiredService<IconEvidenceIndexer>());
-        services.AddSingleton<LootScanRecommendationSource>();
+        // [fin-recognition] #282: what a Loot Scan decides from. The profile's pins and item
+        // rules, outstanding quest and hideout needs, the published flea rates, how readily an
+        // item is had, the raid phase and risk, and a scanned stash where one exists.
+        services.AddSingleton<IItemMarketFactSource, SqliteItemMarketFactSource>();
+        services.AddSingleton(provider => new LootScanNeedSource(
+            provider.GetRequiredService<IPlayerProfileService>(),
+            provider.GetRequiredService<ProfileNeedAggregationService>(),
+            provider.GetRequiredService<IQuestReadService>(),
+            provider.GetRequiredService<IRequirementCatalog>()));
+        services.AddSingleton<LootScanRaidPreference>();
+        services.AddSingleton(provider => new LootScanRaidContextSource(
+            provider.GetRequiredService<IRaidStateService>(),
+            provider.GetRequiredService<IMapDataService>(),
+            provider.GetRequiredService<LootScanRaidPreference>()));
+        services.AddSingleton<ObservedInventoryRecognitionProjector>();
+        services.AddSingleton<IObservedInventoryEvidenceReader, SqliteObservedInventoryEvidenceReader>();
+        services.AddSingleton(provider => new LootScanRecommendationSource(
+            provider.GetRequiredService<IItemRepository>(),
+            provider.GetRequiredService<IItemMarketFactSource>(),
+            provider.GetRequiredService<LootScanNeedSource>(),
+            provider.GetRequiredService<LootScanRaidContextSource>()));
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
             provider.GetRequiredService<CaptureRecognitionPipeline>());
         services.AddSingleton<InventoryGridReconstructor>();
         services.AddSingleton<LootScanDecisionService>();
-        services.AddSingleton<LootScanCaptureHandoff>();
+        services.AddSingleton(provider => new LootScanCaptureHandoff(
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            provider.GetRequiredService<InventoryGridReconstructor>(),
+            provider.GetRequiredService<LootScanDecisionService>(),
+            timeProvider,
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<LootScanCaptureHandoff>>(),
+            provider.GetRequiredService<LootScanRecommendationSource>(),
+            provider.GetRequiredService<IObservedInventoryEvidenceReader>()));
         services.AddSingleton<StashScanCaptureHandoff>();
         // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
         // item. Every intent but Loot and Stash used to be acknowledged and dropped.
@@ -750,6 +780,13 @@ public static class AppComposition
             provider.GetRequiredService<ICaptureResultHandoff>(),
             provider.GetRequiredService<WorkspaceOrigin>(),
             timeProvider));
+        // [fin-recognition] #283: the caller StashOrganizationPlanner never had. The stash
+        // workspace takes it as an optional dependency and sorts each scan with it.
+        services.AddSingleton<StashPlanSource>();
+        // [fin-recognition] #282: pin, wishlist, item rule, raid phase and risk, set from the
+        // Loot Scan workspace and read back by the scan.
+        services.AddSingleton<LootScanWorkspaceControls>();
+        services.AddSingleton<ILootScanWorkspaceControls>(provider => provider.GetRequiredService<LootScanWorkspaceControls>());
         services.AddSingleton<V2ShellCaptureBridge>();
         // [V2 rough package 24] The desktop's raid map, carried to its paired tablets, and a
         // paired device in Control mode moving it back. Refs #407.

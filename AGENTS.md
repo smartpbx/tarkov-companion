@@ -129,6 +129,7 @@ Then by subject, when the task touches one:
 | --- | --- |
 | The map: tiles, layers, projection, markers | `docs/MAPS.md` |
 | Screenshots, OCR, what the game actually writes | `docs/RECOGNITION.md`, `docs/research/EFT_SCREENSHOT_FACTS.md` |
+| What a Loot Scan is decided from, the flea fee | `docs/LOOT_SCAN.md` |
 | The game's logs, line by line | `docs/research/EFT_LOG_FACTS.md` |
 | The database and its migrations | `docs/DATABASE.md` |
 | Where the game data comes from | `docs/DATA_SOURCES.md` |

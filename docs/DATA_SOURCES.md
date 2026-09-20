@@ -19,6 +19,11 @@ The live endpoint catalog reports:
 - `/pvp-season/info`
 - `/status`
 
+The `/items` payload is more than items. Beside `data.items` it carries `data.fleaMarket`, whose
+`sellOfferFeeRate` and `sellRequirementFeeRate` were both 0.05 on 2026-09-19, and each item
+carries `basePrice`, `lastOfferCount` and `buyFromTrader`. The Loot Scan's flea fee and
+obtainability band are worked out from these; see `docs/LOOT_SCAN.md`.
+
 Modes: `regular`, `pve`, `pvp-season`. English is the initial application language. Endpoints with translation envelopes are normalized through one translation applier.
 
 Static datasets default to a 9-hour stale-while-revalidate window. Viewed/scanned price data defaults to a 10-minute window. Clients use bounded timeouts, cancellation, at most three attempts with jittered exponential delay, request deduplication, ETag/Last-Modified where present, and valid stale cache on failure.

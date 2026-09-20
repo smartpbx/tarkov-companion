@@ -47,6 +47,37 @@ records. They are review intent, not game actions. The organization planner cons
 computed v2 recommendation. Its only outputs are Keep, Sell, Use soon, Organize, and Review plus
 manual checklist operations. Missing #308 ammo/key intelligence always produces Review.
 
+### The sort plan's caller (2026-09-19)
+
+The planner was complete and tested and nothing called it, so every item in every scan sat
+under Review and three of the workspace's four plan tiles read a dash. `StashPlanSource` is the
+caller. Each named tile is put to `ExplainableRecommendationEngine` as a stash question, from the
+same facts the Loot Scan reads (`docs/LOOT_SCAN.md`): the profile's pins, wishlist and item
+rules, outstanding quest and hideout needs, the flea net after its fee, what a trader pays. The
+workspace sorts a snapshot when it is loaded, lists Keep first, then Sell, then Review, tags
+sorted tiles on the grid, and gives each row one line of why.
+
+Three things it deliberately does not do:
+
+- **No holdings are handed to the engine.** The stash being sorted is the holdings. Subtracting
+  it from a need counts an item against itself: three Salewas held against a quest that wants
+  three would all read "need met, sell". So everything a need still wants is Keep for every
+  copy, and the reason says how many are wanted. Telling the spare copies apart is not done.
+- **Gear is not told to be sold.** The first real render put an ammo case full of ammo, an
+  M4A1 and the player's armour under Sell, because no quest needed them. Whether a rifle is
+  surplus depends on the loadouts the player means to run, which a price does not know. Weapons,
+  attachments, armour, plates, helmets, headsets, rigs, backpacks, cases, meds and provisions
+  wait under Review with what they would fetch (`StashSpecialistIntelligenceKind.Gear`), the way
+  ammo and keys wait for #308. A case the scan opened and read into counts as gear whatever the
+  catalog files it under: the source lists an Ammunition case as `barter` before `container`.
+  What the player has pinned, wishlisted, protected or given a rule is sorted all the same.
+- **A sell row is not the engine's sentence.** That sentence is the working (roubles across
+  squares, the band, both channels). A row says where it sells and for how much.
+
+A snapshot opened the next day is still sorted: the engine ages a footprint like a price, and
+the squares an item covers have not changed overnight, so the footprint is restated when the
+plan is made and keeps the original reading as what it was derived from.
+
 ## Snapshot lifecycle
 
 Snapshots are scoped by exact profile id, generation, and game mode. List and export return typed
@@ -88,9 +119,9 @@ total-cell count. Moving through container tabs, opening nested containers to ca
 supplying a real total-cell hint across an ordered multi-capture session are capture-lifecycle UI
 this pass does not add; `StashScanAssembler` already stitches multiple frames when a future package
 supplies them with origin hints, so nothing here needs to change to support that. Ammo and Keys
-intents still have no handoff and are acknowledged without producing advice.
-Keep/Sell/Use soon grouping via `StashOrganizationPlanner` and #308 ammo/key intelligence is not
-wired either — general items are listed under Review.
+intents still have no handoff and are acknowledged without producing advice. General items are
+sorted into Keep, Sell and Review by `StashPlanSource` (see "The sort plan's caller" above);
+#308 ammo/key intelligence is still not wired, so ammo and keys stay under Review.
 
 ## Guided full-stash scan (package 40)
 
@@ -143,12 +174,12 @@ The seven spurious footprints are items the viewport really does cut; the folded
 them with the whole item from the neighbouring screenshot. A per-screenshot list of the last row
 would have shown 36 items the stash does not contain.
 
-Two things keep a real scan from naming anything today, and both belong to the shared recognizer
-rather than to this workflow. Nothing feeds the icon evidence cache, so there is nothing to match
-against. And `IconCandidateSeparator` names a tile only on a bit-exact fingerprint: against
-catalogue-style icons the painted tiles were bit-exact 0 times in 67 (median 5 bits from the true
-icon, 11 at most), where a rule of "within 12 bits and 4 clear of the runner-up" would have named
-65 of them, none wrongly.
+When this was measured (package 40) two things kept a real scan from naming anything, both in
+the shared recognizer: nothing fed the icon evidence cache, and `IconCandidateSeparator` named a
+tile only on a bit-exact fingerprint, which the painted tiles matched 0 times in 67. Both have
+since been replaced: `IconEvidenceIndexer` (#433) fills the cache from the synced catalog, and
+a tile is named by the correlation of a colour pixel descriptor (`IconPixelDescriptor`), with
+the difference hash kept only as a shortlist. What that names is in `docs/RECOGNITION.md`.
 
 ### The same code on real screenshots (2026-09-18)
 

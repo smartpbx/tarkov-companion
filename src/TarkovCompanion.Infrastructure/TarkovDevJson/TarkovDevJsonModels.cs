@@ -17,6 +17,22 @@ public sealed class TarkovDevItemsData
     public IReadOnlyDictionary<string, TarkovDevItemCategory> ItemCategories { get; init; } =
         new Dictionary<string, TarkovDevItemCategory>();
 
+    /// <summary>
+    /// The flea market's own settings, which ride in the items payload rather than an endpoint
+    /// of their own. Optional: a payload without them still refreshes every item.
+    /// </summary>
+    public TarkovDevFleaMarket? FleaMarket { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+public sealed class TarkovDevFleaMarket
+{
+    public double? SellOfferFeeRate { get; init; }
+
+    public double? SellRequirementFeeRate { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }
