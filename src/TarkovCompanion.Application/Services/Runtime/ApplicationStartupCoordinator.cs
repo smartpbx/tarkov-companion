@@ -411,6 +411,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                                 ? $"Refreshed from {report.Endpoints.Count} endpoints"
                                 : $"Refreshed from {report.Endpoints.Count} endpoints · {stale} served a cached copy"
                             : $"{DescribeEndpointFailures(errors)} · local data stands",
+                    // [V2 rough package 43] The same failures, as names rather than as prose, so
+                    // a notification can say which endpoints without reading the line above.
+                    FailedEndpoints = [.. errors.Select(error => error.Endpoint)],
                     // A refresh that reports "Current" while the item catalog is empty is a
                     // false claim about the data the user is looking at. Partial success only
                     // counts as current when something actually landed.
@@ -972,6 +975,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                     Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
                     ItemCount = itemCount,
                     Detail = detail,
+                    // [V2 rough package 43] A refresh that never reached an endpoint has no
+                    // endpoint to name, and it is the worse failure of the two. Named as the
+                    // whole refresh so it still reaches the player rather than being the one
+                    // case a notification stays silent for.
+                    FailedEndpoints = ["game data"],
                 },
             };
         });

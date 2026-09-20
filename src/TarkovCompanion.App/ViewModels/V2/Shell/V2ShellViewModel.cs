@@ -159,6 +159,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         TeamWorkspaceViewModel? team = null,
         // V2 rough package 41 (#292, #281): Setup's self-test, same reasoning again.
         SetupSelfTestViewModel? selfTest = null,
+        // V2 rough package 43 (#314): Setup's notification switches, same reasoning again.
+        SetupNotificationsViewModel? notifications = null,
         // [V2 rough package 60 — appearance] #266/#315: the stored theme/text-scale/density
         // record the Appearance section writes. Optional for the same reason as the rest.
         WorkspacePreferenceService? preferences = null,
@@ -193,6 +195,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (selfTest is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachSelfTest(selfTest);
+        }
+
+        if (notifications is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachNotifications(notifications);
         }
 
         if (preferences is not null && SetupWorkspace is not null)
