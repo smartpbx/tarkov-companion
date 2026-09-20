@@ -627,6 +627,7 @@ public static class V2ShellText
         ["V2.Shell.Intel.Fragmentation"] = "Fragmentation",
         ["V2.Shell.Intel.ArmorClasses"] = "Against armor",
         ["V2.Shell.Intel.PerSlot"] = "₽{0:N0} / slot",
+        ["V2.Shell.Intel.PerSlotHeading"] = "Value per slot",
         ["V2.Shell.Intel.Sort.Relevance"] = "Relevance",
         ["V2.Shell.Intel.Sort.Price"] = "Price",
         ["V2.Shell.Intel.Sort.PerSlot"] = "Per slot",
@@ -635,6 +636,23 @@ public static class V2ShellText
         ["V2.Shell.Intel.MatchedAs"] = "Matched “{0}”",
         ["V2.Shell.Intel.Category.AmmunitionPack"] = "Ammo pack",
         ["V2.Shell.Intel.Category.Unknown"] = "Uncategorised",
+
+        // Package 33 (#287): the Intel landing page's four real sections.
+        ["V2.Shell.Intel.Home.NeededNow"] = "Needed now",
+        ["V2.Shell.Intel.Home.Pinned"] = "Pinned",
+        ["V2.Shell.Intel.Home.Recent"] = "Recently opened",
+        ["V2.Shell.Intel.Home.HighestValue"] = "Highest value",
+        ["V2.Shell.Intel.Home.Via"] = "via {0}",
+        ["V2.Shell.Intel.Home.NeedCount"] = "{0} needed",
+
+        // Package 33 (#287): item detail's worth/keep facts.
+        ["V2.Shell.Intel.Fee"] = "Flea listing fee",
+        ["V2.Shell.Intel.FeeUnknown"] = "Unknown: no live flea rate cached",
+        ["V2.Shell.Intel.Keep.Heading"] = "Should I keep it",
+        ["V2.Shell.Intel.Keep.None"] = "Nothing currently needs it",
+        ["V2.Shell.Intel.Keep.Quest"] = "{0} · {1} needed",
+        ["V2.Shell.Intel.Keep.QuestFoundInRaid"] = "{0} · {1} needed · found in raid",
+        ["V2.Shell.Intel.Keep.Hideout"] = "{0} level {1} · {2} needed",
 
         ["V2.Shell.Banner.Sharing"] = "Sharing with your group",
         ["V2.Shell.Banner.OpenGroup"] = "Open Group",

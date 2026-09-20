@@ -425,6 +425,39 @@ internal static class Program
                 Pump(20);
             }
 
+            // Package 33 (#287): --demo (always on here) preloads a "Graphics Card" search so the
+            // fixture-only run has something to show; against --seed-database that default masks
+            // the Intel landing page's real empty/no-search state. This clears it back out.
+            if (shell is not null && args.Contains("--intel-clear-search"))
+            {
+                shell.ClearIntelSearchCommand.Execute(null);
+                Pump(20);
+            }
+
+            // Package 33 (#287): pins one item and opens a second (leaving it "recently opened"),
+            // then returns to the bare Items route, so the landing page's Pinned/Recent sections
+            // can be rendered with real rows instead of only Needed now/Highest value.
+            if (shell is not null && args.Contains("--intel-home-demo"))
+            {
+                shell.SearchText = "bandage";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                if (shell.PinCommand.CanExecute(null))
+                {
+                    shell.PinCommand.Execute(null);
+                }
+
+                shell.SearchText = "screw nuts";
+                DrainUntilComplete(shell.SearchAsync());
+                Pump(20);
+                shell.Router.Navigate(V2Routes.Items, "demo");
+                shell.ClearIntelSearchCommand.Execute(null);
+                // The landing page's own auto-select-first-suggestion fires one more navigation
+                // once its async load resolves (adding that item to Recents in turn); give it
+                // room to settle before anything downstream reads Recents or takes the shot.
+                Pump(80);
+            }
+
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
             // pick a map here the same way the map picker's own SelectCommand does, once the
