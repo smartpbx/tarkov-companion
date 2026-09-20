@@ -61,6 +61,79 @@ public sealed class CanonicalStateMachineTests
     }
 
     [Fact]
+    public void ActiveControlRenewsTheLeaseButAnIdleTabletStillLapses()
+    {
+        var request = new RequestControlCommand(Command(1), new AggregateRevision(1), Now, Now.AddMinutes(1), TimeSpan.FromMinutes(2));
+        var pending = Apply(InitialState(), request, TabletContext());
+        var approveAt = Now.AddSeconds(1);
+        var approve = new ResolveControlCommand(Command(2), new AggregateRevision(2), approveAt, approveAt.AddMinutes(1), request.CommandId, true, Lease);
+        var controlled = Apply(pending.State, approve, DesktopContext(approveAt));
+        Assert.Equal(approveAt.AddMinutes(2), controlled.State.DeviceModes.ControlLease!.ExpiresUtc);
+
+        // An action arrives near the end of the original two-minute window.
+        var actAt = approveAt.AddSeconds(90);
+        var navigate = new ControlWorkspaceCommand(
+            Command(3),
+            new AggregateRevision(1),
+            actAt,
+            actAt.AddMinutes(1),
+            new NavigateWorkspaceAction(WorkspaceKind.Plan, null, null, null));
+        var acted = Apply(controlled.State, navigate, TabletContext(actAt));
+
+        Assert.Equal(CommandDisposition.Applied, acted.Acknowledgement.Disposition);
+        var renewedLease = acted.State.DeviceModes.ControlLease;
+        Assert.NotNull(renewedLease);
+        Assert.Equal(Lease, renewedLease!.LeaseId);
+        Assert.Equal(actAt.AddMinutes(2), renewedLease.ExpiresUtc);
+        // Only the workspace change is delivered; the renewal rides along silently.
+        Assert.IsType<WorkspaceCanonicalUpdate>(acted.Update);
+
+        // Past the ORIGINAL expiry (approveAt+120s) but before the renewed one: still in Control.
+        var stillWithinRenewal = DesktopCanonicalStateMachine.ApplyMaintenance(
+            acted.State,
+            approveAt.AddSeconds(125),
+            [PairedTablet()],
+            [ActiveSession(PairedTablet(), TabletSession)]);
+        Assert.Equal(CompanionInteractionMode.Control, stillWithinRenewal.State.DeviceModes.ModeOf(TabletDevice));
+        Assert.NotNull(stillWithinRenewal.State.DeviceModes.ControlLease);
+
+        // No further action: idle past the renewed expiry (actAt+120s) still lapses to Follow.
+        var afterIdle = DesktopCanonicalStateMachine.ApplyMaintenance(
+            acted.State,
+            actAt.AddMinutes(2).AddSeconds(1),
+            [PairedTablet()],
+            [ActiveSession(PairedTablet(), TabletSession)]);
+        Assert.Equal(CompanionInteractionMode.Follow, afterIdle.State.DeviceModes.ModeOf(TabletDevice));
+        Assert.Null(afterIdle.State.DeviceModes.ControlLease);
+    }
+
+    [Fact]
+    public void TakeBackEndsARenewedLeaseAtOnce()
+    {
+        var request = new RequestControlCommand(Command(1), new AggregateRevision(1), Now, Now.AddMinutes(1), TimeSpan.FromMinutes(2));
+        var pending = Apply(InitialState(), request, TabletContext());
+        var approveAt = Now.AddSeconds(1);
+        var approve = new ResolveControlCommand(Command(2), new AggregateRevision(2), approveAt, approveAt.AddMinutes(1), request.CommandId, true, Lease);
+        var controlled = Apply(pending.State, approve, DesktopContext(approveAt));
+
+        var actAt = approveAt.AddSeconds(90);
+        var navigate = new ControlWorkspaceCommand(
+            Command(3),
+            new AggregateRevision(1),
+            actAt,
+            actAt.AddMinutes(1),
+            new NavigateWorkspaceAction(WorkspaceKind.Plan, null, null, null));
+        var acted = Apply(controlled.State, navigate, TabletContext(actAt));
+
+        var preemptAt = actAt.AddSeconds(1);
+        var preempt = new PreemptControlCommand(Command(4), new AggregateRevision(3), preemptAt, preemptAt.AddMinutes(1), "desktop-user-resumed-control");
+        var preempted = Apply(acted.State, preempt, DesktopContext(preemptAt));
+
+        Assert.Equal(CompanionInteractionMode.Follow, preempted.State.DeviceModes.ModeOf(TabletDevice));
+        Assert.Null(preempted.State.DeviceModes.ControlLease);
+    }
+
+    [Fact]
     public void DeniedRequestLeavesTheExistingLeaseHolderInControl()
     {
         var otherRequest = new RequestControlCommand(Command(1), new AggregateRevision(1), Now, Now.AddMinutes(1), TimeSpan.FromMinutes(2));
