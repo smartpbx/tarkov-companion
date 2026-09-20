@@ -43,8 +43,7 @@ public sealed record ScanExecutionResult(
     Confidence Confidence,
     DateTimeOffset ObservedUtc,
     string Source,
-    string Detail,
-    int FleaRowCount = 0)
+    string Detail)
 {
     /// <summary>
     /// Turns a finished scan into something the interface can show, whatever asked for it.
@@ -91,8 +90,7 @@ public sealed record ScanExecutionResult(
             selected?.Confidence ?? Confidence.Unknown,
             outcome.ObservedUtc.ToUniversalTime(),
             source,
-            detail,
-            outcome.Flea is { ProviderAvailable: true } read ? read.Listings.Count : 0);
+            detail);
     }
 
     /// <summary>
@@ -133,7 +131,24 @@ public sealed record ScanExecutionResult(
     /// So an unprompted scan has to have found something. One somebody asked for is always
     /// worth an answer, including a disappointing one, because they are waiting for it.
     /// </remarks>
-    public bool IsWorthReporting => Succeeded || !IsAvailable || FleaRowCount > 0;
+    public bool IsWorthReporting => Succeeded || !IsAvailable;
+
+    /// <summary>
+    /// Whether a scan the game's screenshot key started should be published: it is worth reporting,
+    /// or it is a flea screenshot that read rows.
+    /// </summary>
+    /// <remarks>
+    /// A flea scan selects no item, so it never "succeeds", but rows read are something found. This is
+    /// decided from the outcome and not from a member of this record because the record crosses the
+    /// raid-history outbox and its shape is pinned; a field added for the interface's sake would have
+    /// changed what is stored.
+    /// </remarks>
+    public static bool IsWorthPublishing(ScanOutcome outcome, ScanExecutionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(result);
+        return result.IsWorthReporting || outcome.Flea is { ProviderAvailable: true, Listings.Count: > 0 };
+    }
 
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,

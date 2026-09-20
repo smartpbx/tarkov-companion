@@ -29,7 +29,6 @@ public sealed class ScanFleaRowsTests
             Outcome(Row(189_999, 3), Row(45_000, null), Row(46_500, 2)), "game screenshot");
 
         Assert.Equal("Flea rows as of 12:03:41: 189,999 ₽ ×3 · 45,000 ₽ · 46,500 ₽ ×2.", result.Detail);
-        Assert.Equal(3, result.FleaRowCount);
         Assert.False(result.Succeeded);
         Assert.Null(result.CanonicalItemId);
     }
@@ -44,7 +43,6 @@ public sealed class ScanFleaRowsTests
             Outcome(Enumerable.Range(1, 8).Select(index => Row(index * 1_000, null)).ToArray()), "game screenshot");
 
         Assert.Contains("1,000 ₽ · 2,000 ₽ · 3,000 ₽ · 4,000 ₽ · 5,000 ₽ · +3 more", result.Detail, StringComparison.Ordinal);
-        Assert.Equal(8, result.FleaRowCount);
     }
 
     [Fact]
@@ -64,10 +62,12 @@ public sealed class ScanFleaRowsTests
     {
         // The game's screenshot key fires on everything a player photographs. Rows found are worth
         // showing; a flea screenshot with nothing readable is noise until somebody asks for it.
-        Assert.True(ScanExecutionResult.FromOutcome(Outcome(Row(5_000, null)), "game screenshot").IsWorthReporting);
+        var read = Outcome(Row(5_000, null));
+        Assert.True(ScanExecutionResult.IsWorthPublishing(read, ScanExecutionResult.FromOutcome(read, "game screenshot")));
 
-        var empty = ScanExecutionResult.FromOutcome(Outcome(), "game screenshot");
-        Assert.False(empty.IsWorthReporting);
+        var none = Outcome();
+        var empty = ScanExecutionResult.FromOutcome(none, "game screenshot");
+        Assert.False(ScanExecutionResult.IsWorthPublishing(none, empty));
         Assert.Contains("No flea rows could be read", empty.Detail, StringComparison.Ordinal);
     }
 
@@ -85,7 +85,6 @@ public sealed class ScanFleaRowsTests
 
         Assert.False(result.IsAvailable);
         Assert.Contains("Scan unavailable", result.Detail, StringComparison.Ordinal);
-        Assert.Equal(0, result.FleaRowCount);
     }
 
     private static FleaListing Row(long price, int? quantity) =>
