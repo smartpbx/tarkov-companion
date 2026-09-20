@@ -18,8 +18,11 @@
               AutomationProperties.Name="{Binding Name}"
               Command="{Binding OpenCommand}">
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+          <!-- #287 fix: a cached icon image is not modelled on this row yet, so every row draws
+               the same neutral glyph rather than the short name clipped to fit a 56px tag
+               ("Band…", "CPU f…" on the render that found this). -->
           <Border Grid.Column="0" Classes="v2-intel-thumb">
-            <TextBlock Classes="v2-intel-tag" Text="{Binding ShortName}" />
+            <Path Classes="v2-icon v2-icon-muted" Width="24" Height="24" Data="{DynamicResource V2.Icon.Box}" />
           </Border>
           <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
             <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
@@ -87,10 +90,17 @@
         </Grid.ColumnDefinitions>
         <!-- Results: kind chips, a count, and the rows. Before any search it offers the
              shell's suggestions (recent, pinned, current plan) in the same place. -->
-        <Border Grid.Column="0" Classes="v2-intel-pane" Padding="14"
+        <!-- #287 fix: the scrollbar used to sit 14px inside the panel's true right edge, because
+             the padding that gives the rows and chips their gutter lived on this Border and so
+             inset the ScrollViewer (and everything it draws, including its own scrollbar) along
+             with them. The padding now lives on the Grid instead, with its right edge left at
+             zero so only row 3's ScrollViewer reaches the Border's true edge; the list itself
+             keeps its gutter via a margin on its own content, the same split the detail pane
+             beside it already uses (no Border padding there either). -->
+        <Border Grid.Column="0" Classes="v2-intel-pane"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.AutomationId="v2-intel-results">
-          <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+          <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10" Margin="14,14,0,14">
             <ItemsControl Grid.Row="0" ItemsSource="{Binding IntelKindFilters}" IsVisible="{Binding HasIntelSearchResults}">
               <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
@@ -128,7 +138,7 @@
             </StackPanel>
 
             <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
-              <StackPanel Spacing="4">
+              <StackPanel Spacing="4" Margin="0,0,14,0">
                 <ItemsControl ItemsSource="{Binding IntelResults}" IsVisible="{Binding HasIntelResults}"
                               ItemTemplate="{StaticResource IntelResultRowTemplate}" />
                 <TextBlock Classes="v2-label" IsVisible="{Binding ShowsIntelNoKindMatch}" Text="{Binding IntelNoKindMatchLabel}" />
