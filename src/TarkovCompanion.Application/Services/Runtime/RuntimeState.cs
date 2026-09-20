@@ -5,6 +5,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
@@ -42,7 +43,8 @@ public sealed record ScanExecutionResult(
     Confidence Confidence,
     DateTimeOffset ObservedUtc,
     string Source,
-    string Detail)
+    string Detail,
+    int FleaRowCount = 0)
 {
     /// <summary>
     /// Turns a finished scan into something the interface can show, whatever asked for it.
@@ -63,6 +65,7 @@ public sealed record ScanExecutionResult(
         {
             ScanCompletionStatus.Unavailable =>
                 $"Scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
+            _ when outcome.Flea is { ProviderAvailable: true } flea => DescribeFleaRows(flea),
             _ when selected is not null && recommendation is null && outcome.EconomicValue is { } worth =>
                 $"Resolved {selected.DisplayName}, worth {worth:N0} roubles. No recommendation, because that needs raid context the scan did not have.",
             _ when selected is not null && recommendation is null =>
@@ -88,7 +91,34 @@ public sealed record ScanExecutionResult(
             selected?.Confidence ?? Confidence.Unknown,
             outcome.ObservedUtc.ToUniversalTime(),
             source,
-            detail);
+            detail,
+            outcome.Flea is { ProviderAvailable: true } read ? read.Listings.Count : 0);
+    }
+
+    /// <summary>
+    /// What a flea screenshot said, as the rows that were read and when. A flea scan selects no
+    /// item, so before this the player got "FleaListings scan finished with Complete" and the rows
+    /// the parser had just joined were counted and thrown away.
+    /// </summary>
+    /// <remarks>
+    /// The time is the capture's, said plainly: a listing was on the market when it was
+    /// photographed and nothing here says it still is. A quantity is shown only when one was read.
+    /// </remarks>
+    private static string DescribeFleaRows(FleaRecognitionResult flea)
+    {
+        var when = LocalTime.Time(flea.ObservedUtc);
+        if (flea.Listings.Count == 0)
+        {
+            return $"No flea rows could be read in this screenshot, taken at {when}.";
+        }
+
+        const int shown = 5;
+        var rows = flea.Listings.Take(shown).Select(listing => listing.Quantity is { } quantity
+            ? $"{listing.PriceRoubles:N0} ₽ ×{quantity}"
+            : $"{listing.PriceRoubles:N0} ₽");
+        var more = flea.Listings.Count > shown ? $" · +{flea.Listings.Count - shown} more" : string.Empty;
+        var partial = flea.DiagnosticCode is null ? string.Empty : " · partial read";
+        return $"Flea rows as of {when}: {string.Join(" · ", rows)}{more}{partial}.";
     }
 
     /// <summary>
@@ -103,7 +133,7 @@ public sealed record ScanExecutionResult(
     /// So an unprompted scan has to have found something. One somebody asked for is always
     /// worth an answer, including a disappointing one, because they are waiting for it.
     /// </remarks>
-    public bool IsWorthReporting => Succeeded || !IsAvailable;
+    public bool IsWorthReporting => Succeeded || !IsAvailable || FleaRowCount > 0;
 
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,
