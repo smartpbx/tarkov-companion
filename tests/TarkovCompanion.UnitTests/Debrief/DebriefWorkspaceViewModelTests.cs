@@ -569,13 +569,145 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Single(viewModel.Raids);
     }
 
+    [Fact]
+    public async Task Deleting_a_raid_previews_it_then_hides_it_and_updates_the_map_stats()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        Assert.False(viewModel.IsConfirmingDelete);
+
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        Assert.True(viewModel.IsConfirmingDelete);
+        Assert.Contains("customs", viewModel.DeletePreviewLabel, StringComparison.Ordinal);
+
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+
+        Assert.False(viewModel.IsConfirmingDelete);
+        Assert.Single(viewModel.Raids);
+        Assert.Equal(otherRaidId, viewModel.Raids[0].RaidId);
+        Assert.Single(viewModel.MapStats);
+        Assert.Equal("woods", viewModel.MapStats[0].MapLabel);
+        Assert.True(viewModel.CanUndoDelete);
+        Assert.Contains("customs", viewModel.UndoDeleteSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_delete_preview_leaves_the_raid_in_place()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+
+        ((DelegateCommand)viewModel.CancelDeleteCommand).Execute(null);
+
+        Assert.False(viewModel.IsConfirmingDelete);
+        Assert.Single(viewModel.Raids);
+        Assert.False(viewModel.CanUndoDelete);
+    }
+
+    [Fact]
+    public async Task Undo_restores_a_deleted_raid_and_clears_the_banner()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+        Assert.Empty(viewModel.Raids);
+        Assert.True(viewModel.CanUndoDelete);
+
+        await ((AsyncDelegateCommand)viewModel.UndoDeleteCommand).ExecuteAsync();
+
+        Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, viewModel.Raids[0].RaidId);
+        Assert.False(viewModel.CanUndoDelete);
+        Assert.Equal(0, service.PurgedCount);
+    }
+
+    [Fact]
+    public async Task A_second_delete_finalizes_the_first_undo_can_no_longer_restore_it()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+        Assert.Equal(0, service.PurgedCount);
+
+        await viewModel.SelectRaidAsync(otherRaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+
+        // The undo banner now names only the most recent delete; the first raid's undo window is
+        // over and its row was hard-deleted rather than left soft-deleted forever.
+        Assert.Empty(viewModel.Raids);
+        Assert.Equal(1, service.PurgedCount);
+        Assert.Contains("woods", viewModel.UndoDeleteSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Delete_before_a_date_previews_the_count_then_removes_only_the_older_raids()
+    {
+        var oldRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(oldRaidId, Guid.NewGuid(), "woods", "Pmc", Started.AddDays(-10), Started.AddDays(-10).AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.DeleteBeforeDate = Started.AddDays(-1);
+
+        ((DelegateCommand)viewModel.BeginBulkDeleteCommand).Execute(null);
+        Assert.True(viewModel.IsConfirmingBulkDelete);
+        Assert.Contains("1 raid", viewModel.BulkDeletePreviewLabel, StringComparison.Ordinal);
+
+        await ((AsyncDelegateCommand)viewModel.ConfirmBulkDeleteCommand).ExecuteAsync();
+
+        Assert.False(viewModel.IsConfirmingBulkDelete);
+        var remaining = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, remaining.RaidId);
+        Assert.True(viewModel.CanUndoDelete);
+    }
+
+    [Fact]
+    public async Task Delete_before_with_no_matching_raids_does_not_enter_preview()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.DeleteBeforeDate = Started.AddDays(-30);
+
+        ((DelegateCommand)viewModel.BeginBulkDeleteCommand).Execute(null);
+
+        Assert.False(viewModel.IsConfirmingBulkDelete);
+        Assert.Single(viewModel.Raids);
+    }
+
     private sealed class FakeRaidHistoryService : IRaidHistoryService
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
         private readonly Dictionary<Guid, IReadOnlyList<ScreenshotPosition>> _positions = [];
         private readonly Dictionary<(Guid RaidId, string Type), List<string>> _events = [];
+        private readonly HashSet<Guid> _deleted = [];
 
         public (string? Outcome, string? Notes)? LastCorrection { get; private set; }
+
+        /// <summary>How many raids <see cref="PurgeDeletedAsync"/> has actually removed, across every call.</summary>
+        public int PurgedCount { get; private set; }
 
         public void Seed(RaidHistoryEntry raid) => _raids[raid.Id] = raid;
 
@@ -623,7 +755,40 @@ public sealed class DebriefWorkspaceViewModelTests
         }
 
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([.. _raids.Values]);
+            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>(
+                [.. _raids.Values.Where(raid => !_deleted.Contains(raid.Id))]);
+
+        public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in raidIds)
+            {
+                _deleted.Add(raidId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in raidIds)
+            {
+                _deleted.Remove(raidId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in _deleted.Where(id => !exceptRaidIds.Contains(id)).ToArray())
+            {
+                _deleted.Remove(raidId);
+                _raids.Remove(raidId);
+                PurgedCount++;
+            }
+
+            return Task.CompletedTask;
+        }
 
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(Guid raidId, CancellationToken cancellationToken) =>
             Task.FromResult(_positions.GetValueOrDefault(raidId, []));

@@ -271,6 +271,15 @@ public sealed class RaidHistoryOutboxTests
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 
+        public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
             Guid raidId,
             CancellationToken cancellationToken) =>

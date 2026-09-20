@@ -829,6 +829,18 @@ public interface IRaidHistoryService
     Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Marks raids deleted; <see cref="ListAsync"/> and everything it feeds already read as though
+    /// they were gone. Reversible with <see cref="RestoreDeletedAsync"/> until <see cref="PurgeDeletedAsync"/> removes them.
+    /// </summary>
+    Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken);
+
+    /// <summary>Undoes a soft delete for whichever of these raids is still marked deleted.</summary>
+    Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken);
+
+    /// <summary>Hard-deletes every raid still marked deleted, except the ones named.</summary>
+    Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Every screenshot position recorded during one raid, oldest first.
     /// </summary>
     /// <remarks>

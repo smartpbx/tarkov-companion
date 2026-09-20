@@ -1194,6 +1194,28 @@ internal static class Program
 
                     Pump(20);
                 }
+
+                // #291 package 3: show the delete preview, the undo banner after a delete, or the
+                // delete-before preview, so a render can show each state.
+                if (args.Contains("--debrief-delete-preview"))
+                {
+                    debrief.BeginDeleteCommand.Execute(null);
+                    Pump(20);
+                }
+                else if (args.Contains("--debrief-delete-confirm"))
+                {
+                    debrief.BeginDeleteCommand.Execute(null);
+                    Pump(10);
+                    debrief.ConfirmDeleteCommand.Execute(null);
+                    Pump(40);
+                }
+
+                if (StringOption(args, "--debrief-delete-before") is { } deleteBefore)
+                {
+                    debrief.DeleteBeforeDate = DateTimeOffset.Parse(deleteBefore, System.Globalization.CultureInfo.InvariantCulture);
+                    debrief.BeginBulkDeleteCommand.Execute(null);
+                    Pump(20);
+                }
             }
 
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
