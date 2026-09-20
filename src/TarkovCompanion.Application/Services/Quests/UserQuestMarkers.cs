@@ -1,4 +1,3 @@
-using System.Globalization;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Core.Common;
@@ -78,8 +77,11 @@ public static class UserQuestMarkerScene
         }
 
         var layer = MapSceneAssembler.IdFor(MapOverlayKind.QuestObjectives);
+        // The next letter after the ones already on the map (issue 508: objectives are lettered,
+        // never numbered, so a player's own marker keeps the same A, B, C sequence as the
+        // catalog's).
         var next = scene.Entries
-            .Select(entry => int.TryParse(entry.Number, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number : 0)
+            .Select(entry => QuestObjectiveLetters.IndexFor(entry.Number))
             .DefaultIfEmpty(0)
             .Max();
         var objects = scene.Objects.ToList();
@@ -92,7 +94,7 @@ public static class UserQuestMarkerScene
                 continue;
             }
 
-            var number = (++next).ToString(CultureInfo.InvariantCulture);
+            var number = QuestObjectiveLetters.LetterFor(++next);
             var floorIds = marker.FloorId is null ? [] : new[] { marker.FloorId };
             var floorNames = floors
                 .Where(floor => floorIds.Contains(floor.Id, StringComparer.OrdinalIgnoreCase))

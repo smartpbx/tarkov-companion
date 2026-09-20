@@ -744,6 +744,67 @@ internal static class Program
                         }
                     }
                 }
+
+                // [Issue 508] Waypoints (and a ping) on the raid map, so a render can show pins
+                // next to quest objectives. --seed-marks N drops N waypoints spread across the
+                // plan and one ping; --seed-marks-collide additionally drops two more waypoints
+                // both exactly on the plan's own centre — the default camera's own centre too, so
+                // a render can show the collision without having to be panned onto it — so a
+                // render can show three pins landing on the exact same spot.
+                if (IntOption(args, "--seed-marks", 0) is var markCount and > 0 && raid.Renderer is { } marksRenderer)
+                {
+                    var bounds = marksRenderer.Scene.Bounds;
+                    double[] fractions = [0.22, 0.38, 0.5, 0.64, 0.78];
+                    for (var i = 0; i < markCount; i++)
+                    {
+                        var fx = fractions[i % fractions.Length];
+                        var fy = 0.28 + (0.12 * (i % 3));
+                        raid.PlaceMarkAt(
+                            new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy)),
+                            TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                    }
+
+                    raid.PlaceMarkAt(
+                        new(bounds.MinimumX + (bounds.Width * 0.5), bounds.MinimumY + (bounds.Height * 0.62)),
+                        TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(false));
+
+                    if (args.Contains("--seed-marks-collide"))
+                    {
+                        var centre = new TarkovCompanion.Core.Domain.Maps.Scene.MapScenePoint(
+                            bounds.MinimumX + (bounds.Width / 2),
+                            bounds.MinimumY + (bounds.Height / 2));
+                        raid.PlaceMarkAt(centre, TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                        raid.PlaceMarkAt(centre, TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(true));
+                    }
+
+                    Pump(80);
+                    Console.WriteLine("Marks: " + string.Join(" | ", raid.Marks.Select(mark => $"{mark.KindLabel} {mark.Label}")));
+                }
+
+                // [Issue 508] Zoom and rotate the plan the way the zoom buttons and the keyboard
+                // rotate gesture do, so a render can show a pin's tip staying on the spot at a
+                // closer zoom and with the map turned. --map-zoom N presses "zoom in" N times
+                // (each press is 1.25x, the same as RequestZoom); --map-bearing DEG turns the
+                // plan to that absolute bearing. Last, so selecting an objective or placing marks
+                // above does not recentre the view and undo it.
+                if (IntOption(args, "--map-zoom", 0) is var zoomSteps and > 0 && raid.Renderer is { } zoomRenderer)
+                {
+                    for (var i = 0; i < zoomSteps; i++)
+                    {
+                        zoomRenderer.RequestZoom(1);
+                        Pump(10);
+                    }
+
+                    Console.WriteLine($"Zoom: {zoomRenderer.Scene.View.Camera.Zoom:F2}");
+                }
+
+                if (DoubleOption(args, "--map-bearing") is { } bearingDegrees && raid.Renderer is { } bearingRenderer)
+                {
+                    bearingRenderer.SetBearing(bearingDegrees);
+                    Pump(20);
+                    Console.WriteLine($"Bearing: {bearingRenderer.Scene.View.Camera.BearingDegrees:F1}");
+                }
+
                 // Change map inside the run, and say what the view drew and how long it took.
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {
@@ -1684,6 +1745,12 @@ internal static class Program
     {
         var value = StringOption(args, name);
         return value is null ? fallback : int.Parse(value);
+    }
+
+    private static double? DoubleOption(string[] args, string name)
+    {
+        var value = StringOption(args, name);
+        return value is null ? null : double.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static string? StringOption(string[] args, string name)

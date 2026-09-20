@@ -41,7 +41,9 @@ public sealed record TabletMapObject(
     IReadOnlyList<double> Points,
     IReadOnlyList<string> FloorIds,
     double? HeadingDegrees,
-    bool IsEstimate);
+    bool IsEstimate,
+    // Issue 508: the tablet dims a completed quest objective's pin the same way the desktop does.
+    bool IsCompleted = false);
 
 /// <summary>
 /// One answer to a lookup the tablet asked the desktop to run.
@@ -227,7 +229,8 @@ public static class TabletMapSurfaceBuilder
             flattened,
             item.FloorIds,
             item.HeadingDegrees,
-            item.Truth == MapSceneTruthKind.HistoricalEstimate);
+            item.Truth == MapSceneTruthKind.HistoricalEstimate,
+            item.IsCompleted);
     }
 }
 

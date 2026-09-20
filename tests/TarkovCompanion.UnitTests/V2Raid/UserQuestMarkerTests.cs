@@ -33,7 +33,7 @@ public sealed class UserQuestMarkerTests : IDisposable
     {
         var (map, model, scene) = MapWithBothKinds();
         var unplaced = scene.Entries.First(entry => entry.Placement == QuestObjectivePlacement.NoLocation);
-        var highest = scene.Entries.Where(entry => entry.IsPlaced).Max(entry => int.Parse(entry.Number, System.Globalization.CultureInfo.InvariantCulture));
+        var highest = scene.Entries.Where(entry => entry.IsPlaced).Max(entry => QuestObjectiveLetters.IndexFor(entry.Number));
         var marker = new UserQuestMarker(unplaced.ObjectiveId, model.Location.Id, null, 12.5, 34.5, NowUtc);
 
         var placed = UserQuestMarkerScene.Apply(scene, [marker], model.Location.Id, model.Floors);
@@ -43,7 +43,8 @@ public sealed class UserQuestMarkerTests : IDisposable
         Assert.True(entry.IsPlaced);
         Assert.Equal("Placed by you", entry.PlacementLabel);
         Assert.Null(entry.NoLocationReason);
-        Assert.Equal((highest + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), entry.Number);
+        // Issue 508: a player's own marker keeps the same letter sequence as the catalog's.
+        Assert.Equal(QuestObjectiveLetters.LetterFor(highest + 1), entry.Number);
         var spot = Assert.Single(placed.Objects, item => item.Id == entry.ObjectIds.Single());
         Assert.Equal(MapSceneTruthKind.UserAuthored, spot.Truth);
         Assert.Equal(MapSceneObjectKind.QuestObjective, spot.Kind);

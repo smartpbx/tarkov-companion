@@ -138,6 +138,12 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
 
     public string KindLabel => (Kind == RaidMarkKind.Ping ? "Ping" : "Waypoint") + (IsGroupMark ? " · group" : string.Empty);
 
+    // [Issue 508] So this row can carry the same colour as its pin on the map (see
+    // RaidCockpitView.axaml's v2-raid-mark-waypoint/v2-raid-mark-ping), the same way its Label
+    // already carries the same text.
+    public bool IsWaypoint => Kind == RaidMarkKind.Waypoint;
+    public bool IsPing => Kind == RaidMarkKind.Ping;
+
     /// <summary>A ping is "look here now": it is never told apart from another ping by name.</summary>
     public bool CanRename => Kind == RaidMarkKind.Waypoint && !IsGroupMark;
 

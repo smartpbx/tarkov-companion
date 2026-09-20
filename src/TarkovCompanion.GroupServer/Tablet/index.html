@@ -724,8 +724,10 @@
   const COLOURS = {
     Extract: "#77b895",
     Transit: "#77b895",
-    QuestObjective: "#c7a66b",
-    Ping: "#c7a66b",
+    // [Issue 508] A quest objective's amber is its own — not the ping's — so the two pins this
+    // page draws (see drawPin below) are never the same colour as well as never the same shape.
+    QuestObjective: "#e8b84a",
+    Ping: "#5eb3f0",
     Waypoint: "#22d3ee",
     SpawnArea: "#9b8fc7",
     Lock: "#c77b6b",
@@ -738,6 +740,100 @@
     LootSpawn: "#e3b341",
     LootContainer: "#e3b341",
   };
+
+  // [Issue 508] A waypoint or a quest objective is a pin: a head shape and colour of its own,
+  // its tip — not its centre — on (px, py), the exact map point. The desktop draws the same two
+  // shapes (MapSceneRendererView.axaml's v2-map-pin-round/shield) for the same reason: a square
+  // with a number in it does not say where on the ground it means, and a waypoint's number must
+  // never look like it could be an objective's letter, or the other way round.
+  function drawPin(px, py, colour, shape, label, scale, selected, placed, completed) {
+    const headR = 9 * scale;
+    const tail = 7 * scale;
+    const headY = py - tail - headR;
+
+    if (selected) {
+      context.beginPath();
+      context.arc(px, headY, headR + (4 * scale), 0, Math.PI * 2);
+      context.strokeStyle = "#22d3ee";
+      context.lineWidth = 2 * scale;
+      context.stroke();
+    }
+
+    context.globalAlpha = completed ? 0.45 : 1;
+
+    // The tail first, its own top edge inside the head, so the head's fill and outline cover
+    // the seam between the two and the pin reads as one shape rather than two overlapping ones.
+    context.beginPath();
+    context.moveTo(px - (headR * 0.5), headY + (headR * 0.5));
+    context.lineTo(px + (headR * 0.5), headY + (headR * 0.5));
+    context.lineTo(px, py);
+    context.closePath();
+    context.fillStyle = colour;
+    context.fill();
+
+    context.beginPath();
+    if (shape === "shield") {
+      context.moveTo(px - headR, headY - headR);
+      context.lineTo(px + headR, headY - headR);
+      context.lineTo(px + headR, headY + (headR * 0.35));
+      context.lineTo(px, headY + headR);
+      context.lineTo(px - headR, headY + (headR * 0.35));
+      context.closePath();
+    } else {
+      context.arc(px, headY, headR, 0, Math.PI * 2);
+    }
+
+    context.fillStyle = colour;
+    context.fill();
+    // Issue 379: an objective the player placed themselves keeps its shield and colour but draws
+    // a dashed, thicker outline, so it never reads as the quest data's own placement.
+    if (placed) context.setLineDash([2 * scale, 1.5 * scale]);
+    context.lineWidth = (placed ? 2.5 : 1.5) * scale;
+    context.strokeStyle = "#0b1016";
+    context.stroke();
+    context.setLineDash([]);
+
+    if (completed) {
+      context.strokeStyle = "#0e151d";
+      context.lineWidth = 1.6 * scale;
+      context.beginPath();
+      context.moveTo(px - (headR * 0.45), headY);
+      context.lineTo(px - (headR * 0.1), headY + (headR * 0.35));
+      context.lineTo(px + (headR * 0.5), headY - (headR * 0.35));
+      context.stroke();
+    } else if (label) {
+      context.fillStyle = "#0b1016";
+      context.font = `bold ${10 * scale}px ui-sans-serif, system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(label, px, headY + (0.5 * scale));
+      context.textAlign = "start";
+      context.textBaseline = "alphabetic";
+    }
+
+    context.globalAlpha = 1;
+  }
+
+  // A ping: a transient pulse at the exact spot, never a pin, and its own colour so it is never
+  // read as either one even before the ring shape registers.
+  function drawPing(px, py, scale) {
+    context.strokeStyle = COLOURS.Ping;
+    context.globalAlpha = 0.32;
+    context.lineWidth = 1.5 * scale;
+    context.beginPath();
+    context.arc(px, py, 13 * scale, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 0.7;
+    context.lineWidth = 2 * scale;
+    context.beginPath();
+    context.arc(px, py, 7 * scale, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 1;
+    context.fillStyle = COLOURS.Ping;
+    context.beginPath();
+    context.arc(px, py, 3 * scale, 0, Math.PI * 2);
+    context.fill();
+  }
 
   const plan = () => live?.surface?.plan ?? null;
 
@@ -832,6 +928,30 @@
 
       const [px, py] = project.toScreen(points[0], points[1]);
       if (px < -40 || py < -40 || px > width + 40 || py > height + 40) continue;
+
+      if (item.kind === "Ping") {
+        drawPing(px, py, scale);
+        continue;
+      }
+
+      if (item.kind === "Waypoint" || item.kind === "QuestObjective") {
+        // A short label (a waypoint's route number, an objective's letter) is drawn inside the
+        // pin's own head; a custom-named waypoint draws none — too long to fit legibly, and its
+        // name is the marks list row and the tooltip instead, same restraint the desktop keeps.
+        const label = item.label && item.label.length <= 4 ? item.label : null;
+        drawPin(
+          px,
+          py,
+          COLOURS[item.kind],
+          item.kind === "QuestObjective" ? "shield" : "round",
+          label,
+          scale,
+          item.id === selectedId,
+          item.kind === "QuestObjective" && item.truth === "UserAuthored",
+          !!item.isCompleted);
+        continue;
+      }
+
       if (item.id === selectedId) {
         // What the desktop has selected, or what this tablet just tapped — the same ring either
         // way, because in Control they are the same thing.
