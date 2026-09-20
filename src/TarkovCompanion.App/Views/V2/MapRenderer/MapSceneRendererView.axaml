@@ -249,6 +249,14 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
+                  <ToggleButton Classes="v2-target v2-segment" HorizontalAlignment="Left"
+                                IsVisible="{Binding HasFollowFloorSwitch}"
+                                IsChecked="{Binding FollowsFloor, Mode=OneWay}"
+                                Command="{Binding FollowFloorCommand}"
+                                Content="{Binding FollowFloorLabel}"
+                                AutomationProperties.AutomationId="v2-map-follow-floor"
+                                AutomationProperties.Name="{Binding FollowFloorLabel}"
+                                ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
                   <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding FloorPositionLabel}" />
                   <TextBlock Classes="v2-label" IsVisible="{Binding HasStackStatus}" TextWrapping="Wrap"
                              AutomationProperties.AutomationId="v2-map-stack-status"

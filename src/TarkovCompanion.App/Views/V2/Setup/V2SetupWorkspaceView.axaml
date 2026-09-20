@@ -110,6 +110,40 @@
         <Panel IsVisible="{Binding HasAdmin}">
           <setup:V2SetupDataDetailView DataContext="{Binding Admin.Data}" />
         </Panel>
+        <!-- [Issue 318] The same for the loot-spawn layer: per map, how many of the published spawn records
+             have a position and a floor, from the last verified import (works offline). -->
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasLootCoverage}"
+                    AutomationProperties.AutomationId="v2-setup-loot-coverage">
+          <TextBlock Classes="v2-body" Text="{Binding LootCoverage.Title}" />
+          <TextBlock Classes="v2-label" Text="{Binding LootCoverage.Status}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding LootCoverage.Rows}" IsVisible="{Binding LootCoverage.HasRows}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:LootCoverageRowViewModel">
+                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+        <!-- [Issue 379] How much of each map's quest objectives the quest data can place, so a gap is a
+             number here rather than a marker that is silently missing on the Raid map. -->
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasQuestCoverage}"
+                    AutomationProperties.AutomationId="v2-setup-quest-coverage">
+          <TextBlock Classes="v2-body" Text="{Binding QuestCoverage.Title}" />
+          <TextBlock Classes="v2-label" Text="{Binding QuestCoverage.Status}" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding QuestCoverage.Rows}" IsVisible="{Binding QuestCoverage.HasRows}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:QuestCoverageRowViewModel">
+                <Grid ColumnDefinitions="180,*" ColumnSpacing="12" Margin="0,2">
+                  <TextBlock Classes="v2-label" Text="{Binding MapName}" />
+                  <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
       </StackPanel>
     </Border>
 

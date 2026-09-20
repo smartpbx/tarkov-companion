@@ -67,7 +67,11 @@ public sealed class RaidObjectiveDetailViewModel
         QuestObjectiveEntry entry,
         Func<string, string> nameOfItem,
         Func<string?, bool> openWiki,
-        Action close)
+        Action close,
+        // [Issue 379] Put the objective on the map by hand when the catalog has no place for it,
+        // or take the player's own marker off again. Null where markers are not offered.
+        Action<string>? place = null,
+        Action<string>? remove = null)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(nameOfItem);
@@ -98,6 +102,11 @@ public sealed class RaidObjectiveDetailViewModel
         _wikiUri = objective.WikiUri;
         OpenWikiCommand = new DelegateCommand(() => _openWiki(_wikiUri));
         CloseCommand = new DelegateCommand(close);
+        CanPlace = place is not null && entry.Placement == QuestObjectivePlacement.NoLocation;
+        CanMove = place is not null && entry.Placement == QuestObjectivePlacement.UserPlaced;
+        CanRemove = remove is not null && entry.Placement == QuestObjectivePlacement.UserPlaced;
+        PlaceCommand = new DelegateCommand(() => place?.Invoke(ObjectiveId));
+        RemoveCommand = new DelegateCommand(() => remove?.Invoke(ObjectiveId));
     }
 
     public string ObjectiveId { get; }
@@ -110,7 +119,25 @@ public sealed class RaidObjectiveDetailViewModel
 
     public string Description { get; }
 
-    /// <summary>"Area", "One of 5 places", "Marked spot" or "No location".</summary>
+    /// <summary>Whether the player can put this objective on the map, which is only where the catalog has no place for it.</summary>
+    public bool CanPlace { get; }
+
+    /// <summary>Whether the player's own marker can be moved to another spot.</summary>
+    public bool CanMove { get; }
+
+    public bool CanRemove { get; }
+
+    public string PlaceLabel => "Place on map";
+
+    public string MoveLabel => "Move my marker";
+
+    public string RemoveLabel => "Remove my marker";
+
+    public ICommand PlaceCommand { get; }
+
+    public ICommand RemoveCommand { get; }
+
+    /// <summary>"Area", "One of 5 places", "Marked spot", "Placed by you" or "No location".</summary>
     public string Where { get; }
 
     /// <summary>"2nd Floor" where the objective is on a floor above the ground plan; empty otherwise.</summary>

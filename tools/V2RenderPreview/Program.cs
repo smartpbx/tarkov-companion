@@ -409,6 +409,45 @@ internal static class Program
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
                     : raid.MapPicker.FirstOrDefault(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase));
+                // First paint: the app opens on the raid's own map with nobody selecting it, and the tool
+                // used to select it again, which measures a second load, not the one a player sees
+                // every launch. --first-paint leaves the first load alone and prints how the plan's
+                // drawn rectangle and the artwork's own shape stand at each step of it.
+                if (args.Contains("--first-paint"))
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    string? last = null;
+                    for (var i = 0; i < 1200 && clock.Elapsed < TimeSpan.FromSeconds(60); i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        string current;
+                        if (raid.Renderer is { } probe)
+                        {
+                            var art = probe.BackgroundImage?.Size;
+                            var drawnAspect = probe.MapHeight > 0 ? probe.MapWidth / probe.MapHeight : double.NaN;
+                            var artAspect = art is { Height: > 0 } size ? size.Width / size.Height : double.NaN;
+                            var ci = System.Globalization.CultureInfo.InvariantCulture;
+                            current = string.Create(
+                                ci,
+                                $"scene r{probe.Scene.Revision} {probe.Scene.LocationId} card {probe.CanvasWidth:F0}x{probe.CanvasHeight:F0} drawn {probe.MapWidth:F1}x{probe.MapHeight:F1}={drawnAspect:F4} art {art?.Width:F0}x{art?.Height:F0}={artAspect:F4} v1canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0} tiles {viewModel.Map.Tiles.Count} drawing={raid.PrefersDrawing}");
+                        }
+                        else
+                        {
+                            current = $"no renderer yet; v1 status '{viewModel.Map.Status}' tiles {viewModel.Map.Tiles.Count} canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0}";
+                        }
+
+                        if (current != last)
+                        {
+                            Console.WriteLine($"[{clock.Elapsed.TotalSeconds:F2}s] {current}");
+                            last = current;
+                        }
+
+                        Thread.Sleep(20);
+                    }
+
+                    picked = null;
+                }
+
                 if (picked is not null)
                 {
                     picked.SelectCommand.Execute(null);
@@ -540,7 +579,10 @@ internal static class Program
                 Console.WriteLine("Objectives: " + string.Join(" | ", raid.QuestObjectives.Select(row => $"{(row.HasNumber ? row.Number : "-")} {row.Where}")));
                 if (StringOption(args, "--select-objective") is { } objectiveNumber)
                 {
-                    var row = raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
+                    // "none" picks the first objective with no number, which is one with no place.
+                    var row = objectiveNumber == "none"
+                        ? raid.QuestObjectives.FirstOrDefault(item => !item.HasNumber)
+                        : raid.QuestObjectives.FirstOrDefault(item => item.Number == objectiveNumber);
                     if (row is null)
                     {
                         Console.Error.WriteLine($"No objective is numbered '{objectiveNumber}'.");
@@ -550,6 +592,17 @@ internal static class Program
                         row.SelectCommand.Execute(null);
                         Pump(40);
                         Console.WriteLine($"Selected: objective {raid.SelectedObjective?.Number}, map marker '{raid.Renderer?.SelectedObject?.Label}' ({raid.Renderer?.SelectedObject?.SceneObject?.Id.Value})");
+                        // Issue 379: put the selected objective on the middle of the plan, the way a click on
+                        // the map after "Place on map" would, so the "Placed by you" marker can be seen.
+                        if (args.Contains("--place-selected-objective") && raid.SelectedObjective is { CanPlace: true } selected &&
+                            raid.Renderer is { } placing)
+                        {
+                            selected.PlaceCommand.Execute(null);
+                            var bounds = placing.Scene.Bounds;
+                            raid.PlaceMarkAt(new(bounds.MinimumX + (bounds.Width / 2), bounds.MinimumY + (bounds.Height / 2)), TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel.MarkKindFor(false));
+                            Pump(80);
+                            Console.WriteLine($"Placed: {raid.SelectedObjective?.Where} #{raid.SelectedObjective?.Number}");
+                        }
                     }
                 }
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render

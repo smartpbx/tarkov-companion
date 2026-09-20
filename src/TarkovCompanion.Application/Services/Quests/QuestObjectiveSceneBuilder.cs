@@ -22,6 +22,12 @@ public enum QuestObjectivePlacement
 
     /// <summary>Several candidate spots, only one of which is where it happens.</summary>
     Candidates,
+
+    /// <summary>
+    /// A spot the player placed themselves for an objective the catalog gives no place for. It is
+    /// theirs, not the quest data's, and is never presented as official.
+    /// </summary>
+    UserPlaced,
 }
 
 /// <summary>One objective as the map's list and its detail card describe it.</summary>
@@ -220,6 +226,7 @@ public sealed class QuestObjectiveSceneBuilder
         QuestObjectivePlacement.Point => places == 1
             ? "Marked spot"
             : string.Create(CultureInfo.CurrentCulture, $"{places:N0} spots"),
+        QuestObjectivePlacement.UserPlaced => "Placed by you",
         _ => "No location",
     };
 

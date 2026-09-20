@@ -169,7 +169,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // [#292] Setup's data detail, About, Data & Privacy and Displays, same reasoning again.
         SetupAdminViewModel? admin = null,
         // [#309] Setup's screenshot-tidy preview and ledger, same reasoning again.
-        SetupCleanupViewModel? cleanup = null)
+        SetupCleanupViewModel? cleanup = null,
+        // [Issue 379] Setup's per-map quest objective coverage, same reasoning again.
+        QuestCoverageViewModel? questCoverage = null,
+        // [Issue 318] Setup's per-map loot-spawn coverage, same reasoning again.
+        LootCoverageViewModel? lootCoverage = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -222,6 +226,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (cleanup is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachCleanup(cleanup);
+        }
+
+        if (questCoverage is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachQuestCoverage(questCoverage);
+        }
+
+        if (lootCoverage is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachLootCoverage(lootCoverage);
         }
     }
 
