@@ -317,13 +317,16 @@
         <!-- IsVisible on this wrapper, DataContext on the grid inside: one element carrying both
              would resolve IsVisible against SelectedGroup. -->
         <Panel IsVisible="{Binding HasSelectedGroup}">
-        <Grid RowDefinitions="Auto,*,Auto,Auto" DataContext="{Binding SelectedGroup}">
-          <StackPanel x:Name="PlanPanelHeading" Grid.Row="0" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
+        <!-- Two columns, of which the panel beside the map uses one. Under the map the code-behind
+             moves Requirements and Open in Raid into the second, so the objectives keep the
+             panel's whole height instead of the sliver left over after the other two. -->
+        <Grid RowDefinitions="Auto,*,Auto,Auto" ColumnDefinitions="*,Auto" DataContext="{Binding SelectedGroup}">
+          <StackPanel x:Name="PlanPanelHeading" Grid.Row="0" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="2" Margin="16,12,16,12">
             <TextBlock Classes="v2-heading-2" Text="{Binding MapLabel}" AutomationProperties.HeadingLevel="2"
                        TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="v2-label" Text="{Binding Summary}" />
           </StackPanel>
-          <Border Grid.Row="1" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section v2-plan-accent"
+          <Border x:Name="PlanObjectivesCard" Grid.Row="1" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section v2-plan-accent"
                   Margin="16,0,16,12" Padding="12,12,8,8">
             <Grid RowDefinitions="Auto,*">
               <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
@@ -439,7 +442,7 @@
           </Border>
           <!-- What this map's objectives ask the player to have: keys and gear to bring, items to
                hand in or find in raid, against what they hold. -->
-          <Border Grid.Row="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section"
+          <Border x:Name="PlanRequirementsCard" Grid.Row="2" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section"
                   Margin="16,0,16,12" MaxHeight="260" IsVisible="{Binding HasRequirements}"
                   AutomationProperties.AutomationId="v2-plan-requirements">
             <Grid RowDefinitions="Auto,*">
@@ -473,7 +476,7 @@
               </ScrollViewer>
             </Grid>
           </Border>
-          <StackPanel Grid.Row="3" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
+          <StackPanel x:Name="PlanPanelActions" Grid.Row="3" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">
             <Button Classes="v2-target v2-plan-primary" Command="{Binding OpenInRaidCommand}"
                     IsVisible="{Binding CanOpenInRaid}"
                     AutomationProperties.AutomationId="v2-plan-open-in-raid"
