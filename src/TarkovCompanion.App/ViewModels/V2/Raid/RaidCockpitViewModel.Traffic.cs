@@ -35,6 +35,49 @@ public sealed partial class RaidCockpitViewModel
     private string? _priorSignature;
     private Bitmap? _heatImage;
 
+    // Null follows the raid clock; a value is the player asking "and what about late raid?".
+    private RaidPhase? _chosenPriorPhase;
+    private bool _priorPhaseFromClock;
+    private IReadOnlyList<TrafficPhaseChoiceViewModel>? _trafficPhases;
+
+    /// <summary>
+    /// The concept's raid-phase scrubber, as the three steps the model has: Auto, Early, Mid, Late.
+    /// </summary>
+    /// <remarks>
+    /// Not a minute slider with a play button. The prior weighs spawns, draws and extracts by
+    /// thirds of a raid (V1's strategy model) and knows nothing finer; a slider would let a player
+    /// read a difference between minute 14 and minute 16 that nothing here supports.
+    /// </remarks>
+    public IReadOnlyList<TrafficPhaseChoiceViewModel> TrafficPhases => _trafficPhases ??=
+    [
+        PhaseChoice("Auto", null),
+        PhaseChoice("Early", RaidPhase.Early),
+        PhaseChoice("Mid", RaidPhase.Mid),
+        PhaseChoice("Late", RaidPhase.Late),
+    ];
+
+    public string TrafficPhaseTip => "Spawns count most early, extracts late. The model's assumption, not recorded data.";
+
+    private TrafficPhaseChoiceViewModel PhaseChoice(string label, RaidPhase? phase) =>
+        new(label, _chosenPriorPhase == phase, new DelegateCommand(() => ChoosePriorPhase(phase)));
+
+    private void ChoosePriorPhase(RaidPhase? phase)
+    {
+        if (_chosenPriorPhase == phase)
+        {
+            return;
+        }
+
+        _chosenPriorPhase = phase;
+        _trafficPhases = null;
+        OnPropertyChanged(nameof(TrafficPhases));
+        _rebuildRequest.Request();
+    }
+
+    private string PhaseBasis => _chosenPriorPhase is not null
+        ? "chosen by you"
+        : _priorPhaseFromClock ? "from the raid clock" : "planning default";
+
     public string TrafficBannerTitle => "MODELLED TRAFFIC · NOT LIVE";
 
     public string TrafficBannerBasis => MapPriorTraffic.SourceClass;
@@ -66,7 +109,8 @@ public sealed partial class RaidCockpitViewModel
             var basis = prior.Basis;
             var rows = new List<string>
             {
-                $"{PhaseName(prior.Phase)} raid · model {MapPriorTraffic.ModelVersion}",
+                $"{PhaseName(prior.Phase)} raid · {PhaseBasis}",
+                $"Model {MapPriorTraffic.ModelVersion} · phase weighting assumed",
                 CoverageLabel(basis),
                 $"{DataThroughLabel(basis)} · generated {LocalTime.ShortTime(basis.GeneratedUtc)}",
                 $"Confidence low · {prior.Confidence.Value:P0} · unvalidated",
@@ -121,11 +165,14 @@ public sealed partial class RaidCockpitViewModel
     private RaidPhase CurrentPriorPhase(string mapId, DateTimeOffset nowUtc)
     {
         var raid = _stateStore.Current.Raid;
+        _priorPhaseFromClock = false;
         if (raid.State != RaidLifecycleState.InRaid || raid.StartedUtc is not { } started ||
             !string.Equals(raid.MapId, mapId, StringComparison.OrdinalIgnoreCase))
         {
             return RaidPhase.Early;
         }
+
+        _priorPhaseFromClock = true;
 
         return (nowUtc - started).TotalMinutes switch
         {
@@ -147,7 +194,8 @@ public sealed partial class RaidCockpitViewModel
         IReadOnlyList<string> floorIds,
         DateTimeOffset nowUtc)
     {
-        var phase = CurrentPriorPhase(model.Location.Id, nowUtc);
+        var clockPhase = CurrentPriorPhase(model.Location.Id, nowUtc);
+        var phase = _chosenPriorPhase ?? clockPhase;
         var trails = _map.VisitedRaids;
         var signature = string.Create(
             CultureInfo.InvariantCulture,
@@ -292,4 +340,16 @@ public sealed partial class RaidCockpitViewModel
         OnPropertyChanged(nameof(TrafficRows));
         OnPropertyChanged(nameof(HasTrafficRows));
     }
+}
+
+/// <summary>[Issue 286] One step of the traffic phase control.</summary>
+public sealed class TrafficPhaseChoiceViewModel(string label, bool isSelected, System.Windows.Input.ICommand selectCommand)
+{
+    public string Label { get; } = label;
+
+    public bool IsSelected { get; } = isSelected;
+
+    public System.Windows.Input.ICommand SelectCommand { get; } = selectCommand;
+
+    public string AutomationId => $"v2-raid-traffic-phase-{Label.ToLowerInvariant()}";
 }
