@@ -1,0 +1,30 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupReportView"
+             x:DataType="vm:SetupReportViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#292/#309] Read what a report holds, then send that text. Nothing is sent by looking. -->
+  <StackPanel Classes="v2-stack">
+    <Button Classes="v2-target primary" HorizontalAlignment="Left"
+            AutomationProperties.AutomationId="v2-setup-report-review"
+            Content="{Binding ReviewLabel}" Command="{Binding PreviewCommand}" />
+    <Border Classes="v2-card" IsVisible="{Binding HasPreview}" AutomationProperties.AutomationId="v2-setup-report-preview">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+        <TextBlock Classes="v2-label" Text="{Binding Note}" TextWrapping="Wrap" />
+        <TextBox Classes="v2-field-input" Text="{Binding ReportText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
+                 TextWrapping="Wrap" MaxHeight="280" FontFamily="Consolas,Menlo,monospace"
+                 AutomationProperties.AutomationId="v2-setup-report-text"
+                 AutomationProperties.Name="{Binding Heading}" />
+        <TextBlock Classes="v2-label" Text="{Binding Size}" />
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-send"
+                  Content="{Binding SendLabel}" Command="{Binding SendCommand}" />
+          <Button Classes="v2-target" Content="{Binding DiscardLabel}" Command="{Binding DiscardCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+    <TextBlock Classes="v2-body" Text="{Binding Status}" IsVisible="{Binding HasStatus}" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="v2-setup-report-status" />
+  </StackPanel>
+</UserControl>

@@ -549,8 +549,13 @@
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-copy-diagnostics"
                   Content="{Binding CopyDiagnosticsLabel}" Command="{Binding Settings.CopyDiagnosticsCommand}" />
           <Button Classes="v2-target primary" AutomationProperties.AutomationId="v2-setup-report-problem"
+                  IsVisible="{Binding !HasAdmin}"
                   Content="{Binding ReportProblemLabel}" Command="{Binding Settings.ReportProblemCommand}" />
         </WrapPanel>
+        <!-- [#292/#309] Reporting is read-then-send: the whole report is shown, and Send sends that text. -->
+        <Panel IsVisible="{Binding HasAdmin}">
+          <setup:V2SetupReportView DataContext="{Binding Admin.Report}" />
+        </Panel>
         <!-- Where a report goes, said at the button that sends it, as V1 does. -->
         <TextBlock Classes="v2-label" Text="{Binding RelayNote}" TextWrapping="Wrap" />
       </StackPanel>

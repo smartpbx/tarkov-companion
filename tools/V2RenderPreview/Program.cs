@@ -349,6 +349,13 @@ internal static class Program
                 Pump(60);
             }
 
+            // [#292/#309] The problem report as a player reads it before it is sent.
+            if (shell?.SetupWorkspace is { Admin.Report: { } reportReview } && args.Contains("--report-demo"))
+            {
+                reportReview.PreviewCommand.Execute(null);
+                Pump(30);
+            }
+
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
