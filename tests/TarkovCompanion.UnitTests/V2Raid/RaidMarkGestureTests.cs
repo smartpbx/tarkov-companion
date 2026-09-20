@@ -129,7 +129,10 @@ public sealed class RaidMarkGestureTests
         // The tablet has no second button, so the same three outcomes ride on tap, hold and
         // "the finger moved". The thresholds are the whole of it: a stray ping on every pan
         // would be worse than no pinging at all, so they are asserted rather than assumed.
-        var tablet = File.ReadAllText(RepositoryFile(TabletPath));
+        // Newlines normalised because one assertion below spans two lines, and the file is
+        // checked out with CRLF on Windows and LF here: the literal matched on Linux, failed in
+        // the Windows job, and took main red with it.
+        var tablet = File.ReadAllText(RepositoryFile(TabletPath)).Replace("\r\n", "\n", StringComparison.Ordinal);
         Assert.Contains("const SLOP_PX = 12;", tablet, StringComparison.Ordinal);
         Assert.Contains("const TAP_MS = 350;", tablet, StringComparison.Ordinal);
         Assert.Contains("const HOLD_MS = 500;", tablet, StringComparison.Ordinal);

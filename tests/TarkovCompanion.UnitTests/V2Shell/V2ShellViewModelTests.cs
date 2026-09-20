@@ -162,7 +162,10 @@ public sealed class V2ShellViewModelTests : IDisposable
     }
 
     [Theory]
-    [InlineData(V2CaptureAttentionKind.UnknownContext, V2CaptureResolutionKind.AnalyzeAsSelected)]
+    // [V2 rough package 60 — Intel scan] #287: an unplaceable screen offers "Analyse as armed",
+    // not "as selected". The frame was taken under the armed intent and #271's coordinator has no
+    // action that re-analyses one artifact as a different one.
+    [InlineData(V2CaptureAttentionKind.UnknownContext, V2CaptureResolutionKind.AnalyzeAsArmed)]
     [InlineData(V2CaptureAttentionKind.StillWriting, V2CaptureResolutionKind.Retry)]
     [InlineData(V2CaptureAttentionKind.Duplicate, V2CaptureResolutionKind.AnalyzeAgain)]
     [InlineData(V2CaptureAttentionKind.DeviceRace, V2CaptureResolutionKind.ArmSelectedIntent)]

@@ -18,6 +18,18 @@ public sealed record MapAssetCacheOptions(
 
     public long MaximumCacheBytes { get; init; } = 512L * 1024 * 1024;
 
+    /// <summary>
+    /// How to rasterise a drawing in a child process, or null to do it in this one.
+    /// </summary>
+    /// <remarks>
+    /// Null everywhere except the running application. Rasterising a drawing killed the process
+    /// outright on 2026-09-19 — a native access violation inside Skia, which no managed handler
+    /// can see — and a child process is the only arrangement that survives one. Tests and tools
+    /// leave this unset and rasterise in process, which is both simpler to reason about and what
+    /// they were already doing.
+    /// </remarks>
+    public SvgRasterizerHost? Rasterizer { get; init; }
+
     public static MapAssetCacheOptions CreateDefault(string cacheDirectory) => new(
         cacheDirectory,
         TimeSpan.FromDays(30),
@@ -92,36 +104,129 @@ public sealed class TarkovDevMapAssetCache(
             return result;
         }
 
-        var renderGate = _entryGates.GetOrAdd(variant.SvgPath.AbsoluteUri + "#preview", static _ => new(1, 1));
+        // One file per layer, not one file per asset. Every floor used to rasterise onto the one
+        // <hash>.preview.png, so two consumers reading two floors of the same map — the V1 map
+        // and the V2 cockpit both hold this cache — each got whichever floor had finished last.
+        // RaidCockpitViewModel carried a remark about exactly that; this removes the cause.
+        var layerPreviewPath = GetLayerPreviewPath(variant.SvgPath, visibleLayer!);
+        var layerAsset = result.Asset with { RenderPath = layerPreviewPath };
+        var renderGate = _entryGates.GetOrAdd(
+            variant.SvgPath.AbsoluteUri + "#preview:" + visibleLayer,
+            static _ => new(1, 1));
         await renderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var temporaryPath = result.Asset.RenderPath + ".tmp";
-            try
+            // Rasterised once, then never again while it is current. A stacked multi-floor map
+            // asks for every floor in turn on every load, and Reserve's six floors were six full
+            // 4096-wide renders each time — seconds of work per load for a picture already on
+            // disk, and six more chances for the native fault this is guarding against.
+            if (!IsCurrent(layerPreviewPath, result.Asset.LocalPath))
             {
-                await SvgMapRasterizer
-                    .CreatePreviewAsync(result.Asset.LocalPath, temporaryPath, visibleLayer, cancellationToken)
-                    .ConfigureAwait(false);
-                File.Move(temporaryPath, result.Asset.RenderPath, true);
-            }
-            finally
-            {
-                if (File.Exists(temporaryPath))
+                var temporaryPath = layerPreviewPath + ".tmp";
+                try
                 {
-                    File.Delete(temporaryPath);
+                    await RasterizeAsync(result.Asset.LocalPath, temporaryPath, visibleLayer, cancellationToken)
+                        .ConfigureAwait(false);
+                    File.Move(temporaryPath, layerPreviewPath, true);
+                }
+                finally
+                {
+                    if (File.Exists(temporaryPath))
+                    {
+                        File.Delete(temporaryPath);
+                    }
                 }
             }
 
-            return new(result.Asset, $"{result.Message} Showing upstream SVG layer '{visibleLayer}'.");
+            return new(layerAsset, $"{result.Message} Showing upstream SVG layer '{visibleLayer}'.");
         }
         catch (Exception exception) when (IsRecoverable(exception, cancellationToken))
         {
-            return new(null, $"The selected SVG floor is unavailable: {exception.Message}");
+            // The whole drawing, if it is there, rather than nothing. A floor that will not
+            // rasterise is a worse map, not an absent one, and the base preview was produced by
+            // the download and is the same artwork with every floor drawn.
+            return File.Exists(result.Asset.RenderPath)
+                ? new(result.Asset, $"The '{visibleLayer}' floor could not be drawn, so every floor is shown: {exception.Message}")
+                : new(null, $"The selected SVG floor is unavailable: {exception.Message}");
         }
         finally
         {
             renderGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Rasterises in a child process where one is configured, and in this one where it is not.
+    /// </summary>
+    /// <remarks>
+    /// A child that could not be *started* says nothing about the drawing, so this falls back to
+    /// rasterising here: the alternative would be a map that stops working because of how the
+    /// application happens to be launched. A child that started and died says the opposite, and
+    /// its exception is left to propagate — retrying it in this process is how the application
+    /// would be killed by the fault the child was there to contain.
+    /// </remarks>
+    private async Task RasterizeAsync(
+        string svgPath,
+        string previewPath,
+        string? visibleLayer,
+        CancellationToken cancellationToken)
+    {
+        if (options.Rasterizer is { } host)
+        {
+            try
+            {
+                await OutOfProcessSvgRasterizer
+                    .CreatePreviewAsync(host, svgPath, previewPath, visibleLayer, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
+            catch (SvgRasterizerHostUnavailableException)
+            {
+            }
+        }
+
+        await SvgMapRasterizer
+            .CreatePreviewAsync(svgPath, previewPath, visibleLayer, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Whether a preview already on disk was drawn from the SVG that is there now.</summary>
+    /// <remarks>
+    /// Compared by write time rather than by content hash because the source is replaced whole by
+    /// <see cref="DownloadAsync"/> and never edited in place, and because re-hashing a
+    /// multi-megabyte SVG to decide whether to skip work is most of the work.
+    /// </remarks>
+    private static bool IsCurrent(string previewPath, string svgPath)
+    {
+        try
+        {
+            var preview = new FileInfo(previewPath);
+            var svg = new FileInfo(svgPath);
+            return preview.Exists && preview.Length > 0 && svg.Exists && preview.LastWriteTimeUtc >= svg.LastWriteTimeUtc;
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Where the preview of one upstream layer of one asset lives.</summary>
+    /// <remarks>
+    /// The readable part of the layer name is kept so the cache directory can be understood by
+    /// looking at it, and a hash of the whole name is appended because upstream layer ids are not
+    /// filenames: they carry spaces and punctuation, and two different ids must never reduce to
+    /// one file.
+    /// </remarks>
+    private string GetLayerPreviewPath(Uri sourceUri, string visibleLayer)
+    {
+        var readable = new string([.. visibleLayer
+            .ToLowerInvariant()
+            .Select(character => char.IsAsciiLetterOrDigit(character) ? character : '-')
+            .Take(32)]);
+        var distinct = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(visibleLayer)))[..8];
+        return Path.Combine(
+            options.CacheDirectory,
+            $"{GetCacheKey(sourceUri)}.preview.{readable}-{distinct}.png");
     }
 
     public Task<MapAssetCacheResult> GetTileAsync(
@@ -264,8 +369,7 @@ public sealed class TarkovDevMapAssetCache(
             var temporaryPreviewPath = previewPath + ".tmp";
             try
             {
-                await SvgMapRasterizer
-                    .CreatePreviewAsync(localPath, temporaryPreviewPath, cancellationToken)
+                await RasterizeAsync(localPath, temporaryPreviewPath, visibleLayer: null, cancellationToken)
                     .ConfigureAwait(false);
                 File.Move(temporaryPreviewPath, previewPath, true);
             }
@@ -275,6 +379,22 @@ public sealed class TarkovDevMapAssetCache(
                 {
                     File.Delete(temporaryPreviewPath);
                 }
+            }
+        }
+
+        // Drawn from a file that has just been replaced, so no longer of this asset. Left
+        // standing they would be served for the life of the cache entry: IsCurrent compares write
+        // times, and a preview written after the new SVG landed would pass.
+        foreach (var stale in EnumerateLayerPreviews(cacheKey))
+        {
+            try
+            {
+                File.Delete(stale);
+            }
+            catch (IOException)
+            {
+                // Still in use by a reader. It will be redrawn on the next request that finds it
+                // older than the source.
             }
         }
 
@@ -436,6 +556,10 @@ public sealed class TarkovDevMapAssetCache(
                     }
 
                     var cacheKey = Path.GetFileName(metadataPath)[..^".metadata.json".Length];
+                    // The per-layer previews belong to this entry as much as the base one does.
+                    // Counted here or a six-floor map's previews are half a gigabyte the bound
+                    // knows nothing about, and evicted with it or they outlive the entry that
+                    // explains them.
                     var paths = new[]
                         {
                             metadataPath,
@@ -444,6 +568,7 @@ public sealed class TarkovDevMapAssetCache(
                                 ? null
                                 : Path.Combine(options.CacheDirectory, metadata.RenderFileName),
                         }
+                        .Concat(EnumerateLayerPreviews(cacheKey))
                         .Where(path => path is not null && File.Exists(path))
                         .Select(path => path!)
                         .Distinct(StringComparer.Ordinal)
@@ -522,6 +647,31 @@ public sealed class TarkovDevMapAssetCache(
         }
 
         return true;
+    }
+
+    /// <summary>Every per-layer preview belonging to one cache entry.</summary>
+    /// <remarks>
+    /// Filtered in code rather than by a search pattern. Windows matches wildcards against short
+    /// names as well as long ones, so a pattern narrow enough to exclude the base preview is not
+    /// reliably narrow, and this is not a hot path.
+    /// </remarks>
+    private IEnumerable<string> EnumerateLayerPreviews(string cacheKey)
+    {
+        IEnumerable<string> candidates;
+        try
+        {
+            candidates = Directory.EnumerateFiles(options.CacheDirectory, cacheKey + ".preview.*");
+        }
+        catch (Exception failure) when (failure is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+
+        var basePreview = cacheKey + ".preview.png";
+        return candidates
+            .Where(path => Path.GetFileName(path).EndsWith(".png", StringComparison.Ordinal))
+            .Where(path => !string.Equals(Path.GetFileName(path), basePreview, StringComparison.Ordinal))
+            .ToArray();
     }
 
     private static string GetCacheKey(Uri sourceUri) =>

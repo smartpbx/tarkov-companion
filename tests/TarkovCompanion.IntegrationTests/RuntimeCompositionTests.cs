@@ -9,11 +9,13 @@ using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Domain.LootSpawns;
@@ -40,6 +42,10 @@ public sealed class RuntimeCompositionTests
 
             var snapshot = services.GetRequiredService<IRuntimeStateStore>().Current;
             Assert.True(snapshot.DatabaseReady);
+            // Every page's startup load runs on its own now, so one that fails no longer skips the
+            // ones after it. A healthy launch names none: an entry here is a page that is empty on
+            // screen and would have taken the rest of the list with it before.
+            Assert.Empty(viewModel.StartupFaults);
             Assert.Equal(DataAvailability.DemoFixture, snapshot.Data.Availability);
             Assert.Equal(1, snapshot.Data.ItemCount);
             Assert.Equal("demo-graphics-card", snapshot.Scan.CanonicalItemId);
@@ -119,6 +125,46 @@ public sealed class RuntimeCompositionTests
 
             Assert.True(shell.ShowsWorkspace);
             Assert.IsType<HideoutWorkspaceViewModel>(shell.WorkspaceContent);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task V2SetupOffersTheAppearanceChoicesAndKeepsTheOneChosen()
+    {
+        // [V2 rough package 60 — appearance] #266/#315. The wiring test: the store and the
+        // service have to be registered, the shell has to hand them to Setup, and pressing the
+        // choice has to reach the file. Remove any one of the three and this fails.
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: true) with { UiShell = V2ShellMode.VariantA },
+                new(DataRoot: root, Offline: true));
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var shell = services.GetRequiredService<V2ShellViewModel>();
+
+            await viewModel.InitializeAsync();
+
+            var appearance = shell.SetupWorkspace?.Appearance;
+            Assert.NotNull(appearance);
+            Assert.Equal(AppearanceTheme.Dark, appearance.Current.Theme);
+
+            appearance.Themes.Single(choice => choice.Id == "theme-light").ChooseCommand.Execute(null);
+            appearance.TextScales.Single(choice => choice.Id == "text-200").ChooseCommand.Execute(null);
+
+            Assert.Equal(AppearanceTheme.Light, appearance.Current.Theme);
+            Assert.Equal(200, appearance.Current.TextScalePercent);
+            Assert.True(appearance.Themes.Single(choice => choice.Id == "theme-light").IsCurrent);
+
+            // The record a second launch would read, rather than the one this process holds.
+            var preferences = services.GetRequiredService<IWorkspacePreferenceStore>();
+            var stored = await preferences.GetAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(AppearanceTheme.Light, stored.Theme);
+            Assert.Equal(200, stored.TextScalePercent);
         }
         finally
         {
@@ -522,7 +568,7 @@ public sealed class RuntimeCompositionTests
             await using var csv = new MemoryStream();
             await history.ExportCsvAsync(csv, CancellationToken.None);
             var text = Encoding.UTF8.GetString(csv.ToArray());
-            Assert.StartsWith("id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes", text, StringComparison.Ordinal);
+            Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes", text, StringComparison.Ordinal);
             Assert.Contains(",customs,", text, StringComparison.Ordinal);
         }
         finally
