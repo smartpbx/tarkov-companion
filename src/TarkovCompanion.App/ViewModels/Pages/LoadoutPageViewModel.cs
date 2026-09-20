@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.Core.Common;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -705,7 +706,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         var name = preset.Name;
         return new(
             name,
-            $"{preset.Items.Count} items · saved {preset.SavedUtc.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture)}",
+            $"{preset.Items.Count} items · saved {LocalTime.ToLocal(preset.SavedUtc).ToString("d MMM HH:mm", CultureInfo.CurrentCulture)}",
             string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase),
             new AsyncDelegateCommand(() => LoadPresetAsync(name, CancellationToken.None)),
             new DelegateCommand(() => Compare(string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase) ? null : name)),
