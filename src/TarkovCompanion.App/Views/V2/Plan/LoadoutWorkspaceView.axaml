@@ -283,7 +283,12 @@
               <ItemsControl ItemsSource="{Binding Issues}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
-                    <TextBlock Classes="v2-body v2-intel-poor" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                    <StackPanel Spacing="2" Margin="0,3">
+                      <TextBlock Classes="v2-body v2-intel-poor" Text="{Binding Message}" TextWrapping="Wrap" />
+                      <!-- Why the rule raised it, in fixed offline wording. -->
+                      <TextBlock Classes="v2-label" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                 IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
@@ -296,7 +301,12 @@
               <ItemsControl ItemsSource="{Binding Warnings}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="pages:LoadoutFindingViewModel">
-                    <TextBlock Classes="v2-body v2-intel-fair" Text="{Binding Message}" TextWrapping="Wrap" Margin="0,3" />
+                    <StackPanel Spacing="2" Margin="0,3">
+                      <TextBlock Classes="v2-body v2-intel-fair" Text="{Binding Message}" TextWrapping="Wrap" />
+                      <!-- Why the rule raised it, in fixed offline wording. -->
+                      <TextBlock Classes="v2-label" Text="{Binding Explanation}" TextWrapping="Wrap"
+                                 IsVisible="{Binding Explanation, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

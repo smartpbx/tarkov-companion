@@ -280,3 +280,108 @@ public sealed class LoadoutTotalsWordingTests
         public void Dispose() => CultureInfo.CurrentCulture = _previous;
     }
 }
+
+/// <summary>
+/// Every compatibility issue and warning says why it was raised, in fixed offline wording (the
+/// ammunition page already does this as Learn Mode). A rule that fires with no reason is a verdict
+/// the player cannot check, and the numbers in the ammunition warning are the policy's own.
+/// </summary>
+public sealed class LoadoutExplanationTests
+{
+    private static readonly HashSet<string> None = [];
+
+    private static LoadoutItemFacts Item(
+        string id, ItemCategory category, long? cost = 1_000, string? caliber = null,
+        HashSet<string>? weapons = null, HashSet<string>? parents = null, GearFacts? gear = null) =>
+        new(id, id, category, cost, 1, caliber, weapons ?? None, parents ?? None, gear);
+
+    private static GearFacts Armor(string id, int? armorClass, params PlateSlot[] slots) =>
+        new(id, ItemCategory.Armor, armorClass, null, null, null, [], null, null, null, null, null, null, null, null,
+            [], null, slots, new DataProvenance("test", DateTimeOffset.UnixEpoch));
+
+    private static LoadoutIntelligenceService Service(IEnumerable<LoadoutItemFacts> catalog, AmmoKitWarningPolicy? policy = null) =>
+        new(catalog, new AmmoIntelligenceService(AmmoIntelligenceTests.AmmoFixtures()), policy);
+
+    [Fact]
+    public async Task Every_issue_and_warning_a_kit_raises_carries_a_reason()
+    {
+        var catalog = new[]
+        {
+            Item("weapon", ItemCategory.Weapon, caliber: "A"),
+            Item("ammo-5", ItemCategory.Ammunition, caliber: "B"),
+            Item("mag", ItemCategory.Attachment, caliber: "C", weapons: ["other-weapon"]),
+            Item("armor", ItemCategory.Armor),
+            Item("plate", ItemCategory.Plate, parents: ["other-armor"]),
+            Item("med", ItemCategory.Medicine),
+        };
+        var selection = new LoadoutSelection(
+            "weapon", "ammo-5", ["mag"], "armor", ["plate"], "med", null, null, null, ["not-in-catalog"]);
+
+        var result = await Service(catalog).EvaluateAsync(selection, null, CancellationToken.None);
+
+        var raised = result.CompatibilityIssues.Concat(result.Warnings).ToArray();
+        Assert.True(raised.Length >= 6, string.Join(" | ", raised));
+        Assert.NotNull(result.Explanations);
+        foreach (var message in raised)
+        {
+            Assert.True(
+                result.Explanations.TryGetValue(message, out var why) && why.Length > 20,
+                $"No reason for: {message}");
+        }
+
+    }
+
+    [Fact]
+    public async Task The_ammunition_warning_explains_itself_with_the_policys_own_numbers()
+    {
+        var catalog = new[]
+        {
+            Item("ammo-5", ItemCategory.Ammunition, cost: 60_000),
+            Item("med", ItemCategory.Medicine, cost: 60_000),
+        };
+        var policy = new AmmoKitWarningPolicy(new HashSet<string>(StringComparer.Ordinal) { "C", "D" }, 100_000);
+
+        var result = await Service(catalog, policy).EvaluateAsync(
+            new(null, "ammo-5", [], null, [], null, null, null, null, ["med"]), null, CancellationToken.None);
+
+        var warning = Assert.Single(result.Warnings, message => message.Contains("weak relative", StringComparison.Ordinal));
+        var why = result.Explanations![warning];
+        Assert.Contains("C or D", why, StringComparison.Ordinal);
+        Assert.Contains("100,000", why, StringComparison.Ordinal);
+        Assert.Contains("rule of thumb", why, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(2, 0, false)] // a soft vest: a stated class and nowhere to put a plate
+    [InlineData(6, 1, true)]  // plate carrier with a plate slot
+    [InlineData(null, 0, true)] // nothing stated about the armor: no facts is not "no plate slots"
+    public async Task Armor_without_plates_warns_only_when_the_catalog_says_it_takes_plates(
+        int? armorClass, int plateSlots, bool warns)
+    {
+        var slots = Enumerable.Range(0, plateSlots)
+            .Select(index => new PlateSlot($"slot-{index}", [], new HashSet<string> { "plate" }))
+            .ToArray();
+        var catalog = new[] { Item("armor", ItemCategory.Armor, gear: Armor("armor", armorClass, slots)) };
+
+        var result = await Service(catalog).EvaluateAsync(
+            new(null, null, [], "armor", [], null, null, null, null, []), null, CancellationToken.None);
+
+        var warning = result.Warnings.SingleOrDefault(w => w.Contains("without any known plate", StringComparison.Ordinal));
+        Assert.Equal(warns, warning is not null);
+        if (warning is not null)
+        {
+            Assert.Contains("plate slots", result.Explanations![warning], StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void The_page_attaches_the_reason_to_the_finding_and_leaves_it_empty_when_there_is_none()
+    {
+        var evaluation = new LoadoutEvaluation(
+            null, null, false, ["bad"], [], "Unknown", Explanations: new Dictionary<string, string> { ["bad"] = "because" });
+
+        Assert.Equal("because", LoadoutPageViewModel.Finding(evaluation, "bad").Explanation);
+        Assert.Equal(string.Empty, LoadoutPageViewModel.Finding(evaluation, "other").Explanation);
+        Assert.Equal(string.Empty, LoadoutPageViewModel.Finding(evaluation with { Explanations = null }, "bad").Explanation);
+    }
+}
