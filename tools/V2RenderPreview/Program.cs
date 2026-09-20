@@ -86,6 +86,19 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
+            // [#454] --previous-run-died: a run that navigated to Plan, began loading Reserve and
+            // never shut down, so Setup's Diagnostics can be photographed saying so.
+            if (args.Contains("--previous-run-died"))
+            {
+                var died = Path.Combine(dataRoot, "previous-run-logs");
+                CrashBreadcrumbs.Install(died);
+                CrashBreadcrumbs.Drop("navigate", "#/plan");
+                CrashBreadcrumbs.Drop("map", "loading reserve/reserve-2d");
+                CrashBreadcrumbs.Detach();
+                CrashBreadcrumbs.Install(died);
+                CrashBreadcrumbs.Detach();
+            }
+
             var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
 
             AppBuilder.Configure(() => new AppClass(services))

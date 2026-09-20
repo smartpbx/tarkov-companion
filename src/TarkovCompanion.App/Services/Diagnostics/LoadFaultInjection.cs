@@ -19,9 +19,11 @@ internal static class LoadFaultInjection
 
     public static void Clear() => _surfaces = [];
 
+    public static bool IsInjected(string surface) => Array.IndexOf(_surfaces, surface) >= 0;
+
     public static void ThrowIfInjected(string surface)
     {
-        if (Array.IndexOf(_surfaces, surface) >= 0)
+        if (IsInjected(surface))
         {
             throw new InvalidOperationException($"The '{surface}' load was made to fail on purpose (--inject-load-fault).");
         }
