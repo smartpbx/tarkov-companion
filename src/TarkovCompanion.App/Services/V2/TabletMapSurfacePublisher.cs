@@ -9,9 +9,11 @@ using Avalonia.Media.Imaging;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Devices;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Services.V2;
@@ -57,6 +59,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private readonly RelayMarksBridge? _bridge;
     private readonly IItemSearchService? _items;
     private readonly IItemRepository? _prices;
+    private readonly IIntelEventStateCatalog? _eventStates;
     private readonly TimeProvider _clock;
     private TabletSearch? _search;
     private readonly SemaphoreSlim _publishGate = new(1, 1);
@@ -78,7 +81,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         RelayMarksBridge? bridge = null,
         IItemSearchService? items = null,
         IItemRepository? prices = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IIntelEventStateCatalog? eventStates = null)
     {
         _cockpit = cockpit ?? throw new ArgumentNullException(nameof(cockpit));
         _sink = sink ?? throw new ArgumentNullException(nameof(sink));
@@ -86,6 +90,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         _bridge = bridge;
         _items = items;
         _prices = prices;
+        _eventStates = eventStates;
         _clock = timeProvider ?? TimeProvider.System;
         _cockpit.SceneRebuilt += OnSceneRebuilt;
         if (_bridge is not null)
@@ -311,18 +316,27 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         try
         {
             var hits = await _items.SearchAsync(query, MaximumSearchResults, cancellationToken).ConfigureAwait(false);
+            // Once per query, like the prices below: the same reasoning IntelEventStateCatalog's
+            // own remarks give for reading it once rather than once a row.
+            var eventStates = _eventStates is null
+                ? null
+                : await _eventStates.GetActiveAsync(cancellationToken).ConfigureAwait(false);
             var results = new List<TabletSearchResult>(hits.Count);
             foreach (var hit in hits)
             {
                 var price = _prices is null
                     ? null
                     : await _prices.GetPriceAsync(hit.Item.Id, cancellationToken).ConfigureAwait(false);
+                var isAllergic = eventStates is not null &&
+                    eventStates.TryGetValue(hit.Item.Id, out var state) &&
+                    state == EventItemState.Allergic;
                 results.Add(new(
                     hit.Item.Id,
                     hit.Item.Name,
                     hit.Item.ShortName,
                     price?.FleaPriceRoubles,
-                    price?.BestTrader?.ValueRoubles));
+                    price?.BestTrader?.ValueRoubles,
+                    isAllergic));
             }
 
             _search = new(query, results);

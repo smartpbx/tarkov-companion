@@ -370,6 +370,9 @@ app.MapGet(PairedTransportBinding.TabletPagePath, () => Results.Content(Tablet.P
 // served at an absolute path so it resolves the same from "/" and "/tablet". See Tablet.cs.
 app.MapGet($"{PairedTransportBinding.TabletPagePath}/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
 
+// #290: how the tablet words the desktop's answer to a command. See Tablet.cs.
+app.MapGet($"{PairedTransportBinding.TabletPagePath}/command-acknowledgement.js", () => Results.Content(Tablet.CommandAcknowledgementScript, "text/javascript; charset=utf-8"));
+
 // v2r-pairing-tablet: the paired-device pairing handshake (#277/#290). The routes live in
 // RelayPairingMailboxRoutes so a test can serve the mailbox this relay actually serves.
 app.MapCompanionPairingMailboxRoutes();

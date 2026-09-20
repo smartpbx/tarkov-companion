@@ -72,8 +72,11 @@ async function main() {
 
     // Waiting on the desktop to press Approve, which the .NET side does once it sees this
     // request arrive — nothing here signals it directly; both sides only ever talk through the
-    // relay, the same as production.
-    await page.locator("#pairingDone").waitFor({ state: "visible", timeout: 30000 });
+    // relay, the same as production. Not #pairingDone's own visibility: once this page is live it
+    // collapses the whole pairing card (#407, so the map is not pushed off the bottom of the
+    // screen), #pairingDone included, and shows the header's Unpair button instead. #pairedName's
+    // text is still set underneath and is read below regardless of the card's visibility.
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
     const pairedName = await page.textContent("#pairedName");
     if (pairedName !== deviceName) {
       throw new Error(`expected the paired name "${deviceName}", the page showed "${pairedName}"`);
@@ -84,7 +87,7 @@ async function main() {
     // The one-time code and admin approval are spent now; a reload has nothing to fall back on
     // but the session (or paired key) this page is supposed to have already saved to IndexedDB.
     await page.reload({ waitUntil: "load" });
-    await page.locator("#pairingDone").waitFor({ state: "visible", timeout: 15000 });
+    await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 15000 });
     const pairedNameAfterReload = await page.textContent("#pairedName");
     if (pairedNameAfterReload !== deviceName) {
       throw new Error(`lost pairing after reload: the page showed "${pairedNameAfterReload}"`);

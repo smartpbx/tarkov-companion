@@ -42,7 +42,9 @@
     border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
   }
   input { min-width: 0; }
-  button { cursor: pointer; min-height: 40px; }
+  /* 44px: the same touch-target minimum #mapTools' own buttons already used, now consistent
+     across the page rather than only where a finger happens to need the map. */
+  button { cursor: pointer; min-height: 44px; }
   button.primary { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); font-weight: 600; }
   button:active { transform: translateY(1px); }
   button[disabled] { opacity: .45; cursor: default; }
@@ -85,12 +87,28 @@
   .driving { border-color: rgba(34, 211, 238, .45); }
   .floors { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .floors button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  /* #290: what the desktop said about a command this tablet sent. Plain and dismissable, not a
+     modal: a person mid-raid taps it away and keeps going. */
+  .notice { border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 9px 12px; margin: 0 0 10px; font-size: 14px; cursor: pointer; }
+  .notice.warn { border-color: rgba(199, 166, 107, .6); color: var(--ochre); }
+  .notice.error { border-color: rgba(199, 123, 107, .7); color: var(--alarm); }
+  [hidden] { display: none !important; }
+  /* #407: a search result the desktop flagged this raid's event as allergic to. */
+  .chip { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
+  .chip.allergic { border-color: var(--alarm); color: var(--alarm); }
+  .switcher { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .switcher select { flex: 1 1 160px; min-width: 0; min-height: 44px; }
+  .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
 </style>
 </head>
 <body>
 <header>
   <h1>Tarkov Companion</h1>
-  <span class="quiet"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
+  <span class="quiet grow"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
+  <!-- #407: the map is the surface and fills the tablet; once paired, the pairing card that got
+       here is gone (see #pairing below), so the one thing it still owns — unpairing — moves here,
+       the one place that is never scrolled away. -->
+  <button type="button" id="unpairHeader" class="headerBtn" hidden>Unpair</button>
 </header>
 
 <main>
@@ -116,7 +134,6 @@
     </div>
     <div id="pairingDone" style="display:none">
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
-      <button type="button" id="unpair">Unpair this tablet</button>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
   </section>
@@ -128,6 +145,18 @@
       <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
     </div>
     <p class="quiet" id="modeNote">Following the desktop's map.</p>
+    <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
+    <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
+         pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
+         either do nothing (Follow) or silently disagree with the desk (Independent). -->
+    <div class="switcher" id="mapSwitcher" hidden>
+      <label class="quiet" for="mapSwitch">Map</label>
+      <select id="mapSwitch"></select>
+    </div>
+    <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
+         drifted apart on purpose. This is the way back without giving up Independent: it hands
+         the desktop this view once rather than making it follow from now on. -->
+    <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
     <div class="floors" id="floors"></div>
     <div class="floors" id="layers"></div>
     <div id="mapWrap">
@@ -163,6 +192,7 @@
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
+<script src="/tablet/command-acknowledgement.js"></script>
 <script>
 // v2r-pairing-tablet: paired-companion pairing (docs/PAIRED_DEVICE_PROTOCOL.md "Pairing").
 //
@@ -687,8 +717,33 @@
   // ---------------------------------------------------------------------------------------
   let live = null;
   let mode = "Follow";
+  // [#290] The mode the desktop last confirmed for this device. `mode` itself moves the instant a
+  // button is pressed (so the UI feels immediate), so a refused or unanswered mode request has
+  // something true to fall back to instead of just staying wrong.
+  let confirmedMode = "Follow";
+  // [#290] Commands sent and not yet answered, and how they are worded once they are. Fifteen
+  // seconds is long enough for a desktop that is momentarily busy and short enough that "it has
+  // not answered" is said while it still matters.
+  const ACK_WAIT_MS = 15_000;
+  const pending = new CommandAcknowledgement.PendingCommands(ACK_WAIT_MS);
+  // Requesting or changing a mode moves the buttons optimistically; a refusal has to put them back.
+  const MODE_COMMAND_TYPES = new Set(["requestControl", "setInteractionMode"]);
   const FRAME_LIFETIME_MS = 60_000;
   const CONTROL_LEASE = "00:02:00";
+  // #407: a short, fixed list — this page has no catalogue of its own to ask, and the desktop's
+  // published surface only ever names the one map it is currently showing.
+  const KNOWN_MAPS = [
+    ["customs", "Customs"],
+    ["woods", "Woods"],
+    ["factory", "Factory"],
+    ["interchange", "Interchange"],
+    ["shoreline", "Shoreline"],
+    ["reserve", "Reserve"],
+    ["lighthouse", "Lighthouse"],
+    ["streets", "Streets of Tarkov"],
+    ["ground-zero", "Ground Zero"],
+    ["labyrinth", "Labyrinth"],
+  ];
   // [#290] The paired session, kept across a page reload and a browser restart. What is kept is
   // this one device's session: its relay credential (which the desktop revokes, and which expires
   // with the session) and its two traffic keys as non-extractable CryptoKeys. Never a group key,
@@ -1109,6 +1164,106 @@
     renderSurface();
   }
 
+  // [#407] A Control-mode tablet could pan and zoom the desktop's current map, but never send it
+  // to a different one: `sendNavigate` always named `live.surface.mapId`, the map already showing.
+  // This is the one place that names a different one, in `NavigateWorkspaceAction.MapId` — the
+  // field `CanonicalStateMachine.ApplyWorkspaceAction`'s "navigate" case actually writes into the
+  // canonical workspace's own `MapId` (see `TabletMapSurfacePublisher.OnDesktopWorkspaceRequested`,
+  // which is what turns that into a real `RaidCockpitViewModel.SelectMapAsync`).
+  function renderMapSwitcher() {
+    const select = $("mapSwitch");
+    if (select.options.length === 0) {
+      for (const [id, name] of KNOWN_MAPS) {
+        const option = document.createElement("option");
+        option.value = id;
+        option.textContent = name;
+        select.appendChild(option);
+      }
+    }
+
+    const current = live?.surface?.mapId;
+    if (current && select.value !== current) {
+      if (![...select.options].some((option) => option.value === current)) {
+        // The desktop is on a map this page's short list does not name; add it rather than
+        // silently showing the wrong selection.
+        const option = document.createElement("option");
+        option.value = current;
+        option.textContent = live.surface.mapName || current;
+        select.appendChild(option);
+      }
+
+      select.value = current;
+    }
+  }
+
+  function switchMap(mapId) {
+    if (mode !== "Control" || !live?.surface || mapId === live.surface.mapId) return;
+    sendCommand({
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: {
+        type: "navigate",
+        workspace: "Raid",
+        mapId,
+        floorId: null,
+        viewport: {
+          center: {
+            mapId,
+            floorId: null,
+            coordinateSpace: "World",
+            projectionVersion: live.surface.transformVersion,
+            x: 0,
+            y: null,
+            z: 0,
+          },
+          zoom: 1,
+        },
+      },
+    });
+    $("modeNote").textContent = "Sent the desktop to a different map…";
+  }
+
+  // [#290] `ShowOnDesktopCommand` existed in the protocol with no caller: nothing on this page,
+  // or anywhere else, ever built one. Independent is the one mode where showing the desktop this
+  // tablet's own view is meaningful — Follow already matches it, and Control already drives it.
+  function showCurrentViewOnDesktop() {
+    if (mode !== "Independent" || !live?.surface) return;
+    const view = camera ?? fitCamera();
+    const base = live.workspace ?? {};
+    sendCommand({
+      type: "showOnDesktop",
+      ...commandHeader(live.workspaceRevision + 1),
+      projection: {
+        workspace: "Raid",
+        mapId: live.surface.mapId,
+        floorId: live.surface.view.floorId,
+        viewport: {
+          center: {
+            mapId: live.surface.mapId,
+            floorId: live.surface.view.floorId,
+            coordinateSpace: "World",
+            projectionVersion: live.surface.transformVersion,
+            x: view.x,
+            y: null,
+            z: view.y,
+          },
+          zoom: Math.min(100, Math.max(0.01, view.zoom)),
+        },
+        selection: localSelectionId
+          ? { kind: "Landmark", referenceId: localSelectionId, originDeepLink: null, focusToken: null }
+          : null,
+        visibleObjectiveIds: base.visibleObjectiveIds ?? [],
+        planIds: base.planIds ?? [],
+        searchQuery: base.searchQuery ?? null,
+        resultIds: base.resultIds ?? [],
+        activeLayers: live.surface.layers.filter((layer) => !hiddenLayers().has(layer.id)).map((layer) => layer.id),
+        activeFilters: base.activeFilters ?? [],
+        dialog: null,
+      },
+    });
+    $("modeNote").textContent = "Sent this view to the desktop.";
+  }
+
   const roubles = (value) => value == null ? null : `${value.toLocaleString()} ₽`;
 
   // The answers to a lookup, resolved by the desktop that has the catalogue. #417 sent the query
@@ -1125,6 +1280,15 @@
       const name = document.createElement("div");
       name.className = "name";
       name.textContent = item.name;
+      // #407: the same chip Intel draws on the desktop for an item this raid's running event
+      // has marked allergic (#287) — a clear warning, not the quiet label a Safe/Untested state gets.
+      if (item.isAllergic) {
+        const chip = document.createElement("span");
+        chip.className = "chip allergic";
+        chip.textContent = "Allergic";
+        name.appendChild(chip);
+      }
+
       const meta = document.createElement("div");
       meta.className = "meta";
       meta.textContent = [
@@ -1321,7 +1485,9 @@
 
   /**
    * Asks to be let back in without a code. Resolves "resumed", "waiting" (the desktop has not
-   * answered: it is off, or not updated yet), or "refused" (this tablet has to be paired again).
+   * answered: it is off, or not updated yet), "refused" (this tablet WAS paired and the relay no
+   * longer lets it back in — revoked, or claimed by somebody else) or "never-paired" (this
+   * browser has no memory of ever pairing, so there is nothing to be refused from).
    */
   function comeBackByKey() {
     comingBack ||= (async () => {
@@ -1329,10 +1495,10 @@
       try {
         paired = await idbGet(PAIRED_KEY);
       } catch {
-        return "refused";
+        return "never-paired";
       }
 
-      if (!paired?.desktopKeyId) return "refused";
+      if (!paired?.desktopKeyId) return "never-paired";
       setStage("pairingWaiting");
       $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
       const device = await ensureDeviceIdentity();
@@ -1386,6 +1552,13 @@
     }
 
     if (outcome === "resumed" || live) return;
+    // A tablet that has never been paired has nothing to say about it — this used to show "no
+    // longer paired", worded as if it once was, on the very first load of a brand new tablet.
+    if (outcome === "never-paired") {
+      setStage("pairingIdle");
+      return;
+    }
+
     if (outcome === "refused") {
       setStage("pairingIdle", refusedMessage || "This tablet is no longer paired with the desktop. Pair it again.");
       return;
@@ -1482,6 +1655,13 @@
   function beginLive() {
     const session = live;
     $("surface").style.display = "";
+    // #407: "the map is the surface... everything else is a strip around it" was the stated
+    // intent, but the pairing card kept its full section — heading, "Paired as…" text and an
+    // Unpair button — permanently above the map, pushing it (and everything below it) off the
+    // bottom of the screen even at 1280x800. Once live there is nothing left to pair; collapse it
+    // to the one thing it still owns, which moves to the header.
+    $("pairing").hidden = true;
+    $("unpairHeader").hidden = false;
     renderLiveStatus();
     announceTab();
     pollLiveFrames();
@@ -1508,8 +1688,12 @@
     if (!live) return;
     live = null;
     mode = "Follow";
+    confirmedMode = "Follow";
+    pending.clear();
     await forgetSession();
     $("surface").style.display = "none";
+    $("pairing").hidden = false;
+    $("unpairHeader").hidden = true;
     renderLiveStatus();
     if (unpaired) {
       clearTimeout(comeBackTimer);
@@ -1600,6 +1784,13 @@
         // read is just a missed update.
       }
 
+      // [#290] Anything sent that the desktop has not answered by now: say so, once, rather than
+      // leaving the person staring at buttons that never changed and never explained why.
+      for (const late of pending.expire(Date.now())) {
+        if (MODE_COMMAND_TYPES.has(late.type)) revertOptimisticMode();
+        showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
@@ -1631,6 +1822,20 @@
   }
 
   function applyServerMessage(message) {
+    // [#290] The desktop's answer to a command this page sent — the one message kind that used
+    // to fall straight through here unread.
+    if (message?.type === "commandAcknowledgement") {
+      handleAcknowledgement(message.acknowledgement);
+      return;
+    }
+
+    // [#290] This page and the desktop no longer speak the same protocol version. Nothing below
+    // this line can be trusted to mean what it says, so the fix is a reload, not a retry.
+    if (message?.type === "deprecation") {
+      showNotice("This page is out of date with the desktop. Reload the page.", "error", true);
+      return;
+    }
+
     // Both cases are "replace what we show": a canonical update carries its aggregate's whole
     // current state, the same shape a snapshot carries, never an incremental fold.
     if (message?.type === "canonicalSnapshot") {
@@ -1670,6 +1875,9 @@
   function applyDeviceModes(modes) {
     const entry = modes.devices.find((item) => item.deviceId.value === live.deviceId);
     const next = entry?.mode ?? "Follow";
+    // [#290] What a refused or unanswered mode request falls back to; the desktop is the only
+    // side allowed to say what this is, so it is set from canonical state alone.
+    confirmedMode = next;
     if (next !== mode) {
       mode = next;
       if (mode !== "Follow" && !camera) camera = fitCamera();
@@ -1705,6 +1913,14 @@
     // #407: only offer the button where asking for control makes sense — not while already
     // driving, and not while a request is already waiting on the desktop.
     $("searchTakeControl").style.display = mode === "Control" || mode === "ControlPending" ? "none" : "";
+    // #407: switching the desktop to an entirely different map only ever makes sense while this
+    // tablet is the one driving it.
+    $("mapSwitcher").hidden = mode !== "Control";
+    if (mode === "Control") renderMapSwitcher();
+    // #290: the way back from Independent without giving up Independent — this page's own view,
+    // shown on the desktop once, is only ever meaningful in the one mode where the two have
+    // deliberately drifted apart.
+    $("showOnDesktop").hidden = mode !== "Independent";
   }
 
   function renderMarks() {
@@ -1741,13 +1957,75 @@
 
   async function sendCommand(command) {
     if (!live?.authorityEpoch) return;
-    await sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
-      protocolVersion: live.protocolVersion,
-      sessionId: { value: live.sessionId },
-      authorityEpoch: { value: live.authorityEpoch },
-      clientSentUtc: new Date().toISOString(),
-      command,
-    });
+    // [#290] Tracked before the send even finishes: a network failure and a desktop that never
+    // answers both have to be reported the same way a refusal is, not left silent.
+    const commandId = command.commandId?.value ?? null;
+    const label = CommandAcknowledgement.labelFor(command);
+    pending.track(commandId, label, Date.now(), command.type);
+    let response;
+    try {
+      response = await sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
+        protocolVersion: live.protocolVersion,
+        sessionId: { value: live.sessionId },
+        authorityEpoch: { value: live.authorityEpoch },
+        clientSentUtc: new Date().toISOString(),
+        command,
+      });
+    } catch {
+      response = null;
+    }
+
+    if (!response || !response.ok) {
+      pending.settle(commandId);
+      failedToSend(command, label, response ? response.status : 0);
+    }
+  }
+
+  function showNotice(text, tone, sticky = false) {
+    const box = $("commandNotice");
+    box.textContent = text;
+    box.className = `notice ${tone}`;
+    box.hidden = false;
+    clearTimeout(noticeTimer);
+    if (!sticky) noticeTimer = setTimeout(() => { box.hidden = true; }, 10_000);
+  }
+
+  let noticeTimer = null;
+  $("commandNotice").addEventListener("click", () => { $("commandNotice").hidden = true; });
+
+  function revertOptimisticMode() {
+    mode = confirmedMode;
+    renderMode();
+    renderSurface();
+  }
+
+  // [#290] Before this, a command's answer fell on the floor: a mark the desktop refused simply
+  // did not appear, and nothing said why. Every disposition but Applied gets a plain notice; a
+  // stale, conflicting or out-of-date answer also carries the state to show instead of just an
+  // error, so the tablet ends up showing where the desktop actually is.
+  function handleAcknowledgement(acknowledgement) {
+    const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement);
+    const entry = pending.settle(result.commandId);
+    if (!entry) return; // Another tab's command, or one this page already gave up on.
+    if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
+    if (result.applied) return;
+    if (MODE_COMMAND_TYPES.has(entry.type)) revertOptimisticMode();
+    showNotice(`${entry.label}: ${result.message}`, result.tone);
+  }
+
+  function failedToSend(command, label, status) {
+    if (MODE_COMMAND_TYPES.has(command.type)) revertOptimisticMode();
+    if (status === 401 || status === 403) {
+      // The frame poll (pollLiveFrames) is what decides this tablet has been removed; this send
+      // failing the same way is the same fact arriving early.
+      return;
+    }
+
+    if (status === 429) {
+      showNotice("That was too fast. Wait a moment and try again.", "warn");
+    } else {
+      showNotice(`${label}: could not reach the relay. Try again.`, "error");
+    }
   }
 
   /** The next sender sequence, with its block reserved in storage before it is used. */
@@ -1763,7 +2041,7 @@
 
   async function sendSealed(kind, payload) {
     const session = live;
-    if (!session?.credential) return;
+    if (!session?.credential) return null;
     const json = textEncoder.encode(JSON.stringify(payload));
     const senderSequence = await nextSenderSequence(session);
     const now = Date.now();
@@ -1780,13 +2058,14 @@
       expiresUtc: now + FRAME_LIFETIME_MS,
       json,
     });
-    if (live !== session) return;
+    if (live !== session) return null;
     const response = await relayCall("/v2/companion/relay/frames", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(frame),
     });
     if (response.status === 401) await sessionEnded();
+    return response;
   }
 
   // The protocol's reconnect request (docs/PAIRED_DEVICE_PROTOCOL.md, "Reconnect and replay"),
@@ -2271,7 +2550,10 @@
   });
   $("searchTakeControl").addEventListener("click", () => requestMode("Control"));
 
-  $("unpair").addEventListener("click", () =>
+  $("mapSwitch").addEventListener("change", (event) => switchMap(event.target.value));
+  $("showOnDesktop").addEventListener("click", showCurrentViewOnDesktop);
+
+  $("unpairHeader").addEventListener("click", () =>
     sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
 
   setStage("pairingIdle");

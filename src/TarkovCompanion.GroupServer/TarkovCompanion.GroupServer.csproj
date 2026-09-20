@@ -19,6 +19,7 @@
          somebody moves the file. -->
     <EmbeddedResource Include="Tablet/index.html" LogicalName="TarkovCompanion.GroupServer.Tablet.index.html" />
     <EmbeddedResource Include="Tablet/relay-crypto.js" LogicalName="TarkovCompanion.GroupServer.Tablet.relay-crypto.js" />
+    <EmbeddedResource Include="Tablet/command-acknowledgement.js" LogicalName="TarkovCompanion.GroupServer.Tablet.command-acknowledgement.js" />
     <EmbeddedResource Include="Admin/index.html" LogicalName="TarkovCompanion.GroupServer.Admin.index.html" />
   </ItemGroup>
 

@@ -167,6 +167,7 @@ internal sealed class LinkRelay : IAsyncDisposable
         // in a sibling package's PR, and this one must build against main on its own.
         app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
         app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
+        app.MapGet("/tablet/command-acknowledgement.js", () => Results.Content(Tablet.CommandAcknowledgementScript, "text/javascript; charset=utf-8"));
         app.MapRelayCompanionRoutes(
             registry,
             new OpaqueRelayFrameHub(registry, clock),
