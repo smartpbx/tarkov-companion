@@ -370,6 +370,16 @@ key). The admin key is typed once and never stored; the panel checks status firs
 claimed by another desktop is reported without spending this desktop's own rate-limit budget on an
 attempt that can only fail.
 
+The claim is kept (2026-09-20, #289). The session the relay issues is stored in the desktop's
+protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
+panel reads claimed after a restart with nothing typed; "Forget this relay" drops it. The same
+desktop may claim again at any time and keeps its paired devices; a different desktop still waits
+until the owner has been silent for two hours, and starts from an empty registry. `GET /health`
+states `pairedSessionHours`; a desktop asks for twelve hours from a relay that does not say.
+`POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
+reaches the relay, and registering a tablet whose device key is already known replaces its old
+record.
+
 The route answers **501 before it reads the admin key** when `TARKOV_RELAY_OWNER_RECOVERY_SECRET` is
 unset, because without it no owner can ever be recovered. The desktop reports that as its own state
 rather than as a refusal to retry — nothing a person does at the keyboard fixes it, only the
