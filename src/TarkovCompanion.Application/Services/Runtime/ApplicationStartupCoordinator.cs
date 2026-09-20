@@ -34,6 +34,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ApplicationStartupCoordinator> _logger;
+    /// <summary>How long the offline-mode monitor is given to notice the lifetime has ended.</summary>
+    private static readonly TimeSpan OfflineMonitorStopTimeout = TimeSpan.FromSeconds(2);
+
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _backgroundGate = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -501,7 +504,18 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         var supervisor = await supervisorStopping.ConfigureAwait(false);
         if (offlineModeMonitor is not null)
         {
-            await offlineModeMonitor.ConfigureAwait(false);
+            try
+            {
+                // Bounded, like everything else on the way out. This was the one await in this
+                // method with no deadline at all, and it sits inside the application's whole
+                // shutdown budget: a monitor that did not notice the cancelled lifetime held the
+                // process open with its window already gone. Two seconds is far more than a
+                // cancelled monitor needs and far less than anybody waits for.
+                await offlineModeMonitor.WaitAsync(OfflineMonitorStopTimeout, _timeProvider).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is TimeoutException or OperationCanceledException)
+            {
+            }
         }
         _stateStore.Update(current => current with
         {
