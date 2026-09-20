@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -18,6 +19,7 @@ public sealed class SqliteRaidHistoryService(
     internal const string RaidHistoryListSql = """
         SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
         FROM raids
+        WHERE deleted_utc IS NULL
         ORDER BY COALESCE(start_utc, end_utc) DESC, id;
         """;
     internal const string MapTrailsSql = """
@@ -410,6 +412,14 @@ public sealed class SqliteRaidHistoryService(
         await EndCoreAsync(connection, null, raidId, endUtc, outcome, notes, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes a player's correction, and keeps the fact that it was theirs.
+    /// </summary>
+    /// <remarks>
+    /// The update and a <c>correction</c> event go in one transaction, so a field never says it was
+    /// corrected without the record of what it said before, nor the reverse. Saving what is already
+    /// there records nothing. Debrief and the export read that event to label the field manual.
+    /// </remarks>
     public async Task CorrectAsync(
         Guid raidId,
         string? outcome,
@@ -417,19 +427,54 @@ public sealed class SqliteRaidHistoryService(
         CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            UPDATE raids
-            SET outcome = $outcome, notes = $notes
-            WHERE id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", raidId.ToString("D"));
-        command.Parameters.AddWithValue("$outcome", (object?)outcome ?? DBNull.Value);
-        command.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
-        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        RaidHistoryEntry before;
+        await using (var read = connection.CreateCommand())
         {
-            throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+            read.Transaction = transaction;
+            read.CommandText = """
+                SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
+                FROM raids
+                WHERE id = $id;
+                """;
+            read.Parameters.AddWithValue("$id", raidId.ToString("D"));
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new KeyNotFoundException($"Raid '{raidId:D}' does not exist.");
+            }
+
+            before = ReadRaid(reader);
         }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE raids
+                SET outcome = $outcome, notes = $notes
+                WHERE id = $id;
+                """;
+            command.Parameters.AddWithValue("$id", raidId.ToString("D"));
+            command.Parameters.AddWithValue("$outcome", (object?)outcome ?? DBNull.Value);
+            command.Parameters.AddWithValue("$notes", (object?)notes ?? DBNull.Value);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        if (RaidCorrection.Between(before, outcome, notes, now) is { } correction)
+        {
+            await RecordEventCoreAsync(
+                connection,
+                transaction,
+                raidId,
+                RaidCorrection.EventType,
+                now,
+                correction.ToPayload(),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task EndCoreAsync(
@@ -473,51 +518,171 @@ public sealed class SqliteRaidHistoryService(
         return entries;
     }
 
+    /// <summary>
+    /// Marks raids deleted rather than removing them: <see cref="ListAsync"/> already excludes a
+    /// marked row, and its own per-map stats along with it, which is what lets Debrief show a
+    /// delete as done immediately while still being able to undo it.
+    /// </summary>
+    public async Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(raidIds);
+        if (raidIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE raids SET deleted_utc = $deletedUtc WHERE id = $id AND deleted_utc IS NULL;";
+            command.Parameters.Add("$deletedUtc", SqliteType.Text);
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in raidIds)
+            {
+                command.Parameters["$deletedUtc"].Value = Format(deletedUtc);
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Undoes a soft delete: only a raid still marked deleted is cleared, so an undo pressed twice is harmless.</summary>
+    public async Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(raidIds);
+        if (raidIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE raids SET deleted_utc = NULL WHERE id = $id AND deleted_utc IS NOT NULL;";
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in raidIds)
+            {
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hard-deletes every raid still marked deleted, except the ones named — the batch a workspace's
+    /// one-press undo still covers. Called at the top of a load, so a raid stays soft-deleted (and
+    /// so recoverable) for exactly as long as the undo that covers it could still be pressed: until
+    /// another delete starts, or the app is restarted and no undo for it exists any more.
+    /// </summary>
+    public async Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(exceptRaidIds);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var toPurge = new List<Guid>();
+        await using (var read = connection.CreateCommand())
+        {
+            read.CommandText = "SELECT id FROM raids WHERE deleted_utc IS NOT NULL;";
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var id = Guid.Parse(reader.GetString(0));
+                if (!exceptRaidIds.Contains(id))
+                {
+                    toPurge.Add(id);
+                }
+            }
+        }
+
+        if (toPurge.Count == 0)
+        {
+            return;
+        }
+
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            // raid_events, raid_positions and raid_extracts all cascade on delete (0001_initial.sql).
+            command.CommandText = "DELETE FROM raids WHERE id = $id;";
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in toPurge)
+            {
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
-        var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
-        await using var writer = new StreamWriter(destination, new UTF8Encoding(false), leaveOpen: true);
-        // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
-        // spreadsheet reads as a date-time (an ISO string with "+00:00" arrives as text), and the
-        // header says which clock. The database and JSON export keep the exact instant.
-        await writer.WriteLineAsync("id,profile_id,map_id,mode,start_local,end_local,outcome,notes".AsMemory(), cancellationToken)
-            .ConfigureAwait(false);
-        foreach (var raid in raids)
-        {
-            var row = string.Join(',', new[]
-            {
-                Escape(raid.Id.ToString("D")),
-                Escape(raid.ProfileId.ToString("D")),
-                Escape(raid.MapId),
-                Escape(raid.Mode),
-                Escape(raid.StartedUtc is null ? null : LocalTime.SortableSeconds(raid.StartedUtc.Value)),
-                Escape(raid.EndedUtc is null ? null : LocalTime.SortableSeconds(raid.EndedUtc.Value)),
-                Escape(raid.Outcome),
-                Escape(raid.Notes),
-            });
-            await writer.WriteLineAsync(row.AsMemory(), cancellationToken).ConfigureAwait(false);
-        }
-
-        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+        var records = await LoadExportRecordsAsync(cancellationToken).ConfigureAwait(false);
+        await RaidHistoryExport.WriteCsvAsync(destination, records, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        var records = await LoadExportRecordsAsync(cancellationToken).ConfigureAwait(false);
+        await RaidHistoryExport.WriteJsonAsync(destination, records, _timeProvider.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Every raid with the scans and corrections recorded against it, from one events query rather
+    /// than one per raid, because an export covers the whole history.
+    /// </summary>
+    private async Task<IReadOnlyList<RaidExportRecord>> LoadExportRecordsAsync(CancellationToken cancellationToken)
+    {
         var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
-        // Local for the person who opens it, with the numeric offset so a program reads the same
-        // instant. The keys drop "Utc" because the values are no longer written at offset zero.
-        var rows = raids.Select(raid => new RaidHistoryExportRow(
-            raid.Id,
-            raid.ProfileId,
-            raid.MapId,
-            raid.Mode,
-            raid.StartedUtc is { } started ? LocalTime.ToLocal(started) : null,
-            raid.EndedUtc is { } ended ? LocalTime.ToLocal(ended) : null,
-            raid.Outcome,
-            raid.Notes)).ToList();
-        await JsonSerializer.SerializeAsync(destination, rows, JsonOptions, cancellationToken).ConfigureAwait(false);
+        var scans = new Dictionary<Guid, List<RaidScanFact>>();
+        var corrections = new Dictionary<Guid, List<string>>();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT raid_id, type, payload_json
+            FROM raid_events
+            WHERE type IN ('scan', 'correction') AND payload_json IS NOT NULL
+            ORDER BY timestamp_utc, id;
+            """;
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (!Guid.TryParse(reader.GetString(0), out var raidId))
+                {
+                    continue;
+                }
+
+                var payload = reader.GetString(2);
+                if (reader.GetString(1) == RaidCorrection.EventType)
+                {
+                    (corrections.TryGetValue(raidId, out var list) ? list : corrections[raidId] = []).Add(payload);
+                }
+                else if (RaidScanFact.TryParse(payload) is { } scan)
+                {
+                    (scans.TryGetValue(raidId, out var list) ? list : scans[raidId] = []).Add(scan);
+                }
+            }
+        }
+
+        return
+        [
+            .. raids.Select(raid => new RaidExportRecord(
+                raid,
+                RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
+                scans.GetValueOrDefault(raid.Id, []))),
+        ];
     }
 
     private static void BindRaid(SqliteCommand command, RaidHistoryEntry raid)
@@ -550,23 +715,5 @@ public sealed class SqliteRaidHistoryService(
     private static string Format(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
-    private static string Escape(string? value)
-    {
-        value ??= string.Empty;
-        return value.IndexOfAny([',', '"', '\r', '\n']) < 0
-            ? value
-            : $"\"{value.Replace("\"", "\"\"", StringComparison.Ordinal)}\"";
-    }
-
     private sealed record OperationTransaction(SqliteConnection Connection, SqliteTransaction Transaction);
-
-    private sealed record RaidHistoryExportRow(
-        Guid Id,
-        Guid ProfileId,
-        string? MapId,
-        string Mode,
-        DateTimeOffset? Started,
-        DateTimeOffset? Ended,
-        string? Outcome,
-        string? Notes);
 }

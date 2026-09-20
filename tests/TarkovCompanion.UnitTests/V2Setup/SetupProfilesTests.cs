@@ -103,6 +103,42 @@ public sealed class SetupProfilesTests
     }
 
     [Fact]
+    public async Task EditingAProfileChangesItsModeAndWipeLabel()
+    {
+        using var fixture = await Fixture.CreateAsync((1, ProfileGameMode.Pvp), (2, ProfileGameMode.Pve));
+        var other = fixture.View.Profiles.Single(row => !row.IsActive);
+        Assert.False(other.IsEditing);
+
+        other.BeginEditCommand.Execute(null);
+        Assert.True(other.IsEditing);
+        other.EditMode = other.Modes.Single(mode => mode.Mode == ProfileGameMode.Seasonal);
+        other.EditWipe = "Wipe 9";
+        other.SaveEditCommand.Execute(other);
+        await fixture.UntilAsync(() => fixture.View.Profiles.Any(row => row.Wipe == "Wipe 9"));
+
+        var updated = fixture.View.Profiles.Single(row => row.Wipe == "Wipe 9");
+        Assert.Equal("Seasonal", updated.Mode);
+        Assert.False(updated.IsEditing);
+        Assert.False(fixture.View.MessageIsError);
+    }
+
+    [Fact]
+    public async Task CancellingAnEditLeavesTheProfileUnchanged()
+    {
+        using var fixture = await Fixture.CreateAsync((1, ProfileGameMode.Pvp), (2, ProfileGameMode.Pve));
+        var other = fixture.View.Profiles.Single(row => !row.IsActive);
+        var originalWipe = other.Wipe;
+
+        other.BeginEditCommand.Execute(null);
+        other.EditWipe = "Should not be saved";
+        other.CancelEditCommand.Execute(null);
+
+        Assert.False(other.IsEditing);
+        Assert.Equal(originalWipe, other.Wipe);
+        Assert.Single(fixture.View.Profiles, row => row.Wipe == originalWipe);
+    }
+
+    [Fact]
     public async Task AProfileWithNoModeIsSaidPlainlyAndNothingIsLoadedForIt()
     {
         using var fixture = await Fixture.CreateAsync((1, ProfileGameMode.Unknown));

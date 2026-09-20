@@ -55,12 +55,18 @@ public enum InterfaceDensity
 /// <param name="TextScalePercent">The type ramp as a percentage of the designed size.</param>
 /// <param name="Density">How much whitespace the workspaces use.</param>
 /// <param name="ReduceMotion">Whether transitions are dropped, keeping the state change.</param>
+/// <param name="FocusAlwaysVisible">
+/// Whether the keyboard focus ring draws after a pointer click too, not only after Tab. Off by
+/// default because Fluent's own :focus-visible heuristic (no ring after a mouse click) is what
+/// most players expect; on for anyone who tracks focus visually across both input methods.
+/// </param>
 public sealed record WorkspacePreferences(
     AppearanceTheme Theme = AppearanceTheme.Dark,
     ColorVisionMode ColorVision = ColorVisionMode.Standard,
     int TextScalePercent = 100,
     InterfaceDensity Density = InterfaceDensity.Standard,
-    bool ReduceMotion = false)
+    bool ReduceMotion = false,
+    bool FocusAlwaysVisible = false)
 {
     /// <summary>The shape this build writes and the only one it reads.</summary>
     public const int SchemaVersion = 1;

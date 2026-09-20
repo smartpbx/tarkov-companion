@@ -14,6 +14,12 @@ The risk panel sorts the same calculated samples into Low, Moderate, and High ba
 
 Rotation flows connect strong spawn zones to nearby objectives early and objective zones toward extracts later. They are generic planning narratives, not detected paths. The code-authored `assets/strategy/generic-training-ground.json` exists only as a distributable fixture.
 
+## The Raid map's modelled traffic (V2)
+
+The Raid page draws a heat layer out of the box (`MapPriorTrafficModel`, version `map-prior-1`). Its only inputs are the catalog's player and boss spawns, extracts, place names and #318's high-value loot spawns, straight lines between them, and the player's own past trails on the map (at most 35%, at 14 raids). The phase weighting is the strategy model above. It is labelled "Prior from map structure, not recorded raids" with its counts, catalog date, generated time and a confidence that never reaches 50%. The governed snapshot store (`Traffic/Inbox`) is for models of recorded raids; the project has none, and a snapshot names regions without placing them, so it fills the plan card's rows when installed and cannot draw a field.
+
+Routes on that map are the planner below (`TrafficRoutePlanner` gives it the field as a grid graph: AvoidPvP for the suggested route, Fastest for the direct line). The graph is flagged incomplete because the catalog has no walls or water, so the page calls it straight-line guidance; times are path length plus a quarter, at 1.8 to 3.2 m/s; every "Why this route" line is read from the two routes' own numbers.
+
 ## Route planner
 
 The planner uses phase-valid directed edges in a static navigation graph:

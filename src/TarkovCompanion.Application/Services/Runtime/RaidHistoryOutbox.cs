@@ -213,6 +213,19 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
     public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
         _inner.ListAsync(cancellationToken);
 
+    /// <summary>
+    /// Straight through, for the same reason as <see cref="CorrectAsync"/>: a Debrief delete or
+    /// undo is a one-off UI action, not part of the outbox's closed, replayable command set.
+    /// </summary>
+    public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken) =>
+        _inner.SoftDeleteAsync(raidIds, deletedUtc, cancellationToken);
+
+    public Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken) =>
+        _inner.RestoreDeletedAsync(raidIds, cancellationToken);
+
+    public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
+        _inner.PurgeDeletedAsync(exceptRaidIds, cancellationToken);
+
     public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
         Guid raidId,
         CancellationToken cancellationToken) =>

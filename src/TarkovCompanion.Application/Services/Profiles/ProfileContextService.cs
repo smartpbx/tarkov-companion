@@ -185,6 +185,46 @@ public sealed class ProfileContextService : IDisposable
             return profile.Lifecycle == ProfileLifecycle.Active ? snapshot : Replace(snapshot, profileId, ProfileLifecycle.Active);
         }, cancellationToken);
 
+    /// <summary>
+    /// Corrects a profile's game mode and wipe label after creation (#292 task 3). The identity,
+    /// locale, data snapshot, name, progress and lifecycle are all untouched — this changes exactly
+    /// the two fields Setup > Game &amp; Profile's create form also asks for, nothing else.
+    /// </summary>
+    public Task<ProfileWorkspaceSnapshot> UpdateModeAndWipeAsync(
+        Guid profileId,
+        ProfileGameMode mode,
+        WipeSeason wipeSeason,
+        CancellationToken cancellationToken)
+    {
+        if (!Enum.IsDefined(mode) || mode == ProfileGameMode.Unknown)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode));
+        }
+
+        ArgumentNullException.ThrowIfNull(wipeSeason);
+        return MutateAsync(snapshot =>
+        {
+            var profile = Find(snapshot, profileId);
+            if (profile.Context.Mode == mode && string.Equals(profile.Context.WipeSeason.Value, wipeSeason.Value, StringComparison.Ordinal))
+            {
+                return snapshot;
+            }
+
+            var replacement = new ProfileRecord(
+                new ProfileContext(profile.Context.Identity, mode, wipeSeason, profile.Context.Locale, profile.Context.DataSnapshot),
+                profile.Name,
+                profile.Progress,
+                profile.Lifecycle,
+                UtcNow(),
+                profile.ExtensionJson);
+            return new ProfileWorkspaceSnapshot(
+                checked(snapshot.Revision + 1),
+                snapshot.ActiveProfileId,
+                snapshot.Profiles.Select(candidate =>
+                    candidate.Context.Identity.ProfileId == profileId ? replacement : candidate).ToArray());
+        }, cancellationToken);
+    }
+
     public async Task<ProfileComparison> CompareAsync(Guid leftProfileId, Guid rightProfileId, CancellationToken cancellationToken)
     {
         var snapshot = await ReadAsync(cancellationToken).ConfigureAwait(false);

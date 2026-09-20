@@ -955,6 +955,16 @@ public static class AppComposition
             new SetupReportViewModel(
                 () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
                 (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token))));
+        // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
+        // three stores the sections themselves already read/write, never a fourth of its own.
+        services.AddSingleton(provider => new SetupSettingsAdminViewModel(
+            provider.GetRequiredService<WorkspacePreferenceService>(),
+            provider.GetRequiredService<IScreenshotRetentionStore>(),
+            provider.GetService<NotificationBridge>()));
+        // [#292 task 3] The database's migration state and verified backup, read from the same
+        // SqliteMigrationRunner that already makes and verifies one before a destructive migration.
+        services.AddSingleton(provider => new SetupDatabaseStatusViewModel(
+            provider.GetRequiredService<SqliteMigrationRunner>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

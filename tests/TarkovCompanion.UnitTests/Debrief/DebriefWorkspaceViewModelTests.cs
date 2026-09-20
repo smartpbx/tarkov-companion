@@ -3,6 +3,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
@@ -318,13 +319,395 @@ public sealed class DebriefWorkspaceViewModelTests
         null,
         "fixture-position");
 
+    [Fact]
+    public async Task Each_detail_fact_says_where_it_came_from()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Observed", viewModel.SelectedMapKindLabel);
+        Assert.Equal("Inferred", kinds["Mode"]);
+        Assert.Equal("Observed", kinds["Started"]);
+        Assert.Equal("Observed", kinds["Ended"]);
+        Assert.Equal("Observed", kinds["Duration"]);
+        // Nothing was typed and the game records no outcome, so it has no source rather than a wrong one.
+        Assert.Equal(string.Empty, kinds["Outcome"]);
+        Assert.Equal(string.Empty, kinds["Queue/load"]);
+    }
+
+    [Fact]
+    public async Task A_raid_closed_on_restart_reads_as_inferred_and_its_duration_as_an_estimate()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(
+            RaidId,
+            Guid.NewGuid(),
+            "customs",
+            "Pmc",
+            Started,
+            Started.AddHours(3),
+            RaidClosure.ClosedOnRestartOutcome,
+            RaidClosure.ClosedOnRestartNotes));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Inferred", kinds["Ended"]);
+        Assert.Equal("Estimate", kinds["Duration"]);
+        Assert.Equal("Inferred", kinds["Outcome"]);
+        Assert.Equal("Inferred", viewModel.Raids.Single().OutcomeKindLabel);
+    }
+
+    /// <summary>The bug this exists for: a corrected outcome used to overwrite the field with nothing to say who wrote it.</summary>
+    [Fact]
+    public async Task Saving_a_correction_marks_the_outcome_manual_in_the_detail_and_the_list()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        Assert.Equal(string.Empty, viewModel.Raids.Single().OutcomeKindLabel);
+
+        viewModel.CorrectedOutcome = "Survived";
+        viewModel.SaveCorrectionCommand.Execute(null);
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Manual", kinds["Outcome"]);
+        Assert.Equal("Manual", viewModel.Raids.Single().OutcomeKindLabel);
+    }
+
+    [Fact]
+    public async Task Typing_the_companions_own_closing_words_by_hand_is_still_manual()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.CorrectedOutcome = RaidClosure.ClosedOnRestartOutcome;
+        viewModel.SaveCorrectionCommand.Execute(null);
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+
+        Assert.Equal("Manual", viewModel.SelectedFacts.Single(fact => fact.Label == "Outcome").KindLabel);
+    }
+
+    [Fact]
+    public async Task Scans_during_a_raid_are_listed_with_an_inferred_item_and_an_estimated_value()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(new ScanExecutionResult(
+            true, true, "item-gpu", "Graphics card", 12_000, 12_000, "Take", new(0.93), Started.AddMinutes(5), "screenshot", "detail")));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(new ScanExecutionResult(
+            true, false, null, null, null, null, null, new(0), Started.AddMinutes(7), "screenshot", "detail")));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(ScanExecutionResult.Unavailable("no recogniser", Started.AddMinutes(9))));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.HasSelectedScans);
+        Assert.Equal("3 scans · 1 recognised · 1 unavailable", viewModel.SelectedScanSummary);
+        var recognised = viewModel.SelectedScans[0];
+        Assert.Equal("Graphics card", recognised.ItemLabel);
+        Assert.Equal("Inferred", recognised.IdentityKindLabel);
+        Assert.Equal("Estimate", recognised.ValueKindLabel);
+        Assert.Contains("12", recognised.ValueLabel, StringComparison.Ordinal);
+        Assert.Contains("Take", recognised.DetailLabel, StringComparison.Ordinal);
+        var nothing = viewModel.SelectedScans[1];
+        Assert.Equal("Nothing recognised", nothing.ItemLabel);
+        Assert.False(nothing.HasIdentityKind);
+        Assert.False(nothing.HasValue);
+        Assert.Equal("Scan unavailable", viewModel.SelectedScans[2].ItemLabel);
+    }
+
+    [Fact]
+    public async Task A_raid_with_no_scans_says_so_and_a_screenshot_distance_is_labelled_an_estimate()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedPositions(RaidId, [Position(Started), Position(Started.AddMinutes(1))]);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.False(viewModel.HasSelectedScans);
+        Assert.Equal("No scans during this raid.", viewModel.SelectedScanSummary);
+        Assert.Equal("Estimate", viewModel.SelectedDistanceKindLabel);
+    }
+
+    [Fact]
+    public async Task Searching_matches_notes_and_the_per_map_stats_follow_the_filtered_set()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms then RUAF roadblock"));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), "Survived", "Scav run, nothing found"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.SearchText = "dorms";
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+        Assert.Equal("1 of 2 raids", viewModel.Status);
+        var stat = Assert.Single(viewModel.MapStats);
+        Assert.Equal("customs", stat.MapLabel);
+    }
+
+    [Fact]
+    public async Task Clearing_search_restores_every_raid()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms"));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), "Survived", "Nothing found"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.SearchText = "dorms";
+        Assert.Single(viewModel.Raids);
+
+        ((DelegateCommand)viewModel.ClearSearchCommand).Execute(null);
+
+        Assert.Equal(2, viewModel.Raids.Count);
+        Assert.False(viewModel.HasActiveFilters);
+    }
+
+    [Theory]
+    [InlineData(DebriefOutcomeFilter.Survived, "Survived", true)]
+    [InlineData(DebriefOutcomeFilter.Survived, "Closed on restart", false)]
+    [InlineData(DebriefOutcomeFilter.Died, "Killed by scav", true)]
+    [InlineData(DebriefOutcomeFilter.Mia, "MIA after disconnect", true)]
+    [InlineData(DebriefOutcomeFilter.RunThrough, "Run-through, nothing seen", true)]
+    public async Task Outcome_filter_matches_by_keyword_over_the_free_text_outcome(
+        DebriefOutcomeFilter filter, string outcome, bool expectMatch)
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), outcome, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.OutcomeFilter = filter;
+
+        Assert.Equal(expectMatch ? 1 : 0, viewModel.Raids.Count);
+    }
+
+    [Fact]
+    public async Task Side_filter_matches_the_side_read_from_the_raids_state_events()
+    {
+        var pmcRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.SeedEvent(RaidId, "state", """{"Side":"scav"}""");
+        service.Seed(new RaidHistoryEntry(pmcRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(pmcRaidId, "state", """{"Side":"PMC"}""");
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.SideFilter = DebriefSideFilter.Scav;
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Map_filter_narrows_the_list_to_one_map()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        var customsOption = Assert.Single(viewModel.MapFilterOptions, option => option.MapId == "customs");
+
+        viewModel.SelectedMapFilterOption = customsOption;
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Date_range_excludes_raids_outside_it_by_the_players_local_day()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started.AddDays(-10), Started.AddDays(-10).AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.DateFrom = Started.AddDays(-1);
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Clear_filters_resets_search_map_outcome_side_and_dates()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.SearchText = "dorms";
+        viewModel.OutcomeFilter = DebriefOutcomeFilter.Survived;
+        viewModel.SideFilter = DebriefSideFilter.Pmc;
+        viewModel.DateFrom = Started;
+        Assert.True(viewModel.HasActiveFilters);
+
+        ((DelegateCommand)viewModel.ClearFiltersCommand).Execute(null);
+
+        Assert.False(viewModel.HasActiveFilters);
+        Assert.Equal(string.Empty, viewModel.SearchText);
+        Assert.Single(viewModel.Raids);
+    }
+
+    [Fact]
+    public async Task Deleting_a_raid_previews_it_then_hides_it_and_updates_the_map_stats()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        Assert.False(viewModel.IsConfirmingDelete);
+
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        Assert.True(viewModel.IsConfirmingDelete);
+        Assert.Contains("customs", viewModel.DeletePreviewLabel, StringComparison.Ordinal);
+
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+
+        Assert.False(viewModel.IsConfirmingDelete);
+        Assert.Single(viewModel.Raids);
+        Assert.Equal(otherRaidId, viewModel.Raids[0].RaidId);
+        Assert.Single(viewModel.MapStats);
+        Assert.Equal("woods", viewModel.MapStats[0].MapLabel);
+        Assert.True(viewModel.CanUndoDelete);
+        Assert.Contains("customs", viewModel.UndoDeleteSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_delete_preview_leaves_the_raid_in_place()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+
+        ((DelegateCommand)viewModel.CancelDeleteCommand).Execute(null);
+
+        Assert.False(viewModel.IsConfirmingDelete);
+        Assert.Single(viewModel.Raids);
+        Assert.False(viewModel.CanUndoDelete);
+    }
+
+    [Fact]
+    public async Task Undo_restores_a_deleted_raid_and_clears_the_banner()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+        Assert.Empty(viewModel.Raids);
+        Assert.True(viewModel.CanUndoDelete);
+
+        await ((AsyncDelegateCommand)viewModel.UndoDeleteCommand).ExecuteAsync();
+
+        Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, viewModel.Raids[0].RaidId);
+        Assert.False(viewModel.CanUndoDelete);
+        Assert.Equal(0, service.PurgedCount);
+    }
+
+    [Fact]
+    public async Task A_second_delete_finalizes_the_first_undo_can_no_longer_restore_it()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+        Assert.Equal(0, service.PurgedCount);
+
+        await viewModel.SelectRaidAsync(otherRaidId, CancellationToken.None);
+        ((DelegateCommand)viewModel.BeginDeleteCommand).Execute(null);
+        await ((AsyncDelegateCommand)viewModel.ConfirmDeleteCommand).ExecuteAsync();
+
+        // The undo banner now names only the most recent delete; the first raid's undo window is
+        // over and its row was hard-deleted rather than left soft-deleted forever.
+        Assert.Empty(viewModel.Raids);
+        Assert.Equal(1, service.PurgedCount);
+        Assert.Contains("woods", viewModel.UndoDeleteSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Delete_before_a_date_previews_the_count_then_removes_only_the_older_raids()
+    {
+        var oldRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(oldRaidId, Guid.NewGuid(), "woods", "Pmc", Started.AddDays(-10), Started.AddDays(-10).AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.DeleteBeforeDate = Started.AddDays(-1);
+
+        ((DelegateCommand)viewModel.BeginBulkDeleteCommand).Execute(null);
+        Assert.True(viewModel.IsConfirmingBulkDelete);
+        Assert.Contains("1 raid", viewModel.BulkDeletePreviewLabel, StringComparison.Ordinal);
+
+        await ((AsyncDelegateCommand)viewModel.ConfirmBulkDeleteCommand).ExecuteAsync();
+
+        Assert.False(viewModel.IsConfirmingBulkDelete);
+        var remaining = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, remaining.RaidId);
+        Assert.True(viewModel.CanUndoDelete);
+    }
+
+    [Fact]
+    public async Task Delete_before_with_no_matching_raids_does_not_enter_preview()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.DeleteBeforeDate = Started.AddDays(-30);
+
+        ((DelegateCommand)viewModel.BeginBulkDeleteCommand).Execute(null);
+
+        Assert.False(viewModel.IsConfirmingBulkDelete);
+        Assert.Single(viewModel.Raids);
+    }
+
     private sealed class FakeRaidHistoryService : IRaidHistoryService
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
         private readonly Dictionary<Guid, IReadOnlyList<ScreenshotPosition>> _positions = [];
         private readonly Dictionary<(Guid RaidId, string Type), List<string>> _events = [];
+        private readonly HashSet<Guid> _deleted = [];
 
         public (string? Outcome, string? Notes)? LastCorrection { get; private set; }
+
+        /// <summary>How many raids <see cref="PurgeDeletedAsync"/> has actually removed, across every call.</summary>
+        public int PurgedCount { get; private set; }
 
         public void Seed(RaidHistoryEntry raid) => _raids[raid.Id] = raid;
 
@@ -359,6 +742,12 @@ public sealed class DebriefWorkspaceViewModelTests
             LastCorrection = (outcome, notes);
             if (_raids.TryGetValue(raidId, out var raid))
             {
+                // What the real service does in the same transaction: keep that it was corrected.
+                if (RaidCorrection.Between(raid, outcome, notes, Started) is { } correction)
+                {
+                    SeedEvent(raidId, RaidCorrection.EventType, correction.ToPayload());
+                }
+
                 _raids[raidId] = raid with { Outcome = outcome, Notes = notes };
             }
 
@@ -366,7 +755,40 @@ public sealed class DebriefWorkspaceViewModelTests
         }
 
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([.. _raids.Values]);
+            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>(
+                [.. _raids.Values.Where(raid => !_deleted.Contains(raid.Id))]);
+
+        public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in raidIds)
+            {
+                _deleted.Add(raidId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in raidIds)
+            {
+                _deleted.Remove(raidId);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken)
+        {
+            foreach (var raidId in _deleted.Where(id => !exceptRaidIds.Contains(id)).ToArray())
+            {
+                _deleted.Remove(raidId);
+                _raids.Remove(raidId);
+                PurgedCount++;
+            }
+
+            return Task.CompletedTask;
+        }
 
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(Guid raidId, CancellationToken cancellationToken) =>
             Task.FromResult(_positions.GetValueOrDefault(raidId, []));

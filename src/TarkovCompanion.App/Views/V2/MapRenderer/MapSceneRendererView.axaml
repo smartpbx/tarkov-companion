@@ -378,6 +378,14 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <!-- [Issue 286] Modelled traffic, under every line and marker. Same rectangle as the
+                 artwork, so a cell of the field is over the ground it describes. -->
+            <Image Canvas.Left="{Binding MapLeft}" Canvas.Top="{Binding MapTop}"
+                   Width="{Binding MapWidth}" Height="{Binding MapHeight}" Stretch="Fill"
+                   Source="{Binding TrafficHeatImage}" IsVisible="{Binding ShowsTrafficHeat}"
+                   IsHitTestVisible="False" RenderOptions.BitmapInterpolationMode="HighQuality"
+                   AutomationProperties.AccessibilityView="Raw" />
+
             <map:MapSceneGeometryLayer Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}"
                                        IsHitTestVisible="False" Objects="{Binding GeometryObjects}"
                                        Zoom="{Binding CameraZoom}"

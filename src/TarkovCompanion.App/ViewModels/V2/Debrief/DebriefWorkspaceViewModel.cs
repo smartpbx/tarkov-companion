@@ -25,6 +25,38 @@ public sealed record DebriefRaidRowViewModel(
     public ICommand? SelectCommand { get; init; }
 
     public bool IsSelected { get; init; }
+
+    /// <summary>Where the outcome came from ("Manual", "Inferred"), or empty where there is none to label.</summary>
+    public string OutcomeKindLabel { get; init; } = string.Empty;
+
+    public bool HasOutcomeKind => OutcomeKindLabel.Length > 0;
+}
+
+/// <summary>One fact about the selected raid, with the kind of evidence behind it.</summary>
+/// <param name="KindLabel">"Observed", "Inferred", "Estimate" or "Manual"; empty where there is no value to label.</param>
+public sealed record DebriefFactRowViewModel(string Label, string Value, string KindLabel)
+{
+    public bool HasKind => KindLabel.Length > 0;
+}
+
+/// <summary>One scan taken during the selected raid.</summary>
+/// <remarks>
+/// What the companion recognised is inferred and what it is worth is an estimate, so each says so;
+/// nothing here claims value was carried out of the raid.
+/// </remarks>
+public sealed record DebriefScanRowViewModel(
+    string TimeLabel,
+    string ItemLabel,
+    string IdentityKindLabel,
+    string ValueLabel,
+    string ValueKindLabel,
+    string DetailLabel)
+{
+    public bool HasIdentityKind => IdentityKindLabel.Length > 0;
+
+    public bool HasValue => ValueLabel.Length > 0;
+
+    public bool HasDetail => DetailLabel.Length > 0;
 }
 
 /// <summary>A raid's trail, handed to the shell to draw on the Raid map (V1's "Watch it").</summary>
@@ -42,6 +74,44 @@ public sealed record DebriefQuestEventRowViewModel(string QuestLabel, string Sta
 
 /// <summary>What the companion has measured on one map: how often it's played and how it goes.</summary>
 public sealed record DebriefMapStatRowViewModel(string MapLabel, string RaidsLabel, string DurationLabel, string LoadLabel);
+
+/// <summary>
+/// The outcome buckets the filter offers. The game never writes an outcome (see
+/// <see cref="RaidFactRules"/>), so a raid's outcome is whatever the player typed; matching is by
+/// keyword against that free text rather than an exact value.
+/// </summary>
+public enum DebriefOutcomeFilter { Any, Survived, Died, Mia, RunThrough }
+
+/// <summary>Which side a raid was played on, where the log let the companion tell.</summary>
+public enum DebriefSideFilter { Any, Pmc, Scav }
+
+/// <summary>One choice in the map filter; a null id is every map.</summary>
+public sealed record DebriefMapFilterOption(string? MapId, string Label);
+
+/// <summary>One filter chip (outcome or side), in the Plan tab's chip shape.</summary>
+public sealed class DebriefFilterChipViewModel : BindableViewModel
+{
+    private bool _isSelected;
+
+    internal DebriefFilterChipViewModel(string label, string automationId, Action select)
+    {
+        Label = label;
+        AutomationId = automationId;
+        SelectCommand = new DelegateCommand(select);
+    }
+
+    public string Label { get; }
+
+    public string AutomationId { get; }
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set => SetProperty(ref _isSelected, value);
+    }
+}
 
 /// <summary>
 /// V2 workspace over the existing raid-history backend: raid list, raid detail (map, duration,
@@ -63,10 +133,38 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private bool _taskCatalogLoaded;
     private RaidHistoryEntry? _selected;
     private IReadOnlyList<ScreenshotPosition> _selectedPositions = [];
+    private RaidFactSources _selectedSources = new(
+        RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown);
+    private bool _selectedLoadRecorded;
     private string _status = "Raid history has not been loaded.";
     private string _correctedOutcome = string.Empty;
     private string _correctedNotes = string.Empty;
     private Func<string, string?> _mapName = _ => null;
+
+    // Search and filters (#291 package 2). Every raid's side, evidence sources and load time are
+    // read once per load, off the interface thread; filtering and the per-map stats that follow it
+    // are then pure in-memory work, so typing in the search box costs no I/O.
+    private IReadOnlyList<DebriefRaidRecord> _allRecords = [];
+    private string _searchText = string.Empty;
+    private string? _mapFilter;
+    private DebriefOutcomeFilter _outcomeFilter = DebriefOutcomeFilter.Any;
+    private DebriefSideFilter _sideFilter = DebriefSideFilter.Any;
+    private DateTimeOffset? _dateFrom;
+    private DateTimeOffset? _dateTo;
+    private IReadOnlyList<DebriefMapFilterOption> _mapFilterOptions = [new(null, "All maps")];
+    private ICommand? _clearSearch;
+    private ICommand? _clearFilters;
+
+    // Delete and undo (#291 package 3). A delete soft-deletes; the one-press undo below is what
+    // makes it safe. See SqliteRaidHistoryService.PurgeDeletedAsync and the load above for when a
+    // soft-deleted raid is actually removed.
+    private IReadOnlyList<Guid> _pendingDeleteIds = [];
+    private bool _isConfirmingDelete;
+    private bool _isConfirmingBulkDelete;
+    private DateTimeOffset? _deleteBeforeDate;
+
+    /// <summary>One raid plus what the workspace already knows about it, built once per load.</summary>
+    private sealed record DebriefRaidRecord(RaidHistoryEntry Raid, string? Side, RaidFactSources Sources, double? LoadSeconds);
 
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
@@ -88,6 +186,13 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         ExportCsvCommand = new AsyncDelegateCommand(ExportCsvAsync);
         ExportJsonCommand = new AsyncDelegateCommand(ExportJsonAsync);
         WatchOnMapCommand = new DelegateCommand(WatchOnMap);
+        BeginDeleteCommand = new DelegateCommand(BeginDelete);
+        CancelDeleteCommand = new DelegateCommand(CancelDelete);
+        ConfirmDeleteCommand = new AsyncDelegateCommand(ConfirmDeleteAsync);
+        BeginBulkDeleteCommand = new DelegateCommand(BeginBulkDelete);
+        CancelBulkDeleteCommand = new DelegateCommand(CancelBulkDelete);
+        ConfirmBulkDeleteCommand = new AsyncDelegateCommand(ConfirmBulkDeleteAsync);
+        UndoDeleteCommand = new AsyncDelegateCommand(UndoDeleteAsync);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -97,6 +202,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public bool HasRaids => Raids.Count > 0;
 
     public bool HasNoRaids => !HasRaids;
+
+    /// <summary>Distinguishes an empty history from a filter that matched nothing in it.</summary>
+    public string NoRaidsMessage => _allRecords.Count == 0
+        ? "No raids recorded yet."
+        : "No raids match these filters.";
 
     public bool HasSelection => _selected is not null;
 
@@ -156,7 +266,24 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         var count => $"{count.ToString(CultureInfo.CurrentCulture)} screenshots recorded.",
     };
 
-    public string ScanBreakdownNotice { get; } = "Per-event scan/loot detail isn't available yet.";
+    /// <summary>Where the map came from, beside the raid's name in the detail heading.</summary>
+    public string SelectedMapKindLabel => _selectedSources.Map.Label();
+
+    public bool HasSelectedMapKind => SelectedMapKindLabel.Length > 0;
+
+    /// <summary>The distance is a floor built from straight lines between screenshots, so it is an estimate.</summary>
+    public string SelectedDistanceKindLabel => HasDistance ? RaidFactKind.Estimated.Label() : string.Empty;
+
+    /// <summary>The detail facts of the selected raid, each with the kind of evidence behind it.</summary>
+    public IReadOnlyList<DebriefFactRowViewModel> SelectedFacts { get; private set; } = [];
+
+    /// <summary>What was scanned during the selected raid.</summary>
+    public IReadOnlyList<DebriefScanRowViewModel> SelectedScans { get; private set; } = [];
+
+    public bool HasSelectedScans => SelectedScans.Count > 0;
+
+    /// <summary>"3 scans · 2 recognised": how many were taken and how many named an item, unavailable ones counted apart.</summary>
+    public string SelectedScanSummary { get; private set; } = "No scans during this raid.";
 
     /// <summary>How long matchmaking and loading took before this raid began, if it was seen.</summary>
     public string SelectedLoadTimeLabel { get; private set; } = "Load time not recorded.";
@@ -178,6 +305,82 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     public IReadOnlyList<DebriefMapStatRowViewModel> MapStats { get; private set; } = [];
 
     public bool HasMapStats => MapStats.Count > 0;
+
+    /// <summary>Words that must all appear in a raid's notes for it to stay in the list.</summary>
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value ?? string.Empty))
+            {
+                OnPropertyChanged(nameof(HasSearchText));
+                ApplyFilters();
+            }
+        }
+    }
+
+    public bool HasSearchText => _searchText.Length > 0;
+
+    public ICommand ClearSearchCommand => _clearSearch ??= new DelegateCommand(() => SearchText = string.Empty);
+
+    /// <summary>Every map filter choice: "All maps" plus one per map this history has a raid on.</summary>
+    public IReadOnlyList<DebriefMapFilterOption> MapFilterOptions => _mapFilterOptions;
+
+    public DebriefMapFilterOption SelectedMapFilterOption
+    {
+        get => _mapFilterOptions.FirstOrDefault(option => option.MapId == _mapFilter) ?? _mapFilterOptions[0];
+        set
+        {
+            var mapId = value?.MapId;
+            if (_mapFilter != mapId)
+            {
+                _mapFilter = mapId;
+                OnPropertyChanged();
+                ApplyFilters();
+            }
+        }
+    }
+
+    /// <summary>Survived / Died / MIA / Run-through, or Any — see <see cref="DebriefOutcomeFilter"/>.</summary>
+    public IReadOnlyList<DebriefFilterChipViewModel> OutcomeFilterChips => CreateOutcomeChips();
+
+    /// <summary>PMC / Scav, or Any — see <see cref="DebriefSideFilter"/>.</summary>
+    public IReadOnlyList<DebriefFilterChipViewModel> SideFilterChips => CreateSideChips();
+
+    public DateTimeOffset? DateFrom
+    {
+        get => _dateFrom;
+        set
+        {
+            if (SetProperty(ref _dateFrom, value))
+            {
+                ApplyFilters();
+            }
+        }
+    }
+
+    public DateTimeOffset? DateTo
+    {
+        get => _dateTo;
+        set
+        {
+            if (SetProperty(ref _dateTo, value))
+            {
+                ApplyFilters();
+            }
+        }
+    }
+
+    public bool HasActiveFilters =>
+        _mapFilter is not null
+        || _outcomeFilter != DebriefOutcomeFilter.Any
+        || _sideFilter != DebriefSideFilter.Any
+        || _dateFrom is not null
+        || _dateTo is not null
+        || HasSearchText;
+
+    public ICommand ClearFiltersCommand => _clearFilters ??= new DelegateCommand(ClearFilters);
 
     public string CorrectedOutcome
     {
@@ -204,6 +407,158 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     /// <summary>Raised when somebody asks to watch the selected raid; the shell owns the map and the router.</summary>
     public event EventHandler<DebriefReplayRequest>? ReplayRequested;
+
+    /// <summary>Whether the selected raid's delete has a preview showing, waiting on Confirm or Cancel.</summary>
+    public bool IsConfirmingDelete { get => _isConfirmingDelete; private set => SetProperty(ref _isConfirmingDelete, value); }
+
+    /// <summary>What deleting the selected raid removes, said before it happens.</summary>
+    public string DeletePreviewLabel { get; private set; } = string.Empty;
+
+    public ICommand BeginDeleteCommand { get; }
+
+    public ICommand CancelDeleteCommand { get; }
+
+    public ICommand ConfirmDeleteCommand { get; }
+
+    /// <summary>The cutoff for "delete every raid before this date"; the player's own local day.</summary>
+    public DateTimeOffset? DeleteBeforeDate
+    {
+        get => _deleteBeforeDate;
+        set => SetProperty(ref _deleteBeforeDate, value);
+    }
+
+    public bool IsConfirmingBulkDelete { get => _isConfirmingBulkDelete; private set => SetProperty(ref _isConfirmingBulkDelete, value); }
+
+    /// <summary>What "delete before" removes, said before it happens.</summary>
+    public string BulkDeletePreviewLabel { get; private set; } = string.Empty;
+
+    public ICommand BeginBulkDeleteCommand { get; }
+
+    public ICommand CancelBulkDeleteCommand { get; }
+
+    public ICommand ConfirmBulkDeleteCommand { get; }
+
+    /// <summary>Whether a delete just happened and can still be undone.</summary>
+    public bool CanUndoDelete => _pendingDeleteIds.Count > 0;
+
+    /// <summary>"Deleted 1 raid (Customs, 9/20/2026 7:29 PM)." — what the undo banner names.</summary>
+    public string UndoDeleteSummary { get; private set; } = string.Empty;
+
+    public ICommand UndoDeleteCommand { get; }
+
+    /// <summary>Shows what deleting the selected raid removes, and waits on Confirm or Cancel.</summary>
+    private void BeginDelete()
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        DeletePreviewLabel = string.Create(
+            CultureInfo.CurrentCulture,
+            $"This removes {SelectedMapLabel} · {SelectedStartedLabel} ({SelectedDurationLabel}), its {CountLabel(SelectedScans.Count, "scan")} and {CountLabel(_selectedPositions.Count, "screenshot")}.");
+        IsConfirmingDelete = true;
+        RaiseAll();
+    }
+
+    private void CancelDelete()
+    {
+        IsConfirmingDelete = false;
+        RaiseAll();
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_selected is null)
+        {
+            IsConfirmingDelete = false;
+            return;
+        }
+
+        var raidId = _selected.Id;
+        var summary = $"Deleted 1 raid ({SelectedMapLabel}, {SelectedStartedLabel}).";
+        await _raidHistoryService.SoftDeleteAsync([raidId], _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = [raidId];
+        UndoDeleteSummary = summary;
+        IsConfirmingDelete = false;
+        _selected = null;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>Shows how many raids "delete before" removes, and waits on Confirm or Cancel.</summary>
+    private void BeginBulkDelete()
+    {
+        if (_deleteBeforeDate is not { } before)
+        {
+            Status = "Pick a date first.";
+            RaiseAll();
+            return;
+        }
+
+        var matches = RecordsBefore(before);
+        if (matches.Count == 0)
+        {
+            Status = $"No raids before {LocalTime.Date(before)}.";
+            RaiseAll();
+            return;
+        }
+
+        BulkDeletePreviewLabel = $"This removes {CountLabel(matches.Count, "raid")} before {LocalTime.Date(before)}.";
+        IsConfirmingBulkDelete = true;
+        RaiseAll();
+    }
+
+    private void CancelBulkDelete()
+    {
+        IsConfirmingBulkDelete = false;
+        RaiseAll();
+    }
+
+    private async Task ConfirmBulkDeleteAsync()
+    {
+        if (_deleteBeforeDate is not { } before)
+        {
+            IsConfirmingBulkDelete = false;
+            return;
+        }
+
+        var matches = RecordsBefore(before);
+        if (matches.Count == 0)
+        {
+            IsConfirmingBulkDelete = false;
+            RaiseAll();
+            return;
+        }
+
+        var ids = matches.Select(record => record.Raid.Id).ToArray();
+        await _raidHistoryService.SoftDeleteAsync(ids, _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = ids;
+        UndoDeleteSummary = $"Deleted {CountLabel(ids.Length, "raid")} before {LocalTime.Date(before)}.";
+        IsConfirmingBulkDelete = false;
+        if (_selected is not null && ids.Contains(_selected.Id))
+        {
+            _selected = null;
+        }
+
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    private IReadOnlyList<DebriefRaidRecord> RecordsBefore(DateTimeOffset cutoff) =>
+        [.. _allRecords.Where(record =>
+            record.Raid.StartedUtc is { } started && LocalTime.ToLocal(started).Date < cutoff.Date)];
+
+    private async Task UndoDeleteAsync()
+    {
+        if (_pendingDeleteIds.Count == 0)
+        {
+            return;
+        }
+
+        await _raidHistoryService.RestoreDeletedAsync(_pendingDeleteIds, CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = [];
+        UndoDeleteSummary = string.Empty;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
 
     private void WatchOnMap()
     {
@@ -235,35 +590,31 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             LoadFaultInjection.ThrowIfInjected("debrief");
+            // A raid stays soft-deleted, and so undoable, for exactly as long as the one-press undo
+            // that covers it could still be pressed: this purges anything soft-deleted that is not
+            // in the batch the undo banner currently names — a previous batch a new delete just
+            // superseded, or, on the first load of a session, whatever an earlier session never
+            // purged (its own undo cannot be pressed any more either).
+            await _raidHistoryService.PurgeDeletedAsync(_pendingDeleteIds, cancellationToken).ConfigureAwait(true);
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
-            Raids = raids
-                .Select(raid => new DebriefRaidRowViewModel(
-                    raid.Id,
-                    raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
-                    raid.Mode,
-                    LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
-                    LocalTime.Moment(raid.EndedUtc) ?? "In progress",
-                    Duration(raid),
-                    raid.Outcome ?? "Not recorded")
-                {
-                    SelectCommand = new AsyncDelegateCommand(() => SelectRaidAsync(raid.Id, CancellationToken.None)),
-                    IsSelected = _selected?.Id == raid.Id,
-                })
-                .ToArray();
-            MapStats = await BuildMapStatsAsync(raids, cancellationToken).ConfigureAwait(true);
+            // #453's rule: reading and projecting hundreds of raids — a corrections query and a
+            // state-events query each — belongs on the pool, not the dispatcher. Filtering and the
+            // per-map stats that follow are then pure in-memory work over the result.
+            _allRecords = await OffInterfaceThread.Run(
+                () => BuildRecordsAsync(raids, cancellationToken), cancellationToken).ConfigureAwait(true);
+            RebuildMapFilterOptions();
+            ApplyFilters();
             if (_selected is null && Raids.Count > 0)
             {
                 // Master-detail: the newest raid is what a debrief is almost always about.
                 await SelectRaidAsync(Raids[0].RaidId, cancellationToken).ConfigureAwait(true);
             }
 
-            Status = Raids.Count == 0
-                ? "No raids recorded yet."
-                : Raids.Count == 1 ? "1 raid" : $"{Raids.Count.ToString(CultureInfo.CurrentCulture)} raids";
             RaiseAll();
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            _allRecords = [];
             Raids = [];
             MapStats = [];
             Status = $"Raid history unavailable: {exception.Message}";
@@ -272,8 +623,239 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
     }
 
+    /// <summary>Every raid plus its side, evidence sources and load time — the read-heavy part of a load.</summary>
+    private async Task<IReadOnlyList<DebriefRaidRecord>> BuildRecordsAsync(
+        IReadOnlyList<RaidHistoryEntry> raids,
+        CancellationToken cancellationToken)
+    {
+        var records = new List<DebriefRaidRecord>(raids.Count);
+        foreach (var raid in raids)
+        {
+            // A raid with no outcome or notes has nothing a correction could have written, so it
+            // needs no events read to say where its outcome came from.
+            var sources = RaidFactRules.Classify(
+                raid,
+                string.IsNullOrWhiteSpace(raid.Outcome)
+                    ? []
+                    : await LoadCorrectionsAsync(raid.Id, cancellationToken).ConfigureAwait(false));
+            var facts = await ReadStateFactsAsync(raid.Id, cancellationToken).ConfigureAwait(false);
+            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds));
+        }
+
+        return records;
+    }
+
+    /// <summary>Rebuilds the map filter's choices from the maps this history actually has a raid on.</summary>
+    private void RebuildMapFilterOptions()
+    {
+        var maps = _allRecords
+            .Select(record => record.Raid.MapId)
+            .Where(mapId => !string.IsNullOrEmpty(mapId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(mapId => new DebriefMapFilterOption(mapId, MapLabel(mapId!)))
+            .OrderBy(option => option.Label, StringComparer.CurrentCultureIgnoreCase);
+        _mapFilterOptions = [new(null, "All maps"), .. maps];
+        OnPropertyChanged(nameof(MapFilterOptions));
+        OnPropertyChanged(nameof(SelectedMapFilterOption));
+    }
+
+    /// <summary>
+    /// Applies the current search text and filters to <see cref="_allRecords"/>: the visible list,
+    /// and the per-map stats, which follow the same filtered set rather than the whole history.
+    /// </summary>
+    private void ApplyFilters()
+    {
+        var filtered = _allRecords.Where(MatchesFilters).ToArray();
+        var rows = new List<DebriefRaidRowViewModel>(filtered.Length);
+        foreach (var record in filtered)
+        {
+            var raid = record.Raid;
+            rows.Add(new DebriefRaidRowViewModel(
+                raid.Id,
+                raid.MapId is { } mapId ? MapLabel(mapId) : "Unknown map",
+                raid.Mode,
+                LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
+                LocalTime.Moment(raid.EndedUtc) ?? "In progress",
+                Duration(raid),
+                raid.Outcome ?? "Not recorded")
+            {
+                SelectCommand = new AsyncDelegateCommand(() => SelectRaidAsync(raid.Id, CancellationToken.None)),
+                IsSelected = _selected?.Id == raid.Id,
+                OutcomeKindLabel = record.Sources.Outcome.Label(),
+            });
+        }
+
+        Raids = rows;
+        MapStats = BuildMapStats(filtered);
+        Status = BuildStatusLabel(filtered.Length, _allRecords.Count);
+        RaiseAll();
+    }
+
+    private static string BuildStatusLabel(int shown, int total)
+    {
+        if (total == 0)
+        {
+            return "No raids recorded yet.";
+        }
+
+        var totalLabel = CountLabel(total, "raid");
+        return shown == total ? totalLabel : $"{shown.ToString(CultureInfo.CurrentCulture)} of {totalLabel}";
+    }
+
+    private bool MatchesFilters(DebriefRaidRecord record)
+    {
+        var raid = record.Raid;
+        if (_mapFilter is { } mapFilter && !string.Equals(raid.MapId, mapFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_outcomeFilter != DebriefOutcomeFilter.Any && !OutcomeMatches(raid.Outcome, _outcomeFilter))
+        {
+            return false;
+        }
+
+        if (_sideFilter != DebriefSideFilter.Any && !SideMatches(record.Side, _sideFilter))
+        {
+            return false;
+        }
+
+        if (_dateFrom is { } from
+            && (raid.StartedUtc is not { } startedFrom || LocalTime.ToLocal(startedFrom).Date < from.Date))
+        {
+            return false;
+        }
+
+        if (_dateTo is { } to
+            && (raid.StartedUtc is not { } startedTo || LocalTime.ToLocal(startedTo).Date > to.Date))
+        {
+            return false;
+        }
+
+        return _searchText.Length == 0
+            || (raid.Notes is { Length: > 0 } notes && notes.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// The outcome is free text the player typed (see <see cref="DebriefOutcomeFilter"/>), so a
+    /// bucket is a keyword match rather than an exact one; text that matches none of them only
+    /// shows under "Any outcome".
+    /// </summary>
+    private static bool OutcomeMatches(string? outcome, DebriefOutcomeFilter filter)
+    {
+        if (string.IsNullOrWhiteSpace(outcome))
+        {
+            return false;
+        }
+
+        return filter switch
+        {
+            DebriefOutcomeFilter.Survived => outcome.Contains("surviv", StringComparison.OrdinalIgnoreCase),
+            DebriefOutcomeFilter.Died => outcome.Contains("die", StringComparison.OrdinalIgnoreCase)
+                || outcome.Contains("kill", StringComparison.OrdinalIgnoreCase),
+            DebriefOutcomeFilter.Mia => outcome.Contains("mia", StringComparison.OrdinalIgnoreCase)
+                || outcome.Contains("missing", StringComparison.OrdinalIgnoreCase),
+            DebriefOutcomeFilter.RunThrough => outcome.Contains("run", StringComparison.OrdinalIgnoreCase)
+                || outcome.Contains("transit", StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
+    }
+
+    private static bool SideMatches(string? side, DebriefSideFilter filter) => filter switch
+    {
+        DebriefSideFilter.Pmc => string.Equals(side, "PMC", StringComparison.OrdinalIgnoreCase),
+        DebriefSideFilter.Scav => string.Equals(side, "scav", StringComparison.OrdinalIgnoreCase),
+        _ => false,
+    };
+
+    private void ClearFilters()
+    {
+        _searchText = string.Empty;
+        _mapFilter = null;
+        _outcomeFilter = DebriefOutcomeFilter.Any;
+        _sideFilter = DebriefSideFilter.Any;
+        _dateFrom = null;
+        _dateTo = null;
+        ApplyFilters();
+        OnPropertyChanged(nameof(SearchText));
+        OnPropertyChanged(nameof(HasSearchText));
+        OnPropertyChanged(nameof(SelectedMapFilterOption));
+        OnPropertyChanged(nameof(DateFrom));
+        OnPropertyChanged(nameof(DateTo));
+        OnPropertyChanged(nameof(HasActiveFilters));
+    }
+
+    /// <summary>Survived / Died / MIA / Run-through, or Any. Public so a render can put the list on one.</summary>
+    public DebriefOutcomeFilter OutcomeFilter
+    {
+        get => _outcomeFilter;
+        set
+        {
+            if (_outcomeFilter == value)
+            {
+                return;
+            }
+
+            _outcomeFilter = value;
+            ApplyFilters();
+        }
+    }
+
+    /// <summary>PMC / Scav, or Any. Public so a render can put the list on one.</summary>
+    public DebriefSideFilter SideFilter
+    {
+        get => _sideFilter;
+        set
+        {
+            if (_sideFilter == value)
+            {
+                return;
+            }
+
+            _sideFilter = value;
+            ApplyFilters();
+        }
+    }
+
+    private static readonly (DebriefOutcomeFilter Filter, string Label)[] OutcomeFilterOptions =
+    [
+        (DebriefOutcomeFilter.Any, "Any outcome"),
+        (DebriefOutcomeFilter.Survived, "Survived"),
+        (DebriefOutcomeFilter.Died, "Died"),
+        (DebriefOutcomeFilter.Mia, "MIA"),
+        (DebriefOutcomeFilter.RunThrough, "Run-through"),
+    ];
+
+    private static readonly (DebriefSideFilter Filter, string Label)[] SideFilterOptions =
+    [
+        (DebriefSideFilter.Any, "Any side"),
+        (DebriefSideFilter.Pmc, "PMC"),
+        (DebriefSideFilter.Scav, "Scav"),
+    ];
+
+    private IReadOnlyList<DebriefFilterChipViewModel> CreateOutcomeChips() =>
+        [.. OutcomeFilterOptions.Select(option => new DebriefFilterChipViewModel(
+            option.Label,
+            $"v2-debrief-filter-outcome-{option.Filter.ToString().ToLowerInvariant()}",
+            () => OutcomeFilter = option.Filter)
+        {
+            IsSelected = option.Filter == _outcomeFilter,
+        })];
+
+    private IReadOnlyList<DebriefFilterChipViewModel> CreateSideChips() =>
+        [.. SideFilterOptions.Select(option => new DebriefFilterChipViewModel(
+            option.Label,
+            $"v2-debrief-filter-side-{option.Filter.ToString().ToLowerInvariant()}",
+            () => SideFilter = option.Filter)
+        {
+            IsSelected = option.Filter == _sideFilter,
+        })];
+
     public async Task SelectRaidAsync(Guid raidId, CancellationToken cancellationToken)
     {
+        // A delete preview names one raid; selecting another while it is showing must not leave a
+        // stale preview whose Confirm button would act on the raid now selected instead.
+        IsConfirmingDelete = false;
         var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
         _selected = raids.FirstOrDefault(raid => raid.Id == raidId);
         _selectedPositions = _selected is null
@@ -285,17 +867,112 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         {
             SelectedSales = [];
             SelectedQuestEvents = [];
+            SelectedScans = [];
+            SelectedScanSummary = "No scans during this raid.";
             SelectedLoadTimeLabel = "Load time not recorded.";
+            _selectedLoadRecorded = false;
+            _selectedSources = RaidFactRules.Classify(
+                new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
+                []);
         }
         else
         {
             SelectedSales = await LoadSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
             SelectedQuestEvents = await LoadQuestEventsAsync(raidId, cancellationToken).ConfigureAwait(true);
-            SelectedLoadTimeLabel = await LoadLoadTimeLabelAsync(raidId, cancellationToken).ConfigureAwait(true);
+            var stateFacts = await ReadStateFactsAsync(raidId, cancellationToken).ConfigureAwait(true);
+            _selectedLoadRecorded = stateFacts.LoadSeconds is not null;
+            SelectedLoadTimeLabel = stateFacts.LoadSeconds is { } loadSeconds
+                ? $"{loadSeconds.ToString("0.0", CultureInfo.CurrentCulture)}s queue/load"
+                : "Load time not recorded.";
+            _selectedSources = RaidFactRules.Classify(
+                _selected,
+                await LoadCorrectionsAsync(raidId, cancellationToken).ConfigureAwait(true));
+            await LoadScansAsync(raidId, cancellationToken).ConfigureAwait(true);
         }
+
+        SelectedFacts = BuildFacts();
 
         Raids = Raids.Select(row => row with { IsSelected = row.RaidId == raidId }).ToArray();
         RaiseAll();
+    }
+
+    private async Task<IReadOnlyList<RaidCorrection>> LoadCorrectionsAsync(Guid raidId, CancellationToken cancellationToken) =>
+        RaidCorrection.ParseAll(
+            await _raidHistoryService
+                .ListEventPayloadsAsync(raidId, RaidCorrection.EventType, cancellationToken)
+                .ConfigureAwait(true));
+
+    /// <summary>
+    /// The facts the detail panel shows, each with the kind of evidence behind it: read from the log,
+    /// worked out by the companion, a bound rather than a reading, or typed by the player.
+    /// </summary>
+    private IReadOnlyList<DebriefFactRowViewModel> BuildFacts()
+    {
+        if (_selected is null)
+        {
+            return [];
+        }
+
+        var facts = new List<DebriefFactRowViewModel>
+        {
+            new("Mode", SelectedModeLabel, _selectedSources.Mode.Label()),
+            new("Started", SelectedStartedLabel, _selectedSources.Started.Label()),
+            new("Ended", SelectedEndedLabel, _selectedSources.Ended.Label()),
+            new("Duration", SelectedDurationLabel, _selectedSources.Duration.Label()),
+            new("Queue/load", SelectedLoadTimeLabel, _selectedLoadRecorded ? RaidFactKind.Observed.Label() : string.Empty),
+            new("Outcome", SelectedOutcomeLabel, _selectedSources.Outcome.Label()),
+        };
+        if (SelectedNotesLabel.Length > 0)
+        {
+            facts.Add(new("Notes", SelectedNotesLabel, _selectedSources.Notes.Label()));
+        }
+
+        return facts;
+    }
+
+    /// <summary>What was scanned while this raid was open, and how much of it named an item.</summary>
+    private async Task LoadScansAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, "scan", cancellationToken)
+            .ConfigureAwait(true);
+        var scans = payloads.Select(RaidScanFact.TryParse).OfType<RaidScanFact>().OrderBy(scan => scan.ObservedUtc).ToArray();
+        var rows = new List<DebriefScanRowViewModel>(scans.Length);
+        foreach (var scan in scans)
+        {
+            var itemName = scan.Recognised
+                ? scan.ItemName ?? (scan.ItemId is null ? "Item" : await ResolveItemNameAsync(scan.ItemId, cancellationToken).ConfigureAwait(true))
+                : scan.IsAvailable ? "Nothing recognised" : "Scan unavailable";
+            var detail = new List<string>();
+            if (scan.Recognised && scan.Confidence is { } confidence)
+            {
+                detail.Add(string.Create(CultureInfo.CurrentCulture, $"{confidence:P0} sure"));
+            }
+
+            if (scan.Recommendation is { Length: > 0 } recommendation)
+            {
+                detail.Add(recommendation);
+            }
+
+            rows.Add(new(
+                LocalTime.ShortTime(scan.ObservedUtc),
+                itemName,
+                scan.IdentityKind.Label(),
+                scan.ValueRoubles is { } roubles
+                    ? string.Create(CultureInfo.CurrentCulture, $"≈ {roubles:N0} roubles")
+                    : string.Empty,
+                scan.ValueKind.Label(),
+                string.Join(" · ", detail)));
+        }
+
+        SelectedScans = rows;
+        var recognised = scans.Count(scan => scan.Recognised);
+        var unavailable = scans.Count(scan => !scan.IsAvailable);
+        SelectedScanSummary = scans.Length == 0
+            ? "No scans during this raid."
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"{CountLabel(scans.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}");
     }
 
     /// <summary>What sold on the flea while this raid was open, counted per item.</summary>
@@ -372,57 +1049,31 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         return rows;
     }
 
-    /// <summary>The queue/load time seen ahead of this raid, from the first line that measured it.</summary>
-    private async Task<string> LoadLoadTimeLabelAsync(Guid raidId, CancellationToken cancellationToken)
-    {
-        return await ReadLoadSecondsAsync(raidId, cancellationToken).ConfigureAwait(true) is { } seconds
-            ? $"{seconds.ToString("0.0", CultureInfo.CurrentCulture)}s queue/load"
-            : "Load time not recorded.";
-    }
-
     /// <summary>
-    /// Raids, durations and — where seen — load times, grouped by map. Never survival: the game
-    /// records no outcome, so this does not compute one from a field the player fills in by hand.
+    /// Raids, durations and — where seen — load times, grouped by map, over whichever records
+    /// passed the current filters. Never survival: the game records no outcome, so this does not
+    /// compute one from a field the player fills in by hand.
     /// </summary>
-    private async Task<IReadOnlyList<DebriefMapStatRowViewModel>> BuildMapStatsAsync(
-        IReadOnlyList<RaidHistoryEntry> raids,
-        CancellationToken cancellationToken)
+    private IReadOnlyList<DebriefMapStatRowViewModel> BuildMapStats(IReadOnlyList<DebriefRaidRecord> records)
     {
-        var byMap = raids
-            .Where(raid => raid.MapId is { Length: > 0 })
-            .GroupBy(raid => raid.MapId!, StringComparer.OrdinalIgnoreCase)
+        var byMap = records
+            .Where(record => record.Raid.MapId is { Length: > 0 })
+            .GroupBy(record => record.Raid.MapId!, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(group => group.Count());
-        // One query per raid, so read off the interface thread and all at once: a player with a
-        // few hundred raids was paying a few hundred queries on the dispatcher every time Debrief
-        // loaded, and the Setup overview reloads Debrief on a timer (#453).
-        var loadSecondsByRaid = await OffInterfaceThread.Run(
-            async () =>
-            {
-                var measured = new Dictionary<Guid, double>();
-                foreach (var raid in raids.Where(raid => raid.MapId is { Length: > 0 }))
-                {
-                    if (await ReadLoadSecondsAsync(raid.Id, cancellationToken).ConfigureAwait(false) is { } seconds)
-                    {
-                        measured[raid.Id] = seconds;
-                    }
-                }
-
-                return measured;
-            },
-            cancellationToken).ConfigureAwait(true);
 
         var rows = new List<DebriefMapStatRowViewModel>();
         foreach (var group in byMap)
         {
             var raidsOnMap = group.ToArray();
             var durations = raidsOnMap
-                .Where(raid => raid.StartedUtc is not null && raid.EndedUtc is { } end && end > raid.StartedUtc)
-                .Select(raid => raid.EndedUtc!.Value - raid.StartedUtc!.Value)
+                .Where(record => record.Raid.StartedUtc is not null
+                    && record.Raid.EndedUtc is { } end && end > record.Raid.StartedUtc)
+                .Select(record => record.Raid.EndedUtc!.Value - record.Raid.StartedUtc!.Value)
                 .ToArray();
 
             var loadTimes = raidsOnMap
-                .Where(raid => loadSecondsByRaid.ContainsKey(raid.Id))
-                .Select(raid => loadSecondsByRaid[raid.Id])
+                .Where(record => record.LoadSeconds is not null)
+                .Select(record => record.LoadSeconds!.Value)
                 .ToList();
 
             rows.Add(new(
@@ -440,27 +1091,47 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         return rows;
     }
 
+    /// <summary>What a raid's "state" events carry beyond the lifecycle: queue/load time and which
+    /// side it was played on, both written once by the coordinator that observed them.</summary>
+    private readonly record struct RaidStateFacts(double? LoadSeconds, string? Side);
+
     /// <summary>
-    /// The queue/load time is carried on the raid's opening state event, so it is read from there
-    /// rather than from an event kind of its own.
+    /// The queue/load time and the side are both carried on the raid's state events, so both are
+    /// read from there in one pass rather than one query per fact.
     /// </summary>
-    private async Task<double?> ReadLoadSecondsAsync(Guid raidId, CancellationToken cancellationToken)
+    private async Task<RaidStateFacts> ReadStateFactsAsync(Guid raidId, CancellationToken cancellationToken)
     {
         var payloads = await _raidHistoryService
             .ListEventPayloadsAsync(raidId, "state", cancellationToken)
             .ConfigureAwait(true);
+        double? loadSeconds = null;
+        string? side = null;
         foreach (var payload in payloads)
         {
             try
             {
                 using var document = JsonDocument.Parse(payload);
-                if (document.RootElement.ValueKind == JsonValueKind.Object
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                if (loadSeconds is null
                     && document.RootElement.TryGetProperty("LoadSeconds", out var load)
                     && load.ValueKind == JsonValueKind.Number
                     && load.TryGetDouble(out var seconds)
                     && seconds > 0)
                 {
-                    return seconds;
+                    loadSeconds = seconds;
+                }
+
+                if (document.RootElement.TryGetProperty("Side", out var sideElement)
+                    && sideElement.ValueKind == JsonValueKind.String
+                    && sideElement.GetString() is { Length: > 0 } sideValue)
+                {
+                    // The newest state event wins: side is inferred once the profile is known and
+                    // does not change mid-raid, but the newest reading is still the best guess.
+                    side = sideValue;
                 }
             }
             catch (JsonException)
@@ -468,7 +1139,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             }
         }
 
-        return null;
+        return new RaidStateFacts(loadSeconds, side);
     }
 
     private async Task<string> ResolveItemNameAsync(string itemId, CancellationToken cancellationToken)
@@ -643,6 +1314,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Raids));
         OnPropertyChanged(nameof(HasRaids));
         OnPropertyChanged(nameof(HasNoRaids));
+        OnPropertyChanged(nameof(NoRaidsMessage));
         OnPropertyChanged(nameof(HasSelection));
         OnPropertyChanged(nameof(HasNoSelection));
         OnPropertyChanged(nameof(SelectedStartedLabel));
@@ -663,5 +1335,21 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasSelectedQuestEvents));
         OnPropertyChanged(nameof(MapStats));
         OnPropertyChanged(nameof(HasMapStats));
+        OnPropertyChanged(nameof(SelectedMapKindLabel));
+        OnPropertyChanged(nameof(HasSelectedMapKind));
+        OnPropertyChanged(nameof(SelectedDistanceKindLabel));
+        OnPropertyChanged(nameof(SelectedFacts));
+        OnPropertyChanged(nameof(SelectedScans));
+        OnPropertyChanged(nameof(HasSelectedScans));
+        OnPropertyChanged(nameof(SelectedScanSummary));
+        OnPropertyChanged(nameof(OutcomeFilterChips));
+        OnPropertyChanged(nameof(SideFilterChips));
+        OnPropertyChanged(nameof(HasActiveFilters));
+        OnPropertyChanged(nameof(IsConfirmingDelete));
+        OnPropertyChanged(nameof(DeletePreviewLabel));
+        OnPropertyChanged(nameof(IsConfirmingBulkDelete));
+        OnPropertyChanged(nameof(BulkDeletePreviewLabel));
+        OnPropertyChanged(nameof(CanUndoDelete));
+        OnPropertyChanged(nameof(UndoDeleteSummary));
     }
 }

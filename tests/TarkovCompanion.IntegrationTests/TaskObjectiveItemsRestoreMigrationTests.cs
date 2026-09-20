@@ -45,7 +45,9 @@ public sealed class TaskObjectiveItemsRestoreMigrationTests
 
             var applied = await new SqliteMigrationRunner(factory).ApplyAsync(TestContext.Current.CancellationToken);
 
-            Assert.Equal(Restore, applied.Applied[^1]);
+            // Not the last entry any more once a migration lands after 0016 (0017 does): this
+            // only needs to prove 0016 ran and did the restore, not that it is the newest.
+            Assert.Contains(Restore, applied.Applied);
             Assert.Equal(
                 [
                     "task-a|hand-over|car-kit|3|1",

@@ -191,7 +191,12 @@ public sealed class RaidHistoryOutboxRuntimeTests
             outbox.Snapshot.LastPumpFault?.Code.Value == "outbox-acknowledgement-pending");
 
         time.Advance(TimeSpan.FromSeconds(1));
-        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.Counts.Completed == 1);
+        // Waits for the health to be refreshed, not only for the count. The pump publishes the
+        // completed count and then clears its fault in a second snapshot; asserting the moment the
+        // count moved read between the two about once in fifteen runs, and on 2026-09-20 that
+        // failed the trunk's test job and skipped a whole Windows verification for nothing.
+        await RuntimeTestTasks.UntilAsync(() =>
+            outbox.Snapshot.Counts.Completed == 1 && outbox.Snapshot.LastPumpFault is null);
 
         Assert.Null(outbox.Snapshot.LastPumpFault);
         Assert.Equal(0, outbox.Snapshot.ConsecutivePumpFaults);
@@ -616,6 +621,15 @@ public sealed class RaidHistoryOutboxRuntimeTests
 
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
+
+        public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
 
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
             Guid raidId,

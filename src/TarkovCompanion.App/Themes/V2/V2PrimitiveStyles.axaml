@@ -334,6 +334,22 @@
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
   </Style>
+
+  <!-- [#292/#315] "Focus always visible" (Setup > Accessibility): Fluent's own :focus-visible
+       never draws a ring after a pointer click, which is right for most players and wrong for
+       somebody tracking focus visually across mouse and keyboard both. There is no class on the
+       control itself to key a selector on, so V2AppearanceApplier puts one on the window instead,
+       the same way it already does for reduced motion. These rules key on :focus, which Fluent
+       sets regardless of input method, rather than :focus-visible. -->
+  <Style Selector="Window.v2-focus-always TextBox.v2-field-input:focus /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
+  </Style>
+  <Style Selector="Window.v2-focus-always Button.v2-target:focus /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
+  </Style>
+
   <Style Selector="Expander.v2-why">
     <Setter Property="HorizontalAlignment" Value="Stretch" />
   </Style>
