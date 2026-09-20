@@ -183,8 +183,12 @@ public sealed class MapSceneRendererParityTests
 
         var camera = Assert.Single(published).Camera!.Value;
         Assert.Equal(90, camera.BearingDegrees);
-        Assert.Equal(1, camera.Zoom);
-        Assert.Equal(50, camera.CenterX);
+        // [Issue 551] Fitted the way round it now lies: this plan is drawn 1000 wide and 700 tall,
+        // so a quarter turn stands it 1000 tall in a 700 card, and the whole of it is 0.7 out.
+        // It used to be zoom one whatever the bearing, which cropped this one and left a tall
+        // map lying along a wide card half its size.
+        Assert.Equal(0.7, camera.Zoom, 6);
+        Assert.Equal(50, camera.CenterX, 6);
     }
 
     [Fact]

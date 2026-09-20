@@ -38,6 +38,7 @@ public sealed class MapPanGestureTests
             var wheelAt = new Point((plan.Bounds.Width / 2) + 90, (plan.Bounds.Height / 2) - 60);
             // (Measured over the last notch. On the first ones the whole plan is still narrower
             // than the card on one axis, and the clamp keeps it centred there by design.)
+            var fitted = renderer.Scene.View.Camera.Zoom;
             var underWheel = default(MapScenePoint);
             for (var notch = 0; notch < 6; notch++)
             {
@@ -46,7 +47,7 @@ public sealed class MapPanGestureTests
                 Dispatcher.UIThread.RunJobs();
             }
 
-            Assert.True(renderer.Scene.View.Camera.Zoom > 3, $"the wheel did not zoom: {renderer.Scene.View.Camera.Zoom}");
+            Assert.True(renderer.Scene.View.Camera.Zoom > fitted * 3, $"the wheel did not zoom: {renderer.Scene.View.Camera.Zoom}");
             Assert.True(renderer.TryScenePointAt(wheelAt.X, wheelAt.Y, out var stillUnderWheel));
             Assert.Equal(underWheel.X, stillUnderWheel.X, 3);
             Assert.Equal(underWheel.Y, stillUnderWheel.Y, 3);
