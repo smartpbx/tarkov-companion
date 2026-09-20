@@ -165,14 +165,35 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// A command file that stays unreadable for this many polls (about five seconds) is rejected
+    /// rather than retried for ever.
+    /// </summary>
+    private const int UnreadableAttempts = 50;
+
+    private const string CommandSuffix = ".command.json";
+
+    private readonly Dictionary<string, int> unreadableAttempts = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DiagnosticResponse> unwritten = new(StringComparer.Ordinal);
+    private readonly HashSet<string> answered = new(StringComparer.Ordinal);
+
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            foreach (var commandPath in Directory.EnumerateFiles(commandDirectory, "*.command.json")
-                         .Order(StringComparer.Ordinal))
+            try
             {
-                await ProcessFileAsync(commandPath, cancellationToken).ConfigureAwait(false);
+                foreach (var commandPath in Directory.EnumerateFiles(commandDirectory, "*" + CommandSuffix)
+                             .Order(StringComparer.Ordinal))
+                {
+                    await ProcessFileAsync(commandPath, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // One file the machine will not let go of must not end the channel: this loop is the
+                // only reader, so a faulted task here reads from outside as every later command
+                // timing out. Whatever was left undone is picked up again on the next poll.
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken).ConfigureAwait(false);
@@ -181,40 +202,124 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
 
     private async Task ProcessFileAsync(string commandPath, CancellationToken cancellationToken)
     {
-        DiagnosticResponse response;
-        string responseName;
+        // The caller matches a response to its command by the id in the file's name, so a rejection
+        // has to be named that way too. GetFileNameWithoutExtension would leave ".command" in it
+        // and the caller would wait for a response that was never going to appear.
+        var fileId = Path.GetFileName(commandPath)[..^CommandSuffix.Length];
+        if (answered.Contains(commandPath))
+        {
+            // Answered on an earlier poll; only the cleanup failed. Do not run the command again:
+            // a scan writes a row, and running it twice would be a second row.
+            if (DeleteQuietly(commandPath))
+            {
+                answered.Remove(commandPath);
+            }
+
+            return;
+        }
+
+        // A command runs once. Its response is kept until it has been written, so a response that
+        // will not write yet is retried on the next poll instead of running the command again.
+        if (!unwritten.TryGetValue(commandPath, out var response))
+        {
+            var command = await ReadCommandAsync(commandPath, fileId, cancellationToken).ConfigureAwait(false);
+            if (command.Rejection is null && command.Command is null)
+            {
+                return;
+            }
+
+            response = command.Rejection ?? await processor
+                .ProcessAsync(command.Command!, DateTimeOffset.UtcNow, cancellationToken)
+                .ConfigureAwait(false);
+            unwritten[commandPath] = response;
+        }
+
+        await WriteResponseAsync(response, cancellationToken).ConfigureAwait(false);
+        unwritten.Remove(commandPath);
+        if (!DeleteQuietly(commandPath))
+        {
+            answered.Add(commandPath);
+        }
+    }
+
+    /// <summary>
+    /// Reads a command file. Neither member set means "not readable yet, ask again next poll".
+    /// </summary>
+    private async Task<(DiagnosticCommand? Command, DiagnosticResponse? Rejection)> ReadCommandAsync(
+        string commandPath,
+        string fileId,
+        CancellationToken cancellationToken)
+    {
         try
         {
             await using var stream = File.OpenRead(commandPath);
             var command = await JsonSerializer.DeserializeAsync<DiagnosticCommand>(stream, SerializerOptions, cancellationToken)
                 .ConfigureAwait(false)
                 ?? throw new JsonException("The diagnostic command was empty.");
-            response = await processor
-                .ProcessAsync(command, DateTimeOffset.UtcNow, cancellationToken)
-                .ConfigureAwait(false);
-            responseName = $"{response.Id}.response.json";
+            unreadableAttempts.Remove(commandPath);
+            return (command, null);
         }
-        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
+        catch (JsonException)
         {
-            response = new(
-                Path.GetFileNameWithoutExtension(commandPath),
-                false,
-                "rejected",
-                null,
-                DateTimeOffset.UtcNow,
-                "invalid-command-file");
-            responseName = $"{Path.GetFileNameWithoutExtension(commandPath)}.response.json";
+            unreadableAttempts.Remove(commandPath);
+            return (null, Rejected(fileId));
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A file that has only just been renamed into place can be held for a moment by whatever
+            // scans new files (antivirus, the indexer). That is not a rejection: wait a poll and read
+            // it again, and reject only a file that stays unreadable.
+            var attempts = unreadableAttempts.GetValueOrDefault(commandPath) + 1;
+            if (attempts < UnreadableAttempts)
+            {
+                unreadableAttempts[commandPath] = attempts;
+                return (null, null);
+            }
 
-        var responsePath = Path.Combine(responseDirectory, responseName);
+            unreadableAttempts.Remove(commandPath);
+            return (null, Rejected(fileId));
+        }
+    }
+
+    private static DiagnosticResponse Rejected(string id) =>
+        new(id, false, "rejected", null, DateTimeOffset.UtcNow, "invalid-command-file");
+
+    private async Task WriteResponseAsync(DiagnosticResponse response, CancellationToken cancellationToken)
+    {
+        var responsePath = Path.Combine(responseDirectory, $"{response.Id}.response.json");
         var temporaryPath = responsePath + ".tmp";
-        await using (var output = File.Create(temporaryPath))
+        for (var attempt = 1; ; attempt++)
         {
-            await JsonSerializer.SerializeAsync(output, response, SerializerOptions, cancellationToken)
-                .ConfigureAwait(false);
-        }
+            try
+            {
+                await using (var output = File.Create(temporaryPath))
+                {
+                    await JsonSerializer.SerializeAsync(output, response, SerializerOptions, cancellationToken)
+                        .ConfigureAwait(false);
+                }
 
-        File.Move(temporaryPath, responsePath, true);
-        File.Delete(commandPath);
+                File.Move(temporaryPath, responsePath, true);
+                return;
+            }
+            catch (Exception exception) when (attempt < 20 && exception is IOException or UnauthorizedAccessException)
+            {
+                // The same brief hold, on the file being handed back to the caller.
+                await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool DeleteQuietly(string path)
+    {
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Left in place; the caller remembers it is answered, so the next poll only retries this.
+            return false;
+        }
     }
 }

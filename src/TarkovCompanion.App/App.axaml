@@ -3,11 +3,13 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     RequestedThemeVariant="Dark">
-  <!-- The theme variant is pinned to Dark rather than following the desktop. The window has
-       always painted itself dark, but every control the theme draws on its own, which is the
-       buttons, the combo box popups, the text box placeholders, the tooltips and the scroll
-       bars, took its colours from the desktop's variant. On a light desktop that put light
-       grey placeholder text on a near-black box and made an unstyled button all but invisible.
+  <!-- Dark is the variant the application starts in and the one it keeps unless somebody chooses
+       otherwise: every control the theme draws on its own, which is the buttons, the combo box
+       popups, the text box placeholders, the tooltips and the scroll bars, took its colours from
+       the desktop's variant, and on a light desktop that put light grey placeholder text on a
+       near-black box and made an unstyled button all but invisible. It is a default rather than a
+       pin — V2AppearanceApplier (#266/#315) replaces it at startup with the stored choice, which
+       is how light, high contrast and the colour-vision palettes became reachable at all.
 
        All styling lives in Themes/InstrumentStyles.axaml, included once here so that it
        applies to every window and every view. -->
@@ -26,10 +28,14 @@
     <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2PrimitiveStyles.axaml" />
     <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2WorkspaceStyles.axaml" />
     <Style Selector="Window">
-      <Setter Property="Background" Value="#11151B" />
-      <Setter Property="Foreground" Value="#C6D0D8" />
+      <!-- The canvas and text roles rather than two literals, so a window in the light or
+           high-contrast variant is not a dark frame around a light shell. -->
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
       <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter" />
-      <Setter Property="FontSize" Value="14" />
+      <!-- A resource, not a literal, so the text-scale preference reaches every
+           control that has no size class of its own. -->
+      <Setter Property="FontSize" Value="{DynamicResource Instrument.Type.Body.Size}" />
     </Style>
   </Application.Styles>
 </Application>

@@ -1,5 +1,8 @@
 using Microsoft.Data.Sqlite;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Infrastructure.Persistence;
+using TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 namespace TarkovCompanion.IntegrationTests;
 
@@ -43,7 +46,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(13, first.Applied.Count);
+            Assert.Equal(14, first.Applied.Count);
             Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -143,6 +146,7 @@ public sealed class SqliteMigrationTests
                     "0011_v2_data_platform",
                     "0012_task_wiki_link",
                     "0013_task_objective_task_scoped_keys",
+                    "0014_quest_progress_game_log_actor",
                 ],
                 applied.Applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
@@ -191,6 +195,125 @@ public sealed class SqliteMigrationTests
             Assert.Equal("InProgress:2", await verifyCommand.ExecuteScalarAsync());
             verifyCommand.CommandText = "SELECT COUNT(*) FROM quest_progress_journal WHERE actor = 'SystemMigration';";
             Assert.Equal(2L, await verifyCommand.ExecuteScalarAsync());
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+            File.Delete(databasePath + "-shm");
+            File.Delete(databasePath + "-wal");
+        }
+    }
+
+    [Fact]
+    public async Task GameLogActorWritesSucceedAfterUpgradingPast0005()
+    {
+        // Clayton's install was created when 0005's CHECK still omitted GameLog. A fresh schema
+        // would hide that: this builds a real 0005-era journal, proves GameLog is refused, migrates
+        // forward, and only then asks the store to write one.
+        var databasePath = Path.Combine(Path.GetTempPath(), $"tarkov-companion-gamelog-{Guid.NewGuid():N}.db");
+        try
+        {
+            var factory = new SqliteConnectionFactory(new(databasePath));
+            await using (var connection = await factory.OpenAsync(CancellationToken.None))
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE schema_migrations (
+                        version TEXT PRIMARY KEY,
+                        applied_utc TEXT NOT NULL
+                    );
+                    """;
+                await command.ExecuteNonQueryAsync();
+
+                foreach (var entry in SqliteMigrationLedger.Entries.Take(5))
+                {
+                    command.CommandText = SqliteMigrationRunner.ReadFixture(entry.Id).UpgradeSql;
+                    await command.ExecuteNonQueryAsync();
+                    command.CommandText =
+                        "INSERT INTO schema_migrations(version, applied_utc) VALUES ($id, '2026-09-10T00:00:00Z');";
+                    command.Parameters.Clear();
+                    command.Parameters.AddWithValue("$id", entry.Id);
+                    await command.ExecuteNonQueryAsync();
+                    command.Parameters.Clear();
+                }
+
+                Assert.Equal("0005_local_quest_progress", SqliteMigrationLedger.Entries[4].Id);
+
+                command.CommandText = """
+                    INSERT INTO quest_progress_profiles(
+                        profile_id, game_mode, generation, display_name, created_utc, modified_utc, revision)
+                    VALUES (
+                        '11111111-1111-4111-8111-111111111111', 'Regular', 'wipe', 'Upgrade profile',
+                        '2026-09-10T00:00:00Z', '2026-09-10T00:00:00Z', 1);
+                    INSERT INTO quest_progress_journal(
+                        profile_id, game_mode, generation, correlation_id, entity_kind, entity_id,
+                        field_name, previous_value_json, new_value_json, inverse_value_json,
+                        actor, assertion_source, revision, recorded_utc)
+                    VALUES (
+                        '11111111-1111-4111-8111-111111111111', 'Regular', 'wipe',
+                        '22222222-2222-4222-8222-222222222222', 'Task', 'kept-task', 'state',
+                        'null', json_object('state', 'Active'), 'null',
+                        'User', 'Manual', 1, '2026-09-10T00:00:00Z');
+                    """;
+                await command.ExecuteNonQueryAsync();
+
+                command.CommandText = """
+                    INSERT INTO quest_progress_journal(
+                        profile_id, game_mode, generation, correlation_id, entity_kind, entity_id,
+                        field_name, previous_value_json, new_value_json, inverse_value_json,
+                        actor, assertion_source, revision, recorded_utc)
+                    VALUES (
+                        '11111111-1111-4111-8111-111111111111', 'Regular', 'wipe',
+                        '33333333-3333-4333-8333-333333333333', 'Task', 'refused-task', 'state',
+                        'null', json_object('state', 'Active'), 'null',
+                        'GameLog', 'GameLog', 2, '2026-09-10T00:00:00Z');
+                    """;
+                var refused = await Assert.ThrowsAsync<SqliteException>(() => command.ExecuteNonQueryAsync());
+                Assert.Contains("CHECK constraint failed", refused.Message, StringComparison.Ordinal);
+            }
+
+            var applied = await new SqliteMigrationRunner(factory).ApplyAsync(CancellationToken.None);
+            Assert.Contains("0014_quest_progress_game_log_actor", applied.Applied);
+
+            await using (var connection = await factory.OpenAsync(CancellationToken.None))
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = """
+                    SELECT COUNT(*) FROM quest_progress_journal
+                    WHERE entity_id = 'kept-task' AND actor = 'User';
+                    """;
+                Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+                command.CommandText =
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'quest_progress_journal';";
+                var schema = Assert.IsType<string>(await command.ExecuteScalarAsync());
+                Assert.Contains("GameLog", schema, StringComparison.Ordinal);
+            }
+
+            var scope = new QuestProfileScope(
+                Guid.Parse("11111111-1111-4111-8111-111111111111"),
+                GameMode.Regular,
+                "wipe");
+            var store = new SqliteQuestProgressStore(factory);
+            var result = await store.ApplyAsync(
+                new SetTaskStateMutation(
+                    scope,
+                    "Upgrade profile",
+                    "log-task",
+                    RecordedTaskState.Active,
+                    QuestProgressActor.GameLog,
+                    QuestProgressSources.GameLog,
+                    Guid.Parse("44444444-4444-4444-8444-444444444444"),
+                    DateTimeOffset.Parse("2026-09-10T12:00:00Z")),
+                CancellationToken.None);
+
+            Assert.True(result.Changed);
+            var journal = await store.GetJournalAsync(scope, CancellationToken.None);
+            Assert.Contains(journal, change =>
+                change.EntityId == "log-task" && change.Actor == QuestProgressActor.GameLog);
+            Assert.Contains(journal, change =>
+                change.EntityId == "kept-task" && change.Actor == QuestProgressActor.User);
         }
         finally
         {

@@ -1,0 +1,49 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupInfoPageView"
+             x:DataType="vm:SetupInfoPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <UserControl.Styles>
+    <Style Selector="Border.v2-disclosure">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="14,10" />
+    </Style>
+  </UserControl.Styles>
+  <!-- [#292] A layered page: each item is a headline and a one-line summary that are always there, and
+       a short paragraph that opens on demand. A deep link opens the page at one item, expanded. -->
+  <StackPanel Classes="v2-stack">
+    <TextBlock Classes="v2-body" Text="{Binding Title}" FontWeight="SemiBold" />
+    <ItemsControl ItemsSource="{Binding Items}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:SetupDisclosureItemViewModel">
+          <Border Classes="v2-disclosure" AutomationProperties.AutomationId="{Binding AutomationId}">
+            <StackPanel Spacing="4">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Grid.Column="0" Spacing="2">
+                  <TextBlock Classes="v2-body" Text="{Binding Title}" FontWeight="SemiBold" />
+                  <TextBlock Classes="v2-label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <Button Grid.Column="1" Classes="v2-target" VerticalAlignment="Top"
+                        AutomationProperties.AutomationId="v2-setup-disclosure-toggle"
+                        Content="{Binding ToggleLabel}" Command="{Binding ToggleCommand}" />
+              </Grid>
+              <ItemsControl ItemsSource="{Binding Facts}" IsVisible="{Binding HasFacts}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String"><TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" /></DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                         IsVisible="{Binding IsExpanded}" Margin="0,4,0,0" />
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>

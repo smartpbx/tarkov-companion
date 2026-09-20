@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -116,6 +117,12 @@ static byte[]? OwnerRecoverySecret()
 builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
+    // [#317, RISK-EXTERNAL-DATA-BOUNDS / SER-RELAY-CATALOG-UNBOUNDED] A ceiling as well as a
+    // clock. GetByteArrayAsync buffers whatever arrives, so a compromised or merely broken
+    // upstream could hand this relay a body limited only by how fast it could send it for
+    // thirty seconds. The desktop's own reader has had the same 32 MB ceiling for a while
+    // (TarkovDevJsonClientOptions.MaximumResponseBytes); the real catalog is about half of it.
+    client.MaxResponseContentBufferSize = 32L * 1024 * 1024;
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
 });
 builder.Services.AddSingleton<CatalogMirror>();
@@ -124,6 +131,9 @@ builder.Services.AddSingleton<CatalogMirror>();
 builder.Services.AddHttpClient(Landmarks.HttpClientName, client =>
 {
     client.Timeout = TimeSpan.FromSeconds(20);
+    // [#317, RISK-EXTERNAL-DATA-BOUNDS / SER-RELAY-LANDMARKS-UNBOUNDED] Places are a few hundred
+    // points per map; 8 MB is two orders of magnitude of headroom and still a ceiling.
+    client.MaxResponseContentBufferSize = 8L * 1024 * 1024;
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
 });
 builder.Services.AddSingleton<Landmarks>();
@@ -169,6 +179,9 @@ var marks = app.Services.GetRequiredService<GroupMarks>();
 // v2r-fast-positions (package 31).
 var roomChanges = app.Services.GetRequiredService<GroupRoomChanges>();
 var registry = app.Services.GetRequiredService<GroupRoomRegistry>();
+var timeProvider = app.Services.GetRequiredService<TimeProvider>();
+// [#317] What a wrong key costs. See the middleware below.
+var attempts = new RelayAttemptLimiter(timeProvider);
 var relayOwnerRecoveryConfigured = OwnerRecoverySecret() is not null;
 app.MapRelayCompanionRoutes(
     app.Services.GetRequiredService<RelayDeviceRegistry>(),
@@ -196,15 +209,88 @@ app.Use(async (context, next) =>
     TryReadKey(context.Request, out var key);
     if (RelayAccess.Refuses(registry, context.Request.Path.Value, key))
     {
-        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        // [#317] Two different refusals, said differently. "Not one of them" is an operator
+        // decision; "could not be read" is a fault the operator has to go and fix, and reading
+        // the first when the second is true has somebody looking for the wrong problem.
+        context.Response.StatusCode = registry.IsUnreadable
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status403Forbidden;
         await context.Response.WriteAsJsonAsync(new
         {
-            error = "This relay serves the rooms its operator registered, and this is not one of them.",
+            error = registry.IsUnreadable
+                ? "This relay cannot read the list of rooms its operator registered, so it is serving none of them."
+                : "This relay serves the rooms its operator registered, and this is not one of them.",
         }).ConfigureAwait(false);
         return;
     }
 
     await next(context).ConfigureAwait(false);
+});
+
+// [#317] What it costs to guess a key.
+//
+// Both keys were compared carefully and guessed freely: RISK-RELAY-KEY-BRUTEFORCE and
+// RISK-ADMIN-KEY-BRUTEFORCE. Nothing counted a wrong one, so a relay on a public name answered
+// guesses as fast as it could be asked. This counts the answers rather than the requests: a
+// route that checked a key and said 401 or 403 is a failed attempt, anything else clears the
+// caller's record, and a route with no key to check is not this decision's business.
+//
+// Placed after the room decision above so its 403 counts too, and before the handlers so the
+// penalty is paid whatever they do.
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value;
+    var checksAKey = RelayAccess.IsGroupPath(path) || RelayAccess.IsAdminPath(path);
+    if (!checksAKey)
+    {
+        await next(context).ConfigureAwait(false);
+        return;
+    }
+
+    var caller = RelayAttemptLimiter.CallerOf(context.Connection.RemoteIpAddress);
+    if (attempts.IsRefused(caller, out var until))
+    {
+        context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.Response.Headers.RetryAfter =
+            Math.Max(1, (int)Math.Ceiling((until - timeProvider.GetUtcNow()).TotalSeconds))
+                .ToString(CultureInfo.InvariantCulture);
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "Too many keys have been refused from here recently. Try again shortly.",
+        }).ConfigureAwait(false);
+        return;
+    }
+
+    if (attempts.DelayFor(caller) is { Ticks: > 0 } delay)
+    {
+        try
+        {
+            await Task.Delay(delay, context.RequestAborted).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Hanging up during the penalty is allowed and is not an error worth logging. It is
+            // also not an escape: the caller's record is untouched, so the next attempt from that
+            // address waits just as long.
+            return;
+        }
+    }
+
+    await next(context).ConfigureAwait(false);
+
+    // Three outcomes, and only two of them are this limiter's business. A refusal is a wrong
+    // key. A 2xx is a right one, and clears the penalty so a group that mispasted once is not
+    // carrying it into the evening. Anything else — a 400, a 503 from the room registry above —
+    // says nothing about whether the caller knows a key, so it neither counts nor clears.
+    var status = context.Response.StatusCode;
+    if (status is 401 or 403)
+    {
+        attempts.Record(caller, authorised: false);
+    }
+    else if (status is >= 200 and < 300)
+    {
+        attempts.Record(caller, authorised: true);
+    }
 });
 
 // Members expired only when their room was read, so a room nobody reads never forgot
@@ -832,6 +918,7 @@ app.MapGet("/admin/rooms", Results<Ok<AdminRoomsView>, UnauthorizedHttpResult> (
 
     return TypedResults.Ok(new AdminRoomsView(
         registry.IsClosed,
+        registry.IsUnreadable,
         version,
         commit,
         startedUtc,

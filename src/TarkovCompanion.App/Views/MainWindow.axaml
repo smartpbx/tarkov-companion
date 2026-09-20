@@ -19,7 +19,7 @@
     Height="900"
     MinWidth="1120"
     MinHeight="720"
-    Background="#11151B">
+    Background="{DynamicResource V2.Brush.Canvas}">
   <Window.DataTemplates>
     <!-- V2 Raid cockpit (package 2) -->
     <DataTemplate DataType="{x:Type raidCockpitVm:RaidCockpitViewModel}">

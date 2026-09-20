@@ -45,6 +45,33 @@ public sealed class IconPixelMatchingTests : IDisposable
     }
 
     [Fact]
+    public void MaskingTheGamesWritingIgnoresWhatIsDrawnInTheCaptionAndBadgeBands()
+    {
+        // The variant the real-screenshot study measures. It is not what the builder uses: on
+        // real pixels it lifts a dark item's true score from 0.4 to 0.9 and starts naming wrong
+        // items, because a caption is sometimes all that tells two icons apart.
+        var icon = Icon(seed: 1);
+        var written = icon.Pixels.ToArray();
+        for (var y = 2; y < 12; y++)
+        {
+            for (var x = 20; x < 62; x++)
+            {
+                written[(((y * icon.Width) + x) * 4) + 1] = 255;
+                written[((((icon.Height - 1 - y) * icon.Width) + x) * 4) + 1] = 255;
+            }
+        }
+
+        var overwritten = new CapturedImage(written, icon.Width, icon.Height, icon.Stride, icon.Format, Now, "written");
+
+        var whole = IconPixelDescriptor.Create(icon, 1, 1)!.Correlate(IconPixelDescriptor.Create(overwritten, 1, 1)!);
+        var masked = IconPixelDescriptor.Create(icon, 1, 1, maskGameWriting: true)!
+            .Correlate(IconPixelDescriptor.Create(overwritten, 1, 1, maskGameWriting: true)!);
+
+        Assert.True(whole < 0.9, $"whole-icon correlation {whole:0.000}");
+        Assert.Equal(1, masked, 3);
+    }
+
+    [Fact]
     public void AFlatPictureHasNoDescriptorRatherThanMatchingEverything()
     {
         var flat = new CapturedImage(Enumerable.Repeat((byte)40, 64 * 64 * 4).ToArray(), 64, 64, 256, PixelFormat.Bgra8888, Now, "flat");

@@ -404,7 +404,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     {
         // The game writes the player's own position and heading into the screenshot filename.
         // That file is created by the game at the player's request; nothing is captured here.
-        var offset = TimeZoneInfo.Local.GetUtcOffset(_timeProvider.GetUtcNow());
+        var offset = LocalTime.Zone.GetUtcOffset(_timeProvider.GetUtcNow());
         var currentRoot = screenshotRoot;
         while (!cancellationToken.IsCancellationRequested)
         {

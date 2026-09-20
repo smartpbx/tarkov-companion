@@ -14,6 +14,7 @@ using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Stash;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.StashScan;
 
@@ -440,7 +441,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public string RecordedLabel => _selected is null
         ? string.Empty
-        : _selected.RecordedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+        : LocalTime.Moment(_selected.RecordedUtc);
 
     public string AmmoCountLabel => $"{AmmoSummary.Count.ToString(CultureInfo.CurrentCulture)} calibres";
 
@@ -696,7 +697,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             Snapshots = summaries
                 .Select(summary => new StashSnapshotRowViewModel(
                     summary.SnapshotId,
-                    summary.RecordedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                    LocalTime.Moment(summary.RecordedUtc),
                     summary.IsCurrent,
                     summary.Coverage.Description ?? "Coverage not described",
                     summary.Status.Completeness.ToString())
@@ -897,7 +898,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             .Select(command => new StashReviewCommandRowViewModel(
                 command.Action.ToString(),
                 string.Join(", ", command.TargetItemKeys),
-                command.CreatedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                LocalTime.Moment(command.CreatedUtc),
                 command.Reason))
             .ToArray();
 

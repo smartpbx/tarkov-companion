@@ -178,10 +178,15 @@ async function refresh() {
     ? `${view.version} · ${view.commit.slice(0, 7)} · up since ${new Date(view.startedUtc).toLocaleString()}`
     : `${view.version} · up since ${new Date(view.startedUtc).toLocaleString()}`;
 
-  $("access").textContent = view.closed
-    ? `Closed. Only the ${view.registered.length} rooms below may be used.`
-    : "Open. Any key makes a room. Register one to close it.";
-  $("access").className = view.closed ? "good" : "quiet";
+  // [#317] Three states, not two. "Could not be read" used to look exactly like "empty", which
+  // meant open; it now refuses every room, and an operator reading "closed, no rooms" with no
+  // explanation would go looking at keys instead of at the file.
+  $("access").textContent = view.unreadable
+    ? "The room list could not be read, so no room is being served. Restore or delete rooms.json, or register a room below to rewrite it."
+    : view.closed
+      ? `Closed. Only the ${view.registered.length} rooms below may be used.`
+      : "Open. Any key makes a room. Register one to close it.";
+  $("access").className = view.unreadable ? "bad" : view.closed ? "good" : "quiet";
 
   const registered = $("registered");
   registered.replaceChildren();

@@ -89,7 +89,8 @@ The bill is dominated by re-reading context, not by writing code. So:
 - Keep `TarkovCompanion.Core` free of Avalonia, Windows, SQLite, HTTP, OCR-native, capture, and filesystem-watcher dependencies.
 - Put orchestration in Application, external I/O in Infrastructure, Windows P/Invoke in Platform.Windows, and presentation in App.
 - Prefer small domain-specific interfaces over generic repositories.
-- Use UTC timestamps for persistence and reports.
+- Use UTC timestamps for persistence, the protocol, and logs. Show every user-visible absolute time
+  through `LocalTime` (`TarkovCompanion.Core.Common`), never `ToLocalTime`, `:u`, or a "UTC" label.
 - Propagate cancellation for I/O and bounded background work.
 - Treat external JSON as untrusted: tolerate unknown fields and fail clearly for missing required fields.
 - Do not persist captured screen images unless Debug Capture is explicitly enabled.

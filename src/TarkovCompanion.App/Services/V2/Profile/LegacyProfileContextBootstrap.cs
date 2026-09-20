@@ -28,7 +28,10 @@ public sealed class LegacyProfileContextBootstrap(
     // Optional so every test that builds this by hand keeps compiling; the desktop composition
     // always supplies the real coordinator.
     ApplicationStartupCoordinator? startupCoordinator = null,
-    ILogger<LegacyProfileContextBootstrap>? logger = null)
+    ILogger<LegacyProfileContextBootstrap>? logger = null,
+    // #269: once the workspace is known to be readable, load the runtime context from it, so the
+    // profile list and the catalog scope have an active profile on every launch and not only the first.
+    IProfileRuntimeContextService? runtimeContext = null)
 {
     private readonly ILogger<LegacyProfileContextBootstrap> _logger = logger ?? NullLogger<LegacyProfileContextBootstrap>.Instance;
 
@@ -48,6 +51,11 @@ public sealed class LegacyProfileContextBootstrap(
             var workspace = await profiles.GetAsync(cancellationToken).ConfigureAwait(false);
             if (workspace.Profiles.Count > 0)
             {
+                if (runtimeContext is not null)
+                {
+                    await runtimeContext.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                }
+
                 return;
             }
 
@@ -66,6 +74,10 @@ public sealed class LegacyProfileContextBootstrap(
                     new CreateProfileRequest(record.Context, record.Name, record.Progress),
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (runtimeContext is not null)
+            {
+                await runtimeContext.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
