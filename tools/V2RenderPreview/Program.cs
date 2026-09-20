@@ -189,16 +189,39 @@ internal static class Program
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
             appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
-            window.Show();
+            // [#453] --ui-stalls-before-show: start up with no window, so every long turn the meter
+            // reports is a view model holding the interface thread, not the first layout and paint.
+            var showAfterStartup = args.Contains("--ui-stalls-before-show");
+            if (!showAfterStartup)
+            {
+                window.Show();
+            }
+
             // [#294] Whether the V1 shell was built at all. It used to be built on every launch
             // and hidden, so "V2 is the default" was true of what was drawn and false of what was
             // constructed. Printed rather than asserted: this tool reports, the ratchet test in
             // MainWindowShellCompositionTests is what fails.
             Console.WriteLine($"V1 chrome: {(window.GetVisualDescendants().OfType<LegacyShellView>().Any() ? "built" : "not built")}");
-            DrainUntilComplete(viewModel.InitializeAsync());
+            // [#453] --ui-stalls <ms>: how long each dispatcher turn held the interface thread.
+            if (IntOption(args, "--ui-stalls", 0) is var stallMs and > 0)
+            {
+                UiStallMeter.Enable(stallMs);
+            }
+
+            Task? initializing = null;
+            UiStallMeter.Time(() => initializing = viewModel.InitializeAsync());
+            DrainUntilComplete(initializing!);
             if (seeding is not null)
             {
                 DrainUntilComplete(seeding);
+            }
+
+            UiStallMeter.Report("startup");
+            if (showAfterStartup)
+            {
+                window.Show();
+                Pump(20);
+                UiStallMeter.Report("first layout and paint");
             }
 
             // A fresh profile has no quest recorded as active, so the Plan page has nothing to
@@ -294,13 +317,15 @@ internal static class Program
 
             if (shell is not null && route is not null)
             {
-                var result = shell.Router.NavigateToAddress(route);
-                if (!result.Succeeded)
+                V2NavigationResult? result = null;
+                UiStallMeter.Time(() => result = shell.Router.NavigateToAddress(route));
+                if (!result!.Succeeded)
                 {
                     throw new ArgumentException($"The shell refused '{route}': {result.Failure}");
                 }
 
                 Pump(20);
+                UiStallMeter.Report($"navigate to {route}");
             }
 
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
@@ -1416,8 +1441,36 @@ internal static class Program
     {
         for (var i = 0; i < turns; i++)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(25);
+        }
+
+        Settle();
+    }
+
+    /// <summary>
+    /// Keeps pumping until the page has stopped reading, or ten seconds have gone.
+    /// </summary>
+    /// <remarks>
+    /// [#453] A fixed number of turns was enough while every database read ran inside the turn
+    /// that asked for it. Reads now happen on the pool and come back in later turns, and the first
+    /// render after that change photographed Keep saying "Loading the keep list…". Settled means
+    /// six turns in a row with no database call in flight, no workspace load unfinished, and
+    /// nothing for the dispatcher to do.
+    /// </remarks>
+    private static void Settle()
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var quiet = 0;
+        while (quiet < 6 && System.Diagnostics.Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+        {
+            var turn = System.Diagnostics.Stopwatch.GetTimestamp();
+            UiStallMeter.RunJobs();
+            var idle = System.Diagnostics.Stopwatch.GetElapsedTime(turn) < TimeSpan.FromMilliseconds(2)
+                && TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory.OpenConnectionCount == 0
+                && !UiActivity.IsLoading;
+            quiet = idle ? quiet + 1 : 0;
+            Thread.Sleep(10);
         }
     }
 
@@ -1425,7 +1478,7 @@ internal static class Program
     {
         while (!task.IsCompleted)
         {
-            Dispatcher.UIThread.RunJobs();
+            UiStallMeter.RunJobs();
             Thread.Sleep(5);
         }
 

@@ -3204,6 +3204,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// </remarks>
     internal static async Task<string?> LoadSurfaceAsync(string surface, Func<Task> load, ILogger logger)
     {
+        UiActivity.LoadStarted("startup/" + surface);
+        UiActivity.Step("startup/" + surface);
         try
         {
             await load().ConfigureAwait(true);
@@ -3216,6 +3218,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 "Startup of the {Surface} page failed. The rest of the application continues; that page is empty until it is reloaded.",
                 surface);
             return surface;
+        }
+        finally
+        {
+            UiActivity.LoadFinished("startup/" + surface);
+            UiActivity.Step("startup/" + surface + ":done");
         }
     }
 
