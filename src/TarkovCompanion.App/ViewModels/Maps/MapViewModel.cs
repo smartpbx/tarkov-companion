@@ -1374,6 +1374,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         tile => ReleaseLater([tile.Image]));
 
     private sealed record DecodedTile(string LocalPath, Bitmap Image, bool HasArtwork, bool Offline);
+
+    /// <summary>The tile keys of the newest load, which the decoded-tile cache must not evict.</summary>
+    private volatile IReadOnlySet<string> _tilesOnScreen = new HashSet<string>(StringComparer.Ordinal);
     private IReadOnlyList<QuestMapPointViewModel> _questPoints = [];
     private IReadOnlyList<QuestMapRegionViewModel> _questRegions = [];
     private IReadOnlyList<QuestMapAssociationViewModel> _questAssociations = [];
@@ -3438,7 +3441,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var template = variant.TilePath!.AbsoluteUri;
         var underlayPlan = MapTileUnderlay.Plan(variant, zoom);
         var underlayPlacements = underlayPlan is null ? [] : MapTileUnderlay.Place(underlayPlan, plan);
-        var inUse = plan.Tiles.Select(tile => TileKey(template, tile))
+        // Named once per load and read from the field by every add, including the adds of a load
+        // that has been superseded and is still finishing its downloads. With its own set such a
+        // load protected the map that had just left the screen and could evict, and so dispose,
+        // tiles of the map that had just arrived on it.
+        _tilesOnScreen = plan.Tiles.Select(tile => TileKey(template, tile))
             .Concat(underlayPlacements.Select(placement => TileKey(template, placement.Tile)))
             .ToHashSet(StringComparer.Ordinal);
 
@@ -3471,7 +3478,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                             decoded,
                             HasArtwork(result.Asset.LocalPath),
                             result.Asset.Availability == MapAssetAvailability.CachedOffline),
-                        inUse);
+                        _tilesOnScreen);
                 }
                 finally
                 {
@@ -3541,6 +3548,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         await sharp.ConfigureAwait(true);
         await soft.ConfigureAwait(true);
+        // A superseded load whose last downloads were already past their cancellation points
+        // finishes normally, and would put its map's tiles over the map that replaced it.
+        cancellationToken.ThrowIfCancellationRequested();
         PublishTiles(final: true);
 
         void PublishTiles(bool final)

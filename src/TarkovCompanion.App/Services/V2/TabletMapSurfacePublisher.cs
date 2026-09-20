@@ -66,6 +66,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private string? _artworkSha;
     private TabletMapArtworkBytes? _artwork;
     private object? _artworkSource;
+    private int _artworkWidth;
+    private int _artworkHeight;
     private bool _applyingRemoteView;
     private bool _disposed;
 
@@ -116,7 +118,14 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         try
         {
             var scene = renderer.Scene;
-            var artwork = ArtworkFor(renderer);
+            if (!TryArtworkFor(renderer, out var artwork))
+            {
+                // The picture was replaced between the renderer naming it and this reading it.
+                // The rebuild that replaced it has a newer scene and publishes that; a surface
+                // sent now would tell the tablet the map has no picture.
+                return;
+            }
+
             var name = string.IsNullOrWhiteSpace(_cockpit.SelectedMap?.Name)
                 ? scene.LocationId
                 : _cockpit.SelectedMap!.Name;
@@ -379,30 +388,44 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     /// every raid tick and PNG-encoding a multi-megapixel plan each time would be the most
     /// expensive thing this class does; the bitmap instance changing is what says it is a new one.
     /// </summary>
-    private (TabletMapArtwork Descriptor, TabletMapArtworkBytes Bytes)? ArtworkFor(MapSceneRendererViewModel renderer)
+    /// <remarks>
+    /// This runs on a pool thread and the encode takes a few hundred milliseconds, during which
+    /// the cockpit may replace the picture and free the old one. It did, on every launch of
+    /// 2.0.1278, and the process died inside Skia's PNG encoder with an access violation. The
+    /// bitmap is therefore touched only under a lease from the cockpit that made it, and its size
+    /// is remembered with its bytes so a picture already encoded is never touched again. False
+    /// when the picture has been replaced already and there is nothing safe to read.
+    /// </remarks>
+    private bool TryArtworkFor(
+        MapSceneRendererViewModel renderer,
+        out (TabletMapArtwork Descriptor, TabletMapArtworkBytes Bytes)? artwork)
     {
+        artwork = null;
         if (renderer.BackgroundImage is not Bitmap bitmap)
         {
-            return null;
+            return true;
         }
 
         if (!ReferenceEquals(_artworkSource, bitmap) || _artwork is null || _artworkSha is null)
         {
+            using var lease = _cockpit.TryReadPicture(bitmap);
+            if (lease is null)
+            {
+                return false;
+            }
+
             using var buffer = new MemoryStream();
             bitmap.Save(buffer, new PngBitmapEncoderOptions());
             var bytes = buffer.ToArray();
             _artworkSha = Convert.ToHexStringLower(SHA256.HashData(bytes));
             _artwork = new TabletMapArtworkBytes("image/png", _artworkSha, bytes);
+            _artworkWidth = (int)Math.Round(bitmap.Size.Width);
+            _artworkHeight = (int)Math.Round(bitmap.Size.Height);
             _artworkSource = bitmap;
         }
 
-        return (
-            new TabletMapArtwork(
-                "image/png",
-                _artworkSha,
-                (int)Math.Round(bitmap.Size.Width),
-                (int)Math.Round(bitmap.Size.Height)),
-            _artwork);
+        artwork = (new TabletMapArtwork("image/png", _artworkSha, _artworkWidth, _artworkHeight), _artwork);
+        return true;
     }
 
     private static double Quantize(double value) =>
