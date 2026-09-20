@@ -21,12 +21,12 @@ on:
       - main
     tags:
       - 'v*'
-  # Branch work is verified before it reaches the trunk, not after. A pull request gets the
-  # whole gauntlet - build, test, launch, photograph every page - and this workflow has no
-  # release-writing job or permission at all.
-  pull_request:
-    branches:
-      - main
+  # Not on pull requests. This run is the gate on what is PUBLISHED, not on what is merged:
+  # publish.yml accepts only a successful push-to-main run of this workflow, so a package that
+  # cannot open a window still never reaches anybody's machine. As a merge gate it cost fifteen
+  # to thirty minutes per push on every branch, and with `main` required to be current that was
+  # one full run per pull request per merge. To run it on a branch before merging, dispatch it:
+  #   gh workflow run windows-verify.yml --ref <branch>
 
 # One publish at a time per ref. Two main runs started four seconds apart once and
 # finished out of order, leaving the old rolling `dev` release on the older build. An

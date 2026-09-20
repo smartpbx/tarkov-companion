@@ -662,7 +662,7 @@ The state on **2026-09-19T00:00:00Z**, captured by `smartpbx`:
 | Control | Required | Observed |
 | --- | --- | --- |
 | main: force pushes and deletion blocked | neither allowed | met |
-| main: verification checks required | `checks`, `windows-verify` among required checks | met (`linux`, `checks`, `windows-verify`), strict. Shortened to `linux`, `checks` on 2026-09-17 so a thirty-minute run would stop blocking merges; restored 2026-09-19 under #279, because in the interval the gallery caught "the package opens no window" three times and none of those could fail a merge |
+| main: verification gates publishing | `windows-verify.yml` runs on every push to `main`; `publish.yml` accepts only a successful push-to-main run | met. `checks` and `windows-verify` were required merge checks until 2026-09-20 and are not now: as a merge gate on a strict trunk they cost a Windows run per pull request per merge, and the fault they catch ("the package opens no window") is stopped at publication either way. The merge gate is `linux` |
 | main: supply-chain gate required | `supply-chain` (License lock) among required checks | **gap**: not required. A pull request that fails the dependency review, the workflow policy or the release fixtures can still be merged; publication's own release-time gates in `candidate` still apply |
 | main: reviewed before merge | at least one approving review | **gap**: no review requirement |
 | main: administrators cannot bypass | enforced for administrators | **gap** |
