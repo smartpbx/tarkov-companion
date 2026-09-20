@@ -16,7 +16,15 @@ namespace TarkovCompanion.App;
 
 public sealed class App(IServiceProvider services) : Avalonia.Application
 {
-    private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(5);
+    /// <summary>
+    /// How long a startup that is still running is given to notice it has been cancelled.
+    /// </summary>
+    /// <remarks>
+    /// One second, down from five. The remark on <see cref="StopAsync"/> explains why more is
+    /// waste: these continuations are posted to a dispatcher that has already stopped, so five
+    /// seconds bought nothing and spent a third of the whole shutdown budget doing it.
+    /// </remarks>
+    private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(1);
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
     private MainWindowViewModel? _mainViewModel;
@@ -84,32 +92,41 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     }
 
     /// <summary>
-    /// Cancels startup work and waits a bounded time for it to unwind.
+    /// Cancels startup work and unwinds the interface, every step under its own deadline.
     /// </summary>
     /// <remarks>
     /// <see cref="MainWindowViewModel.InitializeAsync"/> runs on the UI thread and resumes on
     /// the Avalonia dispatcher. By the time shutdown runs the dispatcher has stopped, so those
     /// continuations can never complete and an unbounded await here would hang forever.
+    ///
+    /// That was true of the preview shell too, and it was not bounded. Closing the window raises
+    /// <c>Closing</c>, <c>MainWindow.RememberLayout</c> records the window's bounds, and that
+    /// enqueues a save — so the close creates the work that this method then waited on, through a
+    /// queue whose own drain awaits its writer with <see cref="CancellationToken.None"/>. One
+    /// slow file write on the way out and the process never reached its own exit.
+    ///
+    /// Now the drain the remark says can never complete gets a second rather than five, the
+    /// preview shell gets a deadline of its own, and what each step cost is in the log.
     /// </remarks>
-    public async Task StopAsync()
+    public async Task<string> StopAsync(TimeSpan budget)
     {
+        var stages = new ShutdownStages(budget);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_mainViewModel?.PreviewShell is { } preview)
         {
-            await preview.DisposeAsync().ConfigureAwait(false);
+            await stages
+                .RunAsync("preview-shell", () => preview.DisposeAsync().AsTask(), TimeSpan.FromSeconds(2))
+                .ConfigureAwait(false);
         }
 
         _mainViewModel?.Map.Dispose();
-        try
-        {
-            await _initialization.WaitAsync(InitializationDrainTimeout, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or TimeoutException)
-        {
-        }
-        finally
-        {
-            _stopping.Dispose();
-        }
+        // A second, not five. Cancellation has already been requested and these continuations are
+        // posted to a dispatcher that has stopped running them, so this is only long enough to
+        // collect work that had already left the interface thread.
+        await stages
+            .RunAsync("initialization-drain", () => _initialization, InitializationDrainTimeout)
+            .ConfigureAwait(false);
+        _stopping.Dispose();
+        return stages.Report();
     }
 }
