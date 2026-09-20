@@ -141,8 +141,10 @@ public sealed class LoadoutIntelligenceService
             return;
         }
 
+        // Through CaliberKey, not as the strings come: the PP-9 Klin's caliber is written
+        // differently from every round it fires, and was told it could use none of them.
         if (weapon.Caliber is not null && ammo.Caliber is not null &&
-            !StringComparer.OrdinalIgnoreCase.Equals(weapon.Caliber, ammo.Caliber))
+            !CaliberKey.Matches(weapon.Caliber, ammo.Caliber))
         {
             findings.Issue(
                 $"{ammo.Name} ({ammo.Caliber}) does not match {weapon.Name} ({weapon.Caliber}).",
@@ -170,7 +172,7 @@ public sealed class LoadoutIntelligenceService
 
             if (TryGet(selection.AmmunitionItemId, out var ammo) &&
                 magazine.Caliber is not null && ammo.Caliber is not null &&
-                !StringComparer.OrdinalIgnoreCase.Equals(magazine.Caliber, ammo.Caliber))
+                !CaliberKey.Matches(magazine.Caliber, ammo.Caliber))
             {
                 findings.Issue(
                     $"{magazine.Name} does not accept {ammo.Caliber} ammunition.",
