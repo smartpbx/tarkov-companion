@@ -157,7 +157,11 @@ public sealed class GroupSessionExchangeTests
 
         var elapsed = Stopwatch.GetElapsedTime(flooding);
         var exchanges = asked.Count - before;
-        var allowed = (int)Math.Ceiling(elapsed.TotalSeconds / GroupPublishing.Interval.TotalSeconds) + 1;
+        // One per interval, one for the interval the flood started in, and one for a back-off retry
+        // already scheduled when `before` was read. Without the last the bound was exact only on an
+        // idle machine: it failed at "3 exchanges in 1.6s exceeds 2" on a loaded CI runner and on the
+        // development host, which says nothing about hammering. 150 changes must still cost a handful.
+        var allowed = (int)Math.Ceiling(elapsed.TotalSeconds / GroupPublishing.Interval.TotalSeconds) + 2;
         Assert.True(exchanges <= allowed, $"{exchanges} exchanges in {elapsed.TotalSeconds:0.0}s exceeds {allowed}.");
     }
 
