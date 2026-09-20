@@ -388,6 +388,20 @@ internal static class Program
                     setupPage.Paths.ToggleCommand.Execute(null);
                 }
 
+                // [#292 task 2] Exercises the real reset-everything preview against whatever the
+                // seed database actually holds, rather than a static mock of the dialog. Changes
+                // the theme first so the preview has at least one real row to show.
+                if (args.Contains("--settings-reset-preview"))
+                {
+                    if (setupPage.Appearance is { } appearanceForReset)
+                    {
+                        appearanceForReset.Themes.Single(choice => choice.Id == "theme-light").ChooseCommand.Execute(null);
+                        Pump(10);
+                    }
+
+                    setupPage.SettingsAdmin?.ResetAllCommand.Execute(null);
+                }
+
                 if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
                     && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
                 {
