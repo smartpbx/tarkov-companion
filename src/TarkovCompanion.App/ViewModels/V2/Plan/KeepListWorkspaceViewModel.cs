@@ -17,6 +17,18 @@ public sealed record KeepListRowViewModel(
     IReadOnlyList<string> Reasons)
 {
     public string ReasonSummary => string.Join(", ", Reasons);
+
+    /// <summary>What the quests still open ask for in all, and how much of it must be found in raid; empty if no quest asks.</summary>
+    public string QuestCountLabel { get; init; } = string.Empty;
+
+    /// <summary>What the hideout levels not yet built ask for, against the whole build; empty if the hideout does not.</summary>
+    public string HideoutCountLabel { get; init; } = string.Empty;
+
+    public bool HasQuestCount => QuestCountLabel.Length > 0;
+
+    public bool HasHideoutCount => HideoutCountLabel.Length > 0;
+
+    public bool HasCounts => HasQuestCount || HasHideoutCount;
 }
 
 public sealed record KeepListGroupViewModel(string Label, IReadOnlyList<KeepListRowViewModel> Items)
@@ -130,7 +142,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
     private static KeepListRowViewModel ToRow(KeepEntry entry)
     {
         var reasons = new List<string>();
-        reasons.AddRange(entry.QuestNeeds.Select(need => $"{Count(need.Remaining)} for {need.TaskName}"));
+        reasons.AddRange(entry.QuestNeeds.Select(need => $"{Count(need.Remaining)} for {need.TaskName}{FoundInRaidSuffix(need)}"));
         reasons.AddRange(entry.HideoutNeeds.Select(need => $"{Count(need.Required)} for {need.StationName}"));
         if (entry.KeyReason is not null)
         {
@@ -142,7 +154,46 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             reasons.Add("high value");
         }
 
-        return new KeepListRowViewModel(entry.ItemId, entry.Name, entry.Item.Tier, entry.IsHighValue, reasons);
+        return new KeepListRowViewModel(entry.ItemId, entry.Name, entry.Item.Tier, entry.IsHighValue, reasons)
+        {
+            QuestCountLabel = QuestCount(entry),
+            HideoutCountLabel = HideoutCount(entry),
+        };
+    }
+
+    /// <summary>" (2 found in raid)", " (found in raid)" when all of it must be, or nothing when a purchase would do.</summary>
+    private static string FoundInRaidSuffix(KeepQuestNeed need) => need.FoundInRaid switch
+    {
+        <= 0 => string.Empty,
+        var found when found >= need.Remaining => " (found in raid)",
+        var found => $" ({Count(found)} found in raid)",
+    };
+
+    private static string QuestCount(KeepEntry entry)
+    {
+        if (entry.QuestNeeds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var found = entry.QuestFoundInRaid;
+        return found <= 0
+            ? $"Quests {Count(entry.QuestRemaining)}"
+            : found >= entry.QuestRemaining
+                ? $"Quests {Count(entry.QuestRemaining)} · all found in raid"
+                : $"Quests {Count(entry.QuestRemaining)} · {Count(found)} found in raid";
+    }
+
+    private static string HideoutCount(KeepEntry entry)
+    {
+        if (entry.HideoutNeeds.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return entry.HideoutTotalBuild > entry.HideoutRemaining
+            ? $"Hideout {Count(entry.HideoutRemaining)} of {Count(entry.HideoutTotalBuild)} for the full build"
+            : $"Hideout {Count(entry.HideoutRemaining)}";
     }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);

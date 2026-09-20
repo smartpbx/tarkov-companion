@@ -48,9 +48,10 @@ public static class KeepListPlanner
 
         var profile = inputs.Profile;
 
-        // Item -> task -> quantity still outstanding. Only uncompleted tasks with something still
-        // owed reach the map, so its keys are exactly the items a quest still asks for.
-        var questByItem = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+        // Item -> task -> quantity still outstanding, and how much of it must be found in raid.
+        // Only uncompleted tasks with something still owed reach the map, so its keys are exactly
+        // the items a quest still asks for.
+        var questByItem = new Dictionary<string, Dictionary<string, (int Remaining, int FoundInRaid)>>(StringComparer.Ordinal);
         var trackedItemIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var requirement in inputs.QuestRequirements.Where(x => !profile.CompletedTaskIds.Contains(x.TaskId)))
         {
@@ -63,8 +64,11 @@ public static class KeepListPlanner
 
             var byTask = questByItem.TryGetValue(requirement.ItemId, out var existing)
                 ? existing
-                : questByItem[requirement.ItemId] = new Dictionary<string, int>(StringComparer.Ordinal);
-            byTask[requirement.TaskId] = byTask.GetValueOrDefault(requirement.TaskId) + remaining;
+                : questByItem[requirement.ItemId] = new Dictionary<string, (int, int)>(StringComparer.Ordinal);
+            var known = byTask.GetValueOrDefault(requirement.TaskId);
+            byTask[requirement.TaskId] = (
+                known.Remaining + remaining,
+                known.FoundInRaid + (requirement.FoundInRaidRequired ? remaining : 0));
             if (inputs.TrackedTaskIds.Contains(requirement.TaskId))
             {
                 trackedItemIds.Add(requirement.ItemId);
@@ -82,6 +86,12 @@ public static class KeepListPlanner
                 : hideoutByItem[requirement.ItemId] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             byStation[requirement.StationId] = byStation.GetValueOrDefault(requirement.StationId) + requirement.Required;
         }
+
+        // What the whole build asks for, every level of every station, built or not: the figure the
+        // remaining part is read against.
+        var hideoutTotalByItem = inputs.HideoutRequirements
+            .GroupBy(requirement => requirement.ItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(requirement => requirement.Required), StringComparer.Ordinal);
 
         var keyFactsById = inputs.KeyFacts.ToDictionary(fact => fact.ItemId, StringComparer.Ordinal);
         var keyRanks = KeyValue.Rank(inputs.KeyFacts
@@ -102,7 +112,7 @@ public static class KeepListPlanner
 
             var questNeeds = questByItem.TryGetValue(itemId, out var byTask)
                 ? byTask
-                    .Select(x => new KeepQuestNeed(x.Key, inputs.TaskNames.GetValueOrDefault(x.Key, x.Key), x.Value))
+                    .Select(x => new KeepQuestNeed(x.Key, inputs.TaskNames.GetValueOrDefault(x.Key, x.Key), x.Value.Remaining, x.Value.FoundInRaid))
                     .OrderByDescending(need => need.Remaining)
                     .ThenBy(need => need.TaskName, StringComparer.Ordinal)
                     .ToArray()
@@ -149,7 +159,14 @@ public static class KeepListPlanner
                 : hideoutNeeds.Length > 0 ? KeepGroupKind.Hideout
                 : keyReason is not null ? KeepGroupKind.Key
                 : KeepGroupKind.HighValue;
-            entries.Add(new KeepEntry(itemId, group, item, questNeeds, hideoutNeeds, keyReason));
+            entries.Add(new KeepEntry(
+                itemId,
+                group,
+                item,
+                questNeeds,
+                hideoutNeeds,
+                keyReason,
+                hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0));
         }
 
         return new KeepPlan(
