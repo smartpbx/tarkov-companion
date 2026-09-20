@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -474,6 +475,27 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             _layout?.Get(WorkspaceLayoutKeys.RaidPanelHidden),
             "true",
             StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Shown over the map when a floor's drawing could not be rasterised, with Retry (#452).
+    /// </summary>
+    /// <remarks>
+    /// The rasteriser runs in a child process so that a native fault in it cannot take the
+    /// application. What the player saw when it did fail was either every floor drawn at once or
+    /// a sentence in a card, and no way to try again short of picking another map and coming
+    /// back. Retry forgets the cached answer and rebuilds, which sends the drawing to a fresh
+    /// child.
+    /// </remarks>
+    public LoadFaultNoticeViewModel MapFault => _mapFault ??= new(RetryMapAsync);
+
+    private LoadFaultNoticeViewModel? _mapFault;
+
+    private Task RetryMapAsync()
+    {
+        _cachedAssetVariantKey = null;
+        _cachedAsset = null;
+        return RebuildAsync();
     }
 
     /// <summary>Why the map is not showing, while <see cref="HasRenderer"/> is false.</summary>
@@ -1764,6 +1786,8 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 return;
             }
 
+            // Tiles, so no floor was rasterised and there is nothing left to say about one.
+            MapFault.Clear();
             _cachedAssetVariantKey = null;
             _cachedAsset = null;
             // The asset is reviewed when its picture was made, not each time the scene is built.
@@ -1807,7 +1831,11 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // Before the call, because the call is what died on 2026-09-19: rasterising a
                 // drawing faults natively, raising no managed exception for any handler to see.
                 CrashBreadcrumbs.Drop("map-asset", $"reading svg {assetCacheKey}");
-                var assetResult = await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
+                // [#452] "map-floor" is the render tool's way of seeing what a floor that would not
+                // rasterise looks like, without needing a drawing that really kills the rasteriser.
+                var assetResult = LoadFaultInjection.IsInjected("map-floor")
+                    ? new MapAssetCacheResult(null, "The map rasteriser failed (crashed with an access violation, 0xc0000005).") { FloorNotDrawn = true }
+                    : await _assetCache.GetSvgAsync(variant, selectedFloor, cancellationToken).ConfigureAwait(true);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (assetResult.Asset is not { Availability: not MapAssetAvailability.Unavailable } fetched)
                 {
@@ -1816,7 +1844,23 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                     _backgroundSha = null;
                     ReplaceBackgroundImage(null);
                     SetUnavailable(assetResult.Message ?? "The reviewed map asset is not available yet.");
+                    if (assetResult.FloorNotDrawn)
+                    {
+                        MapFault.Show("Could not draw this floor", "The app is fine. Retry draws it again.");
+                    }
+
                     return;
+                }
+
+                if (assetResult.FloorNotDrawn)
+                {
+                    // The cache handed back the whole drawing instead. Say so: every floor at once
+                    // with no explanation reads as a broken map.
+                    MapFault.Show("Could not draw this floor", "Every floor is shown instead. Retry draws it again.");
+                }
+                else
+                {
+                    MapFault.Clear();
                 }
 
                 // Decoded, and the cache markers updated, only once both steps succeed: if the
@@ -1824,6 +1868,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 // would make the next rebuild trust a bitmap that was never actually produced.
                 var decoded = await LoadBackgroundImageAsync(fetched.RenderPath, cancellationToken).ConfigureAwait(true);
                 cancellationToken.ThrowIfCancellationRequested();
+                // The other half of "reading svg": without it the next launch cannot tell a run
+                // that died in the rasteriser from one that died an hour after the map drew.
+                CrashBreadcrumbs.Drop("map-asset", $"drew {assetCacheKey}");
                 _cachedAssetVariantKey = assetCacheKey;
                 _cachedAsset = fetched;
                 _backgroundSha = fetched.ContentSha256;

@@ -27,7 +27,7 @@ next to the application instead.
 
 | File | What is in it |
 | --- | --- |
-| `startup.log` | The file to ask for. Lifecycle, unhandled exceptions, workspace faults, a `[ui-hang]` entry (route, last load, last command) when the window stops answering for five seconds and `[ui-hang-recovered]` when it answers again, and one `[previous-run-died]` entry whenever the run before this one was killed rather than closed. Consecutive identical lines are collapsed with a count. Rolled at 2 MB, one previous kept as `.1`. |
+| `startup.log` | The file to ask for. Lifecycle, unhandled exceptions, workspace faults, a `[ui-hang]` entry (route, last load, last command) when the window stops answering for five seconds and `[ui-hang-recovered]` when it answers again, and one `[previous-run-died]` entry whenever the run before this one was killed rather than closed (Setup > Diagnostics and the problem report then name its last page and last map, and say if the map was still being drawn). Consecutive identical lines are collapsed with a count. Rolled at 2 MB, one previous kept as `.1`. |
 | `breadcrumbs.log` | What the application was *about to do*, written before it does it — one line per navigation, per map load, per SVG read. Closed on every write, so it survives a process that is killed outright. Rolled at 512 KB. |
 | `breadcrumbs.running` | Present while a run is in progress; removed when it reaches its own shutdown. Finding one at startup is what makes the next launch report the previous one as died. |
 

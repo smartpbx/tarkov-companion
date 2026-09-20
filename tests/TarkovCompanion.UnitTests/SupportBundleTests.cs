@@ -401,6 +401,36 @@ public sealed class SupportBundleTests
         Assert.Contains("- pages that did not load at startup: 0", report, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// After a run that died, the report says where it was, reduced to the characters an address
+    /// is made of: no spaces, no path separators, and no longer than any other fact.
+    /// </summary>
+    [Fact]
+    public void AfterARunThatDiedTheReportNamesItsLastPageAndMap()
+    {
+        var report = SupportBundle.Describe(
+            Snapshot(),
+            [],
+            null,
+            selfTest: null,
+            startupFaults: null,
+            previousRun: new("#/plan", "reserve/reserve-2d C:\\Users\\somebody", MapWasBeingDrawn: true, WasFrozen: false));
+
+        Assert.Contains("- previous run last page: #/plan", report, StringComparison.Ordinal);
+        Assert.Contains("- previous run last map: reserve/reserve-2dC:Userssomebody", report, StringComparison.Ordinal);
+        Assert.Contains("- previous run died drawing that map: yes", report, StringComparison.Ordinal);
+        Assert.Contains("- previous run was frozen: no", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("\\", report, StringComparison.Ordinal);
+        Assert.DoesNotContain(" somebody", report, StringComparison.Ordinal);
+
+        var bounded = SupportBundle.Describe(
+            Snapshot(), [], null, selfTest: null, startupFaults: null,
+            previousRun: new(new string('a', 500), null, MapWasBeingDrawn: false, WasFrozen: true));
+        Assert.Contains("- previous run last page: " + new string('a', 64) + Environment.NewLine, bounded, StringComparison.Ordinal);
+        Assert.Contains("- previous run last map: unknown", bounded, StringComparison.Ordinal);
+        Assert.Contains("- previous run was frozen: yes", bounded, StringComparison.Ordinal);
+    }
+
     private static ApplicationRuntimeSnapshot Snapshot() => new RuntimeStateStore(new(
         false,
         Offline: true,

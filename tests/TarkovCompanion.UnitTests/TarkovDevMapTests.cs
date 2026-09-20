@@ -608,6 +608,37 @@ public sealed class TarkovDevMapTests
         Assert.NotNull(result.Asset);
         Assert.EndsWith(".preview.png", result.Asset.RenderPath, StringComparison.Ordinal);
         Assert.Contains("every floor is shown", result.Message!, StringComparison.Ordinal);
+        // What the page reads to say "could not draw this floor" and offer Retry (#452).
+        Assert.True(result.FloorNotDrawn);
+    }
+
+    /// <summary>
+    /// A rasteriser child that never finishes is the same to the page as one that failed.
+    /// </summary>
+    /// <remarks>
+    /// #452. Stopped at its deadline, reported as a floor that was not drawn, the whole drawing
+    /// left on screen, and nothing thrown at the caller. A floor that did draw is not flagged.
+    /// </remarks>
+    [Fact]
+    public async Task AChildProcessThatHangsIsStoppedAndTheFloorIsReportedAsNotDrawn()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(directory, out var variant);
+        var baseline = await cache.GetSvgAsync(variant, variant.Floors[0], CancellationToken.None);
+        var hanging = FloorFixtureCache(
+            directory,
+            out _,
+            OperatingSystem.IsWindows()
+                ? new("cmd.exe", ["/c", "for /l %i in (1,0,2) do @rem"], TimeSpan.FromMilliseconds(500))
+                : new("/bin/sh", ["-c", "sleep 600"], TimeSpan.FromMilliseconds(500)),
+            fetch: false);
+
+        var result = await hanging.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.False(baseline.FloorNotDrawn);
+        Assert.True(result.FloorNotDrawn);
+        Assert.NotNull(result.Asset);
+        Assert.Contains("was stopped", result.Message!, StringComparison.Ordinal);
     }
 
     /// <summary>

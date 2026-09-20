@@ -63,6 +63,19 @@ public static class CrashBreadcrumbs
     /// </remarks>
     public static bool PreviousRunDied { get; private set; }
 
+    /// <summary>
+    /// Where the run before this one was when it died, or null if it closed normally.
+    /// </summary>
+    /// <remarks>
+    /// #454, "a crash that logs nothing". The breadcrumbs already survive a native fault and are
+    /// already replayed into the crash log; what nobody was told was the answer they add up to.
+    /// This is that answer — the last page, the last map, whether the map was still being drawn,
+    /// whether the window was frozen — read from the whole of the previous run's file rather than
+    /// the replayed tail, so a long session's last navigation is not lost behind forty map lines.
+    /// Setup shows it once, on the launch that follows, and the problem report carries it.
+    /// </remarks>
+    public static PreviousRunEnd? PreviousRun { get; private set; }
+
     /// <summary>Where breadcrumbs are being written, or null while nothing is installed.</summary>
     public static string? FilePath
     {
@@ -86,6 +99,7 @@ public static class CrashBreadcrumbs
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(logDirectory);
         IReadOnlyList<string> previous = [];
+        PreviousRunEnd? summary = null;
         lock (Gate)
         {
             _directory = logDirectory;
@@ -97,6 +111,7 @@ public static class CrashBreadcrumbs
                 if (File.Exists(marker))
                 {
                     previous = ReadTail(path, ReplayedLines);
+                    summary = Summarise(ReadLines(path));
                     // Kept, not deleted. The replay below is a tail; the full account of the run
                     // that died is worth more than the disk it costs, and one previous file is
                     // the same bound CrashLog keeps.
@@ -119,6 +134,7 @@ public static class CrashBreadcrumbs
         }
 
         PreviousRunDied = previous.Count > 0;
+        PreviousRun = previous.Count > 0 ? summary : null;
         if (previous.Count > 0)
         {
             CrashLog.Write(
@@ -177,6 +193,65 @@ public static class CrashBreadcrumbs
         }
     }
 
+    /// <summary>Reduces a run's breadcrumbs to where it was when they stopped.</summary>
+    internal static PreviousRunEnd Summarise(IEnumerable<string> breadcrumbs)
+    {
+        string? route = null;
+        string? map = null;
+        var drawing = false;
+        var frozen = false;
+        foreach (var line in breadcrumbs)
+        {
+            // "<timestamp> [category] detail"
+            var open = line.IndexOf(" [", StringComparison.Ordinal);
+            var close = open < 0 ? -1 : line.IndexOf("] ", open, StringComparison.Ordinal);
+            if (close < 0)
+            {
+                continue;
+            }
+
+            var category = line[(open + 2)..close];
+            var detail = line[(close + 2)..].Trim();
+            switch (category)
+            {
+                case "navigate":
+                    route = detail;
+                    break;
+                case "map" or "map-asset":
+                    var verb = detail.IndexOf(' ', StringComparison.Ordinal);
+                    // "loading customs/…", "reading svg …" against "loaded …", "drew …".
+                    drawing = detail.StartsWith("loading ", StringComparison.Ordinal)
+                        || detail.StartsWith("reading ", StringComparison.Ordinal);
+                    map = verb < 0 ? detail : detail[(verb + 1)..].Replace("svg ", string.Empty, StringComparison.Ordinal);
+                    break;
+                case "ui-hang":
+                    frozen = true;
+                    break;
+                case "ui-hang-recovered":
+                    frozen = false;
+                    break;
+            }
+        }
+
+        return new(route, map, drawing, frozen);
+    }
+
+    /// <summary>One sentence for Setup, or empty when the previous run closed normally.</summary>
+    public static string DescribePreviousRun()
+    {
+        if (PreviousRun is not { } end)
+        {
+            return string.Empty;
+        }
+
+        var page = end.LastRoute is { Length: > 0 } route ? $" Last page: {route}." : string.Empty;
+        var map = end.LastMap is { Length: > 0 } last
+            ? $" Last map: {last}{(end.MapWasBeingDrawn ? ", still being drawn" : string.Empty)}."
+            : string.Empty;
+        var frozen = end.WasFrozen ? " The window was frozen." : string.Empty;
+        return $"The last session ended without closing.{page}{map}{frozen}";
+    }
+
     /// <summary>Records that this run ended on purpose, so the next one does not report it.</summary>
     public static void MarkCleanExit()
     {
@@ -213,6 +288,25 @@ public static class CrashBreadcrumbs
         }
     }
 
+    /// <summary>Every line of a breadcrumb file, read lazily; the file is capped at half a megabyte.</summary>
+    private static IEnumerable<string> ReadLines(string path)
+    {
+        if (!File.Exists(path))
+        {
+            yield break;
+        }
+
+        using var reader = new StreamReader(new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite));
+        while (reader.ReadLine() is { } line)
+        {
+            yield return line;
+        }
+    }
+
     private static IReadOnlyList<string> ReadTail(string path, int lines)
     {
         if (!File.Exists(path))
@@ -244,9 +338,23 @@ public static class CrashBreadcrumbs
         return [.. tail];
     }
 
+    /// <summary>Forgets what was learned about the previous run. For tests: the state is static.</summary>
+    internal static void ForgetPreviousRun()
+    {
+        PreviousRunDied = false;
+        PreviousRun = null;
+    }
+
     private static bool IsExpectedFileFailure(Exception exception) => exception
         is IOException
         or UnauthorizedAccessException
         or NotSupportedException
         or ArgumentException;
 }
+
+/// <summary>Where a run was when it stopped without shutting down.</summary>
+/// <param name="LastRoute">The last page it navigated to, as the shell addresses it.</param>
+/// <param name="LastMap">The last map (and floor) handed to the map loader or the rasteriser.</param>
+/// <param name="MapWasBeingDrawn">No "loaded" or "drew" followed that map: it died mid-draw.</param>
+/// <param name="WasFrozen">The hang watchdog had reported a freeze that never recovered.</param>
+public sealed record PreviousRunEnd(string? LastRoute, string? LastMap, bool MapWasBeingDrawn, bool WasFrozen);
