@@ -190,8 +190,13 @@
                                        PlanRightClicked="RendererPlanRightClicked"
                                        MarkerRightClicked="RendererMarkerRightClicked" />
           </ContentControl>
+          <!-- The only thing on the page when there is no map: the renderer, and its own
+               background-status line with it, is collapsed above. Named for automation so the
+               reason reaches a screen reader rather than being a card with text in it. -->
           <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}" Margin="16"
                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.Name="{Binding UnavailableReason}"
                   AutomationProperties.AutomationId="v2-raid-unavailable">
             <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
           </Border>

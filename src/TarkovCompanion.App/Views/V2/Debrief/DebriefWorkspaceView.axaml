@@ -110,8 +110,15 @@
         </StackPanel>
       </Grid>
 
-      <Border Grid.Row="1" Classes="v2-debrief-pane" AutomationProperties.AccessibilityView="Control">
-        <Grid RowDefinitions="Auto,Auto,*">
+      <!-- V2 rough package 32: the table is the height of the raids in it. Stretched to the row
+           it was a full-height bordered card holding a single line, which at 1920x1080 is about
+           85% of the card drawn empty and reads as a page that failed to load. VerticalAlignment
+           Top with a stretch MaxHeight means a long history still fills the window and scrolls. -->
+      <Border Grid.Row="1" Classes="v2-debrief-pane" VerticalAlignment="Top"
+              MaxHeight="{Binding $parent[Grid].Bounds.Height}"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.AutomationId="v2-debrief-history">
+        <Grid RowDefinitions="Auto,Auto,Auto">
           <Border Grid.Row="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
               <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
@@ -161,7 +168,7 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
-          <StackPanel Grid.Row="2" IsVisible="{Binding HasNoRaids}" Spacing="10"
+          <StackPanel Grid.Row="2" IsVisible="{Binding HasNoRaids}" Spacing="10" Margin="0,48,0,56"
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
                   HorizontalAlignment="Center" />
