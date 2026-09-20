@@ -83,6 +83,8 @@ public static class V2Routes
     public static readonly V2RouteId Ammo = new("items.ammo");
     public static readonly V2RouteId Keys = new("items.keys");
     public static readonly V2RouteId Flea = new("items.flea");
+    // #287: Crafts & barters, a fourth reference workspace beside Ammo/Keys/Flea.
+    public static readonly V2RouteId Crafts = new("items.crafts");
     public static readonly V2RouteId Item = new("item");
     public static readonly V2RouteId Stash = new("stash");
     public static readonly V2RouteId Plan = new("plan");

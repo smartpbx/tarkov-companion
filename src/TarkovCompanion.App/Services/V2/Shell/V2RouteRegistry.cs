@@ -121,6 +121,10 @@ public sealed class V2RouteRegistry
             Parent: V2Routes.Items, UsesGameData: true),
         new(V2Routes.Flea, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Flea",
             Parent: V2Routes.Items, UsesGameData: true),
+        // #287: every craft and barter the catalog holds, searchable and priced — a fourth
+        // reference workspace beside Ammo/Keys/Flea.
+        new(V2Routes.Crafts, [V2Capabilities.ReferenceData], V2RouteContent.Workspace, "V2.Shell.Route.Crafts",
+            Parent: V2Routes.Items, UsesGameData: true),
         new(V2Routes.Item, [V2Capabilities.ItemIntel], V2RouteContent.ItemIntel, "V2.Shell.Route.Item",
             TakesItem: true, UsesGameData: true),
         new(V2Routes.Stash, [V2Capabilities.StashScan], V2RouteContent.Workspace, "V2.Shell.Route.Stash"),

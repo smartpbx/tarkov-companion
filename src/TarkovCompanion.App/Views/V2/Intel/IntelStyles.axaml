@@ -216,4 +216,49 @@
       <Setter Property="BorderThickness" Value="0,0,0,1" />
       <Setter Property="Padding" Value="10,0,10,6" />
     </Style>
+
+    <!-- #287 (Crafts & barters): one row, shared by the tab's list and item detail's Made
+         by/Used in sections. -->
+    <Style Selector="Border.v2-intel-trade-row">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Border.v2-intel-trade-kind">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="6,2" />
+    </Style>
+    <Style Selector="Button.v2-intel-trade-output">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="TextBlock.v2-intel-trade-profit">
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <!-- A ListBox rather than a plain ItemsControl gives the tab's list Avalonia's default
+         virtualisation (789 barters + 214 crafts is the first Intel list large enough to need
+         it), so its selection chrome is stripped back to a plain, unstyled row. -->
+    <Style Selector="ListBox.v2-intel-trade-list">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="ListBox.v2-intel-trade-list ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="ListBox.v2-intel-trade-list ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    </Style>
+    <Style Selector="ListBox.v2-intel-trade-list ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
 </Styles>

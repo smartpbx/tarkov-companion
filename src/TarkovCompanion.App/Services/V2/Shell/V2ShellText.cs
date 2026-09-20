@@ -654,6 +654,30 @@ public static class V2ShellText
         ["V2.Shell.Intel.Keep.QuestFoundInRaid"] = "{0} · {1} needed · found in raid",
         ["V2.Shell.Intel.Keep.Hideout"] = "{0} level {1} · {2} needed",
 
+        // #287 (Crafts & barters tab): every craft and barter is searchable, priced and ranked
+        // by profit, with what it's made by/used in on the item itself.
+        ["V2.Shell.Route.Crafts"] = "Crafts & barters",
+        ["V2.Shell.Intel.Trade.SearchPlaceholder"] = "Search by input or output item…",
+        ["V2.Shell.Intel.Trade.ReadyNow"] = "I can do this now",
+        ["V2.Shell.Intel.Trade.Sort.Profit"] = "Profit",
+        ["V2.Shell.Intel.Trade.Sort.Duration"] = "Duration",
+        ["V2.Shell.Intel.Trade.Sort.Name"] = "Name",
+        ["V2.Shell.Intel.Trade.SortHeading"] = "Sort",
+        ["V2.Shell.Intel.Trade.Craft"] = "Craft",
+        ["V2.Shell.Intel.Trade.Barter"] = "Barter",
+        ["V2.Shell.Intel.Trade.Profit"] = "Profit {0}",
+        ["V2.Shell.Intel.Trade.ProfitUnknown"] = "Profit unknown",
+        ["V2.Shell.Intel.Trade.Ready"] = "Ready",
+        ["V2.Shell.Intel.Trade.Locked"] = "Locked",
+        ["V2.Shell.Intel.Trade.Duration"] = "{0}",
+        ["V2.Shell.Intel.Trade.Empty"] = "No crafts or barters match.",
+        ["V2.Shell.Intel.Trade.Loading"] = "Loading crafts and barters…",
+        ["V2.Shell.Intel.Trade.MadeBy"] = "Made by",
+        ["V2.Shell.Intel.Trade.UsedIn"] = "Used in",
+        ["V2.Shell.Intel.Trade.NoneMadeBy"] = "Nothing in the catalog makes this.",
+        ["V2.Shell.Intel.Trade.NoneUsedIn"] = "Nothing in the catalog uses this.",
+        ["V2.Shell.Intel.Trade.Arrow"] = "{0} → {1}",
+
         ["V2.Shell.Banner.Sharing"] = "Sharing with your group",
         ["V2.Shell.Banner.OpenGroup"] = "Open Group",
 

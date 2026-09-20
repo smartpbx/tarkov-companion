@@ -464,6 +464,10 @@ public static class AppComposition
         // only what is already registered above, plus the catalog's own value ranking.
         services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();
         services.AddSingleton<IIntelLandingService, IntelLandingService>();
+        // #287 (Crafts & barters tab): every craft and barter, priced and cached in memory. Reads
+        // ICraftPlanningCatalog/IBarterCatalog/IRequirementCatalog/ITraderCatalog/IItemRepository/
+        // IItemMarketFactSource, all already registered elsewhere in this method.
+        services.AddSingleton<IIntelTradeCatalogService, IntelTradeCatalogService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
