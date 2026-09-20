@@ -270,6 +270,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     private string? _backgroundSha;
     private DateTimeOffset _backgroundComposedUtc;
     private Bitmap? _backgroundImage;
+
+    /// <summary>Who is still reading a picture this cockpit made; see <see cref="PictureLeases{TPicture}"/>.</summary>
+    private readonly PictureLeases<Bitmap> _pictures;
     private QuestObjectiveScene _questScene = QuestObjectiveScene.Empty;
     private string? _selectedObjectiveId;
     private string _objectiveSignature = string.Empty;
@@ -333,6 +336,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         IUserQuestMarkStore? userMarkers = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
+        _pictures = new(ReleasePicture);
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
         _assembler = assembler ?? throw new ArgumentNullException(nameof(assembler));
@@ -883,13 +887,40 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
 
         _rebuildCancellation?.Cancel();
         _rebuildCancellation?.Dispose();
-        _backgroundImage?.Dispose();
+        // Retired, not disposed: the tablet publisher may be half way through encoding one of
+        // these on a pool thread, and closing the window is no better a moment to free it.
+        if (_backgroundImage is { } last)
+        {
+            _pictures.Retire(last);
+        }
+
         foreach (var plate in _floorArtwork.Values)
         {
-            plate.Image.Dispose();
+            _pictures.Retire(plate.Image);
         }
 
         _floorArtwork.Clear();
+    }
+
+    /// <summary>
+    /// A lease on a picture this cockpit made, for reading it away from the interface thread, or
+    /// null when the picture has already been replaced and must not be touched.
+    /// </summary>
+    internal IDisposable? TryReadPicture(Bitmap picture) => _pictures.TryRead(picture);
+
+    /// <summary>
+    /// Frees a retired picture once nobody is reading it: after the current render pass while the
+    /// cockpit is alive (mirroring MapViewModel.ReleaseLater), at once when it is not.
+    /// </summary>
+    private void ReleasePicture(Bitmap picture)
+    {
+        if (_disposed)
+        {
+            picture.Dispose();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(picture.Dispose, DispatcherPriority.Background);
     }
 
     /// <summary>The V2 renderer's asset seam: the artwork for the reviewed background asset it
@@ -918,15 +949,10 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         var previous = _floorArtwork.Values.Select(plate => plate.Image).ToArray();
         _floorArtwork.Clear();
         _floorArtworkVariantKey = null;
-        Dispatcher.UIThread.Post(
-            () =>
-            {
-                foreach (var image in previous)
-                {
-                    image.Dispose();
-                }
-            },
-            DispatcherPriority.Background);
+        foreach (var image in previous)
+        {
+            _pictures.Retire(image);
+        }
     }
 
     /// <summary>
@@ -1008,6 +1034,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
                 MapSceneAssetReviewStatus.Reviewed,
                 cached.RetrievedUtc,
                 floorId: floor.Id);
+            _pictures.Track(image);
             _floorArtwork[floor.Id] = new(asset, image);
             assets.Add(asset);
         }
@@ -1023,9 +1050,17 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
     {
         var previous = _backgroundImage;
         _backgroundImage = image;
+        if (image is not null)
+        {
+            _pictures.Track(image);
+        }
+
+        // Retired rather than disposed after the render pass. The render pass was never the only
+        // reader: the tablet publisher PNG-encodes this picture on a pool thread, and a picture
+        // freed under the encoder is what killed every launch of 2.0.1278 (see PictureLeases).
         if (previous is not null && !ReferenceEquals(previous, image))
         {
-            Dispatcher.UIThread.Post(previous.Dispose, DispatcherPriority.Background);
+            _pictures.Retire(previous);
         }
     }
 
