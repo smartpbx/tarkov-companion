@@ -34,6 +34,7 @@ public static class SqliteMigrationLedger
         // as 0014 on a branch cut before it; two ids sharing a number sort by their names, and
         // "0014_flea" sorts ahead of "0014_quest", which the ordered-ledger guard refuses.
         new("0015_flea_market_settings", false, "Published flea listing fee rates"),
+        new("0016_restore_task_objective_items", false, "Put back the quest item needs 0013 deleted"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>
