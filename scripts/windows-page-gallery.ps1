@@ -1255,6 +1255,10 @@ $V2AcceptanceRoutes = @(
     [pscustomobject]@{ key = "intel-flea"; address = "#/intel/flea"; heading = "Flea"
         expected = @("v2-shell-navigation-rail", "v2-flea-search")
         bounds = @([pscustomobject]@{ automationId = "v2-flea-search-go"; insideWindow = $true }) },
+    # #287: Crafts & barters, a fourth native workspace beside Ammo/Keys/Flea.
+    [pscustomobject]@{ key = "intel-crafts"; address = "#/intel/crafts"; heading = "Crafts & barters"
+        expected = @("v2-shell-navigation-rail", "v2-intel-trade-search")
+        bounds = @([pscustomobject]@{ automationId = "v2-intel-trade-ready-now"; insideWindow = $true }) },
     # Deliberately an id no catalog has: twenty-four zeros is a well-formed item address and will
     # never be an item. This route is in the sweep to prove one thing — that an item the local
     # catalog cannot resolve draws no context column — and a real id photographs that only on a

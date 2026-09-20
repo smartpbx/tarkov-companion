@@ -2,7 +2,8 @@
              x:DataType="vm:V2ShellViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
@@ -240,6 +241,47 @@
                           <Grid ColumnDefinitions="220,*" ColumnSpacing="16">
                             <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Label}" VerticalAlignment="Center" />
                             <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Value}" TextWrapping="Wrap" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+
+                <!-- #287 (Crafts & barters): what makes this item and what it goes into, read
+                     off the same priced list the tab shows, filtered to this one item. -->
+                <StackPanel Spacing="6" IsVisible="{Binding ShowsIntelTradeSection}">
+                  <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelMadeByHeading}" />
+                  <TextBlock Classes="v2-label" IsVisible="{Binding !HasIntelMadeBy}" Text="{Binding IntelNoneMadeByLabel}" />
+                  <ItemsControl ItemsSource="{Binding IntelMadeBy}" AutomationProperties.AutomationId="v2-shell-intel-made-by">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="intelVm:IntelTradeRowViewModel">
+                        <Border Classes="v2-intel-trade-row">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <TextBlock Grid.Column="0" Classes="v2-body" TextWrapping="Wrap" Text="{Binding InputsLabel}" />
+                            <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" Text="{Binding ProfitLabel}"
+                                       Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"
+                                       Classes.v2-intel-poor="{Binding ProfitIsNegative}" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelUsedInHeading}" Margin="0,8,0,0" />
+                  <TextBlock Classes="v2-label" IsVisible="{Binding !HasIntelUsedIn}" Text="{Binding IntelNoneUsedInLabel}" />
+                  <ItemsControl ItemsSource="{Binding IntelUsedIn}" AutomationProperties.AutomationId="v2-shell-intel-used-in">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="intelVm:IntelTradeRowViewModel">
+                        <Border Classes="v2-intel-trade-row">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                              <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding InputsLabel}" />
+                              <TextBlock Classes="v2-label" Text="{Binding Output.Label}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" Text="{Binding ProfitLabel}"
+                                       Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"
+                                       Classes.v2-intel-poor="{Binding ProfitIsNegative}" />
                           </Grid>
                         </Border>
                       </DataTemplate>

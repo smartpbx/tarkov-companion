@@ -1,0 +1,97 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.CraftsBartersWorkspaceView"
+             x:DataType="vm:CraftsBartersWorkspaceViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+  </UserControl.Styles>
+
+  <!-- #287: every craft and barter the catalog holds, searchable by an input or output item
+       name, sorted by profit at the catalog's current prices by default. One row template for
+       both kinds: inputs, an arrow, the output, then the station/trader, level and (craft only)
+       duration underneath. A ListBox rather than a plain ItemsControl — Avalonia virtualises a
+       ListBox's items by default, which a list that can hold all 789 barters and 214 crafts at
+       once needs and the smaller reference lists beside it have never needed. -->
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10" Margin="16,4,16,16">
+    <Border Grid.Row="0" Classes="v2-intel-search">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+        <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+              Data="{DynamicResource V2.Icon.Search}" />
+        <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
+                 PlaceholderText="{Binding SearchPlaceholder}"
+                 AutomationProperties.AutomationId="v2-intel-trade-search" />
+        <ToggleButton Grid.Column="2" Classes="v2-target v2-intel-chip" Content="{Binding ReadyNowLabel}"
+                      Classes.selected="{Binding ReadyNowOnly}"
+                      IsChecked="{Binding ReadyNowOnly}"
+                      AutomationProperties.AutomationId="v2-intel-trade-ready-now" />
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10">
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding SortHeading}" Margin="2,0,0,0" />
+      <ItemsControl ItemsSource="{Binding Sorts}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:IntelTradeSortViewModel">
+            <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsSelected}"
+                    AutomationProperties.AutomationId="{Binding AutomationId}"
+                    AutomationProperties.Name="{Binding Label}"
+                    Content="{Binding Label}" Command="{Binding SelectCommand}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding ResultCountLabel}" Margin="10,0,0,0"
+                 IsVisible="{Binding !ShowsEmpty}" />
+    </StackPanel>
+
+    <Border Grid.Row="2" Classes="v2-intel-pane" AutomationProperties.AutomationId="v2-intel-trade-list">
+      <Grid>
+        <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
+                   IsVisible="{Binding IsLoading}" Text="{Binding LoadingLabel}" />
+        <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
+                   IsVisible="{Binding ShowsEmpty}" Text="{Binding EmptyLabel}" />
+        <ListBox Classes="v2-intel-trade-list" ItemsSource="{Binding Rows}" IsVisible="{Binding !ShowsEmpty}"
+                 SelectionMode="Single">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:IntelTradeRowViewModel">
+              <Border Classes="v2-intel-trade-row" AutomationProperties.AutomationId="{Binding AutomationId}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                  <StackPanel Grid.Column="0" Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Border Classes="v2-intel-trade-kind">
+                        <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                      </Border>
+                      <TextBlock Classes="v2-body" Text="{Binding InputsLabel}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" VerticalAlignment="Center"
+                            Data="{DynamicResource V2.Icon.ChevronRight}" />
+                      <Button Classes="v2-target v2-intel-plain v2-intel-trade-output"
+                              Content="{Binding Output.Label}"
+                              Command="{Binding OpenOutputCommand}"
+                              AutomationProperties.Name="{Binding Output.Name}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                      <TextBlock Classes="v2-label" IsVisible="{Binding HasSourceName}" Text="{Binding SourceName}" />
+                      <TextBlock Classes="v2-label" IsVisible="{Binding HasLevelLabel}" Text="{Binding LevelLabel}" />
+                      <TextBlock Classes="v2-label" IsVisible="{Binding HasDuration}" Text="{Binding DurationLabel}" />
+                      <TextBlock Classes="v2-label v2-intel-good" IsVisible="{Binding IsReady}" Text="{Binding ReadinessLabel}" />
+                      <TextBlock Classes="v2-label v2-intel-fair" IsVisible="{Binding IsLocked}" Text="{Binding ReadinessLabel}" />
+                    </StackPanel>
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" VerticalAlignment="Center"
+                             Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"
+                             Classes.v2-intel-poor="{Binding ProfitIsNegative}"
+                             Text="{Binding ProfitLabel}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

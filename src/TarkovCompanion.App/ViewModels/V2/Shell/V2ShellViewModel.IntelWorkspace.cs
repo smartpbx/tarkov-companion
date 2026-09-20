@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Intel;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
@@ -117,6 +118,13 @@ public sealed partial class V2ShellViewModel
     private bool _intelLandingLoading;
     private bool _intelLandingAutoSelected;
     private CancellationTokenSource? _intelLandingCts;
+
+    // #287 (Crafts & barters tab): the tab's own workspace holds and caches the priced list;
+    // this only nudges it to re-check staleness on the same tick the landing page does, and
+    // reads its Made by/Used in filters for whichever item is open.
+    private readonly IIntelTradeCatalogService _intelTrade;
+    private static readonly TimeSpan IntelTradeRefreshInterval = TimeSpan.FromSeconds(30);
+    private DateTimeOffset _intelTradeRefreshedUtc = DateTimeOffset.MinValue;
 
     /// <summary>
     /// How many hits an Intel search keeps. V1's cards fit a dozen; this list scrolls, and a
@@ -555,6 +563,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelHomeNeededNow), nameof(IntelHomePinned), nameof(IntelHomeRecent), nameof(IntelHomeHighestValue),
             nameof(HasIntelHomeNeededNow), nameof(HasIntelHomePinned), nameof(HasIntelHomeRecent), nameof(HasIntelHomeHighestValue),
             nameof(ShowsIntelHomeEmpty),
+            nameof(IntelMadeBy), nameof(IntelUsedIn), nameof(HasIntelMadeBy), nameof(HasIntelUsedIn), nameof(ShowsIntelTradeSection),
         })
         {
             OnPropertyChanged(property);
@@ -755,6 +764,49 @@ public sealed partial class V2ShellViewModel
 
         return ids;
     }
+
+    // #287 (Crafts & barters tab): item detail's "Made by"/"Used in" sections, read straight off
+    // the tab's own already-loaded, already-priced list — no separate query.
+    public string IntelMadeByHeading => V2ShellText.Get("V2.Shell.Intel.Trade.MadeBy");
+    public string IntelUsedInHeading => V2ShellText.Get("V2.Shell.Intel.Trade.UsedIn");
+    public string IntelNoneMadeByLabel => V2ShellText.Get("V2.Shell.Intel.Trade.NoneMadeBy");
+    public string IntelNoneUsedInLabel => V2ShellText.Get("V2.Shell.Intel.Trade.NoneUsedIn");
+
+    public IReadOnlyList<IntelTradeRowViewModel> IntelMadeBy =>
+        IntelHasResult && CraftsBartersWorkspace is { } trade ? trade.MadeBy(IntelItem) : [];
+    public IReadOnlyList<IntelTradeRowViewModel> IntelUsedIn =>
+        IntelHasResult && CraftsBartersWorkspace is { } trade ? trade.UsedIn(IntelItem) : [];
+    public bool HasIntelMadeBy => IntelMadeBy.Count > 0;
+    public bool HasIntelUsedIn => IntelUsedIn.Count > 0;
+    public bool ShowsIntelTradeSection => IntelHasResult;
+
+    /// <summary>
+    /// One shared tick for everything #287's Crafts &amp; barters tab added beside the landing
+    /// page: the tab's own cache (cheap to ask, expensive only when it has actually gone stale),
+    /// and the currently-open item's Made by/Used in, which are a plain in-memory filter over the
+    /// trade list and never worth a network/database round trip of their own.
+    /// </summary>
+    private void RefreshIntelTradeIfNeeded()
+    {
+        if (!ShowsIntelWorkspace)
+        {
+            return;
+        }
+
+        if (_clock.GetUtcNow() - _intelTradeRefreshedUtc > IntelTradeRefreshInterval)
+        {
+            _intelTradeRefreshedUtc = _clock.GetUtcNow();
+            CraftsBartersWorkspace?.RefreshIfStale();
+        }
+
+        if (HasIntelSelection)
+        {
+            OnPropertyChanged(nameof(IntelMadeBy));
+            OnPropertyChanged(nameof(IntelUsedIn));
+            OnPropertyChanged(nameof(HasIntelMadeBy));
+            OnPropertyChanged(nameof(HasIntelUsedIn));
+        }
+    }
 }
 
 /// <summary>The fallback used in tests that build the shell without composing the landing service.</summary>
@@ -767,4 +819,13 @@ internal sealed class NullIntelLandingService : IIntelLandingService
         IReadOnlyList<string> recentItemIds,
         CancellationToken cancellationToken) =>
         Task.FromResult(new IntelLandingSnapshot([], [], [], []));
+}
+
+/// <summary>The fallback used in tests that build the shell without composing the trade catalog service.</summary>
+internal sealed class NullIntelTradeCatalogService : IIntelTradeCatalogService
+{
+    public static readonly NullIntelTradeCatalogService Instance = new();
+
+    public Task<IReadOnlyList<IntelTradeRow>> GetAllAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<IntelTradeRow>>([]);
 }

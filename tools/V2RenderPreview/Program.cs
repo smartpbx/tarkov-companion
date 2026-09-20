@@ -504,6 +504,25 @@ internal static class Program
                 Pump(20);
             }
 
+            // #287 (Crafts & barters tab): --route intel/crafts lands on the tab itself; this
+            // additionally runs a search there (or just waits for the catalog's own first load,
+            // when the query is blank) so the render shows priced rows rather than an empty list.
+            if (shell?.CraftsBartersWorkspace is { } trade)
+            {
+                DrainUntilComplete(trade.LoadTask);
+                if (StringOption(args, "--intel-trade-search") is { } tradeQuery)
+                {
+                    trade.SearchText = tradeQuery;
+                }
+
+                if (args.Contains("--intel-trade-ready-now"))
+                {
+                    trade.ReadyNowOnly = true;
+                }
+
+                Pump(20);
+            }
+
             // Package 33 (#287): pins one item and opens a second (leaving it "recently opened"),
             // then returns to the bare Items route, so the landing page's Pinned/Recent sections
             // can be rendered with real rows instead of only Needed now/Highest value.

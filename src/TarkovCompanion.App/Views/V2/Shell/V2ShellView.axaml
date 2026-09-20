@@ -40,6 +40,10 @@
     <DataTemplate DataType="{x:Type intelVm:FleaWorkspaceViewModel}">
       <intelViews:FleaWorkspaceView />
     </DataTemplate>
+    <!-- #287: Crafts & barters, a fourth reference workspace beside Ammo/Keys/Flea. -->
+    <DataTemplate DataType="{x:Type intelVm:CraftsBartersWorkspaceViewModel}">
+      <intelViews:CraftsBartersWorkspaceView />
+    </DataTemplate>
     <!-- V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout. -->
     <DataTemplate DataType="{x:Type planVm:KeepListWorkspaceViewModel}">
       <planViews:KeepListWorkspaceView />
