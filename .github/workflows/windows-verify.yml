@@ -28,13 +28,18 @@ on:
   # one full run per pull request per merge. To run it on a branch before merging, dispatch it:
   #   gh workflow run windows-verify.yml --ref <branch>
 
-# One publish at a time per ref. Two main runs started four seconds apart once and
-# finished out of order, leaving the old rolling `dev` release on the older build. An
-# older verification run is cancelled rather than queued: only a completed push-to-main
-# run can be offered to the separate signed publisher.
+# One run at a time per ref, and a run on `main` is never cancelled by the next push.
+#
+# It used to be: an older run was cancelled rather than queued, so that two main runs could not
+# finish out of order. That was safe while a merge took an hour. Merges are now minutes apart, and
+# with cancellation every run on `main` was killed by the next merge before it could finish, so no
+# build was ever published: three in a row on 2026-09-20. The concurrency group alone already
+# serialises runs, which is what prevents out-of-order finishes; GitHub keeps the running one and
+# only the newest waiting one, so the build that gets published lags the trunk by at most one run.
+# A branch dispatch is still superseded by a newer dispatch of the same branch.
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Read-only throughout. Publishing lives in publish.yml, so a pull-request run has no step
 # that could publish and no token that could.

@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
@@ -200,6 +201,43 @@ public static class RelayCompanionRoutes
             return registered.Succeeded
                 ? Results.Ok(RelaySessionCredentialResponse.From(registered.Value!))
                 : Results.BadRequest(registered.Code);
+        });
+
+        // [#290] The desktop revoking a paired device. Revoking used to stop at the desktop: its
+        // own authority refused the tablet's commands, but this registry was never told, so the
+        // tablet's session went on authenticating here and it kept reading the desktop's map.
+        // Owner-only by the registry's own rule (RelayPermission.RevokeDevice), and an owner cannot
+        // revoke itself out of the relay through it.
+        app.MapPost("/v2/companion/relay/devices/{deviceId:guid}/revoke", async Task<IResult> (
+            Guid deviceId,
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (registry is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
+            if (principal is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            if (deviceId == Guid.Empty)
+            {
+                return Results.BadRequest("device-not-active");
+            }
+
+            var revoked = await registry.RevokeDeviceAsync(
+                principal,
+                new CompanionDeviceId(deviceId),
+                "revoked-by-desktop",
+                cancellationToken).ConfigureAwait(false);
+            // Already gone is the outcome the caller wanted, not a failure to report.
+            return revoked.Succeeded || revoked.Code == "device-not-active"
+                ? Results.Ok()
+                : Results.BadRequest(revoked.Code);
         });
 
         // Publishes one opaque frame. The hub decides direction and recipients from the frame's own

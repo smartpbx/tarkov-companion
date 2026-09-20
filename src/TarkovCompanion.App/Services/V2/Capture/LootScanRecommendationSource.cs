@@ -47,7 +47,10 @@ public sealed class LootScanRecommendationSource(
     IItemRepository items,
     IItemMarketFactSource? market = null,
     LootScanNeedSource? needs = null,
-    LootScanRaidContextSource? raidContext = null)
+    LootScanRaidContextSource? raidContext = null,
+    // [f920 capture] #282: what the Events page recorded for an item in a running event. Last and
+    // optional, so a caller that has no events still builds and claims nothing about them.
+    LootScanEventStateSource? eventStates = null)
 {
     /// <summary>Listings at the last market scan from which another copy counts as readily bought.</summary>
     internal const int ReadilyListedOffers = 10;
@@ -83,6 +86,7 @@ public sealed class LootScanRecommendationSource(
 
         var rates = await ReadRatesAsync(cancellationToken).ConfigureAwait(false);
         var needSnapshot = await ReadNeedsAsync(cancellationToken).ConfigureAwait(false);
+        var eventSnapshot = profile is null ? null : await ReadEventStatesAsync(evaluatedUtc, cancellationToken).ConfigureAwait(false);
         var candidates = new List<LootScanCandidateRecommendation>();
         foreach (var cell in cells)
         {
@@ -92,14 +96,16 @@ public sealed class LootScanRecommendationSource(
                 continue;
             }
 
+            var eventState = eventSnapshot?.StateFor(read.ItemId, scope, evaluatedUtc);
             candidates.Add(new(
                 new LootScanEvidenceBinding(sessionId, artifactId, decodeRevision, contentSha256, cell.Anchor, read.ItemId),
                 $"loot-scan-{cell.Anchor.Row}-{cell.Anchor.Column}",
                 scope,
                 dataSnapshotId,
-                ProfileFacts(profile, needSnapshot, read.ItemId, evaluatedUtc),
+                ProfileFacts(profile, needSnapshot, read.ItemId, evaluatedUtc, eventState),
                 read.Economics,
-                new RecommendationScarcityFacts(Obtainability(read, evaluatedUtc))));
+                new RecommendationScarcityFacts(Obtainability(read, evaluatedUtc)),
+                eventState?.Scope));
         }
 
         return candidates;
@@ -177,6 +183,24 @@ public sealed class LootScanRecommendationSource(
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // Rates that cannot be read leave the fee unread, which is what it was before.
+            return null;
+        }
+    }
+
+    private async Task<LootScanEventStateSnapshot?> ReadEventStatesAsync(DateTimeOffset evaluatedUtc, CancellationToken cancellationToken)
+    {
+        if (eventStates is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await eventStates.ReadAsync(evaluatedUtc, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // An event folder that cannot be read leaves the state as it was before: not claimed.
             return null;
         }
     }
@@ -386,7 +410,8 @@ public sealed class LootScanRecommendationSource(
         ProfileRecord? profile,
         LootScanNeedSnapshot? needSnapshot,
         string itemId,
-        DateTimeOffset evaluatedUtc)
+        DateTimeOffset evaluatedUtc,
+        RecommendationEventStateFacts? eventState = null)
     {
         var read = new EvidenceProvenance(
             EvidenceSourceClass.UserEntered,
@@ -428,7 +453,7 @@ public sealed class LootScanRecommendationSource(
             Known<bool?>("profile.protected", LootScanProfileRules.IsProtected(profile.Progress, itemId), chosen),
             Known<bool?>("profile.pinned", LootScanProfileRules.IsPinned(profile.Progress, itemId), chosen),
             Known<bool?>("profile.wishlist", LootScanProfileRules.IsWishlisted(profile.Progress, itemId), chosen),
-            new RecommendationEventStateFacts(null, Known<EventItemState?>("profile.event-state", EventItemState.Unknown, read)),
+            eventState ?? new RecommendationEventStateFacts(null, Known<EventItemState?>("profile.event-state", EventItemState.Unknown, read)),
             needSnapshot?.NeedsFor(itemId, evaluatedUtc) ?? []);
     }
 

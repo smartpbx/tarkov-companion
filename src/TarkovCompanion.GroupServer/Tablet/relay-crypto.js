@@ -158,6 +158,20 @@
   /// (src/TarkovCompanion.CompanionProtocol/Envelopes.cs), matching
   /// PairingCryptography.SealRelayFrame byte for byte except for the AES-GCM primitive itself,
   /// which is WebCrypto's.
+  /// A traffic key as raw bytes, or as a CryptoKey that was already imported. A tablet that keeps
+  /// its session across a page reload stores the imported, non-extractable form in IndexedDB, so
+  /// the key material itself can be used from script but never read back out of storage by it.
+  async function trafficCipherKey(trafficKey, usage) {
+    if (typeof CryptoKey !== "undefined" && trafficKey instanceof CryptoKey) return trafficKey;
+    return crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, [usage]);
+  }
+
+  /// Imports one direction's traffic key for keeping: non-extractable, and usable only the way
+  /// that direction is ever used from a tablet (it seals tablet-to-desktop, opens desktop-to-tablet).
+  function importStoredTrafficKey(rawKey, usage) {
+    return crypto.subtle.importKey("raw", rawKey, "AES-GCM", false, [usage]);
+  }
+
   async function sealRelayFrame({
     trafficKey,
     direction,
@@ -186,7 +200,7 @@
       issuedUnixMs: issuedUtc,
       expiresUnixMs: expiresUtc,
     });
-    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["encrypt"]);
+    const key = await trafficCipherKey(trafficKey, "encrypt");
     const sealed = new Uint8Array(
       await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 }, key, plaintext),
     );
@@ -229,7 +243,7 @@
       issuedUnixMs: Date.parse(frame.issuedUtc),
       expiresUnixMs: Date.parse(frame.expiresUtc),
     });
-    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["decrypt"]);
+    const key = await trafficCipherKey(trafficKey, "decrypt");
     const plaintext = new Uint8Array(
       await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 },
@@ -262,7 +276,7 @@
     const nonce = crypto.getRandomValues(new Uint8Array(RELAY_NONCE_BYTES));
     const plaintext = textEncoder.encode(credential);
     const aad = encodeRelayCredentialAad(attemptId, expiresUtc);
-    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["encrypt"]);
+    const key = await trafficCipherKey(trafficKey, "encrypt");
     const sealed = new Uint8Array(
       await crypto.subtle.encrypt(
         { name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 },
@@ -286,7 +300,7 @@
     const ciphertext = base64UrlDecode(sealedCredential.ciphertextBase64Url);
     const tag = base64UrlDecode(sealedCredential.authenticationTagBase64Url);
     const aad = encodeRelayCredentialAad(attemptId, Date.parse(sealedCredential.expiresUtc));
-    const key = await crypto.subtle.importKey("raw", trafficKey, "AES-GCM", false, ["decrypt"]);
+    const key = await trafficCipherKey(trafficKey, "decrypt");
     const plaintext = new Uint8Array(
       await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: nonce, additionalData: aad, tagLength: RELAY_TAG_BYTES * 8 },
@@ -306,6 +320,7 @@
     base64UrlDecode,
     encodeRelayNonce,
     encodeRelayAdditionalAuthenticatedData,
+    importStoredTrafficKey,
     sealRelayFrame,
     openRelayFrame,
     sealPairingCredential,

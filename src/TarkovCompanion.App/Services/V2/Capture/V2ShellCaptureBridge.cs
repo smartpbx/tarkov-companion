@@ -46,6 +46,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly WorkspaceOrigin _origin;
     private readonly ILogger<V2ShellCaptureBridge> _logger;
     private readonly ILootScanWorkspaceControls? _lootScanControls;
+    private readonly ShellCaptureContextSource? _contextSource;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
     private long _intentRevision;
@@ -63,9 +64,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
         IntelCaptureHandoff intelHandoff,
         WorkspaceOrigin origin,
         ILogger<V2ShellCaptureBridge>? logger = null,
-        ILootScanWorkspaceControls? lootScanControls = null)
+        ILootScanWorkspaceControls? lootScanControls = null,
+        ShellCaptureContextSource? contextSource = null)
     {
         _lootScanControls = lootScanControls;
+        _contextSource = contextSource;
+        contextSource?.Bind(shell?.Router ?? throw new ArgumentNullException(nameof(shell)));
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _captureSessions = captureSessions ?? throw new ArgumentNullException(nameof(captureSessions));
         _lootScanHandoff = lootScanHandoff ?? throw new ArgumentNullException(nameof(lootScanHandoff));
@@ -161,6 +165,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// </remarks>
     private CaptureContextMetadata ContextFrom(string requestingDevice)
     {
+        // One builder for the arm, the watcher and manual intake, so they cannot disagree.
+        if (_contextSource is not null)
+        {
+            return _contextSource.Describe(requestingDevice);
+        }
+
         var context = _shell.Router.Context;
         return new(
             activeWorkspace: context.WorkspaceId ?? _shell.Router.Current.Location.Route.Value,

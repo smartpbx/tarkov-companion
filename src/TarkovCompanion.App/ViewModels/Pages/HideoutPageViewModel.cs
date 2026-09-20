@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Runtime;
@@ -319,7 +320,10 @@ public sealed class HideoutPageViewModel : PageViewModel
         IReadOnlyList<HideoutItemRequirement> wanted,
         IReadOnlyDictionary<string, int> traderLevels,
         CancellationToken cancellationToken) =>
-        HideoutBarterRoutes.ComputeAsync(_barters, _traders, _itemRepository, wanted, traderLevels, cancellationToken);
+        // Routing prices every input of every barter, one query each: off the interface thread (#453).
+        OffInterfaceThread.Run(
+            () => HideoutBarterRoutes.ComputeAsync(_barters, _traders, _itemRepository, wanted, traderLevels, cancellationToken),
+            cancellationToken);
 
     private static HideoutStationViewModel Describe(
         HideoutStationSummary station,

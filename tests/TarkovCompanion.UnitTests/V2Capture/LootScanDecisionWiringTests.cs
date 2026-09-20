@@ -159,7 +159,7 @@ public sealed class LootScanDecisionWiringTests
         // Holdings could not be subtracted, so the engine's answer is partial and stays a review.
         Assert.Equal(LootScanVerdict.Review, decision.Verdict);
         Assert.Equal("TAKE?", card.VerdictLabel);
-        Assert.Equal("Current quest", card.HeadlineReason);
+        Assert.Equal("Current quest · 3 for Shortage", card.HeadlineReason);
         Assert.Contains("Shortage", card.WhyLabel, StringComparison.Ordinal);
         Assert.Contains("no stash scan yet", card.WhyLabel, StringComparison.Ordinal);
     }
@@ -186,6 +186,37 @@ public sealed class LootScanDecisionWiringTests
 
         // Seven steps off is past the engine's five-step horizon, so price decides and says leave.
         Assert.Equal(LootScanVerdict.Leave, Assert.Single(result.Decisions).Verdict);
+    }
+
+    [Fact]
+    public async Task AnyOfManyItemsIsAReasonOnlyOnceThePlayerIsOnThatQuest()
+    {
+        // "Hand over 50 of any of these": the catalog lists each accepted item as its own row.
+        QuestItemRequirement[] anyOfMany =
+        [
+            .. Enumerable.Range(0, 9).Select(index => new QuestItemRequirement("foundations", "any-fifty", $"filler-{index}", 50, FoundInRaidRequired: false)),
+            new("foundations", "any-fifty", "bolts", 50, FoundInRaidRequired: false),
+        ];
+        var ahead = await EvaluateAsync(new Scan
+        {
+            Loot = [Named(0, 0, "bolts", "Bolts", 1, 1)],
+            Carried = Backpack(2, 2),
+            QuestRequirements = anyOfMany,
+            Board = [Quest("foundations", "Building Foundations", RecordedTaskState.NotStarted)],
+        });
+        var current = await EvaluateAsync(new Scan
+        {
+            Loot = [Named(0, 0, "bolts", "Bolts", 1, 1)],
+            Carried = Backpack(2, 2),
+            QuestRequirements = anyOfMany,
+            Board = [Quest("foundations", "Building Foundations", RecordedTaskState.Active)],
+        });
+
+        // One step ahead it made every item in the game a take. Price decides, and says leave.
+        Assert.Equal(LootScanVerdict.Leave, Assert.Single(ahead.Decisions).Verdict);
+        var advice = Assert.Single(current.Decisions).Recommendation!.Decision.Value!;
+        Assert.Equal(TarkovCompanion.Core.Abstractions.V2.RecommendationAction.Take, advice.Action);
+        Assert.Contains(advice.Reasons, reason => reason.Category == RecommendationReasonCategory.CurrentQuest);
     }
 
     [Fact]
@@ -367,7 +398,7 @@ public sealed class LootScanDecisionWiringTests
                     new LootScanFactFixtures.Profiles(),
                     new ProfileNeedAggregationService(scan.QuestRequirements, []),
                     new LootScanFactFixtures.Quests(scan.Board),
-                    new LootScanFactFixtures.Requirements()),
+                    new LootScanFactFixtures.Requirements(scan.QuestRequirements)),
                 new LootScanRaidContextSource(new RaidStateService(), new LootScanFactFixtures.NoMaps(), preference));
             var handoff = new LootScanCaptureHandoff(
                 runtime,
