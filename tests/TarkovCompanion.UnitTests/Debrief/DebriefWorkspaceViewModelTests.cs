@@ -3,6 +3,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
@@ -318,6 +319,129 @@ public sealed class DebriefWorkspaceViewModelTests
         null,
         "fixture-position");
 
+    [Fact]
+    public async Task Each_detail_fact_says_where_it_came_from()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Observed", viewModel.SelectedMapKindLabel);
+        Assert.Equal("Inferred", kinds["Mode"]);
+        Assert.Equal("Observed", kinds["Started"]);
+        Assert.Equal("Observed", kinds["Ended"]);
+        Assert.Equal("Observed", kinds["Duration"]);
+        // Nothing was typed and the game records no outcome, so it has no source rather than a wrong one.
+        Assert.Equal(string.Empty, kinds["Outcome"]);
+        Assert.Equal(string.Empty, kinds["Queue/load"]);
+    }
+
+    [Fact]
+    public async Task A_raid_closed_on_restart_reads_as_inferred_and_its_duration_as_an_estimate()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(
+            RaidId,
+            Guid.NewGuid(),
+            "customs",
+            "Pmc",
+            Started,
+            Started.AddHours(3),
+            RaidClosure.ClosedOnRestartOutcome,
+            RaidClosure.ClosedOnRestartNotes));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Inferred", kinds["Ended"]);
+        Assert.Equal("Estimate", kinds["Duration"]);
+        Assert.Equal("Inferred", kinds["Outcome"]);
+        Assert.Equal("Inferred", viewModel.Raids.Single().OutcomeKindLabel);
+    }
+
+    /// <summary>The bug this exists for: a corrected outcome used to overwrite the field with nothing to say who wrote it.</summary>
+    [Fact]
+    public async Task Saving_a_correction_marks_the_outcome_manual_in_the_detail_and_the_list()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        Assert.Equal(string.Empty, viewModel.Raids.Single().OutcomeKindLabel);
+
+        viewModel.CorrectedOutcome = "Survived";
+        viewModel.SaveCorrectionCommand.Execute(null);
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        await viewModel.LoadAsync();
+
+        var kinds = viewModel.SelectedFacts.ToDictionary(fact => fact.Label, fact => fact.KindLabel);
+        Assert.Equal("Manual", kinds["Outcome"]);
+        Assert.Equal("Manual", viewModel.Raids.Single().OutcomeKindLabel);
+    }
+
+    [Fact]
+    public async Task Typing_the_companions_own_closing_words_by_hand_is_still_manual()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.CorrectedOutcome = RaidClosure.ClosedOnRestartOutcome;
+        viewModel.SaveCorrectionCommand.Execute(null);
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+
+        Assert.Equal("Manual", viewModel.SelectedFacts.Single(fact => fact.Label == "Outcome").KindLabel);
+    }
+
+    [Fact]
+    public async Task Scans_during_a_raid_are_listed_with_an_inferred_item_and_an_estimated_value()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(new ScanExecutionResult(
+            true, true, "item-gpu", "Graphics card", 12_000, 12_000, "Take", new(0.93), Started.AddMinutes(5), "screenshot", "detail")));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(new ScanExecutionResult(
+            true, false, null, null, null, null, null, new(0), Started.AddMinutes(7), "screenshot", "detail")));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(ScanExecutionResult.Unavailable("no recogniser", Started.AddMinutes(9))));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.HasSelectedScans);
+        Assert.Equal("3 scans · 1 recognised · 1 unavailable", viewModel.SelectedScanSummary);
+        var recognised = viewModel.SelectedScans[0];
+        Assert.Equal("Graphics card", recognised.ItemLabel);
+        Assert.Equal("Inferred", recognised.IdentityKindLabel);
+        Assert.Equal("Estimate", recognised.ValueKindLabel);
+        Assert.Contains("12", recognised.ValueLabel, StringComparison.Ordinal);
+        Assert.Contains("Take", recognised.DetailLabel, StringComparison.Ordinal);
+        var nothing = viewModel.SelectedScans[1];
+        Assert.Equal("Nothing recognised", nothing.ItemLabel);
+        Assert.False(nothing.HasIdentityKind);
+        Assert.False(nothing.HasValue);
+        Assert.Equal("Scan unavailable", viewModel.SelectedScans[2].ItemLabel);
+    }
+
+    [Fact]
+    public async Task A_raid_with_no_scans_says_so_and_a_screenshot_distance_is_labelled_an_estimate()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedPositions(RaidId, [Position(Started), Position(Started.AddMinutes(1))]);
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        Assert.False(viewModel.HasSelectedScans);
+        Assert.Equal("No scans during this raid.", viewModel.SelectedScanSummary);
+        Assert.Equal("Estimate", viewModel.SelectedDistanceKindLabel);
+    }
+
     private sealed class FakeRaidHistoryService : IRaidHistoryService
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
@@ -359,6 +483,12 @@ public sealed class DebriefWorkspaceViewModelTests
             LastCorrection = (outcome, notes);
             if (_raids.TryGetValue(raidId, out var raid))
             {
+                // What the real service does in the same transaction: keep that it was corrected.
+                if (RaidCorrection.Between(raid, outcome, notes, Started) is { } correction)
+                {
+                    SeedEvent(raidId, RaidCorrection.EventType, correction.ToPayload());
+                }
+
                 _raids[raidId] = raid with { Outcome = outcome, Notes = notes };
             }
 

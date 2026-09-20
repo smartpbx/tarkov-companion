@@ -31,6 +31,19 @@
     <Style Selector="TextBlock.v2-debrief-muted">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
+    <!-- Where a fact came from (Observed, Inferred, Estimate, Manual): a small outlined tag, in the
+         Keep list's chip shape, so it reads as a label and never as a value. -->
+    <Style Selector="Border.v2-debrief-kind">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+      <Setter Property="Padding" Value="8,1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-debrief-kind TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
     <Style Selector="TextBlock.v2-debrief-strong">
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
@@ -161,7 +174,12 @@
                       <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding Mode}" />
                       <TextBlock Grid.Column="2" Classes="v2-debrief-muted" Text="{Binding StartedLabel}" />
                       <TextBlock Grid.Column="3" Classes="v2-debrief-muted" Text="{Binding DurationLabel}" />
-                      <TextBlock Grid.Column="4" Classes="v2-debrief-muted" Text="{Binding Outcome}" />
+                      <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8">
+                        <TextBlock Classes="v2-debrief-muted" Text="{Binding Outcome}" />
+                        <Border Classes="v2-debrief-kind" IsVisible="{Binding HasOutcomeKind}">
+                          <TextBlock Text="{Binding OutcomeKindLabel}" />
+                        </Border>
+                      </StackPanel>
                     </Grid>
                   </Button>
                 </DataTemplate>
@@ -189,19 +207,26 @@
           <StackPanel Spacing="12" IsVisible="{Binding HasSelection}">
             <Border Classes="v2-debrief-section v2-debrief-accent">
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
-                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="6">
-                  <TextBlock Grid.Row="0" Classes="v2-debrief-muted" Text="Mode" />
-                  <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SelectedModeLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="1" Classes="v2-debrief-muted" Text="Started" />
-                  <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SelectedStartedLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="2" Classes="v2-debrief-muted" Text="Ended" />
-                  <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SelectedEndedLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="3" Classes="v2-debrief-muted" Text="Duration" />
-                  <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SelectedDurationLabel}" HorizontalAlignment="Right" />
-                  <TextBlock Grid.Row="4" Classes="v2-debrief-muted" Text="Queue/load" />
-                  <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SelectedLoadTimeLabel}" HorizontalAlignment="Right" />
-                </Grid>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
+                  <Border Classes="v2-debrief-kind" IsVisible="{Binding HasSelectedMapKind}">
+                    <TextBlock Text="{Binding SelectedMapKindLabel}" />
+                  </Border>
+                </StackPanel>
+                <ItemsControl ItemsSource="{Binding SelectedFacts}" AutomationProperties.AutomationId="v2-debrief-facts">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefFactRowViewModel">
+                      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,3">
+                        <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="{Binding Label}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Value}" HorizontalAlignment="Right" TextWrapping="Wrap"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="2" Classes="v2-debrief-kind" IsVisible="{Binding HasKind}">
+                          <TextBlock Text="{Binding KindLabel}" />
+                        </Border>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </Border>
 
@@ -212,12 +237,53 @@
                   <TextBlock Classes="v2-debrief-strong" Text="Screenshots" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
-                <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedDistanceLabel}" TextWrapping="Wrap"
-                           IsVisible="{Binding HasDistance}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasDistance}">
+                  <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedDistanceLabel}" TextWrapping="Wrap" />
+                  <Border Classes="v2-debrief-kind">
+                    <TextBlock Text="{Binding SelectedDistanceKindLabel}" />
+                  </Border>
+                </StackPanel>
                 <Button Classes="v2-target v2-debrief-plain" HorizontalAlignment="Left" IsVisible="{Binding CanWatch}"
                         AutomationProperties.AutomationId="v2-debrief-watch"
                         Content="Watch on map" Command="{Binding WatchOnMapCommand}" />
-                <TextBlock Classes="v2-label" Text="{Binding ScanBreakdownNotice}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <!-- What was scanned during this raid. A recognised item is inferred and its value is an
+                 estimate (a market price at scan time); neither is presented as carried-out value. -->
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Camera}" />
+                  <TextBlock Classes="v2-debrief-strong" Text="Scans" VerticalAlignment="Center" />
+                </StackPanel>
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedScanSummary}" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-debrief-scan-summary" />
+                <ItemsControl ItemsSource="{Binding SelectedScans}" IsVisible="{Binding HasSelectedScans}"
+                              AutomationProperties.AutomationId="v2-debrief-scans">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DebriefScanRowViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,4">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding ItemLabel}" TextTrimming="CharacterEllipsis" />
+                            <Border Classes="v2-debrief-kind" IsVisible="{Binding HasIdentityKind}">
+                              <TextBlock Text="{Binding IdentityKindLabel}" />
+                            </Border>
+                          </StackPanel>
+                          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasValue}">
+                            <TextBlock Classes="v2-debrief-muted" Text="{Binding ValueLabel}" />
+                            <Border Classes="v2-debrief-kind">
+                              <TextBlock Text="{Binding ValueKindLabel}" />
+                            </Border>
+                          </StackPanel>
+                          <TextBlock Classes="v2-label" Text="{Binding DetailLabel}" IsVisible="{Binding HasDetail}" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="{Binding TimeLabel}" VerticalAlignment="Top" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
               </StackPanel>
             </Border>
 

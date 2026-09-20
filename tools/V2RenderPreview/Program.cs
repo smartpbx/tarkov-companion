@@ -1389,8 +1389,18 @@ internal static class Program
         }
 
         await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
-        await Raid("woods", TimeSpan.FromDays(1), TimeSpan.FromMinutes(38), null, "Ran the sawmill");
-        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, "Dorms then RUAF roadblock");
+        // The companion's own words for a raid it found closed on restart, so the preview shows an
+        // inferred end beside the hand-typed and observed ones.
+        await Raid(
+            "woods",
+            TimeSpan.FromDays(1),
+            TimeSpan.FromMinutes(38),
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartOutcome,
+            TarkovCompanion.Core.Domain.Raids.RaidClosure.ClosedOnRestartNotes);
+        var newest = await Raid(shown.MapId ?? "customs", TimeSpan.FromHours(2), TimeSpan.FromMinutes(27), null, null);
+        // A player's correction, through the same call Debrief's Save button makes, so it is stored
+        // as a correction event and reads as manual.
+        await history.CorrectAsync(newest, "Survived", "Dorms then RUAF roadblock", CancellationToken.None);
         // Re-timed to fall inside the raid they belong to: the demo trail is stamped minutes ago, and
         // the raid above started two hours back.
         var raidStart = now - TimeSpan.FromHours(2);
@@ -1406,6 +1416,34 @@ internal static class Program
                 System.Text.Json.JsonSerializer.Serialize(stamped, json),
                 CancellationToken.None);
         }
+
+        // Scans taken during that raid, written as the runtime writes them (default JSON options):
+        // two items it recognised, one screenshot that showed nothing it could name.
+        var scanned = raidStart + TimeSpan.FromMinutes(6);
+        foreach (var (name, id, value, confidence, action) in new[]
+        {
+            ("Graphics card", "57347ca924597744596b4e71", 232_000L, 0.94, "Take"),
+            ("Salewa first aid kit", "544fb45d4bdc2dee738b4568", 27_500L, 0.81, "Sell"),
+        })
+        {
+            scanned += TimeSpan.FromMinutes(4);
+            await history.RecordEventAsync(
+                newest,
+                "scan",
+                scanned,
+                System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                    true, true, id, name, value, value, action, new(confidence), scanned, "screenshot", "preview")),
+                CancellationToken.None);
+        }
+
+        scanned += TimeSpan.FromMinutes(3);
+        await history.RecordEventAsync(
+            newest,
+            "scan",
+            scanned,
+            System.Text.Json.JsonSerializer.Serialize(new TarkovCompanion.Application.Services.Runtime.ScanExecutionResult(
+                true, false, null, null, null, null, null, new(0), scanned, "screenshot", "preview")),
+            CancellationToken.None);
 
         return newest;
     }
