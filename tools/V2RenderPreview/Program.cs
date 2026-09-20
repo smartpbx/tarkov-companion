@@ -22,7 +22,6 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -274,6 +273,9 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
@@ -289,6 +291,13 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            // [#292/#309] The problem report as a player reads it before it is sent.
+            if (shell?.SetupWorkspace is { Admin.Report: { } reportReview } && args.Contains("--report-demo"))
+            {
+                reportReview.PreviewCommand.Execute(null);
+                Pump(30);
             }
 
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one

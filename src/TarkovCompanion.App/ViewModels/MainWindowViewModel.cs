@@ -2103,7 +2103,8 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// </remarks>
     public async Task ReportProblemAsync()
     {
-        if (_snapshot is not { } snapshot)
+        var report = BuildReport();
+        if (report is null)
         {
             DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
             return;
@@ -2112,17 +2113,44 @@ public sealed class SettingsPageViewModel : PageViewModel
         DiagnosticsStatus = "Sending…";
         try
         {
-            var report = SupportBundle.Describe(
-                snapshot,
-                snapshot.RecentScreenshotNames,
-                CrashLog.FilePath,
-                _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture));
             DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
         }
+    }
+
+    /// <summary>
+    /// The exact text a problem report would send, or null before the application has a snapshot to describe.
+    /// </summary>
+    /// <remarks>
+    /// One producer for the report the player is shown and the report that is sent, so a preview cannot say one
+    /// thing and the send another (#292, #309). It is <see cref="SupportBundle"/>'s closed projection and nothing else:
+    /// the self-test's own text, which names folders, stays on the clipboard path.
+    /// </remarks>
+    public string? BuildReport() => _snapshot is { } snapshot
+        ? SupportBundle.Describe(
+            snapshot,
+            snapshot.RecentScreenshotNames,
+            CrashLog.FilePath,
+            _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture))
+        : null;
+
+    /// <summary>Sends text that <see cref="BuildReport"/> produced and the player has read, and says what happened.</summary>
+    public async Task<string> SendReviewedReportAsync(string report, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(report);
+        try
+        {
+            DiagnosticsStatus = await SendReport(report, cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+        }
+
+        return DiagnosticsStatus;
     }
 
     /// <summary>

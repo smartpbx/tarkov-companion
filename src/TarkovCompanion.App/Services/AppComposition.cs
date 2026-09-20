@@ -824,7 +824,11 @@ public static class AppComposition
                     provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline,
                     provider.GetRequiredService<SetupDataDetailViewModel>().Facts.FirstOrDefault()?.Value,
                     provider.GetRequiredService<MainWindowViewModel>().Group)),
-            provider.GetRequiredService<SetupDisplaysViewModel>()));
+            provider.GetRequiredService<SetupDisplaysViewModel>(),
+            // [#292/#309] The report a player reads before it is sent, and the send of exactly that text.
+            new SetupReportViewModel(
+                () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
+                (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token))));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

@@ -149,6 +149,17 @@ public static class V2ShellText
         ["V2.Setup.Appearance.Summary"] = "Now: {0}, text {1}%, {2} spacing.",
         ["V2.Setup.Displays.Info"] = "Window position and size are remembered, and return to a visible monitor if a display goes.",
 
+        // [#292/#309] Diagnostics: read the problem report, then send exactly that.
+        ["V2.Setup.Report.Review"] = "Review report",
+        ["V2.Setup.Report.Send"] = "Send this report",
+        ["V2.Setup.Report.Discard"] = "Discard",
+        ["V2.Setup.Report.Heading"] = "What would be sent",
+        ["V2.Setup.Report.Note"] = "This is the whole report. It is sent only when you press Send this report, and nothing else goes with it.",
+        ["V2.Setup.Report.Size"] = "{0:N0} characters",
+        ["V2.Setup.Report.Nothing"] = "Nothing to describe yet; the application is still starting.",
+        ["V2.Setup.Report.Sending"] = "Sending…",
+        ["V2.Setup.Report.Failed"] = "Could not send: {0}. Use Copy diagnostics instead.",
+
         // [#292] Setup: paths, data detail, updates, displays, About and Data & Privacy.
         ["V2.Setup.Section.DataPrivacy"] = "Data & Privacy",
         ["V2.Setup.Section.About"] = "About",
