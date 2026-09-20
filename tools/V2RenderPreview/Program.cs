@@ -1234,6 +1234,16 @@ internal static class Program
                 Pump(20);
             }
 
+            // [Issue 286] Press a step of the traffic phase control: auto, early, mid or late.
+            if (StringOption(args, "--traffic-phase") is { } trafficPhase &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel phasedRaid)
+            {
+                phasedRaid.TrafficPhases
+                    .FirstOrDefault(choice => string.Equals(choice.Label, trafficPhase, StringComparison.OrdinalIgnoreCase))
+                    ?.SelectCommand.Execute(null);
+                Pump(40);
+            }
+
             // [Issue 286] Press an extract's row, so the routes drawn are the ones to it.
             if (StringOption(args, "--route-extract") is { } routeExtract &&
                 shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routedRaid)

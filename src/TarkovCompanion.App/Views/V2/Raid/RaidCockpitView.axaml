@@ -283,9 +283,30 @@
             </StackPanel>
           </Border>
           <Border Classes="v2-raid-caption" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10,0,0,34"
-                  Padding="8,6" IsVisible="{Binding ShowsTrafficBanner}" IsHitTestVisible="False"
+                  Padding="8,6" Opacity="0.95" IsVisible="{Binding ShowsTrafficBanner}"
                   AutomationProperties.AutomationId="v2-raid-traffic-legend">
-            <StackPanel Spacing="3" Width="210">
+            <StackPanel Spacing="5" Width="232">
+              <!-- The concept's raid-phase scrubber, as the three steps the model has; it belongs to
+                   this layer, so it is here with the legend and goes when the layer does. -->
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8" ToolTip.Tip="{Binding TrafficPhaseTip}">
+                <TextBlock Classes="v2-label" Text="Phase" VerticalAlignment="Center" />
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding TrafficPhases}"
+                              AutomationProperties.AccessibilityView="Control"
+                              AutomationProperties.Name="Modelled traffic raid phase">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><UniformGrid Rows="1" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
+                      <ToggleButton Classes="v2-raid-viewcontrol" Padding="4,2" MinHeight="0" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Center" FontSize="12"
+                                    IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
+                                    Content="{Binding Label}"
+                                    AutomationProperties.AutomationId="{Binding AutomationId}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Grid>
               <Border Height="8" CornerRadius="4">
                 <Border.Background>
                   <LinearGradientBrush StartPoint="0%,50%" EndPoint="100%,50%">
