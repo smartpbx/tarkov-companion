@@ -4,6 +4,7 @@ using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Ammo;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -461,5 +462,5 @@ public sealed class AmmoPageViewModel : PageViewModel
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
 }

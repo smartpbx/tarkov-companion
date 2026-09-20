@@ -448,6 +448,42 @@ the concrete recognition pipeline, review UI, durable accepted-result handoff, a
 bounded screenshot decoder from OCR PR #333 is also an integration dependency; its deadline,
 pixel cap, encoded-buffer lifetime, and per-attempt failure contract must survive reconciliation.
 
+### What the player sees, and what a capture is read as (#287)
+
+`V2ShellCaptureBridge` is the composition-owned adapter between the coordinator and the shell. Two
+things it used to leave undone:
+
+**Every review resolved itself.** The bridge preferred the detected context and fell back to the
+armed intent, always, so the disagreement the coordinator reports on
+`CaptureReviewRequest.HasIntentDisagreement` never reached anybody. The shell had rendered the
+attention panel for it since #266 and nothing ever filled it. It now pauses on exactly two cases —
+the recognizer read a different screen than the one armed (Skip / Analyse as armed / Analyse as
+detected), and it could not place the screen at all (Skip / Analyse as armed / Retry). Agreement
+still resolves silently. The unplaceable case deliberately offers *as armed* rather than *as
+selected*: the frame was taken under the intent that was armed when the shutter fired, and the
+coordinator has no action that re-analyses one artifact as a different intent.
+
+**Nothing read a single item.** `CaptureAnalysis` carried a context and a confidence but no
+identity, and the pixels are released the moment analysis returns, so what a frame showed could
+not be recovered afterwards. It now carries `Identified`: the ranked catalog matches, pixel-free.
+`CaptureRecognitionPipeline` fills them from the lines the OCR coordinator already read, through
+the same `OcrItemCandidates` ranking `RecognitionService` uses — one read, one answer, rather than
+a second recognizer over the same frame. Only item-shaped screens are resolved; a stash grid's
+hundreds of lines are a lattice, and the reconstruction is the right reading of that frame.
+
+`IntelCaptureHandoff` takes the intents that reached no workspace before (Auto, Ammo, Keys, Quest
+items, Flea — all of which returned Accepted and produced nothing) and publishes the item. The
+bridge shows it as a review naming its alternates and their confidence, and opens that item's Intel
+page. A capture that identified nothing publishes nothing rather than opening Intel on a guess.
+
+The capture context is also no longer empty: active workspace, profile id, map, plan, selected
+entity and prior scan come from the router's own navigation context, which the shell already keeps
+current. The profile's stable id, never its display name — a context that named the player would
+put their handle into every report.
+
+To see either state without a game: `tools/V2RenderPreview --capture-demo
+disagreement|unknown|identified`.
+
 Reviewed stash frames cross a separate pixel-free assembly boundary described in
 `docs/STASH_SCAN.md` and ADR 0018. That boundary deduplicates exact content, stitches only unique
 evidence-backed overlap, retains unresolved origins and failed ordinal gaps, and never invents

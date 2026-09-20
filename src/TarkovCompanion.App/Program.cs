@@ -18,6 +18,21 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Before Velopack, before the command line, before anything: this is not the application
+        // starting, it is the application being used as a map rasteriser by an application that is
+        // already running. It draws one picture and exits. Nothing else in this method may run —
+        // an install hook, a single-instance guard or a window would all be wrong for a child that
+        // lives for two seconds.
+        //
+        // Why a child process at all: rasterising a drawing killed the application outright on
+        // 2026-09-19 with a native access violation inside Skia. A native fault cannot be caught,
+        // so the only way to survive one is for it to happen somewhere else. See
+        // OutOfProcessSvgRasterizer.
+        if (MapRasterizerHost.TryRun(args) is { } rasterizerExitCode)
+        {
+            return rasterizerExitCode;
+        }
+
         // First, before anything. Velopack runs the install, update and uninstall hooks here
         // and exits the process for some of them, so any work done before this call is work
         // done during an install the user is waiting on, and any window shown before it is a
@@ -33,7 +48,8 @@ internal static class Program
         try
         {
             var options = AppCommandLine.Parse(args);
-            CrashLog.Install(AppDataPaths.Resolve(demoMode: options.Demo).Logs);
+            var logDirectory = AppDataPaths.Resolve(demoMode: options.Demo).Logs;
+            CrashLog.Install(logDirectory);
 
             // Said out loud rather than swallowed. An option that has not shipped yet used to
             // be indistinguishable from an option that had no effect, and somebody drew the
@@ -88,6 +104,16 @@ internal static class Program
                 return 0;
             }
 
+            // After the single-instance guard, and only for an ordinary launch. A second instance
+            // that exits immediately would otherwise roll the running instance's breadcrumbs
+            // aside and leave a marker nobody clears; a self-test, page gallery or headless demo
+            // is killed on purpose by the tool driving it, and each would be reported to the next
+            // player as a run that died.
+            if (IsOrdinaryLaunch(options))
+            {
+                CrashBreadcrumbs.Install(logDirectory);
+            }
+
             var services = AppComposition.Build(options);
             var app = new App(services);
             var diagnosticChannel = DiagnosticCommandChannel.Start(
@@ -101,6 +127,7 @@ internal static class Program
             Dispatcher.UIThread.UnhandledException += (_, arguments) =>
             {
                 CrashLog.Write("dispatcher-exception", arguments.Exception);
+                CrashBreadcrumbs.Drop("dispatcher-exception", arguments.Exception.GetType().Name);
                 arguments.Handled = true;
             };
 
@@ -119,6 +146,10 @@ internal static class Program
         catch (Exception exception)
         {
             CrashLog.Write("startup-failure", exception);
+            // The cause is in the log, so there is nothing for the next launch to add. Left
+            // standing, the marker would make it announce a run that died without saying why,
+            // immediately under the entry saying exactly why.
+            CrashBreadcrumbs.MarkCleanExit();
             Console.Error.WriteLine(exception.Message);
             return exception is ArgumentException
                 or IOException
@@ -191,6 +222,12 @@ internal static class Program
         catch (AggregateException exception)
         {
             CrashLog.Write("shutdown-failure", exception);
+        }
+        finally
+        {
+            // Last thing, and in a finally, because the question the next launch asks is only
+            // "did this run reach its own shutdown". A teardown that timed out still did.
+            CrashBreadcrumbs.MarkCleanExit();
         }
     }
 

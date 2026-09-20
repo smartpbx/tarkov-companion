@@ -353,10 +353,43 @@ Also still open, as #266 work this change does not deliver:
 
 - V2 brushes for Button, TextBox, and Expander chrome beyond the focus and error borders, with
   measured contrast;
-- a width classifier and text-scale application for the adaptation rules above, and adaptive
-  gallery layout (stacked cards, single-column reflow, a table overflow affordance);
-- an ordered data alternative for the map and chart legends;
-- resolvers for the motion and density preferences, which have manifest values but no code.
+- a width classifier and adaptive gallery layout (stacked cards, single-column reflow, a table
+  overflow affordance);
+- an ordered data alternative for the map and chart legends.
+
+## Choosing the appearance
+
+The palettes above were unreachable until #266/#315: `V2Appearance.Resolve` had no caller,
+`App.axaml` pinned the theme to Dark, and nothing persisted a choice. Three pieces now close that.
+
+**The record.** `Core/Domain/Personalization/WorkspacePreferences` is one versioned, platform-neutral
+record: theme (System/Light/Dark/HighContrast), colour vision, text scale, density, reduce motion.
+`Infrastructure/Settings/JsonFileWorkspacePreferenceStore` keeps it in `Config/preferences.json`
+with a `schemaVersion`, writing enum *names* so the file reads as a decision. A file this build
+cannot understand — unparseable, or a newer `schemaVersion` — opens at the default rather than
+being half-applied; every other bad value is snapped to the nearest offered one.
+
+**The applier.** `App/Services/V2/Appearance/V2AppearanceApplier` runs before the first window
+exists. It sets `Application.RequestedThemeVariant` from `V2Appearance.Resolve`, multiplies the
+type ramp by the text scale, copies the chosen density over `V2.Density.Standard.*` (which every
+style asks for), and puts a `v2-motion-reduced` class on the window. Overrides go into
+`Application.Resources`, which shadows the merged token dictionary and leaves the authored file as
+the design system's own record of the sizes — `V2AppearanceResources` reads its baseline from
+there, once, before anything is shadowed.
+
+**The palette that was left behind.** The rail, the buttons, the text boxes and the map chrome
+paint from `Themes/InstrumentPalette.axaml`, not from `V2ThemeVariants.axaml`, so a light theme
+repainted the workspaces and left all of those dark. That palette is now keyed by theme variant
+too, with the Dark set byte-for-byte what it always was. The custom variants inherit Light or Dark,
+so only the V2 status roles need their own overrides.
+
+Text scale multiplies the type ramp and nothing else. Interface scale, the separate stepper beside
+it in Setup, still zooms the whole shell through `MainWindow`'s `LayoutTransformControl`; they are
+different settings and both are kept.
+
+To see one: `tools/V2RenderPreview --appearance light|dark|high-contrast|system`,
+`--color-vision red-green|blue-yellow|mono`, `--text-scale 100..200`,
+`--density compact|comfortable`, `--reduce-motion`.
 
 Binding the operational primitives to capture and paired-device transitions stays with those feature
 owners, outside #266; this disconnected gallery deliberately contains no commands or protocol state.

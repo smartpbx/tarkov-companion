@@ -38,6 +38,41 @@ public sealed class ScanUseCaseTests
     }
 
     [Fact]
+    public async Task ARetiredScreenCaptureReportsCaptureUnavailableAndReadsNothing()
+    {
+        // GDI window capture was retired (#316): the slot holds UnavailableScreenCaptureService,
+        // so a Scan click has to end as an honest "capture unavailable", not as an exception and
+        // not as a scan of something that was never captured.
+        var harness = new Harness(
+            new(ScanContext.SingleItem, [Candidate("item-1", "Graphics Card", 0.96)], ObservedUtc),
+            capture: new UnavailableScreenCaptureService());
+
+        var outcome = await harness.UseCase.ScanAsync(harness.Request, CancellationToken.None);
+
+        Assert.Equal(ScanCompletionStatus.Unavailable, outcome.Status);
+        Assert.Equal("capture_unavailable", outcome.DiagnosticCode);
+        Assert.Contains(outcome.Evidence, evidence =>
+            evidence.Code == "capture_unavailable" &&
+            evidence.Detail == UnavailableScreenCaptureService.Message);
+        Assert.Null(outcome.Recommendation);
+        // The failed attempt is recorded, as every step a scan can fail at is, but names no item.
+        var saved = Assert.Single(harness.Events.Saved);
+        Assert.Equal("capture_unavailable", saved.DiagnosticCode);
+        Assert.True(string.IsNullOrEmpty(saved.ResolvedItemId));
+    }
+
+    [Fact]
+    public async Task TheUnavailableCaptureServiceRefusesEveryRequestWithoutTouchingTheScreen()
+    {
+        var service = new UnavailableScreenCaptureService();
+
+        var refusal = await Assert.ThrowsAsync<PlatformNotSupportedException>(() =>
+            service.CaptureAsync(new CaptureRequest("eft", null, true, "test"), CancellationToken.None));
+
+        Assert.Equal(UnavailableScreenCaptureService.Message, refusal.Message);
+    }
+
+    [Fact]
     public async Task APartialOcrReadReachesTheFinalScanThroughTheRealRecogniser()
     {
         // The provider's contextual pass lost tiles. The item still resolves and is still advised
@@ -168,7 +203,11 @@ public sealed class ScanUseCaseTests
 
         /// <param name="recognition">A fixed answer from a stand-in recogniser.</param>
         /// <param name="recognizer">A real recogniser instead, so the scan runs through it end to end.</param>
-        public Harness(RecognitionResult? recognition = null, IRecognitionService? recognizer = null)
+        /// <param name="capture">A capture service instead of the one that returns the fixture image.</param>
+        public Harness(
+            RecognitionResult? recognition = null,
+            IRecognitionService? recognizer = null,
+            IScreenCaptureService? capture = null)
         {
             var provenance = new DataProvenance("fixture", ObservedUtc);
             _item = new(
@@ -213,7 +252,7 @@ public sealed class ScanUseCaseTests
             Publisher = new();
             var items = new StaticItemRepository(_item, _price);
             UseCase = new(
-                Capture,
+                capture ?? Capture,
                 Recognition,
                 Extracts,
                 Containers,
