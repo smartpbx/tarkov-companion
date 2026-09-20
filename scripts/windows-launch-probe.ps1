@@ -296,6 +296,9 @@ try {
         throw "Expected package commit '$ExpectedCommit', but BUILD_INFO.txt names a different commit."
     }
 
+    # Close-to-tray would cancel CloseMainWindow and leave the process alive; the probe's
+    # clean-shutdown check needs the window close to end the process. Player launches omit this.
+    $env:TARKOV_COMPANION_QUIT_ON_CLOSE = "1"
     $Process = Start-Process -FilePath $ResolvedAppPath `
         -WorkingDirectory $PackageDirectory `
         -RedirectStandardOutput $StandardOutputPath `
