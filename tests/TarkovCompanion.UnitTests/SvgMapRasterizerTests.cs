@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Infrastructure.Maps;
@@ -189,25 +190,39 @@ public sealed class SvgMapRasterizerTests
     /// A child that never finishes is stopped at its deadline.
     /// </summary>
     /// <remarks>
-    /// The stand-in used to be <c>cmd.exe /c pause</c> on Windows, and <c>pause</c> does not pause
-    /// when its output is redirected — which this rasteriser always does, so it can read the
-    /// child's stderr. The child exited in thirty milliseconds with code 0, the call returned
-    /// successfully, and the test failed with "no exception was thrown". That is worse than a
-    /// flake: on the one platform the application actually ships to, this test could not have
-    /// passed for the right reason, because the deadline was never reached.
+    /// Two wrong stand-ins before this one, both of which failed by not hanging, and the test said
+    /// something different each time rather than saying that. So the stand-in is now chosen to
+    /// depend on nothing, and the test checks that it really did hang.
     ///
-    /// <c>ping -n 30</c> waits regardless of redirection. And the assertion is on the message
-    /// rather than on a stopwatch: a regression to an unbounded wait still throws, because the
-    /// child eventually exits non-zero — but it says "exit code", not "was stopped". Naming which
-    /// of the two happened is the invariant; how many seconds a loaded runner took is not.
+    /// <c>cmd.exe /c pause</c> was first: <c>pause</c> does not pause when its output is
+    /// redirected — which this rasteriser always does, so it can read the child's stderr — so the
+    /// child exited in thirty milliseconds with code 0 and the call returned successfully.
+    /// <c>ping -n 30</c> was second, and failed for a different reason:
+    /// <see cref="System.Diagnostics.ProcessStartInfo.ArgumentList"/> quotes every entry
+    /// separately, so <c>cmd</c> received <c>/c "ping" "-n" "30" "127.0.0.1"</c> and its
+    /// leading-quote rule mangled that into something it could not run — exit code 1, in 142
+    /// milliseconds. One string after <c>/c</c> is the shape that survives, which is why
+    /// <see cref="FailingHost"/> has always worked.
+    ///
+    /// <c>for /l %i in (1,0,2)</c> counts from 1 towards 2 in steps of 0, so it never arrives.
+    /// It is a <c>cmd</c> built-in: no PATH lookup, no external binary, nothing to be absent from
+    /// a runner image. <c>sleep</c> is POSIX, so the other side needs no equivalent.
+    ///
+    /// The assertions are the message and a *lower* bound on the elapsed time. The message
+    /// separates the two outcomes an unbounded regression chooses between — "was stopped" against
+    /// "exit code" — with no clock. The lower bound is what both previous versions lacked: a
+    /// stand-in that exits early can no longer look like a deadline that worked. It is load-safe,
+    /// because load only makes the elapsed time longer.
     /// </remarks>
     [Fact]
     public async Task AChildThatHangsIsStoppedAtItsDeadline()
     {
         using var directory = new TemporaryDirectory();
+        var deadline = TimeSpan.FromMilliseconds(500);
         var host = OperatingSystem.IsWindows()
-            ? new SvgRasterizerHost("cmd.exe", ["/c", "ping", "-n", "30", "127.0.0.1"], TimeSpan.FromMilliseconds(500))
-            : new SvgRasterizerHost("/bin/sh", ["-c", "sleep 30"], TimeSpan.FromMilliseconds(500));
+            ? new SvgRasterizerHost("cmd.exe", ["/c", "for /l %i in (1,0,2) do @rem"], deadline)
+            : new SvgRasterizerHost("/bin/sh", ["-c", "sleep 30"], deadline);
+        var clock = Stopwatch.StartNew();
 
         var failure = await Assert.ThrowsAsync<InvalidDataException>(() => RunChildAsync(
             host,
@@ -216,6 +231,10 @@ public sealed class SvgMapRasterizerTests
 
         Assert.Contains("was stopped", failure.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("exit code", failure.Message, StringComparison.Ordinal);
+        Assert.True(
+            clock.Elapsed >= deadline,
+            $"The stand-in stopped after {clock.Elapsed.TotalMilliseconds:0} ms, inside its "
+            + $"{deadline.TotalMilliseconds:0} ms deadline, so it did not hang and this test proved nothing.");
     }
 
     /// <summary>A shell that prints to stderr and exits with the given code.</summary>
