@@ -47,6 +47,22 @@ public static class CrashBreadcrumbs
     private static readonly Lock Gate = new();
     private static string? _directory;
 
+    /// <summary>
+    /// Whether the run before this one was killed rather than closed.
+    /// </summary>
+    /// <remarks>
+    /// One boolean, which is all the outbound diagnostics report is allowed to carry and all it
+    /// needs. On 2026-09-19 Clayton sent a report for a run that had died and the report could not
+    /// say so: it excludes free-form text and exception bodies by design, the breadcrumbs that
+    /// explain the death are free-form, and nothing projected the one fact that is not. "The run
+    /// before this one did not reach its own shutdown" is the difference between a report that
+    /// starts an investigation and one that ends it.
+    ///
+    /// False until <see cref="Install"/> has looked, so a launch that never installed one — a
+    /// self-test, a page gallery — reports nothing rather than guessing.
+    /// </remarks>
+    public static bool PreviousRunDied { get; private set; }
+
     /// <summary>Where breadcrumbs are being written, or null while nothing is installed.</summary>
     public static string? FilePath
     {
@@ -102,6 +118,7 @@ public static class CrashBreadcrumbs
             }
         }
 
+        PreviousRunDied = previous.Count > 0;
         if (previous.Count > 0)
         {
             CrashLog.Write(

@@ -66,7 +66,31 @@ public static class SupportBundle
         ApplicationRuntimeSnapshot snapshot,
         IReadOnlyList<string> recentScreenshotNames,
         string? logPath,
-        IReadOnlyList<(string Key, string Value)>? selfTest)
+        IReadOnlyList<(string Key, string Value)>? selfTest) =>
+        Describe(snapshot, recentScreenshotNames, logPath, selfTest, startupFaults: null);
+
+    /// <summary>
+    /// The same report, plus which pages did not load and whether the last run was killed.
+    /// </summary>
+    /// <remarks>
+    /// Two questions this report could not answer on 2026-09-19, when both were the answer. The
+    /// application had died on a map load and the report said "database ready, data current" —
+    /// true, and useless, because it had no vocabulary for "the run before this one never reached
+    /// its own shutdown". Separately, a page load that failed at startup left several pages empty
+    /// for the session, and the report could not name one.
+    ///
+    /// Both fit the closed projection this file is built on. A page that failed is one identifier
+    /// from a fixed set, exactly like the self-test's capability keys above; a run that died is a
+    /// boolean. Neither carries a path, a message or an exception body, and a name this file does
+    /// not recognise is rendered as "other" rather than passed through — the vocabulary is closed
+    /// here, not at the caller, because that is the only place it can be guaranteed.
+    /// </remarks>
+    public static string Describe(
+        ApplicationRuntimeSnapshot snapshot,
+        IReadOnlyList<string> recentScreenshotNames,
+        string? logPath,
+        IReadOnlyList<(string Key, string Value)>? selfTest,
+        IReadOnlyList<string>? startupFaults)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(recentScreenshotNames);
@@ -164,6 +188,17 @@ public static class SupportBundle
             report.AppendLine();
         }
 
+        report.AppendLine("### Stability");
+        AppendFact(report, "previous run reached shutdown", YesNo(!CrashBreadcrumbs.PreviousRunDied));
+        var faults = ClosedStartupFaults(startupFaults);
+        AppendFact(report, "pages that did not load at startup", BoundedCount(faults.Count, MaximumStartupFaults));
+        foreach (var page in faults)
+        {
+            AppendFact(report, "page did not load", page);
+        }
+
+        report.AppendLine();
+
         report.AppendLine("### Privacy boundary");
         AppendFact(report, "application log content included", "no");
         AppendFact(report, "runtime detail text included", "no");
@@ -172,6 +207,38 @@ public static class SupportBundle
         report.AppendLine(Footer);
         return report.ToString();
     }
+
+    /// <summary>How many failed pages may be named, so a future page list cannot grow this.</summary>
+    private const int MaximumStartupFaults = 32;
+
+    /// <summary>
+    /// The pages this report is allowed to name, and the only ones it will.
+    /// </summary>
+    /// <remarks>
+    /// The same ten identifiers <c>MainWindowViewModel.InitializeAsync</c> starts, written out
+    /// rather than inferred. Kept here because a closed vocabulary enforced at the caller is not
+    /// closed: this file's whole design is that it projects into a fixed set before rendering,
+    /// instead of accepting arbitrary text and hoping to find the secrets in it.
+    /// </remarks>
+    private static readonly IReadOnlySet<string> KnownPages = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "items", "quests", "history", "scanner", "hideout", "ammo", "keys", "events", "group", "map",
+    };
+
+    /// <summary>
+    /// The failed pages, reduced to names this report recognises.
+    /// </summary>
+    /// <remarks>
+    /// An unrecognised name becomes "other" rather than being dropped, because "a page failed and
+    /// this build cannot say which" is still worth knowing, and rather than being rendered,
+    /// because a name this file has not seen is exactly the free-form text it must not carry.
+    /// </remarks>
+    private static IReadOnlyList<string> ClosedStartupFaults(IReadOnlyList<string>? faults) => faults is null
+        ? []
+        : [.. faults
+            .Take(MaximumStartupFaults)
+            .Select(page => KnownPages.Contains(page) ? page : "other")
+            .Distinct(StringComparer.Ordinal)];
 
     /// <summary>A short, single-line value. The projection is closed; this keeps it that way.</summary>
     private static string Bounded(string value)

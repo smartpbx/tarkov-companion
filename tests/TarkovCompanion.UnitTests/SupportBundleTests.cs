@@ -276,6 +276,7 @@ public sealed class SupportBundleTests
                 "### Raid",
                 "### Data",
                 "### Sharing",
+                "### Stability",
                 "### Privacy boundary",
             ],
             headings);
@@ -321,6 +322,11 @@ public sealed class SupportBundleTests
                 "relay state stale",
                 // v2r-fast-positions (package 31): counts and durations, never who or where.
                 "squadmate position latency",
+                // Whether the last run was killed, and how many pages failed to load. Two facts
+                // the report had no vocabulary for on 2026-09-19, when both were the answer. The
+                // page names themselves are conditional and so are asserted by their own tests.
+                "previous run reached shutdown",
+                "pages that did not load at startup",
                 "application log content included",
                 "runtime detail text included",
                 "screenshot or OCR content included",
@@ -329,6 +335,70 @@ public sealed class SupportBundleTests
 
         Assert.Equal(headings.Length + facts.Length + 1, lines.Length);
         Assert.Equal(SupportBundle.Footer, lines[^1]);
+    }
+
+    /// <summary>
+    /// The report names which pages did not load, from a closed set.
+    /// </summary>
+    /// <remarks>
+    /// A page load that failed at startup used to leave the pane empty and the report silent, so
+    /// "several pages never filled in" could not be matched to a cause. These are the same
+    /// identifiers MainWindowViewModel starts them under, which is why they can be named at all:
+    /// one of a fixed set is not free-form text.
+    /// </remarks>
+    [Fact]
+    public void ThePagesThatDidNotLoadAreNamed()
+    {
+        var report = SupportBundle.Describe(
+            Snapshot(),
+            [],
+            "/ignored/application.log",
+            selfTest: null,
+            startupFaults: ["hideout", "map"]);
+
+        Assert.Contains("### Stability", report, StringComparison.Ordinal);
+        Assert.Contains("- pages that did not load at startup: 2", report, StringComparison.Ordinal);
+        Assert.Contains("- page did not load: hideout", report, StringComparison.Ordinal);
+        Assert.Contains("- page did not load: map", report, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A name this report does not know does not reach it.
+    /// </summary>
+    /// <remarks>
+    /// The point of the closed projection, applied to the newest thing that enters it. A caller
+    /// that one day passes a path, a message or a player's own words must not be able to put them
+    /// in an outbound report by calling them a page. It is still counted — "a page failed and this
+    /// build cannot say which" is worth knowing — but it is not rendered.
+    /// </remarks>
+    [Fact]
+    public void APageNameTheReportDoesNotKnowIsNotRendered()
+    {
+        var report = SupportBundle.Describe(
+            Snapshot(),
+            [],
+            null,
+            selfTest: null,
+            startupFaults: [@"C:\Users\Clay\AppData\secret.db", "hideout"]);
+
+        Assert.DoesNotContain("Clay", report, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret.db", report, StringComparison.Ordinal);
+        Assert.Contains("- page did not load: other", report, StringComparison.Ordinal);
+        Assert.Contains("- page did not load: hideout", report, StringComparison.Ordinal);
+    }
+
+    /// <summary>A healthy run says so, in the one vocabulary the report has for it.</summary>
+    /// <remarks>
+    /// The fact that was missing on 2026-09-19: the application had died on a map load and the
+    /// report said "database ready, data current", which was true and useless.
+    /// </remarks>
+    [Fact]
+    public void TheReportSaysWhetherThePreviousRunReachedItsOwnShutdown()
+    {
+        var report = SupportBundle.Describe(Snapshot(), [], null, selfTest: null, startupFaults: null);
+
+        Assert.Contains("- previous run reached shutdown: ", report, StringComparison.Ordinal);
+        Assert.Contains("- pages that did not load at startup: 0", report, StringComparison.Ordinal);
     }
 
     private static ApplicationRuntimeSnapshot Snapshot() => new RuntimeStateStore(new(
