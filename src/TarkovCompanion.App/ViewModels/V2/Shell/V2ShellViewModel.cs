@@ -1651,6 +1651,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // a breadcrumb naming the destination is the difference between "it died" and "it died
         // going to Plan".
         CrashBreadcrumbs.Drop("navigate", CurrentAddress);
+        UiActivity.Navigated(CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
@@ -1758,6 +1759,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// </remarks>
     internal static async Task ObserveWorkspaceLoad(string surface, Func<Task> load)
     {
+        UiActivity.LoadStarted(surface);
         try
         {
             await load().ConfigureAwait(true);
@@ -1768,6 +1770,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         catch (Exception exception)
         {
             CrashLog.Write($"workspace-fault/{surface}", $"load: {exception}");
+        }
+        finally
+        {
+            UiActivity.LoadFinished(surface);
         }
     }
 

@@ -676,19 +676,28 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         try
         {
+            UiActivity.Step("plan:start");
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:profile");
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeLabel = $"{profile.Name} · {profile.GameMode}";
             _ownedItems = profile.OwnedItemCounts;
             _missingItems.Clear();
             _board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
-            _mapNames = await ResolveMapNamesAsync(_board, cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:board");
+            var board = _board;
+            _mapNames = await OffInterfaceThread.Run(() => ResolveMapNamesAsync(board, cancellationToken), cancellationToken).ConfigureAwait(true);
+            UiActivity.Step("plan:mapnames");
             RebuildSearchIndex();
+            UiActivity.Step("plan:searchindex");
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
+            UiActivity.Step("plan:applyprofile");
             ApplyFilter();
+            UiActivity.Step("plan:applyfilter");
             UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
+            UiActivity.Step("plan:questlayer");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -1177,26 +1186,40 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             return;
         }
 
-        var resolved = false;
-        foreach (var id in unnamed)
+        // Read off the interface thread and applied on it: up to 150 lookups, none of which the
+        // view needs to watch happen. The dictionaries belong to this thread, so only the answers
+        // come back.
+        var repository = _itemRepository;
+        var lookups = await OffInterfaceThread.Run(async () =>
         {
-            try
+            var found = new List<(string Id, string? Name)>(unnamed.Length);
+            foreach (var id in unnamed)
             {
-                if (await _itemRepository.GetAsync(id, CancellationToken.None).ConfigureAwait(true) is { } item)
+                try
                 {
-                    _itemNames[id] = item.Name;
+                    var item = await repository.GetAsync(id, CancellationToken.None).ConfigureAwait(false);
+                    found.Add((id, item?.Name));
                 }
-                else
+                catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    _missingItems.Add(id);
+                    // One unreadable item costs one name, not the panel.
+                    WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
                 }
-
-                resolved = true;
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+
+            return found;
+        }).ConfigureAwait(true);
+
+        var resolved = lookups.Count > 0;
+        foreach (var (id, name) in lookups)
+        {
+            if (name is not null)
             {
-                // One unreadable item costs one name, not the panel.
-                WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
+                _itemNames[id] = name;
+            }
+            else
+            {
+                _missingItems.Add(id);
             }
         }
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -146,13 +147,17 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
             var board = await _questReadService.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(true);
 
-            var (rows, groups) = await BuildAsync(
-                profile,
-                questRequirements,
-                hideoutRequirements,
-                stations,
-                keyFacts,
-                board,
+            // Off the interface thread as a whole: this looks up an item and a price for every
+            // candidate, several hundred of each, and touches nothing the view is bound to.
+            var (rows, groups) = await OffInterfaceThread.Run(
+                () => BuildAsync(
+                    profile,
+                    questRequirements,
+                    hideoutRequirements,
+                    stations,
+                    keyFacts,
+                    board,
+                    cancellationToken),
                 cancellationToken).ConfigureAwait(true);
             Groups = groups;
             Status = rows == 0

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
@@ -260,7 +261,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                 .ToArray();
             var buildable = Stations.Count(station => station.HasNextLevel && station.CanBuildNow);
             Status = $"{StationCountLabel} · {buildable} ready to build now";
-            Rollup = await BuildRollupAsync(cancellationToken).ConfigureAwait(true);
+            Rollup = await OffInterfaceThread.Run(() => BuildRollupAsync(cancellationToken), cancellationToken).ConfigureAwait(true);
 
             // The detail pane is the page's primary content, so something is always selected
             // once stations exist: the previous choice if it survived, else the first station.
@@ -306,25 +307,37 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                     string.Equals(requirement.StationId, station.StationId, StringComparison.OrdinalIgnoreCase) &&
                     requirement.TargetLevel == station.NextLevel)
                 .ToArray();
-            var routes = await HideoutBarterRoutes
-                .ComputeAsync(_barters, _traders, _itemRepository, wanted, _traderLevels, cancellationToken)
-                .ConfigureAwait(true);
-            var rows = new List<HideoutRequirementRowViewModel>(wanted.Length);
-            foreach (var requirement in wanted)
-            {
-                var item = await _itemRepository.GetAsync(requirement.ItemId, cancellationToken).ConfigureAwait(true);
-                var owned = _ownedItemCounts.GetValueOrDefault(requirement.ItemId);
-                var remaining = Math.Max(0, requirement.Required - owned);
-                rows.Add(new(
-                    item?.Name ?? requirement.ItemId,
-                    Count(requirement.Required),
-                    Count(owned),
-                    remaining == 0 ? "Complete" : Count(remaining),
-                    remaining == 0)
+            // Off the interface thread as a whole. Routing prices every input of every barter in
+            // the catalog, one query each, before it can compare them, and the rows then look up
+            // a name apiece; none of it touches anything the view is bound to.
+            var ownedCounts = _ownedItemCounts;
+            var traderLevels = _traderLevels;
+            var rows = await OffInterfaceThread.Run(
+                async () =>
                 {
-                    CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
-                });
-            }
+                    var routes = await HideoutBarterRoutes
+                        .ComputeAsync(_barters, _traders, _itemRepository, wanted, traderLevels, cancellationToken)
+                        .ConfigureAwait(false);
+                    var built = new List<HideoutRequirementRowViewModel>(wanted.Length);
+                    foreach (var requirement in wanted)
+                    {
+                        var item = await _itemRepository.GetAsync(requirement.ItemId, cancellationToken).ConfigureAwait(false);
+                        var owned = ownedCounts.GetValueOrDefault(requirement.ItemId);
+                        var remaining = Math.Max(0, requirement.Required - owned);
+                        built.Add(new(
+                            item?.Name ?? requirement.ItemId,
+                            Count(requirement.Required),
+                            Count(owned),
+                            remaining == 0 ? "Complete" : Count(remaining),
+                            remaining == 0)
+                        {
+                            CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                        });
+                    }
+
+                    return built;
+                },
+                cancellationToken).ConfigureAwait(true);
 
             Items = rows
                 .OrderBy(row => row.IsSatisfied)
