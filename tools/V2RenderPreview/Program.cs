@@ -1169,6 +1169,31 @@ internal static class Program
                     // The shell picks the raid's map, opens the replay and navigates: three async steps.
                     Pump(120);
                 }
+
+                // #291 package 2: put the raid list on a search or a filter before the frame, the
+                // same way Plan does, so a render can show what a filtered history looks like.
+                var debriefSearch = StringOption(args, "--debrief-search");
+                var debriefOutcome = StringOption(args, "--debrief-filter-outcome");
+                var debriefSide = StringOption(args, "--debrief-filter-side");
+                if (debriefSearch is not null || debriefOutcome is not null || debriefSide is not null)
+                {
+                    if (debriefSearch is not null)
+                    {
+                        debrief.SearchText = debriefSearch;
+                    }
+
+                    if (debriefOutcome is not null)
+                    {
+                        debrief.OutcomeFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefOutcomeFilter>(debriefOutcome, ignoreCase: true);
+                    }
+
+                    if (debriefSide is not null)
+                    {
+                        debrief.SideFilter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefSideFilter>(debriefSide, ignoreCase: true);
+                    }
+
+                    Pump(20);
+                }
             }
 
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan

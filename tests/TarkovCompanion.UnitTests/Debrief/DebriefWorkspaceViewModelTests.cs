@@ -442,6 +442,133 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal("Estimate", viewModel.SelectedDistanceKindLabel);
     }
 
+    [Fact]
+    public async Task Searching_matches_notes_and_the_per_map_stats_follow_the_filtered_set()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms then RUAF roadblock"));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), "Survived", "Scav run, nothing found"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.SearchText = "dorms";
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+        Assert.Equal("1 of 2 raids", viewModel.Status);
+        var stat = Assert.Single(viewModel.MapStats);
+        Assert.Equal("customs", stat.MapLabel);
+    }
+
+    [Fact]
+    public async Task Clearing_search_restores_every_raid()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms"));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), "Survived", "Nothing found"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.SearchText = "dorms";
+        Assert.Single(viewModel.Raids);
+
+        ((DelegateCommand)viewModel.ClearSearchCommand).Execute(null);
+
+        Assert.Equal(2, viewModel.Raids.Count);
+        Assert.False(viewModel.HasActiveFilters);
+    }
+
+    [Theory]
+    [InlineData(DebriefOutcomeFilter.Survived, "Survived", true)]
+    [InlineData(DebriefOutcomeFilter.Survived, "Closed on restart", false)]
+    [InlineData(DebriefOutcomeFilter.Died, "Killed by scav", true)]
+    [InlineData(DebriefOutcomeFilter.Mia, "MIA after disconnect", true)]
+    [InlineData(DebriefOutcomeFilter.RunThrough, "Run-through, nothing seen", true)]
+    public async Task Outcome_filter_matches_by_keyword_over_the_free_text_outcome(
+        DebriefOutcomeFilter filter, string outcome, bool expectMatch)
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), outcome, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.OutcomeFilter = filter;
+
+        Assert.Equal(expectMatch ? 1 : 0, viewModel.Raids.Count);
+    }
+
+    [Fact]
+    public async Task Side_filter_matches_the_side_read_from_the_raids_state_events()
+    {
+        var pmcRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.SeedEvent(RaidId, "state", """{"Side":"scav"}""");
+        service.Seed(new RaidHistoryEntry(pmcRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        service.SeedEvent(pmcRaidId, "state", """{"Side":"PMC"}""");
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.SideFilter = DebriefSideFilter.Scav;
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Map_filter_narrows_the_list_to_one_map()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        var customsOption = Assert.Single(viewModel.MapFilterOptions, option => option.MapId == "customs");
+
+        viewModel.SelectedMapFilterOption = customsOption;
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Date_range_excludes_raids_outside_it_by_the_players_local_day()
+    {
+        var otherRaidId = Guid.Parse("40000000-0000-0000-0000-000000000002");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(otherRaidId, Guid.NewGuid(), "woods", "Pmc", Started.AddDays(-10), Started.AddDays(-10).AddMinutes(10), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+
+        viewModel.DateFrom = Started.AddDays(-1);
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal(RaidId, row.RaidId);
+    }
+
+    [Fact]
+    public async Task Clear_filters_resets_search_map_outcome_side_and_dates()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Dorms"));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        await viewModel.LoadAsync();
+        viewModel.SearchText = "dorms";
+        viewModel.OutcomeFilter = DebriefOutcomeFilter.Survived;
+        viewModel.SideFilter = DebriefSideFilter.Pmc;
+        viewModel.DateFrom = Started;
+        Assert.True(viewModel.HasActiveFilters);
+
+        ((DelegateCommand)viewModel.ClearFiltersCommand).Execute(null);
+
+        Assert.False(viewModel.HasActiveFilters);
+        Assert.Equal(string.Empty, viewModel.SearchText);
+        Assert.Single(viewModel.Raids);
+    }
+
     private sealed class FakeRaidHistoryService : IRaidHistoryService
     {
         private readonly Dictionary<Guid, RaidHistoryEntry> _raids = [];
