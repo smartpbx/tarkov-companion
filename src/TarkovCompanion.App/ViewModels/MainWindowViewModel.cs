@@ -2805,7 +2805,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
-        Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider);
+        Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider,
+            new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider));
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);

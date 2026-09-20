@@ -444,6 +444,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         WireLegacyContext();
         WireRaidClock();
+        WireProfileChip();
         Restore(requestedAddress);
         RebuildSectionItems();
         LoadCurrentWorkspace();
@@ -609,11 +610,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <summary>The top bar's compact mode chip, without the "Profile:" prefix a diagnostic
     /// reader needs but a glanceable header does not.</summary>
     public string TopBarModeLabel => Router.Context.ProfileName is { } profile
-        ? V2ShellText.Format(
+        ? WithWipeAndLanguage(V2ShellText.Format(
             "V2.Shell.Context.ModeCompact",
             CultureInfo.CurrentCulture,
             profile,
-            Router.Context.ProfileMode ?? V2ShellText.Get("V2.Shell.Context.UnknownMode"))
+            Router.Context.ProfileMode ?? V2ShellText.Get("V2.Shell.Context.UnknownMode")))
         : V2ShellText.Get("V2.Shell.Context.NoProfileCompact");
     /// <summary>"Data updated 12 min ago", from the same freshness signal the readiness/health
     /// surface already reasons about.</summary>

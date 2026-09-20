@@ -413,6 +413,40 @@ internal static class Program
 
             // Package 28: a Loadout with one item assigned and evaluated, and an Events page with one
             // event holding a few items, through the pages' own commands.
+            // [#285] --allergy-demo <item query>: an event holding the first matches, the first of
+            // them recorded Allergic, before the pages that warn about it are built up below.
+            if (StringOption(args, "--allergy-demo") is { } allergyQuery)
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Halloween 2026";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = allergyQuery;
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                foreach (var match in events.Matches.Take(3).ToArray())
+                {
+                    match.AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    Console.WriteLine($"Allergy demo: {events.Items[0].ItemName} recorded Allergic");
+                    events.Items[0].MarkAllergicCommand.Execute(null);
+                    Pump(60);
+                    if (args.Contains("--allergy-undo"))
+                    {
+                        DrainUntilComplete(events.UndoCommand.ExecuteAsync());
+                        Pump(40);
+                    }
+
+                    // The app re-reads Plan whenever its tab is returned to; this render went
+                    // there before the record above was made, so it is returned to here.
+                    DrainUntilComplete(services.GetRequiredService<PlanWorkspaceViewModel>().RefreshAsync());
+                    Pump(40);
+                }
+            }
+
             if (StringOption(args, "--loadout-demo") is { } loadoutQuery)
             {
                 var loadout = viewModel.Loadout;

@@ -58,21 +58,19 @@
                    TextWrapping="Wrap" MaxWidth="420"
                    Text="Nothing to keep yet — this fills in once quests, hideout requirements, and key prices have synced." />
         <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasGroups}">
-          <ItemsControl ItemsSource="{Binding Groups}" Margin="16,0,16,12">
+          <!-- One flat, virtualised list: a heading, its rows, the next heading. See Rows. -->
+          <ItemsControl ItemsSource="{Binding Rows}" Margin="16,0,16,12"
+                        AutomationProperties.AutomationId="v2-keep-rows">
             <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate><StackPanel Spacing="16" /></ItemsPanelTemplate>
+              <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
+            <ItemsControl.DataTemplates>
               <DataTemplate x:DataType="vm:KeepListGroupViewModel">
-                <StackPanel Spacing="8">
-                  <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="2" />
-                  <ItemsControl ItemsSource="{Binding Items}">
-                    <ItemsControl.ItemsPanel>
-                      <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate x:DataType="vm:KeepListRowViewModel">
-                        <Border Classes="v2-keep-row">
+                <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" Margin="0,10,0,8"
+                           AutomationProperties.HeadingLevel="2" />
+              </DataTemplate>
+              <DataTemplate x:DataType="vm:KeepListRowViewModel">
+                        <Border Classes="v2-keep-row" Margin="0,0,0,6">
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel Spacing="2">
                               <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
@@ -98,12 +96,8 @@
                             </Border>
                           </Grid>
                         </Border>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </StackPanel>
               </DataTemplate>
-            </ItemsControl.ItemTemplate>
+            </ItemsControl.DataTemplates>
           </ItemsControl>
         </ScrollViewer>
       </Panel>

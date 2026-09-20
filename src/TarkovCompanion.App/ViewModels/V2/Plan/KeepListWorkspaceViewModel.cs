@@ -1,5 +1,6 @@
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using System.Globalization;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Planning;
@@ -68,6 +69,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
 
     private readonly KeepListService _service;
     private IReadOnlyList<KeepListGroupViewModel> _groups = [];
+    private IReadOnlyList<object> _rows = [];
     private string _status = "Loading the keep list…";
 
     public KeepListWorkspaceViewModel(
@@ -97,6 +99,19 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
 
     public bool HasGroups => Groups.Count > 0;
 
+    /// <summary>
+    /// The groups laid end to end, each heading followed by its rows, which is what the page
+    /// binds. One flat list is what a virtualising panel can take: the real catalog gives about
+    /// 480 rows, and as five nested lists every one of them was built and measured on opening the
+    /// page (3.8 s in one interface-thread turn on the dev host; twice past the Windows gallery's
+    /// 30 s). Flat, only the rows on screen exist.
+    /// </summary>
+    public IReadOnlyList<object> Rows
+    {
+        get => _rows;
+        private set => SetProperty(ref _rows, value);
+    }
+
     public string Status
     {
         get => _status;
@@ -117,16 +132,25 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         try
         {
             LoadFaultInjection.ThrowIfInjected("keep");
-            var plan = await _service.BuildAsync(cancellationToken).ConfigureAwait(true);
+            // Read, planned and worded off the interface thread: none of it touches anything bound.
+            var (plan, groups) = await OffInterfaceThread.Run(
+                async () =>
+                {
+                    var built = await _service.BuildAsync(cancellationToken).ConfigureAwait(false);
+                    return (built, built.HasData ? Present(built) : []);
+                },
+                cancellationToken).ConfigureAwait(true);
             LoadFault.Clear();
             if (!plan.HasData)
             {
                 Groups = [];
+                Rows = [];
                 Status = "No keep-list data cached yet.";
                 return;
             }
 
-            Groups = Present(plan);
+            Groups = groups;
+            Rows = [.. groups.SelectMany(group => group.Items.Cast<object>().Prepend(group))];
             Status = plan.Entries.Count == 0
                 ? "Nothing to keep right now — quests, hideout, and keys are all clear."
                 : $"{Count(plan.Entries.Count)} to keep";
@@ -134,6 +158,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Groups = [];
+            Rows = [];
             Status = "Keep-list data isn't available yet.";
             LoadFault.Show("The keep list did not load", "Nothing is lost. Retry reads it again.");
             WorkspaceFault.Record("keep", "refresh", exception);

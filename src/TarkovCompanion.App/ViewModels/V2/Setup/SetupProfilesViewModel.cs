@@ -155,6 +155,18 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     }
 
     /// <summary>What the catalog is being fetched for, so a switch visibly changes something.</summary>
+    /// <summary>
+    /// "wipe · EN" for the top bar, beside the profile's name and game mode: the other two things
+    /// that decide which progress and which catalog every page is showing. Empty with no profile.
+    /// </summary>
+    public string HeaderSuffix
+    {
+        get => _headerSuffix;
+        private set => SetProperty(ref _headerSuffix, value);
+    }
+
+    private string _headerSuffix = string.Empty;
+
     public string ScopeLine
     {
         get => _scopeLine;
@@ -340,6 +352,12 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
                 ModeLabel(active!.Context.Mode),
                 scope.Language)
             : string.Empty;
+        HeaderSuffix = active is null
+            ? string.Empty
+            : string.Join(
+                " · ",
+                new[] { active.Context.WipeSeason.Value, active.Context.Locale.Language.ToUpperInvariant() }
+                    .Where(part => !string.IsNullOrWhiteSpace(part)));
         Notice = snapshot.State switch
         {
             ProfileRuntimeContextState.UnknownGameMode => V2ShellText.Get("V2.Setup.Profiles.UnknownMode"),

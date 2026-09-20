@@ -80,6 +80,11 @@ public sealed record PlanRequirementRowViewModel(
     /// <summary>Whether any holding is recorded for it. Where none is, the row says so instead of "0".</summary>
     public bool IsHeldKnown => Have is not null;
 
+    /// <summary>"Allergic · event name" where the Events page records an allergy to this food or medicine (#285).</summary>
+    public string AllergyWarning { get; init; } = string.Empty;
+
+    public bool HasAllergyWarning => AllergyWarning.Length > 0;
+
     /// <summary>"2 / 5": held against needed, the right-hand figure of the row; "? / 5" where the holding is not recorded.</summary>
     public string ProgressLabel => Have is { } have
         ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
@@ -131,7 +136,7 @@ public static class PlanQuestRules
     /// thing to show somebody deciding what to do next, so it reads as nothing rather than as
     /// a word: the quest is neither known to be available nor known to be locked.
     /// </remarks>
-    public static string DescribeStatus(QuestSummaryReadModel task)
+    public static string DescribeStatus(QuestSummaryReadModel task, Func<string, string?>? nameOfTask = null)
     {
         ArgumentNullException.ThrowIfNull(task);
         return task.RecordedState switch
@@ -142,9 +147,10 @@ public static class PlanQuestRules
             _ => task.Eligibility.State switch
             {
                 QuestEligibilityState.Available => "Available now",
+                // What opens it, not why it is shut (#288); the wording is QuestUnlockPlanner's.
                 QuestEligibilityState.Locked => task.Eligibility.Reasons.Count == 0
                     ? "Locked"
-                    : $"Locked · {task.Eligibility.Reasons[0].Detail}",
+                    : $"Locked · {QuestUnlockPlanner.Summarise(QuestUnlockPlanner.Steps(task, nameOfTask ?? (static _ => null)))}",
                 QuestEligibilityState.Delayed => "Waiting on a timer",
                 _ => string.Empty,
             },
@@ -176,7 +182,8 @@ public static class PlanQuestRules
         IEnumerable<QuestObjectiveReadModel> objectives,
         Func<string, string> nameOf,
         IReadOnlyDictionary<string, int> owned,
-        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null)
+        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null,
+        IReadOnlyDictionary<string, string>? allergyWarnings = null)
     {
         ArgumentNullException.ThrowIfNull(nameOf);
 
@@ -190,7 +197,15 @@ public static class PlanQuestRules
                         : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),
                     HandlingLabel(requirement.Handling),
                     requirement.Need,
-                    requirement.Have))
+                    requirement.Have)
+                {
+                    // Any of the alternatives: the row offers all of them, so it warns for each.
+                    AllergyWarning = allergyWarnings is null
+                        ? string.Empty
+                        : requirement.ItemIds
+                            .Select(id => allergyWarnings.GetValueOrDefault(id))
+                            .FirstOrDefault(warning => warning is not null) ?? string.Empty,
+                })
                 .OrderBy(row => row.IsSatisfied)
                 .ThenBy(row => row.ItemName, StringComparer.CurrentCultureIgnoreCase),
         ];
