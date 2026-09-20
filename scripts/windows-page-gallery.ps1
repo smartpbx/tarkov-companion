@@ -477,6 +477,26 @@ function Invoke-ShellInteraction {
                 throw "'$Description' measured '$BoundsLabel' at $($Bounds.Width)x$($Bounds.Height), below ${MinimumWidth}x${MinimumHeight}."
             }
 
+            # V2 rough package 32: some repairs are about a control being the size of what it
+            # holds, which is true whatever data the machine has — unlike how much of it is
+            # drawn on, which is not. Debrief's raid table is one: a full-height card holding a
+            # single row was the fault, and it is a fault with no raids as much as with one.
+            $MaximumHeightFraction = [double](Get-InteractionProperty -Object $BoundsAssertion -Name "maximumHeightFraction" -Default (-1))
+            if ($MaximumHeightFraction -ge 0) {
+                Initialize-GalleryBounds
+                $HeightWindow = New-Object TarkovCompanionGalleryBounds+RECT
+                if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $HeightWindow)) {
+                    throw "'$Description' could not read the packaged window bounds."
+                }
+
+                $WindowHeight = [Math]::Max(1, $HeightWindow.Bottom - $HeightWindow.Top)
+                $Share = $Bounds.Height / $WindowHeight
+                if ($Share -gt $MaximumHeightFraction) {
+                    throw ("'$Description' left '$BoundsLabel' $([Math]::Round($Share * 100, 1))% of the window tall " +
+                        "(bound $([Math]::Round($MaximumHeightFraction * 100, 1))%): it is not the size of what it holds.")
+                }
+            }
+
             # V2 rough package 30 (acceptance sweep): a control the player is expected to press
             # must actually be on the window. Every V1 page hosted inside the V2 shell drew
             # without the page inset V1 gives it, so Ammo/Keys "Reload", Flea "Look up value",
@@ -1263,8 +1283,17 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     [pscustomobject]@{ key = "tablet"; address = "#/tablet"; heading = "Tablet preview"
         expected = @("v2-shell-navigation-rail") },
+    # Height, not fill: with no raids recorded the table holds its empty state, which is mostly
+    # card either way, so "how much of it is drawn on" says nothing. "It is the height of the
+    # raids in it" is the repair, and it holds with no raids as well as with one — on today's
+    # main this pane is the full height of the window whatever is in it.
+    #
+    # Read against the history this gallery photographs, which is a first run's: none, or the one
+    # the launch probe opened. A machine with thirty raids would fill the window legitimately and
+    # trip this, the same way the readiness denominators above are written against a first run.
     [pscustomobject]@{ key = "debrief"; address = "#/debrief"; heading = "Debrief"
-        expected = @("v2-shell-navigation-rail") },
+        expected = @("v2-shell-navigation-rail", "v2-debrief-history")
+        bounds = @([pscustomobject]@{ automationId = "v2-debrief-history"; maximumHeightFraction = 0.50 }) },
     [pscustomobject]@{ key = "setup"; address = "#/setup"; heading = "Setup & Admin"
         expected = @("v2-shell-navigation-rail") }
 )
@@ -1283,7 +1312,6 @@ foreach ($Route in $V2AcceptanceRoutes) {
         if ($null -ne (Get-InteractionProperty -Object $Route -Name "forbidden")) {
             $Step["forbiddenAutomationIds"] = @($Route.forbidden)
         }
-
         $Shot = [ordered]@{
             name = "v2-a-$($Route.key)-$($Size.suffix)"
             args = @("--ui-shell", "v2-a")
@@ -1541,7 +1569,8 @@ foreach ($Shot in $Shots) {
         }
 
         if ($null -ne $Interaction) {
-            $Result.interactionDetail = Invoke-ShellInteraction -WindowHandle $Process.MainWindowHandle -Interaction $Interaction
+            $Result.interactionDetail = Invoke-ShellInteraction `
+                -WindowHandle $Process.MainWindowHandle -Interaction $Interaction
             $Result.interactionSmoke = $true
             if (-not [bool](Get-InteractionProperty -Object $Shot -Name "closeImmediately" -Default $false)) {
                 Start-Sleep -Milliseconds 300
@@ -1673,6 +1702,11 @@ foreach ($Result in $Results) {
     # without downloading anything.
     if (($Failed -contains $Result) -and -not [string]::IsNullOrWhiteSpace($Result.detail)) {
         Write-Host "     $($Result.detail)"
+    }
+
+    if ($Result.interactionRequired -and -not $Result.interactionSmoke -and
+        -not [string]::IsNullOrWhiteSpace($Result.interactionDetail)) {
+        Write-Host "     $($Result.interactionDetail)"
     }
     foreach ($Line in @($Result.interfaceFaults | Select-Object -First 5)) {
         Write-Host "     $Line"
