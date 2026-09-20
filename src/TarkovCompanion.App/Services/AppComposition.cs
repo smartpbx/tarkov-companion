@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -773,6 +774,29 @@ public static class AppComposition
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#292] Setup's data detail, About, Data & Privacy and Displays.
+        services.AddSingleton(provider => new SetupDataDetailViewModel(
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            runtimeOptions,
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+            () => provider.GetRequiredService<ApplicationStartupCoordinator>().RefreshAsync(force: true, CancellationToken.None)));
+        services.AddSingleton(provider => new SetupDisplaysViewModel(
+            provider.GetService<IMonitorService>(),
+            provider.GetService<IGameWindowLocator>()));
+        services.AddSingleton(provider => new SetupAdminViewModel(
+            provider.GetRequiredService<SetupDataDetailViewModel>(),
+            new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),
+            new SetupInfoPageViewModel(
+                "Data & Privacy",
+                SetupPageContent.DataPrivacy,
+                anchor => SetupPageFacts.ForDataPrivacy(
+                    anchor,
+                    provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline,
+                    provider.GetRequiredService<SetupDataDetailViewModel>().Facts.FirstOrDefault()?.Value,
+                    provider.GetRequiredService<MainWindowViewModel>().Group)),
+            provider.GetRequiredService<SetupDisplaysViewModel>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

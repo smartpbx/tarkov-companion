@@ -1,4 +1,5 @@
 using System.Windows.Input;
+using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.Services.V2.Shell;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
@@ -20,6 +21,12 @@ public enum V2SetupSection
 
     /// <summary>Package 29 (parity): the quest-progress exchange and TarkovTracker import V1 kept in Settings.</summary>
     Progress,
+
+    /// <summary>#292: what the data is and what leaves the machine, layered; the deep-link target for "why" beside a control.</summary>
+    DataPrivacy,
+
+    /// <summary>#292: what the app is, what it never does, and its notices.</summary>
+    About,
 }
 
 /// <summary>One clickable section tab, the same shape as the shell's other selectable rows.</summary>
@@ -120,8 +127,29 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             new(V2SetupSection.Appearance, "V2.Setup.Section.Appearance", Select),
             new(V2SetupSection.Displays, "V2.Setup.Section.Displays", Select),
             new(V2SetupSection.Diagnostics, "V2.Setup.Section.Diagnostics", Select),
+            new(V2SetupSection.DataPrivacy, "V2.Setup.Section.DataPrivacy", Select),
+            new(V2SetupSection.About, "V2.Setup.Section.About", Select),
         ];
         Sections[0].IsCurrent = true;
+        // #292: paths are hidden until asked for, and every path Setup prints goes through this one gate.
+        Paths = new SetupPathDisclosureViewModel();
+        WatchedFolders = new(() => Settings?.WatchedFolders, Paths, Settings, nameof(SettingsPageViewModel.WatchedFolders));
+        DatabasePath = new(() => Settings?.DatabasePath, Paths, Settings, nameof(SettingsPageViewModel.DatabasePath));
+        UpdateDataFolder = new(() => Settings?.UpdateDataFolder, Paths, Settings, nameof(SettingsPageViewModel.UpdateDataFolder));
+        CompanionLogPath = new(() => Settings?.CompanionLogPath, Paths, Settings, nameof(SettingsPageViewModel.CompanionLogPath));
+        if (settings is not null)
+        {
+            settings.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(SettingsPageViewModel.LastUpdateCheckFailed))
+                {
+                    OnPropertyChanged(nameof(CheckUpdateButtonLabel));
+                }
+            };
+        }
+
+        OpenPrivacyDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.CaptureRetention));
+        OpenSharingDetailCommand = new DelegateCommand(() => OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.SharingScope));
     }
 
     public SettingsPageViewModel? Settings { get; }
@@ -134,6 +162,55 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public SetupSelfTestViewModel? SelfTest { get; private set; }
 
     public bool HasSelfTest => SelfTest is not null;
+
+    /// <summary>[#292] Whether file paths show in full. Off at every launch; nothing remembers it.</summary>
+    public SetupPathDisclosureViewModel Paths { get; }
+
+    public GatedPathText WatchedFolders { get; }
+
+    public GatedPathText DatabasePath { get; }
+
+    public GatedPathText UpdateDataFolder { get; }
+
+    public GatedPathText CompanionLogPath { get; }
+
+    /// <summary>[#292] The data detail, About, Data &amp; Privacy and Displays pages; null in a shell built without them.</summary>
+    public SetupAdminViewModel? Admin { get; private set; }
+
+    public bool HasAdmin => Admin is not null;
+
+    public ICommand OpenPrivacyDetailCommand { get; }
+
+    public ICommand OpenSharingDetailCommand { get; }
+
+    /// <summary>Hands this page #292's pages after construction, for the reason <see cref="AttachSelfTest"/> gives.</summary>
+    public void AttachAdmin(SetupAdminViewModel admin)
+    {
+        Admin = admin ?? throw new ArgumentNullException(nameof(admin));
+        OnPropertyChanged(nameof(Admin));
+        OnPropertyChanged(nameof(HasAdmin));
+    }
+
+    /// <summary>
+    /// Opens a Setup section, and on About or Data &amp; Privacy the item named by <paramref name="anchor"/>,
+    /// expanded. This is the deep link: a control elsewhere that wants to say "why" lands on the answer.
+    /// </summary>
+    /// <returns>False when the section is not there or has no such item; the section still opens.</returns>
+    public bool OpenSection(V2SetupSection section, string? anchor = null)
+    {
+        Select(section);
+        if (anchor is null || Admin is null)
+        {
+            return anchor is null;
+        }
+
+        return section switch
+        {
+            V2SetupSection.About => Admin.About.Open(anchor),
+            V2SetupSection.DataPrivacy => Admin.DataPrivacy.Open(anchor),
+            _ => false,
+        };
+    }
 
     /// <summary>
     /// Hands this page the self-test after construction.
@@ -162,6 +239,18 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public ICommand IncreaseScaleCommand { get; }
 
     public ICommand ResetScaleCommand { get; }
+
+    public string ReasonHeading => V2ShellText.Get("V2.Setup.Data.ReasonLabel");
+    public string UpdateNotesHeading => V2ShellText.Get("V2.Setup.Updates.NotesHeading");
+    public string GoingBackHeading => V2ShellText.Get("V2.Setup.Updates.GoingBackHeading");
+    public string GoingBackNote => V2ShellText.Get("V2.Setup.Updates.GoingBack");
+    public string OpenPrivacyDetailLabel => V2ShellText.Get("V2.Setup.Info.OpenPrivacy");
+    public string OpenSharingDetailLabel => V2ShellText.Get("V2.Setup.Info.OpenSharing");
+
+    /// <summary>The check button says "Try again" once a check has failed, so a failure has an obvious next step.</summary>
+    public string CheckUpdateButtonLabel => Settings?.LastUpdateCheckFailed == true
+        ? V2ShellText.Get("V2.Setup.Updates.RetryLabel")
+        : CheckUpdateLabel;
 
     public string SectionsRegionName => V2ShellText.Get("V2.Setup.Sections.Region");
     public string ScreenshotFolderLabel => V2ShellText.Get("V2.Setup.GameProfile.ScreenshotFolderLabel");
@@ -242,6 +331,25 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
             OnPropertyChanged(nameof(IsDisplaysSelected));
             OnPropertyChanged(nameof(IsDiagnosticsSelected));
             OnPropertyChanged(nameof(IsProgressSelected));
+            OnPropertyChanged(nameof(IsDataPrivacySelected));
+            OnPropertyChanged(nameof(IsAboutSelected));
+            // Ages and monitors are read when the page is opened, not carried from the last visit.
+            if (value == V2SetupSection.Data)
+            {
+                Admin?.Data.Refresh();
+            }
+            else if (value == V2SetupSection.Displays)
+            {
+                Admin?.Displays.RefreshCommand.Execute(null);
+            }
+            else if (value == V2SetupSection.About)
+            {
+                Admin?.About.Refresh();
+            }
+            else if (value == V2SetupSection.DataPrivacy)
+            {
+                Admin?.DataPrivacy.Refresh();
+            }
         }
     }
 
@@ -256,6 +364,8 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public bool IsDisplaysSelected => Selected == V2SetupSection.Displays;
     public bool IsDiagnosticsSelected => Selected == V2SetupSection.Diagnostics;
     public bool IsProgressSelected => Selected == V2SetupSection.Progress;
+    public bool IsDataPrivacySelected => Selected == V2SetupSection.DataPrivacy;
+    public bool IsAboutSelected => Selected == V2SetupSection.About;
 
     public void Select(V2SetupSection section) => Selected = section;
 
