@@ -4,6 +4,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Debrief">
   <UserControl.Styles>
+    <!-- The search box and filter chip shapes Plan and Intel already use. -->
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
     <!-- The same flat pane, context panel and section shapes as the Raid and Team workspaces. -->
     <Style Selector="Border.v2-debrief-pane">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -100,7 +102,7 @@
        Raid/Team layout — the raid table as the primary pane, the selected raid's detail and its
        correction in a right context panel. -->
   <Grid ColumnDefinitions="*,Auto">
-    <Grid Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="12" Margin="16,4,16,16">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="12" Margin="16,4,16,16">
       <!-- The title and the action row used to share one Grid row ("*,Auto"): at 1024px wide the
            actions' Auto column always won its full width, the title's Star column was squeezed to
            a sliver, and StackPanel does not clip, so "Raid history" painted on top of "Refresh" /
@@ -129,11 +131,89 @@
         </StackPanel>
       </WrapPanel>
 
+      <!-- Search and filters (#291 package 2): map, outcome, side, a date range and free text over
+           notes. The per-map stats below follow this same filtered set. -->
+      <Border Grid.Row="1" Classes="v2-debrief-pane" Padding="16,12" AutomationProperties.AutomationId="v2-debrief-filters">
+        <StackPanel Spacing="10">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <Border Classes="v2-intel-search" MinHeight="38" Padding="12,0,4,0">
+              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
+                      Data="{DynamicResource V2.Icon.Search}" />
+                <TextBox Grid.Column="1" Classes="v2-intel-search-input" Text="{Binding SearchText}"
+                         PlaceholderText="Search notes"
+                         AutomationProperties.AutomationId="v2-debrief-search"
+                         AutomationProperties.Name="Search notes" />
+                <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain" IsVisible="{Binding HasSearchText}"
+                        AutomationProperties.AutomationId="v2-debrief-search-clear"
+                        AutomationProperties.Name="Clear search" ToolTip.Tip="Clear search"
+                        Command="{Binding ClearSearchCommand}">
+                  <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+                </Button>
+              </Grid>
+            </Border>
+            <Button Grid.Column="1" Classes="v2-target v2-debrief-plain" IsVisible="{Binding HasActiveFilters}"
+                    Content="Clear filters" Command="{Binding ClearFiltersCommand}" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="v2-debrief-filters-clear" />
+          </Grid>
+          <WrapPanel ItemSpacing="18" LineSpacing="8">
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Classes="v2-debrief-muted" Text="Map" VerticalAlignment="Center" />
+              <ComboBox ItemsSource="{Binding MapFilterOptions}" SelectedItem="{Binding SelectedMapFilterOption}"
+                        MinWidth="160" AutomationProperties.AutomationId="v2-debrief-filter-map"
+                        AutomationProperties.Name="Map">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DebriefMapFilterOption">
+                    <TextBlock Text="{Binding Label}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <ItemsControl ItemsSource="{Binding OutcomeFilterChips}" AutomationProperties.AutomationId="v2-debrief-filter-outcome">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DebriefFilterChipViewModel">
+                  <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <ItemsControl ItemsSource="{Binding SideFilterChips}" AutomationProperties.AutomationId="v2-debrief-filter-side">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DebriefFilterChipViewModel">
+                  <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Classes.selected="{Binding IsSelected}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding Label}"
+                          Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+              <TextBlock Classes="v2-debrief-muted" Text="From" VerticalAlignment="Center" />
+              <DatePicker SelectedDate="{Binding DateFrom}"
+                          AutomationProperties.AutomationId="v2-debrief-filter-date-from"
+                          AutomationProperties.Name="From date" />
+              <TextBlock Classes="v2-debrief-muted" Text="To" VerticalAlignment="Center" />
+              <DatePicker SelectedDate="{Binding DateTo}"
+                          AutomationProperties.AutomationId="v2-debrief-filter-date-to"
+                          AutomationProperties.Name="To date" />
+            </StackPanel>
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+
       <!-- V2 rough package 32: the table is the height of the raids in it. Stretched to the row
            it was a full-height bordered card holding a single line, which at 1920x1080 is about
            85% of the card drawn empty and reads as a page that failed to load. VerticalAlignment
            Top with a stretch MaxHeight means a long history still fills the window and scrolls. -->
-      <Border Grid.Row="1" Classes="v2-debrief-pane" VerticalAlignment="Top"
+      <Border Grid.Row="2" Classes="v2-debrief-pane" VerticalAlignment="Top"
               MaxHeight="{Binding $parent[Grid].Bounds.Height}"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-debrief-history">
@@ -169,7 +249,12 @@
             </StackPanel>
           </Border>
           <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRaids}">
-            <ItemsControl ItemsSource="{Binding Raids}">
+            <!-- Virtualised (#291 package 2): a raid history runs to hundreds of rows and this list
+                 realises only the ones on screen, the same as the Keep list. -->
+            <ItemsControl ItemsSource="{Binding Raids}" AutomationProperties.AutomationId="v2-debrief-rows">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:DebriefRaidRowViewModel">
                   <Button Classes="v2-target v2-debrief-row" Classes.selected="{Binding IsSelected}"
@@ -196,7 +281,7 @@
                       HorizontalAlignment="Center" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Chart}" Width="40" Height="40" Stretch="Uniform"
                   HorizontalAlignment="Center" />
-            <TextBlock Classes="v2-debrief-muted" Text="No raids recorded yet." HorizontalAlignment="Center" />
+            <TextBlock Classes="v2-debrief-muted" Text="{Binding NoRaidsMessage}" HorizontalAlignment="Center" />
           </StackPanel>
         </Grid>
       </Border>
