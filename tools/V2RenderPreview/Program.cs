@@ -275,6 +275,23 @@ internal static class Program
                     $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
             }
 
+            // [V2 rough package 61 — plan export] #288/#315: press Export and print what it
+            // produced, so the document can be read rather than assumed.
+            if (args.Contains("--plan-export"))
+            {
+                var exported = services.GetRequiredService<PlanWorkspaceViewModel>();
+                exported.Clipboard = text =>
+                {
+                    Console.WriteLine("----- exported plan -----");
+                    Console.WriteLine(text);
+                    Console.WriteLine("----- end -----");
+                    return Task.CompletedTask;
+                };
+                DrainUntilComplete(exported.ExportCommand.ExecuteAsync());
+                Pump(20);
+                Console.WriteLine("Export status: " + exported.ExportStatus);
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);

@@ -61,8 +61,15 @@ public sealed record PlanTraderOption(string? TraderId, string Name);
 public sealed record PlanTraderLoyaltyViewModel(string TraderId, string Name, decimal Level);
 
 /// <summary>One item a map's objectives ask the player to bring, hand in or find.</summary>
+/// <param name="ItemId">
+/// The catalog id. Carried beside the name because the name is not an identity: an item the
+/// catalog does not know is called "Item not in the catalog", and two different unknown items
+/// keyed by that phrase merge into one row saying the player needs two of something that does
+/// not exist. The plan export found exactly that.
+/// </param>
 /// <param name="HandlingLabel">"Bring", "Hand in" or "Find in raid".</param>
 public sealed record PlanRequirementRowViewModel(
+    string ItemId,
     string ItemName,
     string HandlingLabel,
     int Need,
@@ -171,6 +178,7 @@ public static class PlanQuestRules
         [
             .. QuestRequirementPlanner.Build(objectives, owned)
                 .Select(requirement => new PlanRequirementRowViewModel(
+                    requirement.PrimaryItemId,
                     requirement.AlternativeCount == 0
                         ? nameOf(requirement.PrimaryItemId)
                         : string.Create(CultureInfo.CurrentCulture, $"{nameOf(requirement.PrimaryItemId)} or {requirement.AlternativeCount:N0} more"),

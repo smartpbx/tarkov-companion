@@ -116,10 +116,17 @@
       <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
               <TextBlock Classes="v2-heading-1" Text="Next raid" AutomationProperties.HeadingLevel="1"
                          VerticalAlignment="Center" />
-              <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
+              <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
+                   clipboard and in a file. Beside Refresh because both act on the whole board. -->
+              <Button Grid.Column="1" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
+                      Padding="8,2" Content="Export"
+                      AutomationProperties.AutomationId="v2-plan-export"
+                      AutomationProperties.Name="Export this plan as text"
+                      ToolTip.Tip="Copy the plan and save it" Command="{Binding ExportCommand}" />
+              <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
                       AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="Refresh"
                       ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
@@ -130,6 +137,10 @@
                          AutomationProperties.AutomationId="v2-plan-status"
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+              <TextBlock Classes="v2-label" Text="{Binding ExportStatus}" IsVisible="{Binding HasExportStatus}"
+                         TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-plan-export-status"
+                         AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding RequirementsRollup}" IsVisible="{Binding HasRequirementsRollup}"
                          Foreground="{DynamicResource V2.Brush.Warning}"
                          AutomationProperties.AutomationId="v2-plan-rollup" />
