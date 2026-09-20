@@ -93,6 +93,14 @@ public sealed class EventsPageViewModel : PageViewModel
     private string _itemQuery = string.Empty;
     private string _searchStatus = string.Empty;
     private bool _confirmingDelete;
+    // [V2 rough package 60 — Plan] #288: the schedule the file format has always carried and the
+    // page never let anybody set.
+    private string _scheduleStart = string.Empty;
+    private string _scheduleEnd = string.Empty;
+    private string _renameTo = string.Empty;
+    private string _scheduleStatus = string.Empty;
+    private string _schedulePreview = string.Empty;
+    private bool _isArchived;
 
     public EventsPageViewModel(
         IEventCatalog catalog,
@@ -109,6 +117,8 @@ public sealed class EventsPageViewModel : PageViewModel
         CreateCommand = new AsyncDelegateCommand(() => CreateAsync(CancellationToken.None));
         SearchCommand = new AsyncDelegateCommand(() => SearchAsync(CancellationToken.None));
         DeleteCommand = new AsyncDelegateCommand(() => DeleteAsync(CancellationToken.None));
+        SaveScheduleCommand = new AsyncDelegateCommand(() => SaveScheduleAsync(CancellationToken.None));
+        ToggleArchivedCommand = new AsyncDelegateCommand(() => SetArchivedAsync(!IsArchived, CancellationToken.None));
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
@@ -118,6 +128,12 @@ public sealed class EventsPageViewModel : PageViewModel
     public AsyncDelegateCommand SearchCommand { get; }
 
     public AsyncDelegateCommand DeleteCommand { get; }
+
+    /// <summary>Writes the window, the name and the archived flag back to the definition file.</summary>
+    public AsyncDelegateCommand SaveScheduleCommand { get; }
+
+    /// <summary>Switches the selected event off, or back on. Keeps it; never deletes.</summary>
+    public AsyncDelegateCommand ToggleArchivedCommand { get; }
 
     /// <summary>Whether this page may write definitions, which is what shows the editing controls.</summary>
     /// <remarks>
@@ -176,6 +192,76 @@ public sealed class EventsPageViewModel : PageViewModel
             }
         }
     }
+
+    /// <summary>The window's first day, as typed. Empty means the author did not say.</summary>
+    /// <remarks>
+    /// A date typed as text rather than a picker: both ends are optional, and every date control
+    /// this application has makes "no date" harder to express than a date. Parsed against the
+    /// current culture first, then the invariant one, so both 12/10/2026 and 2026-10-12 read.
+    /// </remarks>
+    public string ScheduleStart
+    {
+        get => _scheduleStart;
+        set
+        {
+            if (SetProperty(ref _scheduleStart, value))
+            {
+                RefreshSchedulePreview();
+            }
+        }
+    }
+
+    public string ScheduleEnd
+    {
+        get => _scheduleEnd;
+        set
+        {
+            if (SetProperty(ref _scheduleEnd, value))
+            {
+                RefreshSchedulePreview();
+            }
+        }
+    }
+
+    /// <summary>A new name for the selected event, or its current one.</summary>
+    public string RenameTo
+    {
+        get => _renameTo;
+        set => SetProperty(ref _renameTo, value);
+    }
+
+    /// <summary>What the last save said, or why it was refused.</summary>
+    public string ScheduleStatus
+    {
+        get => _scheduleStatus;
+        private set => SetProperty(ref _scheduleStatus, value);
+    }
+
+    /// <summary>What the typed window would mean, before it is saved.</summary>
+    public string SchedulePreview
+    {
+        get => _schedulePreview;
+        private set => SetProperty(ref _schedulePreview, value);
+    }
+
+    /// <summary>Whether the selected event is switched off.</summary>
+    public bool IsArchived
+    {
+        get => _isArchived;
+        private set
+        {
+            if (SetProperty(ref _isArchived, value))
+            {
+                OnPropertyChanged(nameof(ArchiveLabel));
+            }
+        }
+    }
+
+    /// <summary>What the archive button will do, said on the button.</summary>
+    public string ArchiveLabel => IsArchived ? "Bring back" : "Archive event";
+
+    /// <summary>Whether a schedule can be edited at all: only with a selection and a writer.</summary>
+    public bool CanEditSchedule => CanEdit && Selected is not null;
 
     public string EmptyGuidance => EmptyGuidanceText;
 
@@ -239,6 +325,9 @@ public sealed class EventsPageViewModel : PageViewModel
             ConfirmingDelete = false;
             Matches = [];
             SearchStatus = string.Empty;
+            ScheduleStatus = string.Empty;
+            OnPropertyChanged(nameof(CanEditSchedule));
+            LoadScheduleFields(value);
             if (value is not null)
             {
                 _ = ShowEventAsync(value, CancellationToken.None);
@@ -519,6 +608,159 @@ public sealed class EventsPageViewModel : PageViewModel
         {
             Status = $"Not created · {exception.Message}";
         }
+    }
+
+    /// <summary>
+    /// Fills the schedule fields from whichever event is selected.
+    /// </summary>
+    /// <remarks>
+    /// Read from the definition rather than kept as edits across a selection change: leaving one
+    /// event's dates in the boxes while another is selected is how somebody saves a window onto
+    /// the wrong event.
+    /// </remarks>
+    private void LoadScheduleFields(EventSummaryViewModel? summary)
+    {
+        if (summary is null || !_definitions.TryGetValue(summary.EventId, out var definition))
+        {
+            ScheduleStart = string.Empty;
+            ScheduleEnd = string.Empty;
+            RenameTo = string.Empty;
+            IsArchived = false;
+            SchedulePreview = string.Empty;
+            return;
+        }
+
+        ScheduleStart = definition.StartUtc is { } start ? Local(start) : string.Empty;
+        ScheduleEnd = definition.EndUtc is { } end ? Local(end) : string.Empty;
+        RenameTo = definition.Name;
+        IsArchived = !definition.Active;
+        RefreshSchedulePreview();
+    }
+
+    /// <summary>Says what the typed window would mean, before anything is written.</summary>
+    private void RefreshSchedulePreview()
+    {
+        if (Selected is null)
+        {
+            SchedulePreview = string.Empty;
+            return;
+        }
+
+        if (!TryReadDate(ScheduleStart, out var start))
+        {
+            SchedulePreview = "The first date is not a date.";
+            return;
+        }
+
+        if (!TryReadDate(ScheduleEnd, out var end))
+        {
+            SchedulePreview = "The last date is not a date.";
+            return;
+        }
+
+        if (start is { } from && end is { } until && until < from)
+        {
+            SchedulePreview = "The last date is before the first.";
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        SchedulePreview = IsArchived
+            ? "Archived · it will not be treated as in season whatever the dates say."
+            : start is { } begins && begins > now
+                ? $"{DescribeWindow(start, end)} · starts in {Days(begins - now)}"
+                : end is { } closes && closes < now
+                    ? $"{DescribeWindow(start, end)} · ended {Days(now - closes)} ago"
+                    : $"{DescribeWindow(start, end)} · in season now";
+    }
+
+    private static string Days(TimeSpan span) => span.TotalDays >= 1
+        ? $"{(int)span.TotalDays} day(s)"
+        : $"{Math.Max(1, (int)span.TotalHours)} hour(s)";
+
+    /// <summary>
+    /// Reads a typed date, treating empty as "the author did not say".
+    /// </summary>
+    /// <remarks>
+    /// Returns true for an empty box with a null date, because an absent end is a valid window
+    /// and refusing it would make an open-ended event impossible to save. Midnight UTC on the
+    /// named day: the file format is UTC and a window is a day, not an instant.
+    /// </remarks>
+    internal static bool TryReadDate(string? input, out DateTimeOffset? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return true;
+        }
+
+        if (!DateTime.TryParse(input.Trim(), CultureInfo.CurrentCulture, DateTimeStyles.None, out var parsed)
+            && !DateTime.TryParse(input.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out parsed))
+        {
+            return false;
+        }
+
+        value = new DateTimeOffset(parsed.Date, TimeSpan.Zero);
+        return true;
+    }
+
+    /// <summary>Writes the window, the name and the archived flag onto the selected event.</summary>
+    private async Task SaveScheduleAsync(CancellationToken cancellationToken)
+    {
+        if (_authoring is null
+            || Selected is not { } summary
+            || !_definitions.TryGetValue(summary.EventId, out var definition))
+        {
+            return;
+        }
+
+        if (!TryReadDate(ScheduleStart, out var start) || !TryReadDate(ScheduleEnd, out var end))
+        {
+            ScheduleStatus = "Not saved · one of the dates is not a date.";
+            return;
+        }
+
+        if (start is { } from && end is { } until && until < from)
+        {
+            ScheduleStatus = "Not saved · the last date is before the first.";
+            return;
+        }
+
+        var name = RenameTo.Trim();
+        if (name.Length == 0)
+        {
+            ScheduleStatus = "Not saved · an event needs a name.";
+            return;
+        }
+
+        try
+        {
+            // The id is kept even when the name changes: it is what the recorded results are
+            // stored against, and renaming an event must not orphan what the player recorded.
+            await _authoring.SaveAsync(
+                definition with
+                {
+                    Name = name,
+                    StartUtc = start,
+                    EndUtc = end,
+                    Active = !IsArchived,
+                },
+                cancellationToken).ConfigureAwait(true);
+            await LoadAsync(cancellationToken, definition.Id).ConfigureAwait(true);
+            ScheduleStatus = $"Saved {name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ScheduleStatus = $"Not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>Switches an event off or back on, keeping it and everything recorded against it.</summary>
+    private async Task SetArchivedAsync(bool archived, CancellationToken cancellationToken)
+    {
+        IsArchived = archived;
+        RefreshSchedulePreview();
+        await SaveScheduleAsync(cancellationToken).ConfigureAwait(true);
     }
 
     /// <summary>Deletes the selected event, on the second press.</summary>
