@@ -24,6 +24,7 @@ The executable does this through `IRuntimeDataStore.InitializeAsync` before it e
 - `0006_quest_progress_exchange.sql` adds immutable import metadata, reviewed conflict decisions, unresolved IDs, normalized-payload idempotency, and append-only undo boundaries.
 - `0007` through `0010` remove superseded or unread v1 structures; their destructive status is explicit in the ledger.
 - `0011_v2_data_platform.sql` introduces content-addressed raw bodies, atomic dataset publications, frozen profile/outbox stores, observed inventory and raid-field evidence, craft history, planning and model snapshots, retention/recovery state, and scheduled maintenance evidence.
+- `0016_restore_task_objective_items.sql` puts back the `task_objective_items` rows that `0013` deleted on upgrade (it dropped the parent table with foreign keys on, and the child cascaded). The rows are rebuilt from `quest_objective_item_targets` exactly as a tasks sync writes them; a table that already has rows is left alone. `0013` itself is unchanged, because an applied migration is never edited.
 
 Never edit an applied migration. Add a monotonically numbered migration instead.
 
