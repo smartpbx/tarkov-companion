@@ -869,10 +869,11 @@ function New-ShotResult {
         page = $Page
         shellMode = $ShellMode
         # Two different facts, because they were one and it cost two branches a day each.
-        # windowShown is "the packaged app put a window up"; presented is "the whole
-        # shot ran to the end". A shot that fails an assertion halfway leaves presented false,
-        # and reporting that as "no window" sent #434 and #423 both looking for a startup crash
-        # that was not there. See the problem list at the foot of this script.
+        # windowShown is "the packaged app put a window up"; presented is "the whole shot ran to
+        # the end". A shot that fails an assertion halfway, or whose process has to be killed,
+        # leaves presented false - and reporting that as "no window" sent #434 and #423 both
+        # looking for a startup crash that was not there, and read as a Loadout fault on
+        # 2026-09-20 when the packaged app was simply not exiting in time.
         windowShown = $false
         presented = $false
         visuallyVaried = $false
@@ -1518,10 +1519,10 @@ foreach ($Shot in $Shots) {
             continue
         }
 
-        # There is a window. Whatever this shot goes on to find - an assertion it fails, a hang, a
-        # process that dies a moment later - "no window" is no longer one of the things that can
-        # be wrong with it, and saying so is the difference between hunting a startup crash and
-        # reading the reason.
+        # There is a window. Whatever this shot goes on to find - an assertion it fails, a hang,
+        # a process that has to be killed a moment later - "no window" is no longer one of the
+        # things that can be wrong with it, and saying so is the difference between hunting a
+        # startup crash and reading the reason.
         $Result.windowShown = $true
 
         # Window creation is not page readiness. Two consecutive responsive samples only make
@@ -1697,13 +1698,15 @@ foreach ($Result in $Results) {
     $Dead = if ($Result.edgeDeadFraction -ge 0) { ", $($Result.deadSpaceDetail)" } else { "" }
     Write-Host "$Mark $($Result.page): $($Result.warningLineCount) trace line(s), $($Result.interfaceFaultCount) interface fault(s)$Dead"
     # A FAIL row used to say only that it failed, and the reason lived in an artifact. Printing it
-    # here is what turns "no window: v2-a-raid-1920" in the job log into a sentence somebody can
-    # act on without downloading anything.
-    if ($Failed -contains $Result) {
+    # here is what turns "no window: Loadout" in the job log into a sentence somebody can act on
+    # without downloading anything.
+    if (($Failed -contains $Result) -and -not [string]::IsNullOrWhiteSpace($Result.detail)) {
         Write-Host "     $($Result.detail)"
-        if ($Result.interactionRequired -and -not $Result.interactionSmoke) {
-            Write-Host "     $($Result.interactionDetail)"
-        }
+    }
+
+    if ($Result.interactionRequired -and -not $Result.interactionSmoke -and
+        -not [string]::IsNullOrWhiteSpace($Result.interactionDetail)) {
+        Write-Host "     $($Result.interactionDetail)"
     }
     foreach ($Line in @($Result.interfaceFaults | Select-Object -First 5)) {
         Write-Host "     $Line"
@@ -1716,8 +1719,8 @@ foreach ($Result in $Results) {
 # every usability/accessibility behavior or that map/data tiles are ready.
 $Problems = @()
 if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Object { $_.page }) -join ', ')" }
-# A shot that showed a window and then stopped. Its own detail is the only thing that says why,
-# so it is carried here rather than left in the report nobody reads until the log has been read.
+# A shot that showed a window and then stopped. Its own detail is the only thing that says why, so
+# it is carried here rather than left in an artifact nobody downloads until the log has misled them.
 if ($Incomplete.Count -gt 0) { $Problems += "the shot did not finish: $(($Incomplete | ForEach-Object { "$($_.page) ($($_.detail))" }) -join '; ')" }
 if ($Blank.Count -gt 0) { $Problems += "insufficient visual variation: $(($Blank | ForEach-Object { $_.page }) -join ', ')" }
 if ($Faulted.Count -gt 0) { $Problems += "interface faults: $(($Faulted | ForEach-Object { $_.page }) -join ', ')" }
