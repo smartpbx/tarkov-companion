@@ -17,7 +17,9 @@ using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
 using AppClass = TarkovCompanion.App.App;
@@ -571,6 +573,61 @@ internal static class Program
             // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
             // A headless run has no relay to join, and the offline group session republishes
             // "not sharing" on its own tick, so this goes straight to the view model last.
+            // [V2 rough package 60 — Intel scan] #287: the capture dialog holding a real decision.
+            // Nothing can reach these states in a render without a game writing a screenshot, so
+            // the shell's own projection is set to each one and the real view draws it.
+            // "disagreement" is the recognizer reading a different screen than the armed intent;
+            // "identified" is a finished read with its alternates.
+            if (shell is not null && StringOption(args, "--capture-demo") is { } captureDemo)
+            {
+                var captureSession = new CaptureSessionId(Guid.Parse("30000000-0000-0000-0000-000000000287"));
+                var now = DateTimeOffset.UtcNow;
+                shell.CaptureCommand.Execute(null);
+                shell.UpdateCaptureState(captureDemo switch
+                {
+                    "disagreement" => new V2CaptureShellState(
+                        ScanIntent.Stash,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.IntentMismatch,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Stash,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop,
+                            RecognizedContext.Flea)),
+                    "unknown" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.UnknownContext,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop)),
+                    "identified" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        review: new V2CaptureReview(
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            RecognizedContext.Item,
+                            now,
+                            "Graphics card · 82% sure · also Graphics tablet, GPU crate",
+                            "Screenshot · ambiguous_runner_up")),
+                    _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
+                });
+                Pump(20);
+            }
+
             if (shell is not null && args.Contains("--team-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();

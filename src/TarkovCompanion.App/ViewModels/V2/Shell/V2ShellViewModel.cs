@@ -1277,6 +1277,35 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <see cref="CoalescingDispatch"/> follows for background-driven updates: run inline when
     /// there is no dispatcher or the caller is already on it (tests, headless), otherwise post.
     /// </remarks>
+    /// <summary>Opens the Intel page for the item a capture was read as (#287).</summary>
+    /// <remarks>
+    /// The same dispatcher dance as <see cref="ShowLootScanResult"/> and for the same reason: a
+    /// handoff completes on whatever thread finished the analysis, and navigation touches
+    /// observable collections the interface is bound to.
+    /// </remarks>
+    public void ShowScannedItem(string itemId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        void Apply()
+        {
+            if (HasOpenDialog)
+            {
+                CloseDialog(restoreInvoker: false);
+            }
+
+            Act(Router.OpenIntel(itemId, "v2-shell-capture-identified"));
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
     public void ShowLootScanResult(LootScanViewModel result)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -2265,8 +2294,14 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 V2CaptureResolutionKind.AnalyzeAsArmed,
                 V2CaptureResolutionKind.AnalyzeAsDetected,
             },
+            // [V2 rough package 60 — Intel scan] #287: "Analyse as armed", not "as selected".
+            // The intent radio above can be changed while a decode waits, but the frame was taken
+            // under the intent that was armed when the shutter fired, and #271's coordinator has
+            // no action that re-analyses one artifact as a different intent. Offering a button
+            // that quietly does something else is worse than offering the honest one, and Retry
+            // is the way to ask the other question.
             V2CaptureAttentionKind.UnknownContext =>
-            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsSelected],
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsArmed, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.StillWriting =>
             [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.Retry],
             V2CaptureAttentionKind.Duplicate =>
