@@ -2,6 +2,7 @@ using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Planning;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Profile;
 
 namespace TarkovCompanion.Application.Services.Planning;
@@ -23,6 +24,12 @@ public sealed record KeepListInputs(
 
     /// <summary>The quest requirements that are carried in and back out (a key), which are not added together.</summary>
     public IReadOnlySet<(string TaskId, string ItemId)> Reusable { get; init; } = new HashSet<(string, string)>();
+
+    /// <summary>
+    /// Quests that are a later prestige tier of a same-named quest the player has not reached
+    /// (see <see cref="KeepListPlanner.LaterPrestigeTiers"/>). Their needs are not the player's yet.
+    /// </summary>
+    public IReadOnlySet<string> LaterPrestigeTierTaskIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -46,6 +53,35 @@ public sealed record KeepListInputs(
 /// </remarks>
 public static class KeepListPlanner
 {
+    /// <summary>
+    /// Of several quests sharing a name that each ask for a prestige, every one after the first.
+    /// The profile does not record prestige, so the first tier (lowest level) is the one a player
+    /// is taken to be working towards; a later tier counts once he is actually on it, which the
+    /// caller expresses by tracking it. Prestiging resets the stash, so nothing kept for a later
+    /// tier would survive to it anyway.
+    /// </summary>
+    public static IReadOnlySet<string> LaterPrestigeTiers(IEnumerable<QuestSummaryReadModel> tasks)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        var later = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tiers in tasks
+                     .Where(task => task.RecordedState != RecordedTaskState.Completed)
+                     .GroupBy(task => task.Name, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1 && group.All(AsksForPrestige)))
+        {
+            later.UnionWith(tiers
+                .OrderBy(task => task.MinimumPlayerLevel ?? int.MaxValue)
+                .ThenBy(task => task.TaskId, StringComparer.Ordinal)
+                .Skip(1)
+                .Select(task => task.TaskId));
+        }
+
+        return later;
+    }
+
+    private static bool AsksForPrestige(QuestSummaryReadModel task) =>
+        task.Eligibility.Reasons.Any(reason => reason.Code == "unknown-profile-prestige");
+
     public static async Task<KeepPlan> PlanAsync(
         KeepListInputs inputs,
         Func<string, CancellationToken, Task<KeepItemFacts>> resolveItem,
@@ -61,7 +97,9 @@ public static class KeepListPlanner
         // the items a quest still asks for.
         var questByItem = new Dictionary<string, Dictionary<string, (int Remaining, int FoundInRaid)>>(StringComparer.Ordinal);
         var trackedItemIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var requirement in inputs.QuestRequirements.Where(x => !profile.CompletedTaskIds.Contains(x.TaskId)))
+        foreach (var requirement in inputs.QuestRequirements.Where(x =>
+                     !profile.CompletedTaskIds.Contains(x.TaskId) &&
+                     (inputs.TrackedTaskIds.Contains(x.TaskId) || !inputs.LaterPrestigeTierTaskIds.Contains(x.TaskId))))
         {
             var progress = profile.ObjectiveProgress.GetValueOrDefault(requirement.ObjectiveId);
             var remaining = Math.Max(0, requirement.Required - progress);
@@ -126,10 +164,18 @@ public static class KeepListPlanner
                         IsTracked = inputs.TrackedTaskIds.Contains(x.Key),
                         IsReusable = inputs.Reusable.Contains((x.Key, itemId)),
                     })
-                    // Two quests of one name are one quest the player takes one way or the other: on
-                    // the real catalog ten names sit on two or three tasks, four as a BEAR and a USEC
-                    // copy and six as branches. Both were listed, under the same name, and added up.
-                    // The one the player is on stands for them, or else the one that asks for more.
+                    // Two quests of one name are never both the player's at once. Checked against
+                    // the 2026-09-14 catalog, where ten names sit on two or three tasks: four are
+                    // a BEAR and a USEC copy; Battery Change fails its twin outright and The Price
+                    // of Independence follows one Battery Change or the other; Make Amends follows
+                    // whichever one penance Lightkeeper set. Those are alternatives, and the one
+                    // the player is on stands for them, or else the one that asks for more.
+                    // Neuanfang is the exception the fail conditions do not show: its three tasks
+                    // are one per prestige, asking for 19, 49 and 65 things, and "asks for more"
+                    // told a player who has never prestiged to keep the third tier's. The later
+                    // tiers are left out before this point (LaterPrestigeTiers). The last two
+                    // names (Huntsman Path - Administrator, Tarkov Shooter - Part 5) are twins
+                    // with nothing between them in the catalog and no hand-in items.
                     .GroupBy(need => need.TaskName, StringComparer.Ordinal)
                     .Select(variants => variants
                         .OrderByDescending(need => need.IsTracked)
