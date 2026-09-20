@@ -22,7 +22,6 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -240,6 +239,23 @@ internal static class Program
                     $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
             }
 
+            // [V2 rough package 61 — plan export] #288/#315: press Export and print what it
+            // produced, so the document can be read rather than assumed.
+            if (args.Contains("--plan-export"))
+            {
+                var exported = services.GetRequiredService<PlanWorkspaceViewModel>();
+                exported.Clipboard = text =>
+                {
+                    Console.WriteLine("----- exported plan -----");
+                    Console.WriteLine(text);
+                    Console.WriteLine("----- end -----");
+                    return Task.CompletedTask;
+                };
+                DrainUntilComplete(exported.ExportCommand.ExecuteAsync());
+                Pump(20);
+                Console.WriteLine("Export status: " + exported.ExportStatus);
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);
@@ -274,6 +290,8 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {

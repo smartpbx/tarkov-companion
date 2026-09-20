@@ -344,6 +344,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<PlanMapGroupViewModel> _groups = [];
     private PlanMapGroupViewModel? _selectedGroup;
     private readonly IItemRepository? _itemRepository;
+    private readonly AppDataPaths? _paths;
+    private readonly TimeProvider _clock;
+    private string _exportStatus = string.Empty;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly HashSet<string> _missingItems = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, int> _ownedItems = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -391,8 +394,15 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // refresh only after a mutation it had made itself, so a quest handed in while the player
         // was looking at this page did not appear until the page was left and come back to -- and
         // a session in which nothing was read said nothing at all.
-        QuestLogProgressService? questLog = null)
+        QuestLogProgressService? questLog = null,
+        // [V2 rough package 61 — plan export] #288/#315: where an exported plan is written and
+        // what clock stamps it. Optional like the rest, so a composition without app paths still
+        // plans; without them Export copies to the clipboard and writes no file.
+        AppDataPaths? paths = null,
+        TimeProvider? clock = null)
     {
+        _paths = paths;
+        _clock = clock ?? TimeProvider.System;
         _itemRepository = itemRepository;
         _searchableText = SearchableText;
         _selectGroup = group => SelectedGroup = group;
@@ -421,6 +431,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             UpdateGameLogStatus(_questLog.Reading);
         }
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
+        ExportCommand = new AsyncDelegateCommand(() => ExportAsync(CancellationToken.None));
         OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
         // The map catalog usually finishes loading after the first quest board read; the groups
         // are named from it, so rebuild them when it arrives rather than showing catalog ids.
@@ -667,6 +678,109 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     public bool HasGameLogStatus => _gameLogStatus.Length > 0;
 
     public AsyncDelegateCommand RefreshCommand { get; }
+
+    /// <summary>Copies the plan as text, and writes it beside the other exports.</summary>
+    public AsyncDelegateCommand ExportCommand { get; }
+
+    /// <summary>
+    /// Where a copied plan goes. The view supplies it; without one, Export still writes its file.
+    /// </summary>
+    /// <remarks>
+    /// The same seam the shell uses for Copy diagnostics: a view model cannot reach a clipboard
+    /// without a top level, and a top level is exactly what a test does not have.
+    /// </remarks>
+    public Func<string, Task>? Clipboard { get; set; }
+
+    /// <summary>What the last export did, or why it did nothing.</summary>
+    public string ExportStatus
+    {
+        get => _exportStatus;
+        private set
+        {
+            if (SetProperty(ref _exportStatus, value))
+            {
+                OnPropertyChanged(nameof(HasExportStatus));
+            }
+        }
+    }
+
+    public bool HasExportStatus => _exportStatus.Length > 0;
+
+    /// <summary>
+    /// Builds the plan as Markdown, puts it on the clipboard and saves it.
+    /// </summary>
+    /// <remarks>
+    /// Both, not either. The clipboard is what a player actually wants nine times in ten — the
+    /// plan goes straight into a squad chat — and the file is what makes it a plan they still
+    /// have tomorrow. A clipboard that is not there, or a disk that refuses, is reported rather
+    /// than thrown: neither is a reason to lose the other half.
+    /// </remarks>
+    public async Task ExportAsync(CancellationToken cancellationToken)
+    {
+        // Every map's item names first. The page resolves names only for the map being looked
+        // at, which is right for a screen showing one map and wrong for a document covering all
+        // of them: without this the same item appears as a name on one map and a raw id on the
+        // next, in the same file.
+        foreach (var group in Groups)
+        {
+            await ResolveRequirementNamesAsync(group).ConfigureAwait(true);
+        }
+
+        // Then rebuild all of them. A group whose ids were resolved by a *different* group's pass
+        // is skipped by the resolver (it has nothing left to look up) and would otherwise keep the
+        // rows it was built with, which is how one document ended up naming the same item twice,
+        // once as a name and once as an id.
+        foreach (var group in Groups)
+        {
+            group.Requirements = BuildRequirementsFor(group);
+        }
+
+        var document = PlanExport.Build(this, _clock.GetUtcNow(), NameOfTask);
+        var markdown = document.ToMarkdown(CultureInfo.CurrentCulture);
+        var copied = false;
+        string? written = null;
+
+        if (Clipboard is { } clipboard)
+        {
+            try
+            {
+                await clipboard(markdown).ConfigureAwait(true);
+                copied = true;
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
+            {
+                copied = false;
+            }
+        }
+
+        if (_paths is { } paths)
+        {
+            try
+            {
+                var directory = Path.Combine(paths.Config, "Exports");
+                Directory.CreateDirectory(directory);
+                // The local date and time in the name, because a folder of plans is sorted by eye
+                // and "plan-2026-09-20-1432.md" is the one thing that makes that work.
+                var name = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"plan-{_clock.GetUtcNow().ToLocalTime():yyyy-MM-dd-HHmm}.md");
+                written = Path.Combine(directory, name);
+                await File.WriteAllTextAsync(written, markdown, cancellationToken).ConfigureAwait(true);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                written = null;
+            }
+        }
+
+        ExportStatus = (copied, written) switch
+        {
+            (true, { } path) => $"Copied, and saved to {path}",
+            (true, null) => "Copied to the clipboard",
+            (false, { } path) => $"Saved to {path}",
+            _ => "Nothing to export to: no clipboard and no writable folder.",
+        };
+    }
 
     public Task LoadAsync() => RefreshAsync(CancellationToken.None);
 
@@ -1127,6 +1241,11 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             UpdateRollup();
         }
     }
+
+    /// <summary>Names a quest by id, including one the plan does not itself contain.</summary>
+    private string NameOfTask(string taskId) =>
+        _board?.Tasks.FirstOrDefault(task => string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Name
+        ?? taskId;
 
     private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group) =>
         PlanQuestRules.BuildRequirements(

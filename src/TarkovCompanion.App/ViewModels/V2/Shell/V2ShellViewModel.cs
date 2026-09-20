@@ -445,6 +445,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ObservableCollection<V2ShellDestinationViewModel> PrimaryDestinations { get; }
     public V2ShellDestinationViewModel SetupDestination { get; }
     public V2SetupWorkspaceViewModel? SetupWorkspace { get; }
+
+    /// <summary>The Plan workspace, so the view can hand it a clipboard (#288's export).</summary>
+    public PlanWorkspaceViewModel? PlanWorkspace => _plan;
     public IReadOnlyList<V2ShellSectionViewModel> SectionItems { get; private set; } = [];
     public IReadOnlyList<V2ShellCommand> Commands { get; }
     public ObservableCollection<V2ShellCommandViewModel> CommandItems { get; }
