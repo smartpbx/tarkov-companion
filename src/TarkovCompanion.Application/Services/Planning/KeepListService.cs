@@ -37,22 +37,37 @@ public sealed class KeepListService
     /// <summary>The computed Keep list, or <see cref="KeepPlan.NoData"/> before anything has synced.</summary>
     public async Task<KeepPlan> BuildAsync(CancellationToken cancellationToken)
     {
-        var questRequirements = await _requirements.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
         var hideoutRequirements = await _requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
         var keyFacts = await _factCatalog.GetKeyFactsAsync(cancellationToken).ConfigureAwait(false);
-        if (questRequirements.Count == 0 && hideoutRequirements.Count == 0 && keyFacts.Count == 0)
+        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var board = await _questReadService.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(false);
+
+        // Quest needs come off the board, not the requirement catalog: see QuestItemNeedPlanner
+        // for the migration that empties the catalog's table and what the board adds.
+        var questNeeds = QuestItemNeedPlanner.FromBoard(board.Tasks);
+
+        // Whether anything has synced is asked of the board's quests, not of the needs left on
+        // them: a player who has finished every quest has data and nothing to keep, and reading
+        // the open needs told them nothing was cached.
+        if (board.Tasks.Count == 0 && hideoutRequirements.Count == 0 && keyFacts.Count == 0)
         {
             return KeepPlan.NoData;
         }
 
-        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
         var stations = await _requirements.GetStationsAsync(cancellationToken).ConfigureAwait(false);
-        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
-        var board = await _questReadService.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(false);
+
+        // The profile and the board each record objective progress, in different tables, and they
+        // are the same fact. The larger is taken; adding them would hand in the same item twice.
+        var progress = new Dictionary<string, int>(profile.ObjectiveProgress, StringComparer.Ordinal);
+        foreach (var (objectiveId, recorded) in questNeeds.RecordedProgress)
+        {
+            progress[objectiveId] = Math.Max(progress.GetValueOrDefault(objectiveId), recorded);
+        }
 
         var inputs = new KeepListInputs(
-            profile,
-            questRequirements,
+            profile with { ObjectiveProgress = progress },
+            questNeeds.Requirements,
             hideoutRequirements,
             board.Tasks.ToDictionary(task => task.TaskId, task => task.Name, StringComparer.Ordinal),
             board.Tasks
@@ -60,7 +75,11 @@ public sealed class KeepListService
                 .Select(task => task.TaskId)
                 .ToHashSet(StringComparer.Ordinal),
             stations.ToDictionary(station => station.StationId, station => station.Name, StringComparer.OrdinalIgnoreCase),
-            keyFacts);
+            keyFacts)
+        {
+            InterchangeableCounts = questNeeds.InterchangeableCounts,
+            Reusable = questNeeds.Reusable,
+        };
         return await KeepListPlanner.PlanAsync(inputs, ResolveItemAsync, cancellationToken).ConfigureAwait(false);
     }
 

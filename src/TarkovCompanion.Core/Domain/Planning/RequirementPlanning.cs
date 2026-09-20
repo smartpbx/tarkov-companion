@@ -72,6 +72,17 @@ public static class QuestItemTargetFields
         sourceField is "notWearing" or "attributes" or "containsAll" or "containsOne";
 
     /// <summary>
+    /// Whether a requirement field names something carried in and carried out again: a key, a
+    /// weapon, worn gear. One serves every quest that asks for it.
+    /// </summary>
+    /// <remarks>
+    /// A marker is carried in too, but it is planted and left: four "mark the tanker" objectives
+    /// are four markers. Counting a key the same way read "Dorm overseer key: 5" for one key.
+    /// </remarks>
+    public static bool IsReusable(string sourceField) =>
+        IsCarriedIn(sourceField) && sourceField is not ("markerItem" or "notWearing");
+
+    /// <summary>
     /// Whether a requirement field names an item that exists only inside its quest: the journal an
     /// objective sends the player to pick up, then hand over.
     /// </summary>

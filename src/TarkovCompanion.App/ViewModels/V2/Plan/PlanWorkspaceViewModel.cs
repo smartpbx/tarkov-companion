@@ -9,6 +9,7 @@ using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
@@ -1247,11 +1248,28 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         _board?.Tasks.FirstOrDefault(task => string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Name
         ?? taskId;
 
-    private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group) =>
-        PlanQuestRules.BuildRequirements(
+    private IReadOnlyList<PlanRequirementRowViewModel> BuildRequirementsFor(PlanMapGroupViewModel group)
+    {
+        // Which items each objective's own quest also hands over, so a find objective beside a
+        // hand-over of the same item is counted once (QuestRequirementPlanner says why).
+        var handedOver = new Dictionary<QuestObjectiveReadModel, IReadOnlySet<string>>(ReferenceEqualityComparer.Instance);
+        foreach (var rows in group.Objectives.GroupBy(row => row.Task.TaskId, StringComparer.Ordinal))
+        {
+            var items = QuestItemNeedPlanner.HandedOverItemIds(rows.First().Task);
+            foreach (var row in rows)
+            {
+                handedOver[row.Objective] = items;
+            }
+        }
+
+        return PlanQuestRules.BuildRequirements(
             group.Objectives.Select(row => row.Objective),
             NameOfItem,
-            _ownedItems);
+            _ownedItems,
+            objective => handedOver.TryGetValue(objective, out var items) ? items : EmptyItemIds);
+    }
+
+    private static readonly IReadOnlySet<string> EmptyItemIds = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>
     /// What an item is called: its catalog name, or plainly that the catalog lacks it once that is

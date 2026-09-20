@@ -24,6 +24,9 @@ public sealed record KeepListRowViewModel(
     /// <summary>What the hideout levels not yet built ask for, against the whole build; empty if the hideout does not.</summary>
     public string HideoutCountLabel { get; init; } = string.Empty;
 
+    /// <summary>"Held 2", or "Held unknown" where no holding is recorded. Unknown is never written as 0.</summary>
+    public string HeldLabel { get; init; } = string.Empty;
+
     public bool HasQuestCount => QuestCountLabel.Length > 0;
 
     public bool HasHideoutCount => HideoutCountLabel.Length > 0;
@@ -59,6 +62,8 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             [KeepGroupKind.Key] = "Keys worth keeping",
             [KeepGroupKind.HighValue] = "High value",
         };
+
+    private const int MaximumQuestReasons = 3;
 
     private readonly KeepListService _service;
     private IReadOnlyList<KeepListGroupViewModel> _groups = [];
@@ -142,7 +147,16 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
     private static KeepListRowViewModel ToRow(KeepEntry entry)
     {
         var reasons = new List<string>();
-        reasons.AddRange(entry.QuestNeeds.Select(need => $"{Count(need.Remaining)} for {need.TaskName}{FoundInRaidSuffix(need)}"));
+        // The planner puts the quests the player is on first. The MS2000 Marker is asked for by 37
+        // quests on the real catalog, and naming them all was six lines nobody reads.
+        reasons.AddRange(entry.QuestNeeds
+            .Take(MaximumQuestReasons)
+            .Select(need => $"{Count(need.Remaining)} for {need.TaskName}{FoundInRaidSuffix(need)}{AnyOfSuffix(need)}"));
+        if (entry.QuestNeeds.Count > MaximumQuestReasons)
+        {
+            reasons.Add($"+{Count(entry.QuestNeeds.Count - MaximumQuestReasons)} more quests");
+        }
+
         reasons.AddRange(entry.HideoutNeeds.Select(need => $"{Count(need.Required)} for {need.StationName}"));
         if (entry.KeyReason is not null)
         {
@@ -158,8 +172,13 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         {
             QuestCountLabel = QuestCount(entry),
             HideoutCountLabel = HideoutCount(entry),
+            HeldLabel = entry.Held is { } held ? $"Held {Count(held)}" : "Held unknown",
         };
     }
+
+    /// <summary>" · any of 5" where other items would do as well, so three is not read as three of each.</summary>
+    private static string AnyOfSuffix(KeepQuestNeed need) =>
+        need.AnyOf > 1 ? $" · any of {Count(need.AnyOf)}" : string.Empty;
 
     /// <summary>" (2 found in raid)", " (found in raid)" when all of it must be, or nothing when a purchase would do.</summary>
     private static string FoundInRaidSuffix(KeepQuestNeed need) => need.FoundInRaid switch
@@ -176,12 +195,19 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             return string.Empty;
         }
 
+        // What the quests the player is on ask for is what to have today; the rest is what not to
+        // sell. One figure for both read "Quests 79" on a marker three of which were wanted now.
+        var total = entry.QuestRemaining;
+        var now = entry.QuestRemainingTracked;
+        var head = now > 0 && now < total
+            ? $"Quests {Count(now)} now, {Count(total - now)} later"
+            : $"Quests {Count(total)}";
         var found = entry.QuestFoundInRaid;
         return found <= 0
-            ? $"Quests {Count(entry.QuestRemaining)}"
-            : found >= entry.QuestRemaining
-                ? $"Quests {Count(entry.QuestRemaining)} · all found in raid"
-                : $"Quests {Count(entry.QuestRemaining)} · {Count(found)} found in raid";
+            ? head
+            : found >= total
+                ? $"{head} · all found in raid"
+                : $"{head} · {Count(found)} found in raid";
     }
 
     private static string HideoutCount(KeepEntry entry)

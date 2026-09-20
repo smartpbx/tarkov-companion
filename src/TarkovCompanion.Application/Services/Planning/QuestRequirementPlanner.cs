@@ -20,9 +20,15 @@ namespace TarkovCompanion.Application.Services.Planning;
 /// </remarks>
 public static class QuestRequirementPlanner
 {
+    /// <param name="handedOverByItsTask">
+    /// For an objective, the items its own quest also has a hand-over objective for. A find
+    /// objective asks for nothing new of those: "find 3 Salewa in raid" beside "hand over 3 Salewa"
+    /// is three, and adding them read as "0 / 6". Null where the caller cannot say, which keeps both.
+    /// </param>
     public static IReadOnlyList<PlannedRequirement> Build(
         IEnumerable<QuestObjectiveReadModel> objectives,
-        IReadOnlyDictionary<string, int> owned)
+        IReadOnlyDictionary<string, int> owned,
+        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null)
     {
         ArgumentNullException.ThrowIfNull(objectives);
         ArgumentNullException.ThrowIfNull(owned);
@@ -40,7 +46,15 @@ public static class QuestRequirementPlanner
                     .ThenBy(target => target.ItemId, StringComparer.Ordinal)
                     .Select(target => target.ItemId)
                     .Distinct(StringComparer.Ordinal)
+                    .Where(id => objective.Kind != QuestObjectiveKind.FindItem ||
+                                 handedOverByItsTask is null ||
+                                 !handedOverByItsTask(objective).Contains(id))
                     .ToArray();
+                if (ids.Length == 0)
+                {
+                    continue;
+                }
+
                 var carried = QuestItemTargetFields.IsCarriedIn(alternatives.Key.SourceField);
                 var handling = carried
                     ? RequirementHandling.Bring

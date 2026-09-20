@@ -15,7 +15,15 @@ public sealed record KeepListInputs(
     IReadOnlyDictionary<string, string> TaskNames,
     IReadOnlySet<string> TrackedTaskIds,
     IReadOnlyDictionary<string, string> StationNames,
-    IReadOnlyList<KeyFacts> KeyFacts);
+    IReadOnlyList<KeyFacts> KeyFacts)
+{
+    /// <summary>For a quest requirement that is one of several items which would each do, how many would.</summary>
+    public IReadOnlyDictionary<(string TaskId, string ItemId), int> InterchangeableCounts { get; init; } =
+        new Dictionary<(string, string), int>();
+
+    /// <summary>The quest requirements that are carried in and back out (a key), which are not added together.</summary>
+    public IReadOnlySet<(string TaskId, string ItemId)> Reusable { get; init; } = new HashSet<(string, string)>();
+}
 
 /// <summary>
 /// The items worth keeping, computed from the quest and hideout requirements, the key facts and
@@ -112,8 +120,25 @@ public static class KeepListPlanner
 
             var questNeeds = questByItem.TryGetValue(itemId, out var byTask)
                 ? byTask
-                    .Select(x => new KeepQuestNeed(x.Key, inputs.TaskNames.GetValueOrDefault(x.Key, x.Key), x.Value.Remaining, x.Value.FoundInRaid))
-                    .OrderByDescending(need => need.Remaining)
+                    .Select(x => new KeepQuestNeed(x.Key, inputs.TaskNames.GetValueOrDefault(x.Key, x.Key), x.Value.Remaining, x.Value.FoundInRaid)
+                    {
+                        AnyOf = inputs.InterchangeableCounts.GetValueOrDefault((x.Key, itemId), 1),
+                        IsTracked = inputs.TrackedTaskIds.Contains(x.Key),
+                        IsReusable = inputs.Reusable.Contains((x.Key, itemId)),
+                    })
+                    // Two quests of one name are one quest the player takes one way or the other: on
+                    // the real catalog ten names sit on two or three tasks, four as a BEAR and a USEC
+                    // copy and six as branches. Both were listed, under the same name, and added up.
+                    // The one the player is on stands for them, or else the one that asks for more.
+                    .GroupBy(need => need.TaskName, StringComparer.Ordinal)
+                    .Select(variants => variants
+                        .OrderByDescending(need => need.IsTracked)
+                        .ThenByDescending(need => need.Remaining)
+                        .ThenBy(need => need.TaskId, StringComparer.Ordinal)
+                        .First())
+                    // The quests the player is on come first: they are why the item is on the list today.
+                    .OrderByDescending(need => need.IsTracked)
+                    .ThenByDescending(need => need.Remaining)
                     .ThenBy(need => need.TaskName, StringComparer.Ordinal)
                     .ToArray()
                 : [];
@@ -166,7 +191,10 @@ public static class KeepListPlanner
                 questNeeds,
                 hideoutNeeds,
                 keyReason,
-                hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0));
+                hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0)
+            {
+                Held = profile.OwnedItemCounts.TryGetValue(itemId, out var held) ? held : null,
+            });
         }
 
         return new KeepPlan(
