@@ -37,7 +37,14 @@ public sealed record PairingDeviceGrant(
     IReadOnlyList<DeviceCapability> SessionCapabilities,
     DateTimeOffset DeviceExpiresUtc,
     CompanionTransportKind Transport,
-    CompanionSurfaceKind Surface);
+    CompanionSurfaceKind Surface)
+{
+    /// <summary>
+    /// How long the first session may live, or null for the protocol's maximum. Shorter only when
+    /// the relay carrying the ceremony is an older build that refuses a longer one.
+    /// </summary>
+    public TimeSpan? SessionLifetime { get; init; }
+}
 
 /// <summary>
 /// One established session and its fresh direction-specific traffic keys.
@@ -216,6 +223,53 @@ public sealed class DesktopPairingCoordinator : IDisposable
         }
     }
 
+    /// <summary>
+    /// Records that the relay's pairing mailbox resolved this attempt's one-time code.
+    /// </summary>
+    /// <remarks>
+    /// [#290] <see cref="ResolveOfferAsync"/> is the direct-LAN path, where the desktop itself is
+    /// asked for the offer. Over the relay it never is: the relay's mailbox consumes the code and
+    /// hands the offer out, under its own rate limits, and the only thing that reaches the desktop
+    /// is the tablet's request in that mailbox. Nothing marked the code resolved on that path, so
+    /// <see cref="BindRequestAsync"/> refused every request that came through the relay and no
+    /// tablet could be paired through it at all. A request for this attempt existing in the
+    /// mailbox is the evidence that the code was resolved there; the code is retired here so it
+    /// cannot also be resolved locally afterwards.
+    /// </remarks>
+    /// <returns>False when the attempt is unknown or has expired.</returns>
+    public async ValueTask<bool> AcknowledgeRelayResolvedCodeAsync(
+        PairingAttemptId attemptId,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        await WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Prune(nowUtc);
+            if (!_pairings.TryGetValue(attemptId, out var pending))
+            {
+                return false;
+            }
+
+            if (!pending.CodeResolved)
+            {
+                if (pending.PairingCode is { } code)
+                {
+                    _codes.Remove(code);
+                }
+
+                pending.CodeResolved = true;
+                pending.PairingCode = null;
+            }
+
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async ValueTask<DesktopPairingApproval> BindRequestAsync(
         PairingRequest request,
         CompanionProtocolVersion negotiatedVersion,
@@ -331,8 +385,12 @@ public sealed class DesktopPairingCoordinator : IDisposable
             var challengeExpiresUtc = Earlier(
                 nowUtc.Add(ProtocolBounds.HandshakeChallengeLifetime),
                 pending.Attempt.ExpiresUtc);
+            var sessionLifetime = grant.SessionLifetime is { } asked &&
+                asked > TimeSpan.Zero && asked < ProtocolBounds.MaximumSessionLifetime
+                    ? asked
+                    : ProtocolBounds.MaximumSessionLifetime;
             var sessionExpiresUtc = Earlier(
-                nowUtc.Add(ProtocolBounds.MaximumSessionLifetime),
+                nowUtc.Add(sessionLifetime),
                 validatedGrant.DeviceExpiresUtc);
             if (sessionExpiresUtc <= challengeExpiresUtc)
             {

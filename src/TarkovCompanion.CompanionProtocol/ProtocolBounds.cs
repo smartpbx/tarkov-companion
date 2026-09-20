@@ -87,7 +87,22 @@ public static class ProtocolBounds
     public static TimeSpan MaximumPairingLifetime { get; } = TimeSpan.FromMinutes(10);
     public static TimeSpan PairingRateWindow { get; } = TimeSpan.FromMinutes(5);
     public static TimeSpan HandshakeChallengeLifetime { get; } = TimeSpan.FromMinutes(2);
-    public static TimeSpan MaximumSessionLifetime { get; } = TimeSpan.FromHours(12);
+    /// <summary>
+    /// How long one paired session may live before the device has to pair again.
+    /// </summary>
+    /// <remarks>
+    /// [#290] Twelve hours until 2026-09-20, which with no resume path wired anywhere meant every
+    /// tablet was paired from scratch (code, comparison, approval) every day it was used, and the
+    /// desktop re-claimed its relay as often. A session is a per-device credential the desktop can
+    /// revoke at once, so the bound is now as long as the relay keeps a device at all.
+    /// </remarks>
+    public static TimeSpan MaximumSessionLifetime { get; } = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// The bound every build before 2026-09-20 enforces. A desktop talking to a relay that does not
+    /// say it accepts more asks for this, because that relay refuses anything longer outright.
+    /// </summary>
+    public static TimeSpan LegacyMaximumSessionLifetime { get; } = TimeSpan.FromHours(12);
     public static TimeSpan CommandLifetime { get; } = TimeSpan.FromMinutes(5);
     public static TimeSpan OfflineQueueLifetime { get; } = TimeSpan.FromMinutes(15);
     public static TimeSpan MaxClientClockSkew { get; } = TimeSpan.FromMinutes(1);
@@ -96,7 +111,12 @@ public static class ProtocolBounds
     public static TimeSpan MaximumControlLeaseLifetime { get; } = TimeSpan.FromMinutes(5);
     public static TimeSpan PingLifetime { get; } = TimeSpan.FromSeconds(45);
     public static TimeSpan MaintenanceScanInterval { get; } = TimeSpan.FromHours(1);
-    public static TimeSpan DeviceInactivityExpiry { get; } = TimeSpan.FromHours(2);
+    /// <summary>How long a paired device may go unused before it has to pair again.</summary>
+    /// <remarks>
+    /// [#290] Two hours until 2026-09-20: a tablet left on the desk overnight, or a desktop that
+    /// was simply switched off, had expired by the next evening on both sides.
+    /// </remarks>
+    public static TimeSpan DeviceInactivityExpiry { get; } = TimeSpan.FromDays(14);
 }
 
 internal static class ProtocolGuard
