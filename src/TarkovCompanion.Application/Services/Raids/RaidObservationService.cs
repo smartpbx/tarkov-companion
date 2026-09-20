@@ -771,7 +771,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private void PublishScreenshotOutcome(long sourceGeneration, long scanOrdinal, ScanOutcome outcome)
     {
         var result = ScanExecutionResult.FromOutcome(outcome, "game screenshot");
-        var publishesScan = result.IsWorthReporting;
+        var publishesScan = ScanExecutionResult.IsWorthPublishing(outcome, result);
         var hud = outcome.Recognition.Hud;
         if (!publishesScan && hud is null)
         {
