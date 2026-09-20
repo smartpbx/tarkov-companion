@@ -720,7 +720,7 @@ internal static class Program
             if (shell is not null && StringOption(args, "--capture-demo") is { } captureDemo)
             {
                 var captureSession = new CaptureSessionId(Guid.Parse("30000000-0000-0000-0000-000000000287"));
-                var now = DateTimeOffset.UtcNow;
+                var captureNow = DateTimeOffset.UtcNow;
                 shell.CaptureCommand.Execute(null);
                 shell.UpdateCaptureState(captureDemo switch
                 {
@@ -759,7 +759,7 @@ internal static class Program
                             0,
                             ScanIntent.Auto,
                             RecognizedContext.Item,
-                            now,
+                            captureNow,
                             "Graphics card · 82% sure · also Graphics tablet, GPU crate",
                             "Screenshot · ambiguous_runner_up")),
                     _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),

@@ -29,6 +29,13 @@ jobs:
         run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
       - name: Build
         run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
+      # The render tool is how a V2 page is looked at without Windows, and it is not in the
+      # solution, so nothing above compiles it. It sat broken on main after a bad merge and nobody
+      # could render-verify anything until somebody happened to try.
+      - name: Build the render tool
+        run: |
+          dotnet restore tools/V2RenderPreview/TarkovCompanion.V2RenderPreview.csproj
+          dotnet build tools/V2RenderPreview/TarkovCompanion.V2RenderPreview.csproj --configuration Release --no-restore
       - name: Test
         run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
       - name: Dependency vulnerability audit
