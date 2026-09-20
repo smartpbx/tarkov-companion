@@ -1756,6 +1756,18 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         {
             if (ComposeTileArtwork(model) is not { } composed)
             {
+                // Still arriving, not missing. V1 empties its tiles the moment another map is
+                // chosen and says "unavailable" only when a load has finished with none, so an
+                // empty grid that is not unavailable is a load in progress. Tearing the plan down
+                // for it put a black box with a sentence in it on screen for the whole load (54 s
+                // on a first visit to Reserve, measured 2026-09-20); what is on screen stays until
+                // the first tiles of the new map replace it, which is a fraction of a second.
+                if (Renderer is not null && _map.Tiles.Count == 0 &&
+                    model.Background.Availability != MapAssetAvailability.Unavailable)
+                {
+                    return;
+                }
+
                 ReplaceBackgroundImage(null);
                 _cachedAssetVariantKey = null;
                 _cachedAsset = null;

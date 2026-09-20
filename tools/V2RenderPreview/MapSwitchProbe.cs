@@ -31,6 +31,11 @@ internal static class MapSwitchProbe
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
+    /// <summary>Where to save what is on screen at each step's first picture, or null. Set by <c>--then-map-first</c>.</summary>
+    public static string? FirstPicturePath { get; set; }
+
+    private static int _stepNumber;
+
     public static void Run(Window window, MainWindowViewModel viewModel, RaidCockpitViewModel raid, string steps)
     {
         foreach (var step in steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -91,6 +96,7 @@ internal static class MapSwitchProbe
                 if (firstPicture == TimeSpan.MinValue && showsAsked && raid.Renderer!.BackgroundImage is not null)
                 {
                     firstPicture = clock.Elapsed;
+                    SaveFirstPicture(window, mapId);
                 }
             }
 
@@ -108,6 +114,31 @@ internal static class MapSwitchProbe
         Console.WriteLine(string.Create(
             Invariant,
             $"[switch] {label}: first picture {(firstPicture == TimeSpan.MinValue ? double.NaN : firstPicture.TotalSeconds):F3}s, complete {lastChange.TotalSeconds:F3}s, longest UI turn {longestTurn.TotalMilliseconds:F0} ms"));
+    }
+
+    /// <summary>What a player is looking at the moment the new map first has a picture.</summary>
+    private static void SaveFirstPicture(Window window, string mapId)
+    {
+        if (FirstPicturePath is not { } path)
+        {
+            return;
+        }
+
+        var target = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(path))!,
+            $"{Path.GetFileNameWithoutExtension(path)}-{++_stepNumber}-{mapId}.png");
+        using var frame = window.CaptureRenderedFrame();
+        if (frame is null)
+        {
+            return;
+        }
+
+        using (var stream = File.Create(target))
+        {
+            frame.Save(stream, new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        }
+
+        Console.WriteLine($"[switch] first picture saved to {target}");
     }
 
     private static string Describe(MainWindowViewModel viewModel, RaidCockpitViewModel raid)
@@ -147,6 +178,30 @@ internal static class MapSwitchProbe
         Console.WriteLine(string.Create(
             Invariant,
             $"[switch] {mapId} VIEW rectangle {laidOut.Width:F1}x{laidOut.Height:F1} = {viewAspect:F4}; view model {renderer.MapWidth:F1}x{renderer.MapHeight:F1}; artwork {art.Width:F0}x{art.Height:F0} = {artAspect:F4}; stretched by {stretch:F1} px"));
+    }
+
+    /// <summary>
+    /// <c>--slow-network &lt;ms&gt;</c>: every request waits this long first, or null to leave the network alone.
+    /// </summary>
+    /// <remarks>
+    /// This host sits beside the CDN and downloads a map's tiles in under two seconds, which no
+    /// player's connection does. The delay is what makes a first visit long enough to see how it
+    /// fills in.
+    /// </remarks>
+    public static HttpMessageHandler? SlowNetwork(int milliseconds) => milliseconds <= 0
+        ? null
+        : new DelayingHandler(TimeSpan.FromMilliseconds(milliseconds))
+        {
+            InnerHandler = new HttpClientHandler { AutomaticDecompression = System.Net.DecompressionMethods.All },
+        };
+
+    private sealed class DelayingHandler(TimeSpan delay) : DelegatingHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
