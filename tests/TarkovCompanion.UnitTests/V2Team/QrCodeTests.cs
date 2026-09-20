@@ -247,7 +247,10 @@ public sealed class QrCodeTests
         }
 
         var symbols = new List<(string, string)>();
-        foreach (var block in File.ReadAllText(path).Split("\n---\n", StringSplitOptions.RemoveEmptyEntries))
+        // Normalised, because a Windows checkout hands this file over with CRLF (it is a .txt, which
+        // .gitattributes did not pin) and every pinned row then carried a '\r' the encoder never
+        // writes: `windows-build` was red on main and on every open pull request for this alone.
+        foreach (var block in File.ReadAllText(path).Replace("\r\n", "\n").Split("\n---\n", StringSplitOptions.RemoveEmptyEntries))
         {
             var lines = block.Trim('\n').Split('\n');
             symbols.Add((lines[0], string.Join('\n', lines[1..]) + "\n"));
