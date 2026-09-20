@@ -155,6 +155,14 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private ICommand? _clearSearch;
     private ICommand? _clearFilters;
 
+    // Delete and undo (#291 package 3). A delete soft-deletes; the one-press undo below is what
+    // makes it safe. See SqliteRaidHistoryService.PurgeDeletedAsync and the load above for when a
+    // soft-deleted raid is actually removed.
+    private IReadOnlyList<Guid> _pendingDeleteIds = [];
+    private bool _isConfirmingDelete;
+    private bool _isConfirmingBulkDelete;
+    private DateTimeOffset? _deleteBeforeDate;
+
     /// <summary>One raid plus what the workspace already knows about it, built once per load.</summary>
     private sealed record DebriefRaidRecord(RaidHistoryEntry Raid, string? Side, RaidFactSources Sources, double? LoadSeconds);
 
@@ -178,6 +186,13 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         ExportCsvCommand = new AsyncDelegateCommand(ExportCsvAsync);
         ExportJsonCommand = new AsyncDelegateCommand(ExportJsonAsync);
         WatchOnMapCommand = new DelegateCommand(WatchOnMap);
+        BeginDeleteCommand = new DelegateCommand(BeginDelete);
+        CancelDeleteCommand = new DelegateCommand(CancelDelete);
+        ConfirmDeleteCommand = new AsyncDelegateCommand(ConfirmDeleteAsync);
+        BeginBulkDeleteCommand = new DelegateCommand(BeginBulkDelete);
+        CancelBulkDeleteCommand = new DelegateCommand(CancelBulkDelete);
+        ConfirmBulkDeleteCommand = new AsyncDelegateCommand(ConfirmBulkDeleteAsync);
+        UndoDeleteCommand = new AsyncDelegateCommand(UndoDeleteAsync);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -393,6 +408,158 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>Raised when somebody asks to watch the selected raid; the shell owns the map and the router.</summary>
     public event EventHandler<DebriefReplayRequest>? ReplayRequested;
 
+    /// <summary>Whether the selected raid's delete has a preview showing, waiting on Confirm or Cancel.</summary>
+    public bool IsConfirmingDelete { get => _isConfirmingDelete; private set => SetProperty(ref _isConfirmingDelete, value); }
+
+    /// <summary>What deleting the selected raid removes, said before it happens.</summary>
+    public string DeletePreviewLabel { get; private set; } = string.Empty;
+
+    public ICommand BeginDeleteCommand { get; }
+
+    public ICommand CancelDeleteCommand { get; }
+
+    public ICommand ConfirmDeleteCommand { get; }
+
+    /// <summary>The cutoff for "delete every raid before this date"; the player's own local day.</summary>
+    public DateTimeOffset? DeleteBeforeDate
+    {
+        get => _deleteBeforeDate;
+        set => SetProperty(ref _deleteBeforeDate, value);
+    }
+
+    public bool IsConfirmingBulkDelete { get => _isConfirmingBulkDelete; private set => SetProperty(ref _isConfirmingBulkDelete, value); }
+
+    /// <summary>What "delete before" removes, said before it happens.</summary>
+    public string BulkDeletePreviewLabel { get; private set; } = string.Empty;
+
+    public ICommand BeginBulkDeleteCommand { get; }
+
+    public ICommand CancelBulkDeleteCommand { get; }
+
+    public ICommand ConfirmBulkDeleteCommand { get; }
+
+    /// <summary>Whether a delete just happened and can still be undone.</summary>
+    public bool CanUndoDelete => _pendingDeleteIds.Count > 0;
+
+    /// <summary>"Deleted 1 raid (Customs, 9/20/2026 7:29 PM)." — what the undo banner names.</summary>
+    public string UndoDeleteSummary { get; private set; } = string.Empty;
+
+    public ICommand UndoDeleteCommand { get; }
+
+    /// <summary>Shows what deleting the selected raid removes, and waits on Confirm or Cancel.</summary>
+    private void BeginDelete()
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        DeletePreviewLabel = string.Create(
+            CultureInfo.CurrentCulture,
+            $"This removes {SelectedMapLabel} · {SelectedStartedLabel} ({SelectedDurationLabel}), its {CountLabel(SelectedScans.Count, "scan")} and {CountLabel(_selectedPositions.Count, "screenshot")}.");
+        IsConfirmingDelete = true;
+        RaiseAll();
+    }
+
+    private void CancelDelete()
+    {
+        IsConfirmingDelete = false;
+        RaiseAll();
+    }
+
+    private async Task ConfirmDeleteAsync()
+    {
+        if (_selected is null)
+        {
+            IsConfirmingDelete = false;
+            return;
+        }
+
+        var raidId = _selected.Id;
+        var summary = $"Deleted 1 raid ({SelectedMapLabel}, {SelectedStartedLabel}).";
+        await _raidHistoryService.SoftDeleteAsync([raidId], _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = [raidId];
+        UndoDeleteSummary = summary;
+        IsConfirmingDelete = false;
+        _selected = null;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>Shows how many raids "delete before" removes, and waits on Confirm or Cancel.</summary>
+    private void BeginBulkDelete()
+    {
+        if (_deleteBeforeDate is not { } before)
+        {
+            Status = "Pick a date first.";
+            RaiseAll();
+            return;
+        }
+
+        var matches = RecordsBefore(before);
+        if (matches.Count == 0)
+        {
+            Status = $"No raids before {LocalTime.Date(before)}.";
+            RaiseAll();
+            return;
+        }
+
+        BulkDeletePreviewLabel = $"This removes {CountLabel(matches.Count, "raid")} before {LocalTime.Date(before)}.";
+        IsConfirmingBulkDelete = true;
+        RaiseAll();
+    }
+
+    private void CancelBulkDelete()
+    {
+        IsConfirmingBulkDelete = false;
+        RaiseAll();
+    }
+
+    private async Task ConfirmBulkDeleteAsync()
+    {
+        if (_deleteBeforeDate is not { } before)
+        {
+            IsConfirmingBulkDelete = false;
+            return;
+        }
+
+        var matches = RecordsBefore(before);
+        if (matches.Count == 0)
+        {
+            IsConfirmingBulkDelete = false;
+            RaiseAll();
+            return;
+        }
+
+        var ids = matches.Select(record => record.Raid.Id).ToArray();
+        await _raidHistoryService.SoftDeleteAsync(ids, _clock.GetUtcNow(), CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = ids;
+        UndoDeleteSummary = $"Deleted {CountLabel(ids.Length, "raid")} before {LocalTime.Date(before)}.";
+        IsConfirmingBulkDelete = false;
+        if (_selected is not null && ids.Contains(_selected.Id))
+        {
+            _selected = null;
+        }
+
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    private IReadOnlyList<DebriefRaidRecord> RecordsBefore(DateTimeOffset cutoff) =>
+        [.. _allRecords.Where(record =>
+            record.Raid.StartedUtc is { } started && LocalTime.ToLocal(started).Date < cutoff.Date)];
+
+    private async Task UndoDeleteAsync()
+    {
+        if (_pendingDeleteIds.Count == 0)
+        {
+            return;
+        }
+
+        await _raidHistoryService.RestoreDeletedAsync(_pendingDeleteIds, CancellationToken.None).ConfigureAwait(true);
+        _pendingDeleteIds = [];
+        UndoDeleteSummary = string.Empty;
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
     private void WatchOnMap()
     {
         if (_selected is null || _selectedPositions.Count == 0)
@@ -423,6 +590,12 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             LoadFaultInjection.ThrowIfInjected("debrief");
+            // A raid stays soft-deleted, and so undoable, for exactly as long as the one-press undo
+            // that covers it could still be pressed: this purges anything soft-deleted that is not
+            // in the batch the undo banner currently names — a previous batch a new delete just
+            // superseded, or, on the first load of a session, whatever an earlier session never
+            // purged (its own undo cannot be pressed any more either).
+            await _raidHistoryService.PurgeDeletedAsync(_pendingDeleteIds, cancellationToken).ConfigureAwait(true);
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
             // #453's rule: reading and projecting hundreds of raids — a corrections query and a
             // state-events query each — belongs on the pool, not the dispatcher. Filtering and the
@@ -680,6 +853,9 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     public async Task SelectRaidAsync(Guid raidId, CancellationToken cancellationToken)
     {
+        // A delete preview names one raid; selecting another while it is showing must not leave a
+        // stale preview whose Confirm button would act on the raid now selected instead.
+        IsConfirmingDelete = false;
         var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
         _selected = raids.FirstOrDefault(raid => raid.Id == raidId);
         _selectedPositions = _selected is null
@@ -1169,5 +1345,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(OutcomeFilterChips));
         OnPropertyChanged(nameof(SideFilterChips));
         OnPropertyChanged(nameof(HasActiveFilters));
+        OnPropertyChanged(nameof(IsConfirmingDelete));
+        OnPropertyChanged(nameof(DeletePreviewLabel));
+        OnPropertyChanged(nameof(IsConfirmingBulkDelete));
+        OnPropertyChanged(nameof(BulkDeletePreviewLabel));
+        OnPropertyChanged(nameof(CanUndoDelete));
+        OnPropertyChanged(nameof(UndoDeleteSummary));
     }
 }

@@ -102,7 +102,7 @@
        Raid/Team layout — the raid table as the primary pane, the selected raid's detail and its
        correction in a right context panel. -->
   <Grid ColumnDefinitions="*,Auto">
-    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*" RowSpacing="12" Margin="16,4,16,16">
+    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12" Margin="16,4,16,16">
       <!-- The title and the action row used to share one Grid row ("*,Auto"): at 1024px wide the
            actions' Auto column always won its full width, the title's Star column was squeezed to
            a sliver, and StackPanel does not clip, so "Raid history" painted on top of "Refresh" /
@@ -131,9 +131,23 @@
         </StackPanel>
       </WrapPanel>
 
+      <!-- #291 package 3: the one-press undo for the delete that just happened, while the page is
+           open. A new delete (or the app restarting) is what finally purges what it covers — see
+           SqliteRaidHistoryService.PurgeDeletedAsync. -->
+      <Border Grid.Row="1" Classes="v2-debrief-section v2-debrief-accent" Padding="16,10"
+              IsVisible="{Binding CanUndoDelete}" AutomationProperties.AutomationId="v2-debrief-undo-banner">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <TextBlock Classes="v2-debrief-muted" Text="{Binding UndoDeleteSummary}" VerticalAlignment="Center" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Polite" />
+          <Button Grid.Column="1" Classes="v2-target v2-debrief-plain" VerticalAlignment="Center"
+                  AutomationProperties.AutomationId="v2-debrief-undo"
+                  Content="Undo" Command="{Binding UndoDeleteCommand}" />
+        </Grid>
+      </Border>
+
       <!-- Search and filters (#291 package 2): map, outcome, side, a date range and free text over
            notes. The per-map stats below follow this same filtered set. -->
-      <Border Grid.Row="1" Classes="v2-debrief-pane" Padding="16,12" AutomationProperties.AutomationId="v2-debrief-filters">
+      <Border Grid.Row="2" Classes="v2-debrief-pane" Padding="16,12" AutomationProperties.AutomationId="v2-debrief-filters">
         <StackPanel Spacing="10">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
             <Border Classes="v2-intel-search" MinHeight="38" Padding="12,0,4,0">
@@ -206,6 +220,35 @@
                           AutomationProperties.Name="To date" />
             </StackPanel>
           </WrapPanel>
+
+          <!-- #291 package 3: bulk delete, with the same preview-then-confirm shape as the single
+               raid delete below. Kept beside the date range it reads. -->
+          <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,10,0,0">
+            <StackPanel Spacing="8">
+              <WrapPanel ItemSpacing="10" LineSpacing="6" IsVisible="{Binding !IsConfirmingBulkDelete}">
+                <TextBlock Classes="v2-debrief-muted" Text="Delete raids before" VerticalAlignment="Center" />
+                <DatePicker SelectedDate="{Binding DeleteBeforeDate}"
+                            AutomationProperties.AutomationId="v2-debrief-delete-before-date"
+                            AutomationProperties.Name="Delete raids before date" />
+                <Button Classes="v2-target v2-debrief-plain"
+                        AutomationProperties.AutomationId="v2-debrief-delete-before-begin"
+                        Content="Delete before…" Command="{Binding BeginBulkDeleteCommand}" />
+              </WrapPanel>
+              <StackPanel Spacing="8" IsVisible="{Binding IsConfirmingBulkDelete}"
+                          AutomationProperties.AutomationId="v2-debrief-delete-before-preview">
+                <TextBlock Classes="v2-debrief-muted" Text="{Binding BulkDeletePreviewLabel}" TextWrapping="Wrap" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Classes="v2-target" Foreground="{DynamicResource V2.Brush.Danger}"
+                          BorderBrush="{DynamicResource V2.Brush.Danger}"
+                          AutomationProperties.AutomationId="v2-debrief-delete-before-confirm"
+                          Content="Delete" Command="{Binding ConfirmBulkDeleteCommand}" />
+                  <Button Classes="v2-target v2-debrief-plain"
+                          AutomationProperties.AutomationId="v2-debrief-delete-before-cancel"
+                          Content="Cancel" Command="{Binding CancelBulkDeleteCommand}" />
+                </StackPanel>
+              </StackPanel>
+            </StackPanel>
+          </Border>
         </StackPanel>
       </Border>
 
@@ -213,7 +256,7 @@
            it was a full-height bordered card holding a single line, which at 1920x1080 is about
            85% of the card drawn empty and reads as a page that failed to load. VerticalAlignment
            Top with a stretch MaxHeight means a long history still fills the window and scrolls. -->
-      <Border Grid.Row="2" Classes="v2-debrief-pane" VerticalAlignment="Top"
+      <Border Grid.Row="3" Classes="v2-debrief-pane" VerticalAlignment="Top"
               MaxHeight="{Binding $parent[Grid].Bounds.Height}"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-debrief-history">
@@ -438,6 +481,29 @@
                 <Button Classes="v2-target v2-debrief-primary" Margin="0,6,0,0"
                         AutomationProperties.AutomationId="v2-debrief-save-correction"
                         Content="Save correction" Command="{Binding SaveCorrectionCommand}" />
+              </StackPanel>
+            </Border>
+
+            <!-- #291 package 3: delete, with a preview of what goes before it happens. -->
+            <Border Classes="v2-debrief-section">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="v2-debrief-strong" Text="Delete this raid" AutomationProperties.HeadingLevel="3" />
+                <Button Classes="v2-target v2-debrief-plain" IsVisible="{Binding !IsConfirmingDelete}"
+                        AutomationProperties.AutomationId="v2-debrief-delete-begin"
+                        Content="Delete raid" Command="{Binding BeginDeleteCommand}" />
+                <StackPanel Spacing="8" IsVisible="{Binding IsConfirmingDelete}"
+                            AutomationProperties.AutomationId="v2-debrief-delete-preview">
+                  <TextBlock Classes="v2-debrief-muted" Text="{Binding DeletePreviewLabel}" TextWrapping="Wrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Classes="v2-target" Foreground="{DynamicResource V2.Brush.Danger}"
+                            BorderBrush="{DynamicResource V2.Brush.Danger}"
+                            AutomationProperties.AutomationId="v2-debrief-delete-confirm"
+                            Content="Delete" Command="{Binding ConfirmDeleteCommand}" />
+                    <Button Classes="v2-target v2-debrief-plain"
+                            AutomationProperties.AutomationId="v2-debrief-delete-cancel"
+                            Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+                  </StackPanel>
+                </StackPanel>
               </StackPanel>
             </Border>
           </StackPanel>

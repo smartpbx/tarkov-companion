@@ -19,6 +19,7 @@ public sealed class SqliteRaidHistoryService(
     internal const string RaidHistoryListSql = """
         SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
         FROM raids
+        WHERE deleted_utc IS NULL
         ORDER BY COALESCE(start_utc, end_utc) DESC, id;
         """;
     internal const string MapTrailsSql = """
@@ -515,6 +516,111 @@ public sealed class SqliteRaidHistoryService(
         }
 
         return entries;
+    }
+
+    /// <summary>
+    /// Marks raids deleted rather than removing them: <see cref="ListAsync"/> already excludes a
+    /// marked row, and its own per-map stats along with it, which is what lets Debrief show a
+    /// delete as done immediately while still being able to undo it.
+    /// </summary>
+    public async Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(raidIds);
+        if (raidIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE raids SET deleted_utc = $deletedUtc WHERE id = $id AND deleted_utc IS NULL;";
+            command.Parameters.Add("$deletedUtc", SqliteType.Text);
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in raidIds)
+            {
+                command.Parameters["$deletedUtc"].Value = Format(deletedUtc);
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Undoes a soft delete: only a raid still marked deleted is cleared, so an undo pressed twice is harmless.</summary>
+    public async Task RestoreDeletedAsync(IReadOnlyCollection<Guid> raidIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(raidIds);
+        if (raidIds.Count == 0)
+        {
+            return;
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE raids SET deleted_utc = NULL WHERE id = $id AND deleted_utc IS NOT NULL;";
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in raidIds)
+            {
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hard-deletes every raid still marked deleted, except the ones named — the batch a workspace's
+    /// one-press undo still covers. Called at the top of a load, so a raid stays soft-deleted (and
+    /// so recoverable) for exactly as long as the undo that covers it could still be pressed: until
+    /// another delete starts, or the app is restarted and no undo for it exists any more.
+    /// </summary>
+    public async Task PurgeDeletedAsync(IReadOnlyCollection<Guid> exceptRaidIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(exceptRaidIds);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        var toPurge = new List<Guid>();
+        await using (var read = connection.CreateCommand())
+        {
+            read.CommandText = "SELECT id FROM raids WHERE deleted_utc IS NOT NULL;";
+            await using var reader = await read.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var id = Guid.Parse(reader.GetString(0));
+                if (!exceptRaidIds.Contains(id))
+                {
+                    toPurge.Add(id);
+                }
+            }
+        }
+
+        if (toPurge.Count == 0)
+        {
+            return;
+        }
+
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            // raid_events, raid_positions and raid_extracts all cascade on delete (0001_initial.sql).
+            command.CommandText = "DELETE FROM raids WHERE id = $id;";
+            command.Parameters.Add("$id", SqliteType.Text);
+            foreach (var raidId in toPurge)
+            {
+                command.Parameters["$id"].Value = raidId.ToString("D");
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken)

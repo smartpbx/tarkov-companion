@@ -35,6 +35,7 @@ public static class SqliteMigrationLedger
         // "0014_flea" sorts ahead of "0014_quest", which the ordered-ledger guard refuses.
         new("0015_flea_market_settings", false, "Published flea listing fee rates"),
         new("0016_restore_task_objective_items", false, "Put back the quest item needs 0013 deleted"),
+        new("0017_raid_soft_delete", false, "Soft-delete column on raids, for Debrief's delete-with-undo"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>
