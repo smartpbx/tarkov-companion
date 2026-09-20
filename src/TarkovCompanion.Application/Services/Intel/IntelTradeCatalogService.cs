@@ -41,6 +41,11 @@ public sealed record IntelTradeIngredient(string ItemId, string Name, int Count)
 /// <param name="InputCostRoubles">What every input costs at its cheapest known buy price, or null.</param>
 /// <param name="OutputValueRoubles">What the output sells for at its best price, or null.</param>
 /// <param name="ProfitRoubles">Output value minus input cost, or null the moment either is unknown.</param>
+/// <param name="RecordedLevel">
+/// The active profile's own station/trader level, where one is on record — null when nothing is
+/// (Readiness is then Unknown, never Locked) and null for a Ready reached because the trade
+/// states no real requirement, which never looked a level up to report.
+/// </param>
 public sealed record IntelTradeRow(
     string TradeId,
     IntelTradeKind Kind,
@@ -52,7 +57,8 @@ public sealed record IntelTradeRow(
     long? InputCostRoubles,
     long? OutputValueRoubles,
     long? ProfitRoubles,
-    IntelTradeReadiness Readiness);
+    IntelTradeReadiness Readiness,
+    int? RecordedLevel = null);
 
 /// <summary>Every craft and barter the last sync stored, priced and ready to search (#287).</summary>
 public interface IIntelTradeCatalogService
@@ -281,6 +287,7 @@ public sealed class IntelTradeCatalogService(
         var stationName = craft.StationId is { Length: > 0 } stationId
             ? stationNames.GetValueOrDefault(stationId, stationId)
             : string.Empty;
+        var readiness = IntelTradeReadinessResolver.ForCraft(craft.StationId, craft.StationLevel, profile.HideoutStationLevels);
 
         return new IntelTradeRow(
             craft.CraftId,
@@ -293,7 +300,8 @@ public sealed class IntelTradeCatalogService(
             inputCost,
             outputValue,
             CraftBarterProfitCalculator.Profit(inputCost, outputValue),
-            CraftReadiness(craft, profile));
+            readiness.Readiness,
+            readiness.RecordedLevel);
     }
 
     private static IntelTradeRow BuildBarterRow(
@@ -321,6 +329,7 @@ public sealed class IntelTradeCatalogService(
         var traderName = barter.TraderId is { Length: > 0 } traderId
             ? traderNames.GetValueOrDefault(traderId, traderId)
             : string.Empty;
+        var readiness = IntelTradeReadinessResolver.ForBarter(barter.MinimumTraderLevel, barter.TraderId, profile.TraderLevels);
 
         return new IntelTradeRow(
             barter.BarterId,
@@ -333,47 +342,14 @@ public sealed class IntelTradeCatalogService(
             inputCost,
             outputValue,
             CraftBarterProfitCalculator.Profit(inputCost, outputValue),
-            BarterReadiness(barter, profile));
+            readiness.Readiness,
+            readiness.RecordedLevel);
     }
 
     private static IntelTradeIngredient Ingredient(string itemId, decimal? count, IReadOnlyDictionary<string, ItemFacts> facts) =>
         new(itemId, facts.GetValueOrDefault(itemId)?.Name ?? itemId, ToCount(count));
 
     private static int ToCount(decimal? count) => (int)Math.Max(1m, count ?? 1m);
-
-    /// <summary>Ready when the profile's own station level meets the craft's; unknown when the craft's own level is unstated.</summary>
-    private static IntelTradeReadiness CraftReadiness(CraftPlanningEntry craft, PlayerProfile profile)
-    {
-        if (craft.StationId is not { Length: > 0 } stationId || craft.StationLevel is not { } required)
-        {
-            return IntelTradeReadiness.Unknown;
-        }
-
-        return profile.HideoutStationLevels.GetValueOrDefault(stationId) >= required
-            ? IntelTradeReadiness.Ready
-            : IntelTradeReadiness.Locked;
-    }
-
-    /// <summary>
-    /// Mirrors <c>BarterRouting.CanTake</c>: an unstated requirement is open to anybody, and a
-    /// stated one with no named trader cannot be checked at all.
-    /// </summary>
-    private static IntelTradeReadiness BarterReadiness(BarterOffer barter, PlayerProfile profile)
-    {
-        if (barter.MinimumTraderLevel is not { } required || required <= 0)
-        {
-            return IntelTradeReadiness.Ready;
-        }
-
-        if (barter.TraderId is not { Length: > 0 } traderId)
-        {
-            return IntelTradeReadiness.Unknown;
-        }
-
-        return profile.TraderLevels.GetValueOrDefault(traderId) >= required
-            ? IntelTradeReadiness.Ready
-            : IntelTradeReadiness.Locked;
-    }
 
     /// <summary>The craft's build time, in the one field of its own source payload that names it.</summary>
     private static TimeSpan? ParseDuration(string sourceJson)
