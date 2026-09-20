@@ -48,6 +48,10 @@
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
+    <Style Selector="Border.v2-raid-routed">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
     <Style Selector="Border.v2-raid-chip">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="1" />
@@ -653,6 +657,44 @@
             </StackPanel>
           </Border>
 
+          <!-- [Issue 286] The concept's "Lower-contact route" and "Why this route", as one card: the
+               two lines the map draws with how long each is, then the reasons, which are the two
+               routes' own numbers and nothing else. -->
+          <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasSuggestedRoute}"
+                  AutomationProperties.AutomationId="v2-raid-route">
+            <StackPanel Spacing="6">
+              <TextBlock Classes="v2-heading-3" Text="Lower-contact route" />
+              <StackPanel Spacing="0">
+                <TextBlock Classes="v2-body" Text="{Binding RouteTitle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding RouteStartLabel}" />
+              </StackPanel>
+              <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8">
+                <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FF5CF0FF" StrokeThickness="4" StrokeDashArray="2,1.5" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Suggested · lower contact" />
+                <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding PrimaryRouteEstimate}" />
+              </Grid>
+              <Grid ColumnDefinitions="34,*,Auto" ColumnSpacing="8" IsVisible="{Binding HasAlternativeRoute}">
+                <Line StartPoint="0,8" EndPoint="34,8" Stroke="#FFD7DEE6" StrokeThickness="3" StrokeDashArray="2,1.5" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="Direct line · higher contact" />
+                <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding AlternativeRouteEstimate}" />
+              </Grid>
+              <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="Why this route" Margin="0,4,0,0" />
+              <ItemsControl ItemsSource="{Binding RouteReasons}" AutomationProperties.AutomationId="v2-raid-route-reasons">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Spacing="3" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="v2-label" Opacity="0.75" Text="{Binding RouteCaveat}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+          <TextBlock Classes="v2-label" Opacity="0.8" Text="{Binding RouteHint}" TextWrapping="Wrap"
+                     IsVisible="{Binding ShowsRouteHint}" AutomationProperties.AutomationId="v2-raid-route-hint" />
+
           <!-- V2 rough package 20: the accent edge is for a card with something in it. While the
                game-data refresh is failing this one is a single muted line, and it should not be
                the loudest thing in the panel. -->
@@ -694,15 +736,27 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:RaidExtractRowViewModel">
+                    <!-- [Issue 286] A row with a planned route is a button: pressing it draws that
+                         extract's routes. A row without one has no command and presses nothing. -->
+                    <Button Classes="v2-raid-rowbutton" Command="{Binding RouteCommand}"
+                            IsHitTestVisible="{Binding HasEstimate}" Focusable="{Binding HasEstimate}"
+                            AutomationProperties.AutomationId="v2-raid-extract-row"
+                            AutomationProperties.Name="{Binding Name}">
                     <Border Classes="v2-raid-row"
                             Classes.v2-raid-offered="{Binding IsOffered}"
+                            Classes.v2-raid-routed="{Binding IsRouted}"
                             Classes.v2-raid-not-offered="{Binding IsNotOffered}">
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                         <Viewbox Width="20" Height="20">
                           <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Exit}" />
                         </Viewbox>
-                        <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Name}"
-                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                        <!-- The estimate sits under the name, not beside it: beside it, "RUAF Roadblock"
+                             read "RUAF R…" at the panel's default width. -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                          <TextBlock Classes="v2-body" Text="{Binding Name}"
+                                     TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                          <TextBlock Classes="v2-label" Opacity="0.85" Text="{Binding Estimate}" IsVisible="{Binding HasEstimate}" />
+                        </StackPanel>
                         <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
                         <Border Grid.Column="3" Classes="v2-raid-chip" Classes.v2-raid-muted="{Binding IsNotOffered}"
                                 IsVisible="{Binding HasOfferLabel}" VerticalAlignment="Center">
@@ -710,6 +764,7 @@
                         </Border>
                       </Grid>
                     </Border>
+                    </Button>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>

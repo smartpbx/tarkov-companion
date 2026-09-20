@@ -167,17 +167,7 @@ public sealed partial class RaidCockpitViewModel
             return ([], []);
         }
 
-        var dataThrough = (prior.Basis.DataThroughUtc ?? prior.Basis.GeneratedUtc).ToUniversalTime();
-        dataThrough = dataThrough > prior.Basis.GeneratedUtc ? prior.Basis.GeneratedUtc : dataThrough;
-        var estimate = new MapSceneEstimateMetadata(
-            dataThrough,
-            dataThrough,
-            prior.Basis.GeneratedUtc,
-            CoverageLabel(prior.Basis),
-            "Not validated against recorded raids",
-            transformVersion,
-            MapPriorTraffic.ModelVersion);
-        var provenance = new DataProvenance("map-structure-prior", prior.Basis.GeneratedUtc, Confidence: prior.Confidence);
+        var (estimate, provenance) = PriorEstimate(prior, transformVersion);
         var objects = prior.Hotspots
             .Select((hotspot, index) => new MapSceneObject(
                 new($"traffic-prior:{index}"),
@@ -192,6 +182,23 @@ public sealed partial class RaidCockpitViewModel
                 estimate))
             .ToArray();
         return ([new(TrafficLayerId, "Modelled traffic", 5, true)], objects);
+    }
+
+    /// <summary>What every object drawn from the prior carries: through when, from what, how sure.</summary>
+    private static (MapSceneEstimateMetadata Estimate, DataProvenance Provenance) PriorEstimate(MapPriorTraffic prior, string transformVersion)
+    {
+        var dataThrough = (prior.Basis.DataThroughUtc ?? prior.Basis.GeneratedUtc).ToUniversalTime();
+        dataThrough = dataThrough > prior.Basis.GeneratedUtc ? prior.Basis.GeneratedUtc : dataThrough;
+        return (
+            new(
+                dataThrough,
+                dataThrough,
+                prior.Basis.GeneratedUtc,
+                CoverageLabel(prior.Basis),
+                "Not validated against recorded raids",
+                transformVersion,
+                MapPriorTraffic.ModelVersion),
+            new("map-structure-prior", prior.Basis.GeneratedUtc, Confidence: prior.Confidence));
     }
 
     private TrafficPriorInputs PriorInputs(

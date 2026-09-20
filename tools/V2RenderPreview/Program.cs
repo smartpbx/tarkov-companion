@@ -1234,6 +1234,24 @@ internal static class Program
                 Pump(20);
             }
 
+            // [Issue 286] Press an extract's row, so the routes drawn are the ones to it.
+            if (StringOption(args, "--route-extract") is { } routeExtract &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel routedRaid)
+            {
+                if (routedRaid.MapExtracts.FirstOrDefault(row =>
+                        row.Name.Contains(routeExtract, StringComparison.OrdinalIgnoreCase)) is { RouteCommand: { } press })
+                {
+                    press.Execute(null);
+                    Pump(40);
+                }
+                else
+                {
+                    Console.Error.WriteLine(
+                        $"No routed extract matches '{routeExtract}'. Routed: " +
+                        string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
+                }
+            }
+
             // Package 29 (parity): raids written through the real history service, so Debrief lists
             // and selects them the way it does for a player's own. The newest carries a trail on the
             // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
