@@ -124,7 +124,6 @@ public sealed partial class V2ShellViewModel
     private string? _intelLandingKey;
     private DateTimeOffset _intelLandingLoadedUtc = DateTimeOffset.MinValue;
     private bool _intelLandingLoading;
-    private bool _intelLandingAutoSelected;
     private CancellationTokenSource? _intelLandingCts;
 
     // #287 (Crafts & barters tab): the tab's own workspace holds and caches the priced list;
@@ -685,9 +684,6 @@ public sealed partial class V2ShellViewModel
     {
         if (!ShowsIntelWorkspace)
         {
-            // Leaving Intel resets the one-shot auto-select below, so the next visit picks a
-            // first suggestion again; staying and explicitly closing the detail pane does not.
-            _intelLandingAutoSelected = false;
             return;
         }
 
@@ -735,40 +731,13 @@ public sealed partial class V2ShellViewModel
         _intelLandingLoadedUtc = _clock.GetUtcNow();
         _intelLandingLoading = false;
         RaiseIntelWorkspaceChanged();
-        AutoSelectFirstIntelHomeItem();
     }
 
-    /// <summary>
-    /// With nothing selected, the detail pane opens on the first real suggestion rather than a
-    /// sentence — once per visit to Intel, so a deliberate Close afterward stays closed.
-    /// </summary>
-    private void AutoSelectFirstIntelHomeItem()
-    {
-        if (_intelLandingAutoSelected || HasIntelSelection || _intelLandingSnapshot is not { } snapshot)
-        {
-            return;
-        }
-
-        // The landing loads in the background, so it can finish after the player has started
-        // typing. Opening a suggestion then would put an item nobody asked for beside a search that
-        // found nothing — which is how this surfaced: "a search that finds nothing selects nothing"
-        // failed in CI whenever the load lost the race. A search is a decision; the suggestion yields.
-        if (!string.IsNullOrWhiteSpace(SearchText))
-        {
-            _intelLandingAutoSelected = true;
-            return;
-        }
-
-        var first = snapshot.NeededNow.Concat(snapshot.Pinned).Concat(snapshot.Recent).Concat(snapshot.HighestValue)
-            .FirstOrDefault();
-        if (first is null)
-        {
-            return;
-        }
-
-        _intelLandingAutoSelected = true;
-        Act(Router.OpenIntel(first.ItemId, invoker: null));
-    }
+    // The landing page does not open a suggestion by itself. It did for a few hours on 2026-09-20:
+    // the load finishes in the background, so it opened an item beside a search already typed, pulled
+    // the player off Intel > Stash scan when he had clicked on while it loaded, turned the page
+    // heading from "Intel" into "Item details" and added a Back entry nobody made. The list is the
+    // landing page; the detail pane waits for a choice.
 
     /// <summary>Saved addresses resolved to the item each one is actually open on, bare page visits dropped.</summary>
     private IReadOnlyList<string> ItemIdsFromAddresses(IReadOnlyList<string> addresses, int limit)
