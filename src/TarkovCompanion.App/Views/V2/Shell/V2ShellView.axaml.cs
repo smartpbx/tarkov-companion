@@ -67,6 +67,12 @@ public sealed partial class V2ShellView : UserControl
         _requestedInitialFocus = false;
         shell.FocusRequested += FocusRequested;
         shell.Clipboard = CopyToClipboardAsync;
+        // [V2 rough package 61 — plan export] #288/#315: Plan needs the same seam, and it is
+        // resolved from the container rather than owned by the shell, so it is wired here too.
+        if (shell.PlanWorkspace is { } plan)
+        {
+            plan.Clipboard = CopyToClipboardAsync;
+        }
     }
 
     private void Unwire()
@@ -78,6 +84,10 @@ public sealed partial class V2ShellView : UserControl
 
         _wiredShell.FocusRequested -= FocusRequested;
         _wiredShell.Clipboard = ClipboardUnavailableAsync;
+        if (_wiredShell.PlanWorkspace is { } plan)
+        {
+            plan.Clipboard = null;
+        }
         _wiredShell = null;
         _requestedInitialFocus = false;
     }

@@ -39,6 +39,10 @@ Game logs and screenshot filenames are independent, evidence-based inputs to the
 
 `RaidActivityCoordinator` records raid starts, evidence transitions, positions, extracts, successful scans, and raid completion through `IRaidHistoryService`. History stores structured JSON event payloads and summary rows only; captured pixels are never persisted.
 
+## Planning
+
+What to bring, build and keep is decided in `Application/Services/Planning` and answered in the records of `Core/Domain/Planning`, not in the Plan view models that present it. `QuestRequirementPlanner` turns objectives and holdings into Bring / Hand in / Find in raid requirements; `HideoutPlanner` gives each station's next level, what can be started now and what is short across all of them; `KeepListPlanner` (fed by `KeepListService`) computes the Keep list. They take one snapshot and are deterministic for it: no clock, no catalog reads, ordered by id rather than by a display name. The view models add names and words. Prerequisite graphs, route bundles, craft/barter chains and event templates are not part of this yet (#307 says which exist elsewhere and which do not).
+
 ## The group relay
 
 `TarkovCompanion.GroupServer` is a second executable, an ASP.NET minimal-API application that
