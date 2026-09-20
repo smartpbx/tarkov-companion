@@ -20,9 +20,9 @@ public sealed class V2ShellRegistryTests
         // tablets. Changing one is a migration, so the list is spelled out rather than derived.
         Assert.Equal(
             [
-                "home", "raid", "raid.loot", "items", "items.ammo", "items.keys", "items.flea", "item", "stash",
-                "plan", "plan.hideout", "plan.keep", "plan.loadout", "plan.events", "team", "team.group", "team.tablet",
-                "debrief", "setup",
+                "home", "raid", "raid.loot", "items", "items.ammo", "items.keys", "items.flea", "items.crafts", "item",
+                "stash", "plan", "plan.hideout", "plan.keep", "plan.loadout", "plan.events", "team", "team.group",
+                "team.tablet", "debrief", "setup",
             ],
             V2RouteRegistry.Default.Routes.Select(route => route.Id.Value));
         Assert.Equal(V2Capabilities.All.Count, V2Capabilities.All.Distinct().Count());
@@ -234,7 +234,7 @@ public sealed class V2ShellRegistryTests
         var registry = V2RouteRegistry.Default;
 
         Assert.Equal(
-            [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Stash],
+            [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Crafts, V2Routes.Stash],
             registry.VisibleSections(V2ShellVariants.A, V2Routes.Items).Select(route => route.Id));
         Assert.Equal(
             [V2Routes.Plan, V2Routes.Hideout, V2Routes.Keep, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],

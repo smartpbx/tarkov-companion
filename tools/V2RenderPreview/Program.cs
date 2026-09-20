@@ -86,6 +86,19 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
+            // [#454] --previous-run-died: a run that navigated to Plan, began loading Reserve and
+            // never shut down, so Setup's Diagnostics can be photographed saying so.
+            if (args.Contains("--previous-run-died"))
+            {
+                var died = Path.Combine(dataRoot, "previous-run-logs");
+                CrashBreadcrumbs.Install(died);
+                CrashBreadcrumbs.Drop("navigate", "#/plan");
+                CrashBreadcrumbs.Drop("map", "loading reserve/reserve-2d");
+                CrashBreadcrumbs.Detach();
+                CrashBreadcrumbs.Install(died);
+                CrashBreadcrumbs.Detach();
+            }
+
             var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
 
             AppBuilder.Configure(() => new AppClass(services))
@@ -528,6 +541,43 @@ internal static class Program
                 }
             }
 
+            // #287 (event state on items): creates an event, marks one item Allergic on it, and
+            // (with --route intel) searches Intel for the same item so its row and detail chip
+            // can be photographed.
+            if (args.Contains("--intel-allergic-demo"))
+            {
+                var events = viewModel.Events;
+                events.NewEventName = "Allergy Test";
+                DrainUntilComplete(events.CreateCommand.ExecuteAsync());
+                Pump(40);
+                events.ItemQuery = "bandage";
+                DrainUntilComplete(events.SearchCommand.ExecuteAsync());
+                if (events.Matches.Count > 0)
+                {
+                    events.Matches[0].AddCommand.Execute(null);
+                    Pump(60);
+                }
+
+                if (events.Items.Count > 0)
+                {
+                    events.Items[0].MarkAllergicCommand.Execute(null);
+                    Pump(60);
+                }
+
+                // Intel's own event-state map is read no more than once per
+                // IntelEventStateRefreshInterval; this run's own periodic tick may have already
+                // cached an earlier (pre-mark) read during the pumping above, so give one more
+                // full interval before asking Intel to search, rather than photographing a race.
+                Pump(120);
+
+                if (shell is not null)
+                {
+                    shell.SearchText = "bandage";
+                    DrainUntilComplete(shell.SearchAsync());
+                    Pump(120);
+                }
+            }
+
             if (fleaQuery is not null)
             {
                 viewModel.Flea.SearchQuery = fleaQuery;
@@ -548,6 +598,25 @@ internal static class Program
             if (shell is not null && args.Contains("--intel-clear-search"))
             {
                 shell.ClearIntelSearchCommand.Execute(null);
+                Pump(20);
+            }
+
+            // #287 (Crafts & barters tab): --route intel/crafts lands on the tab itself; this
+            // additionally runs a search there (or just waits for the catalog's own first load,
+            // when the query is blank) so the render shows priced rows rather than an empty list.
+            if (shell?.CraftsBartersWorkspace is { } trade)
+            {
+                DrainUntilComplete(trade.LoadTask);
+                if (StringOption(args, "--intel-trade-search") is { } tradeQuery)
+                {
+                    trade.SearchText = tradeQuery;
+                }
+
+                if (args.Contains("--intel-trade-ready-now"))
+                {
+                    trade.ReadyNowOnly = true;
+                }
+
                 Pump(20);
             }
 

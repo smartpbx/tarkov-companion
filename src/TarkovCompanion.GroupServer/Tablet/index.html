@@ -152,6 +152,9 @@
 
     <h2 style="margin-top:16px">Look something up</h2>
     <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
+    <!-- #407: search silently did nothing outside Control, with no way off this page to fix
+         that. One tap asks for the same lease the Control mode button above grants. -->
+    <button type="button" id="searchTakeControl">Take control</button>
     <div class="form">
       <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
       <button type="button" id="findGo">Search on desktop</button>
@@ -1685,8 +1688,13 @@
     $("surface").classList.toggle("driving", mode === "Control");
     $("searchNote").textContent = mode === "Control"
       ? "The desktop looks it up and the answers come back here."
-      : "Take control of the desktop to search on it.";
+      : mode === "ControlPending"
+        ? "Waiting for the desktop to allow this tablet to drive."
+        : "Take control of the desktop to search on it.";
     $("findGo").disabled = mode !== "Control";
+    // #407: only offer the button where asking for control makes sense — not while already
+    // driving, and not while a request is already waiting on the desktop.
+    $("searchTakeControl").style.display = mode === "Control" || mode === "ControlPending" ? "none" : "";
   }
 
   function renderMarks() {
@@ -2251,6 +2259,7 @@
   $("find").addEventListener("keydown", (event) => {
     if (event.key === "Enter") runSearch();
   });
+  $("searchTakeControl").addEventListener("click", () => requestMode("Control"));
 
   $("unpair").addEventListener("click", () =>
     sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));

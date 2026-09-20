@@ -47,6 +47,82 @@ public sealed class CrashBreadcrumbTests : IDisposable
     }
 
     /// <summary>
+    /// The next launch can say where the run that died was: the page, the map, and that the map
+    /// was still being drawn (#454).
+    /// </summary>
+    /// <remarks>
+    /// The route is the first thing dropped and sixty map lines follow it, because the replayed
+    /// tail is forty lines and the summary must not be: a long session's last navigation is
+    /// exactly what falls off the end of a tail.
+    /// </remarks>
+    [Fact]
+    public void TheNextLaunchKnowsTheLastPageAndThatTheMapWasStillBeingDrawn()
+    {
+        CrashLog.Install(_directory);
+        CrashBreadcrumbs.Install(_directory);
+        CrashBreadcrumbs.Drop("navigate", "#/plan");
+        for (var index = 0; index < 60; index++)
+        {
+            CrashBreadcrumbs.Drop("map-asset", "reading svg customs::base");
+            CrashBreadcrumbs.Drop("map-asset", "drew customs::base");
+        }
+
+        CrashBreadcrumbs.Drop("map", "loading reserve/reserve-2d");
+        CrashBreadcrumbs.Detach();
+
+        CrashBreadcrumbs.Install(_directory);
+
+        var end = CrashBreadcrumbs.PreviousRun;
+        Assert.NotNull(end);
+        Assert.Equal("#/plan", end.LastRoute);
+        Assert.Equal("reserve/reserve-2d", end.LastMap);
+        Assert.True(end.MapWasBeingDrawn);
+        Assert.False(end.WasFrozen);
+        Assert.Equal(
+            "The last session ended without closing. Last page: #/plan. Last map: reserve/reserve-2d, still being drawn.",
+            CrashBreadcrumbs.DescribePreviousRun());
+    }
+
+    /// <summary>A map that finished drawing, and a freeze that never ended, read as what they were.</summary>
+    [Fact]
+    public void AFreezeThatNeverRecoveredIsToldApartFromOneThatDid()
+    {
+        var recovered = CrashBreadcrumbs.Summarise(
+        [
+            "2026-09-20T10:00:00.0000000+00:00 [navigate] #/raid",
+            "2026-09-20T10:00:01.0000000+00:00 [map-asset] reading svg reserve::bunkers",
+            "2026-09-20T10:00:03.0000000+00:00 [map-asset] drew reserve::bunkers",
+            "2026-09-20T10:00:04.0000000+00:00 [ui-hang] The interface has not answered for 5.0 s.",
+            "2026-09-20T10:00:09.0000000+00:00 [ui-hang-recovered] The interface answered again after 9.8 s.",
+        ]);
+        var frozen = CrashBreadcrumbs.Summarise(
+        [
+            "2026-09-20T10:00:00.0000000+00:00 [navigate] #/raid",
+            "2026-09-20T10:00:04.0000000+00:00 [ui-hang] The interface has not answered for 5.0 s.",
+            "not a breadcrumb at all",
+        ]);
+
+        Assert.Equal(new PreviousRunEnd("#/raid", "reserve::bunkers", MapWasBeingDrawn: false, WasFrozen: false), recovered);
+        Assert.Equal(new PreviousRunEnd("#/raid", null, MapWasBeingDrawn: false, WasFrozen: true), frozen);
+    }
+
+    /// <summary>A run that closed normally says nothing in Setup either.</summary>
+    [Fact]
+    public void ACleanExitLeavesNoPreviousRunToDescribe()
+    {
+        CrashLog.Install(_directory);
+        CrashBreadcrumbs.Install(_directory);
+        CrashBreadcrumbs.Drop("navigate", "#/plan");
+        CrashBreadcrumbs.MarkCleanExit();
+        CrashBreadcrumbs.Detach();
+
+        CrashBreadcrumbs.Install(_directory);
+
+        Assert.Null(CrashBreadcrumbs.PreviousRun);
+        Assert.Equal(string.Empty, CrashBreadcrumbs.DescribePreviousRun());
+    }
+
+    /// <summary>
     /// A run that closed normally is not reported as a crash.
     /// </summary>
     /// <remarks>
@@ -126,6 +202,7 @@ public sealed class CrashBreadcrumbTests : IDisposable
     public void Dispose()
     {
         CrashBreadcrumbs.Detach();
+        CrashBreadcrumbs.ForgetPreviousRun();
         CrashLog.Detach();
         for (var attempt = 0; attempt < 5; attempt++)
         {

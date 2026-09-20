@@ -352,9 +352,14 @@ public static class AppComposition
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
-        // anywhere, so it is composed here explicitly rather than discovered.
-        services.AddSingleton<IGroupSettingsStore>(_ =>
-            new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")));
+        // anywhere, so it is composed here explicitly rather than discovered. Decorated so
+        // saving a new relay address reconfigures the paired-tablet bridge at once instead of
+        // leaving it on whatever group.json said at startup (RelayMarksBridge is registered
+        // further down, but DI resolves it lazily on first use, not in registration order).
+        services.AddSingleton<IGroupSettingsStore>(provider =>
+            new RelayReconfiguringGroupSettingsStore(
+                new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")),
+                provider.GetRequiredService<RelayMarksBridge>()));
         // What the player is working on, for the group to see. Dead until tonight, because
         // there was no quest progress to send.
         services.AddSingleton<GroupQuestShare>();
@@ -464,12 +469,19 @@ public static class AppComposition
         // only what is already registered above, plus the catalog's own value ranking.
         services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();
         services.AddSingleton<IIntelLandingService, IntelLandingService>();
+        // #287 (Crafts & barters tab): every craft and barter, priced and cached in memory. Reads
+        // ICraftPlanningCatalog/IBarterCatalog/IRequirementCatalog/ITraderCatalog/IItemRepository/
+        // IItemMarketFactSource, all already registered elsewhere in this method.
+        services.AddSingleton<IIntelTradeCatalogService, IntelTradeCatalogService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
         services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
         services.AddSingleton<IEventCatalog>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
         services.AddSingleton<IEventAuthoring>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
+        // #287 (event state on items): the Events page's Safe/Allergic/Untested result for every
+        // item in a running event, read as one map for Intel's chips.
+        services.AddSingleton<IIntelEventStateCatalog, IntelEventStateCatalog>();
 
         // The aggregation service takes its requirements as constructor collections, and
         // nothing ever registered one, so it always answered "0 needed". That silently
@@ -1084,17 +1096,14 @@ public static class AppComposition
             }
 
             using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
-            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object ||
-                !document.RootElement.TryGetProperty("serverUri", out var server) ||
-                server.ValueKind != System.Text.Json.JsonValueKind.String ||
-                !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
-                uri.Scheme != Uri.UriSchemeHttps ||
-                IPAddress.TryParse(uri.IdnHost, out _))
-            {
-                return null;
-            }
-
-            return new Uri(uri.GetLeftPart(UriPartial.Authority));
+            // The shape check itself lives in CompanionRelayOrigin, shared with whatever
+            // reconfigures this live after a save (RelayReconfiguringGroupSettingsStore), so
+            // startup and a later change can never accept a different notion of "usable".
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("serverUri", out var server) &&
+                server.ValueKind == System.Text.Json.JsonValueKind.String
+                    ? CompanionRelayOrigin.TryParse(server.GetString())
+                    : null;
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)

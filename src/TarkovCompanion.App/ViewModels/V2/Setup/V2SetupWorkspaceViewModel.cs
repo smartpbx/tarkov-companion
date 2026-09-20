@@ -346,6 +346,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public string OfflineNote => V2ShellText.Get("V2.Setup.Data.OfflineNote");
     public string ScaleHint => V2ShellText.Get("V2.Setup.Appearance.ScaleHint");
     public string ScaleScope => V2ShellText.Get("V2.Setup.Appearance.ScaleScope");
+    /// <summary>[#454] Said once, on the launch after a run that died without shutting down.</summary>
+    public string PreviousRunNotice { get; } = CrashBreadcrumbs.DescribePreviousRun();
+
+    public bool HasPreviousRunNotice => PreviousRunNotice.Length > 0;
+
     public string LogLabel => V2ShellText.Get("V2.Setup.Diagnostics.LogLabel");
     public string RelayNote => V2ShellText.Get("V2.Setup.Diagnostics.RelayNote");
     public string ExchangeTitle => V2ShellText.Get("V2.Setup.Progress.ExchangeTitle");

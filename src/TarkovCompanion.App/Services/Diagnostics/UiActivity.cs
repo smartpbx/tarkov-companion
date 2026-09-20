@@ -20,19 +20,13 @@ public static class UiActivity
     private static volatile string _route = string.Empty;
     private static volatile Note? _load;
     private static volatile Note? _command;
-    private static volatile string _map = string.Empty;
     private static readonly UiStep?[] Steps = new UiStep?[64];
     private static int _nextStep;
 
     /// <summary>The route the shell last navigated to, or empty before the first navigation.</summary>
     public static string Route => _route;
 
-    /// <summary>The map last handed to the rasteriser, or empty if none has been this run.</summary>
-    public static string LastMapRasterised => _map;
-
     public static void Navigated(string route) => _route = route ?? string.Empty;
-
-    public static void MapRasterising(string map) => _map = map ?? string.Empty;
 
     /// <summary>A workspace or startup page began loading.</summary>
     public static void LoadStarted(string surface) => _load = new(surface, DateTimeOffset.UtcNow, null);
@@ -121,7 +115,6 @@ public static class UiActivity
     internal static void Reset()
     {
         _route = string.Empty;
-        _map = string.Empty;
         _load = null;
         _command = null;
         lock (Steps)

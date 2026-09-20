@@ -59,6 +59,17 @@ public sealed record CachedMapAsset(
 public sealed record MapAssetCacheResult(CachedMapAsset? Asset, string? Message)
 {
     public bool IsAvailable => Asset is not null;
+
+    /// <summary>
+    /// The floor that was asked for could not be drawn, whatever is or is not in <see cref="Asset"/>.
+    /// </summary>
+    /// <remarks>
+    /// #452. When a floor will not rasterise the cache hands back the whole drawing instead, which
+    /// is right, and a page that only looked at <see cref="Asset"/> then showed every floor at
+    /// once with no word about why. A flag rather than a message to match on, so the page can say
+    /// "could not draw this floor" and offer Retry without reading prose.
+    /// </remarks>
+    public bool FloorNotDrawn { get; init; }
 }
 
 public sealed class TarkovDevMapAssetCache(
@@ -159,8 +170,8 @@ public sealed class TarkovDevMapAssetCache(
             // rasterise is a worse map, not an absent one, and the base preview was produced by
             // the download and is the same artwork with every floor drawn.
             return File.Exists(result.Asset.RenderPath)
-                ? new(result.Asset, $"The '{visibleLayer}' floor could not be drawn, so every floor is shown: {exception.Message}")
-                : new(null, $"The selected SVG floor is unavailable: {exception.Message}");
+                ? new(result.Asset, $"The '{visibleLayer}' floor could not be drawn, so every floor is shown: {exception.Message}") { FloorNotDrawn = true }
+                : new(null, $"The selected SVG floor is unavailable: {exception.Message}") { FloorNotDrawn = true };
         }
         finally
         {

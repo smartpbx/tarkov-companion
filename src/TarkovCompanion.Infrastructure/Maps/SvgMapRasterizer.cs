@@ -69,6 +69,16 @@ public static class SvgMapRasterizer
     /// cache no longer rasterises a preview it already has.
     /// </remarks>
     private static readonly SemaphoreSlim Rasterizations = new(1, 1);
+    private static int _drawing;
+    private static int _mostDrawingAtOnce;
+
+    /// <summary>The most rasterisations that have ever been inside Skia at once in this process.</summary>
+    /// <remarks>
+    /// One, if the gate above works. Counted inside the gate rather than inferred from it, so the
+    /// test that guards the in-process fallback against running concurrently with itself (#452)
+    /// fails if somebody adds a second way in.
+    /// </remarks>
+    internal static int MostDrawingAtOnce => Volatile.Read(ref _mostDrawingAtOnce);
 
     public static Task CreatePreviewAsync(
         string svgPath,
@@ -93,7 +103,26 @@ public static class SvgMapRasterizer
             // surface, the draw, the snapshot, the PNG encode — is above the first await. A
             // caller reaching this from the interface thread froze the window for the duration,
             // once per floor.
-            var encoded = await Task.Run(() => Render(document, cancellationToken), cancellationToken)
+            var encoded = await Task.Run(
+                    () =>
+                    {
+                        var drawing = Interlocked.Increment(ref _drawing);
+                        try
+                        {
+                            int seen;
+                            while (drawing > (seen = Volatile.Read(ref _mostDrawingAtOnce))
+                                && Interlocked.CompareExchange(ref _mostDrawingAtOnce, drawing, seen) != seen)
+                            {
+                            }
+
+                            return Render(document, cancellationToken);
+                        }
+                        finally
+                        {
+                            Interlocked.Decrement(ref _drawing);
+                        }
+                    },
+                    cancellationToken)
                 .ConfigureAwait(false);
             await using var output = new FileStream(
                 previewPath,

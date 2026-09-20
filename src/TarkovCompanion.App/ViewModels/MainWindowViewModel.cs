@@ -1886,7 +1886,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
                 snapshot.RecentScreenshotNames,
                 CrashLog.FilePath,
                 summary?.ToSupportFacts(CultureInfo.CurrentCulture),
-                StartupFaults?.Invoke());
+                StartupFaults?.Invoke(),
+                CrashBreadcrumbs.PreviousRun);
             // The clipboard stays on this machine, so it also carries the self-test's own
             // words — the folders, endpoints and reasons that are most of the answer, and the
             // part SupportBundle may not send anywhere.
@@ -2175,7 +2176,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             snapshot.RecentScreenshotNames,
             CrashLog.FilePath,
             _selfTest?.Last?.ToSupportFacts(CultureInfo.CurrentCulture),
-            StartupFaults?.Invoke())
+            StartupFaults?.Invoke(),
+            CrashBreadcrumbs.PreviousRun)
         : null;
 
     /// <summary>Sends text that <see cref="BuildReport"/> produced and the player has read, and says what happened.</summary>

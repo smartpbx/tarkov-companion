@@ -238,6 +238,118 @@ public sealed class SvgMapRasterizerTests
     }
 
     /// <summary>A shell that prints to stderr and exits with the given code.</summary>
+    /// <summary>
+    /// The real thing: this application's own executable, started as a child, draws the floor.
+    /// </summary>
+    /// <remarks>
+    /// #452. Every other test here either calls the child's body in this process or stands a shell
+    /// in for the child, so none of them proved that the executable the application re-launches
+    /// reaches the rasteriser and writes a picture. This one starts it. The executable is built
+    /// whenever these tests are, because the test project references the application, so its
+    /// absence is a failure rather than a reason to skip.
+    /// </remarks>
+    [Fact]
+    public async Task TheApplicationsOwnExecutableDrawsAFloorAsAChildProcess()
+    {
+        using var directory = new TemporaryDirectory();
+        var svgPath = Path.Combine(directory.Path, "real-child.svg");
+        await File.WriteAllTextAsync(
+            svgPath,
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 10\">"
+            + "<g id=\"Ground_Level\"><rect width=\"20\" height=\"10\" fill=\"#123456\" /></g>"
+            + "<g id=\"Upper_Floor\"><rect width=\"20\" height=\"10\" fill=\"#abcdef\" /></g></svg>");
+        var previewPath = Path.Combine(directory.Path, "real-child.png");
+
+        await OutOfProcessSvgRasterizer.CreatePreviewAsync(
+            ApplicationHost(),
+            svgPath,
+            previewPath,
+            "Upper_Floor",
+            CancellationToken.None);
+
+        var png = await File.ReadAllBytesAsync(previewPath);
+        Assert.True(png.Length > 8);
+        Assert.Equal([0x89, (byte)'P', (byte)'N', (byte)'G'], png[..4]);
+    }
+
+    /// <summary>The real child refuses a drawing it cannot read, and the parent hears why.</summary>
+    [Fact]
+    public async Task TheApplicationsOwnExecutableRefusesADrawingItCannotRead()
+    {
+        using var directory = new TemporaryDirectory();
+        var svgPath = Path.Combine(directory.Path, "not-a-drawing.svg");
+        await File.WriteAllTextAsync(svgPath, "this is not xml");
+        var previewPath = Path.Combine(directory.Path, "not-a-drawing.png");
+
+        var failure = await Assert.ThrowsAsync<InvalidDataException>(() => OutOfProcessSvgRasterizer.CreatePreviewAsync(
+            ApplicationHost(),
+            svgPath,
+            previewPath,
+            visibleLayer: null,
+            CancellationToken.None));
+
+        Assert.Contains("refused the drawing", failure.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(previewPath));
+    }
+
+    /// <summary>
+    /// The in-process rasteriser never runs twice at once, however many callers arrive together.
+    /// </summary>
+    /// <remarks>
+    /// #452. The fallback for a child that cannot be started is this process, and three 64 MiB
+    /// surfaces drawn at once is how it was first brought down. Eight callers, and the count the
+    /// rasteriser keeps of how many were inside Skia at once must still read one.
+    /// </remarks>
+    [Fact]
+    public async Task RasterisingInThisProcessNeverOverlapsWithItself()
+    {
+        using var directory = new TemporaryDirectory();
+        var svgPath = Path.Combine(directory.Path, "overlap.svg");
+        await File.WriteAllTextAsync(
+            svgPath,
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 10\">"
+            + "<rect width=\"20\" height=\"10\" fill=\"#123456\" /></svg>");
+
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(index => Task.Run(() => SvgMapRasterizer.CreatePreviewAsync(
+            svgPath,
+            Path.Combine(directory.Path, $"overlap-{index}.png"),
+            CancellationToken.None))));
+
+        Assert.Equal(1, SvgMapRasterizer.MostDrawingAtOnce);
+        Assert.Equal(8, Directory.GetFiles(directory.Path, "overlap-*.png").Length);
+    }
+
+    /// <summary>The application's own build output, which building these tests also builds.</summary>
+    /// <remarks>
+    /// Not the copy beside the tests. That one starts and then cannot find half its dependencies,
+    /// because the test host's output is laid out for the test host; the application's own output
+    /// directory is the only place its executable is actually runnable from.
+    /// </remarks>
+    private static SvgRasterizerHost ApplicationHost()
+    {
+        // .../tests/TarkovCompanion.UnitTests/bin/<configuration>/<framework>/
+        var output = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+        var framework = output.Name;
+        var configuration = output.Parent!.Name;
+        var root = output;
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "TarkovCompanion.sln")))
+        {
+            root = root.Parent;
+        }
+
+        Assert.NotNull(root);
+        var executable = Path.Combine(
+            root.FullName,
+            "src",
+            "TarkovCompanion.App",
+            "bin",
+            configuration,
+            framework,
+            OperatingSystem.IsWindows() ? "TarkovCompanion.exe" : "TarkovCompanion");
+        Assert.True(File.Exists(executable), $"The application's host executable is not where its build puts it: {executable}");
+        return new(executable, [], TimeSpan.FromSeconds(120));
+    }
+
     private static SvgRasterizerHost FailingHost(int exitCode, string message) => OperatingSystem.IsWindows()
         ? new("cmd.exe", ["/c", $"echo {message} 1>&2 & exit {exitCode}"], TimeSpan.FromSeconds(20))
         : new("/bin/sh", ["-c", $"echo '{message}' >&2; exit {exitCode}"], TimeSpan.FromSeconds(20));

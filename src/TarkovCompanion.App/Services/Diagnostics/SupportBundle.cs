@@ -90,7 +90,8 @@ public static class SupportBundle
         IReadOnlyList<string> recentScreenshotNames,
         string? logPath,
         IReadOnlyList<(string Key, string Value)>? selfTest,
-        IReadOnlyList<string>? startupFaults)
+        IReadOnlyList<string>? startupFaults,
+        PreviousRunEnd? previousRun = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(recentScreenshotNames);
@@ -190,6 +191,19 @@ public static class SupportBundle
 
         report.AppendLine("### Stability");
         AppendFact(report, "previous run reached shutdown", YesNo(!CrashBreadcrumbs.PreviousRunDied));
+        // Handed in rather than read from the static, so that what a report says depends on its
+        // arguments and not on whatever another thread last installed.
+        if (previousRun is { } end)
+        {
+            // Only after a run that died, and only what the application itself wrote: a route it
+            // navigated to and a map id from the catalog. Reduced to the characters those use, so
+            // nothing free-form can ride along.
+            AppendFact(report, "previous run last page", Address(end.LastRoute));
+            AppendFact(report, "previous run last map", Address(end.LastMap));
+            AppendFact(report, "previous run died drawing that map", YesNo(end.MapWasBeingDrawn));
+            AppendFact(report, "previous run was frozen", YesNo(end.WasFrozen));
+        }
+
         var faults = ClosedStartupFaults(startupFaults);
         AppendFact(report, "pages that did not load at startup", BoundedCount(faults.Count, MaximumStartupFaults));
         foreach (var page in faults)
@@ -351,6 +365,10 @@ public static class SupportBundle
     };
 
     private static string YesNo(bool value) => value ? "yes" : "no";
+
+    /// <summary>A route or a map id, kept to the characters those are made of.</summary>
+    private static string Address(string? value) => Bounded(new string(
+        [.. (value ?? string.Empty).Where(character => char.IsAsciiLetterOrDigit(character) || character is '#' or '/' or '-' or '_' or ':' or '.')]));
 
     private static string ConfidenceBand(double value) => value switch
     {

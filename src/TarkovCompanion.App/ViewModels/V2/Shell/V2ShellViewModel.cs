@@ -177,7 +177,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // [Issue 318] Setup's per-map loot-spawn coverage, same reasoning again.
         LootCoverageViewModel? lootCoverage = null,
         // Package 33 (#287): the Intel landing page's four real sections, same reasoning again.
-        IIntelLandingService? intelLanding = null)
+        IIntelLandingService? intelLanding = null,
+        // #287 (Crafts & barters tab): same reasoning again.
+        IIntelTradeCatalogService? intelTrade = null,
+        // #287 (event state on items): same reasoning again.
+        IIntelEventStateCatalog? intelEventStates = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -200,7 +204,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             keep,
             team,
             options.DeveloperMode,
-            intelLanding)
+            intelLanding,
+            intelTrade,
+            intelEventStates)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         if (selfTest is not null && SetupWorkspace is not null)
@@ -261,7 +267,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false,
-        IIntelLandingService? intelLanding = null)
+        IIntelLandingService? intelLanding = null,
+        IIntelTradeCatalogService? intelTrade = null,
+        IIntelEventStateCatalog? intelEventStates = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -281,7 +289,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             keep,
             team,
             developerMode,
-            intelLanding)
+            intelLanding,
+            intelTrade,
+            intelEventStates)
     {
     }
 
@@ -304,7 +314,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         KeepListWorkspaceViewModel? keep = null,
         TeamWorkspaceViewModel? team = null,
         bool developerMode = false,
-        IIntelLandingService? intelLanding = null)
+        IIntelLandingService? intelLanding = null,
+        IIntelTradeCatalogService? intelTrade = null,
+        IIntelEventStateCatalog? intelEventStates = null)
     {
         _lifetimeToken = _lifetime.Token;
         _developerMode = developerMode;
@@ -318,6 +330,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _clock = clock ?? TimeProvider.System;
         _intel = intel ?? NullItemIntelService.Instance;
         _intelLanding = intelLanding ?? NullIntelLandingService.Instance;
+        _intelTrade = intelTrade ?? NullIntelTradeCatalogService.Instance;
+        _intelEventStateCatalog = intelEventStates ?? NullIntelEventStateCatalog.Instance;
         _wikiOpener = wikiOpener ?? NullWikiLinkOpener.Instance;
         Legacy = legacy;
         RaidCockpit = raidCockpit;
@@ -349,6 +363,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"));
             FleaWorkspace = new(legacy.Flea, id => OpenSuggestedItem(id, "v2-flea-open-intel"));
         }
+
+        // #287: Crafts & barters has no V1 page to adapt, so it is built from the trade catalog
+        // service directly rather than gated behind a legacy graph.
+        CraftsBartersWorkspace = new(_intelTrade, id => OpenSuggestedItem(id, "v2-crafts-open-intel"));
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)
@@ -477,6 +495,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public AmmoWorkspaceViewModel? AmmoWorkspace { get; }
     public KeysWorkspaceViewModel? KeysWorkspace { get; }
     public FleaWorkspaceViewModel? FleaWorkspace { get; }
+    public CraftsBartersWorkspaceViewModel? CraftsBartersWorkspace { get; }
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
     public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
@@ -971,6 +990,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         var route when route == V2Routes.Ammo => AmmoWorkspace,
         var route when route == V2Routes.Keys => KeysWorkspace,
         var route when route == V2Routes.Flea => FleaWorkspace,
+        // #287: Crafts & barters, built from the trade catalog service directly.
+        var route when route == V2Routes.Crafts => CraftsBartersWorkspace,
         var route when route == V2Routes.Keep => _keep,
         var route when route == V2Routes.Loadout => Legacy?.Loadout,
         var route when route == V2Routes.Events => Legacy?.Events,
@@ -2068,6 +2089,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         RefreshIntelIfNeeded();
         RefreshIntelLandingIfNeeded();
+        RefreshIntelTradeIfNeeded();
         RaisePresentationChanged();
         if (announceBackgroundChange && (readinessChanged || recoveryChanged) &&
             Router.Current.FocusTarget is { } focusedTarget && HasRenderedFocusTarget(focusedTarget))
