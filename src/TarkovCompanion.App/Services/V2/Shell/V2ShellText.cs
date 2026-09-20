@@ -69,7 +69,10 @@ public static class V2ShellText
         ["V2.Setup.Section.TeamDevices"] = "Team & Devices",
         ["V2.Setup.Section.Updates"] = "Updates",
         ["V2.Setup.Section.Privacy"] = "Privacy",
-        ["V2.Setup.Section.Appearance"] = "Appearance",
+        // Renamed from "Appearance" by #292/#315: the acceptance criteria ask for an
+        // Accessibility section, and this is the one that gathers theme, colour vision, text
+        // size, density, reduced motion and the focus ring.
+        ["V2.Setup.Section.Accessibility"] = "Accessibility",
         ["V2.Setup.Section.Displays"] = "Displays",
         ["V2.Setup.Section.Diagnostics"] = "Diagnostics",
         // V2 rough package 43 (#314): the notifications section.
@@ -155,6 +158,23 @@ public static class V2ShellText
         ["V2.Setup.Appearance.StateOff"] = "Not selected",
         ["V2.Setup.Appearance.ResetAllLabel"] = "Back to defaults",
         ["V2.Setup.Appearance.Summary"] = "Now: {0}, text {1}%, {2} spacing.",
+
+        // #292 task 1: the focus ring, and the live preview strip and shortcut table beside it.
+        ["V2.Setup.Appearance.FocusLabel"] = "Focus indicator",
+        ["V2.Setup.Appearance.FocusHint"] = "Off shows the ring after Tab only. On shows it after a click too.",
+        ["V2.Setup.Appearance.Focus.Always"] = "Always visible",
+        ["V2.Setup.Appearance.Focus.KeyboardOnly"] = "Keyboard only",
+        ["V2.Setup.Accessibility.PreviewHeading"] = "Live preview",
+        ["V2.Setup.Accessibility.PreviewHint"] = "Every choice above redraws this strip immediately.",
+        ["V2.Setup.Accessibility.PreviewSampleHeading"] = "Sample heading",
+        ["V2.Setup.Accessibility.PreviewSampleBody"] = "Sample body text, at the size and spacing chosen above.",
+        ["V2.Setup.Accessibility.PreviewSampleButton"] = "Sample button",
+        ["V2.Setup.Accessibility.PreviewSampleField"] = "Sample field",
+        ["V2.Setup.Accessibility.PreviewSampleReady"] = "Ready",
+        ["V2.Setup.Accessibility.PreviewSampleFailed"] = "Failed",
+        ["V2.Setup.Accessibility.ShortcutsHeading"] = "Keyboard shortcuts",
+        ["V2.Setup.Accessibility.ShortcutsHint"] = "Every shortcut this window handles while it has focus.",
+
         ["V2.Setup.Displays.Info"] = "Window position and size are remembered, and return to a visible monitor if a display goes.",
 
         // [#309] Setup > Privacy: the screenshot-tidy preview, dry run and last-run ledger.

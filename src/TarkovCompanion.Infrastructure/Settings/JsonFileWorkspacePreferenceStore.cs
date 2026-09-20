@@ -47,7 +47,8 @@ public sealed class JsonFileWorkspacePreferenceStore(string settingsPath) : IWor
                 document.ColorVision ?? WorkspacePreferences.Default.ColorVision,
                 document.TextScalePercent ?? WorkspacePreferences.Default.TextScalePercent,
                 document.Density ?? WorkspacePreferences.Default.Density,
-                document.ReduceMotion ?? WorkspacePreferences.Default.ReduceMotion)
+                document.ReduceMotion ?? WorkspacePreferences.Default.ReduceMotion,
+                document.FocusAlwaysVisible ?? WorkspacePreferences.Default.FocusAlwaysVisible)
                 .Normalized();
         }
         finally
@@ -69,7 +70,8 @@ public sealed class JsonFileWorkspacePreferenceStore(string settingsPath) : IWor
                 normalized.ColorVision,
                 normalized.TextScalePercent,
                 normalized.Density,
-                normalized.ReduceMotion);
+                normalized.ReduceMotion,
+                normalized.FocusAlwaysVisible);
             await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(document, JsonOptions),
@@ -118,5 +120,6 @@ public sealed class JsonFileWorkspacePreferenceStore(string settingsPath) : IWor
         ColorVisionMode? ColorVision,
         int? TextScalePercent,
         InterfaceDensity? Density,
-        bool? ReduceMotion);
+        bool? ReduceMotion,
+        bool? FocusAlwaysVisible);
 }

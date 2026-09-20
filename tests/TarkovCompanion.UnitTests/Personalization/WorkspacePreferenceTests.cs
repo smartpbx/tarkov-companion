@@ -20,6 +20,7 @@ public sealed class WorkspacePreferenceTests
         Assert.Equal(100, defaults.TextScalePercent);
         Assert.Equal(InterfaceDensity.Standard, defaults.Density);
         Assert.False(defaults.ReduceMotion);
+        Assert.False(defaults.FocusAlwaysVisible);
     }
 
     [Theory]
@@ -60,12 +61,28 @@ public sealed class WorkspacePreferenceTests
             ColorVisionMode.BlueYellowSafe,
             175,
             InterfaceDensity.Comfortable,
-            ReduceMotion: true);
+            ReduceMotion: true,
+            FocusAlwaysVisible: true);
 
         await store.SaveAsync(wanted, CancellationToken.None);
         var reopened = new JsonFileWorkspacePreferenceStore(directory.File("preferences.json"));
 
         Assert.Equal(wanted, await reopened.GetAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AFileFromBeforeFocusAlwaysVisibleExistedKeepsItOff()
+    {
+        using var directory = new TemporaryDirectory();
+        var path = directory.File("preferences.json");
+        await File.WriteAllTextAsync(
+            path,
+            "{\"schemaVersion\": 1, \"theme\": \"Light\"}",
+            CancellationToken.None);
+
+        var stored = await new JsonFileWorkspacePreferenceStore(path).GetAsync(CancellationToken.None);
+
+        Assert.False(stored.FocusAlwaysVisible);
     }
 
     [Fact]
