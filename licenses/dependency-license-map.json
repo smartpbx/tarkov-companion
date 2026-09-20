@@ -32,6 +32,21 @@
       "noticeKey": "avalonia"
     },
     {
+      "name": "Avalonia headless test platform",
+      "ids": [
+        "Avalonia.Headless"
+      ],
+      "version": "12.1.2",
+      "scope": "test",
+      "ships": false,
+      "license": "MIT",
+      "copyrightNotice": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
+      "purpose": "Build/test-only headless windowing platform, so unit tests can host a real view and drive it with a pointer.",
+      "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+      "licenseFiles": [],
+      "noticeKey": "build-test"
+    },
+    {
       "name": "Avalonia ANGLE Windows native payload",
       "ids": [
         "Avalonia.Angle.Windows.Natives"

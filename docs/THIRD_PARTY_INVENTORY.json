@@ -1322,6 +1322,24 @@
     ],
     "testOnly": [
       {
+        "id": "Avalonia.Headless",
+        "version": "12.1.2",
+        "contentHash": "yKOcUtIOWuGLtGRo0/6KvQYSEKQpii0CGTJqelAwip6C/UAlzAWp/LE/YvKFhUYMyjJSunyyBu/qrLddqZQ0tw==",
+        "relationship": "direct",
+        "projects": [
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj"
+        ],
+        "component": "Avalonia headless test platform",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Build/test-only headless windowing platform, so unit tests can host a real view and drive it with a pointer.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
         "id": "coverlet.collector",
         "version": "10.0.1",
         "contentHash": "27jXSV/0DbVqF5jDrAxuQFZ9oaz6gmG03p8ttxAFk+X0M4woFYj7MoWDLCna5EGLb0CE6OE7X6ZH3Wt5smTtaA==",
@@ -1834,7 +1852,7 @@
     "runtimePackages": 53,
     "buildOnlyPackages": 1,
     "resolvedOtherPlatformPackages": 6,
-    "testOnlyPackages": 13,
+    "testOnlyPackages": 14,
     "shippedBundledComponents": 13
   }
 }
