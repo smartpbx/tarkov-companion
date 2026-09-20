@@ -614,6 +614,10 @@ public static class AppComposition
             services.AddSingleton<IRecycleBin, UnavailableRecycleBin>();
         }
 
+        // [f920 capture] Where the player is working when a capture arrives. The raid observer
+        // asks it, and the V2 capture bridge binds the router into it once the shell exists.
+        services.AddSingleton<ShellCaptureContextSource>();
+        services.AddSingleton<ICaptureContextSource>(provider => provider.GetRequiredService<ShellCaptureContextSource>());
         services.AddSingleton<RaidObservationService>();
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
@@ -776,7 +780,11 @@ public static class AppComposition
             provider.GetRequiredService<IItemRepository>(),
             provider.GetRequiredService<IItemMarketFactSource>(),
             provider.GetRequiredService<LootScanNeedSource>(),
-            provider.GetRequiredService<LootScanRaidContextSource>()));
+            provider.GetRequiredService<LootScanRaidContextSource>(),
+            // [f920 capture] The Events page's Safe / Allergic results reach the scan.
+            new LootScanEventStateSource(
+                provider.GetRequiredService<IPlayerProfileService>(),
+                provider.GetRequiredService<IEventCatalog>())));
         services.AddSingleton<GridPixelReconstructionBuilder>();
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>

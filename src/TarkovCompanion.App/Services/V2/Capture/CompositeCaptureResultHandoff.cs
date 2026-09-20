@@ -31,6 +31,9 @@ public sealed class CompositeCaptureResultHandoff(
         ArgumentNullException.ThrowIfNull(request);
         return request.EffectiveIntent switch
         {
+            // One named item and no lattice is an inspect screen, not a container.
+            ScanIntent.Loot when request.Analysis.Grid is null && request.Analysis.Identified.Count > 0 =>
+                _intel.AcceptItemAsync(request, cancellationToken),
             ScanIntent.Loot => _lootScan.AcceptAsync(request, cancellationToken),
             ScanIntent.Stash => _stashScan.AcceptAsync(request, cancellationToken),
             var intent when IntelCaptureHandoff.Intents.Contains(intent) =>
