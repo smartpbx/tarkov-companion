@@ -118,6 +118,88 @@ public sealed class QuestNotificationParserTests
     }
 
     /// <summary>
+    /// The spelling the files the companion actually reads use.
+    /// </summary>
+    /// <remarks>
+    /// This is the whole bug, and it is one string. The parser rejected any line without the
+    /// literal "ChatMessageReceived", which is how push-notifications_000.log announces these --
+    /// the one file the companion deliberately does not open, because its group blobs carry
+    /// teammates' inventories and looted dogtags. backend_000.log and output_000.log announce the
+    /// identical notification as "new_message". Measured on 1.1.5.1.47510: zero
+    /// ChatMessageReceived in backend, and fourteen new_message lines carrying one raid's quest
+    /// events. So every quest the game wrote was thrown away on the first substring scan.
+    ///
+    /// The prefix and payload here are a real line from that session, truncated.
+    /// </remarks>
+    [Theory]
+    [InlineData(10, RecordedTaskState.Active)]
+    [InlineData(11, RecordedTaskState.Failed)]
+    [InlineData(12, RecordedTaskState.Completed)]
+    public void TheBackendLogsOwnSpellingIsRead(int messageType, RecordedTaskState expected)
+    {
+        var observation = QuestNotificationParser.ParseLine(BackendLine(messageType), Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal("60896bca6ee58f38c417d4f2", observation.TaskId);
+        Assert.Equal(expected, observation.State);
+        Assert.Equal("6aadc1eea5fb0c1af10e93ae30", observation.EventId);
+    }
+
+    /// <summary>
+    /// A hand-in whose own text says "quest started" is still a hand-in.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these messages says "quest started", the completions included. Keying on the
+    /// text rather than on message.type would mark a finished quest as active and walk the board
+    /// backwards. Verified against a real session: nine type 10s, four type 12s, and every one of
+    /// the thirteen reading "quest started".
+    /// </remarks>
+    [Fact]
+    public void ABackendCompletionThatSaysItStartedIsStillACompletion()
+    {
+        var observation = QuestNotificationParser.ParseLine(BackendLine(12), Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal(RecordedTaskState.Completed, observation.State);
+    }
+
+    /// <summary>
+    /// Accepting the second spelling did not loosen anything after it.
+    /// </summary>
+    /// <remarks>
+    /// "new_message" is a far commoner string in these files than "ChatMessageReceived" was, so
+    /// the shape checks behind the marker are now what does the rejecting. They still do.
+    /// </remarks>
+    [Theory]
+    [InlineData("[{\"type\":\"new_message\",\"message\":{\"type\":4,\"templateId\":\"60896bca6ee58f38c417d4f2 x\"}}]")]
+    [InlineData("[{\"type\":\"new_message\",\"message\":{\"type\":12,\"templateId\":\"welcome description\"}}]")]
+    [InlineData("[{\"type\":\"new_message\",\"message\":{\"type\":12}}]")]
+    [InlineData("[{\"type\":\"new_message\",\"dialogId\":\"54cb50c76803fa8b248b4571\"}]")]
+    [InlineData("{\"type\":\"new_message\"}")]
+    public void ANewMessageThatIsNotAQuestIsStillRejected(string payload) =>
+        Assert.Null(QuestNotificationParser.ParseLine(BackendPrefix + payload, Observed));
+
+    /// <summary>The prefix backend_000.log writes, verbatim from a real session.</summary>
+    private const string BackendPrefix =
+        "2026-09-18 22:57:50.161|1.1.5.1.47510|Info|backend|" +
+        "WebSocketSharp - message received: NOTIFICATION 6aadc1ee83c0d7b85607ca2d new_message ";
+
+    /// <summary>
+    /// A backend notification line, as that file writes one.
+    /// </summary>
+    /// <remarks>
+    /// Note that nowhere in it does the string "ChatMessageReceived" appear. That is the point.
+    /// </remarks>
+    private static string BackendLine(int messageType) =>
+        BackendPrefix +
+        "[{\"type\":\"new_message\",\"eventId\":\"6aadc1ee83c0d7b85607ca2d\"," +
+        "\"dialogId\":\"54cb50c76803fa8b248b4571\",\"message\":{\"_id\":\"6aadc1eea5fb0c1af10e93ae30\"," +
+        "\"uid\":\"54cb50c76803fa8b248b4571\",\"type\":" +
+        messageType.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        ",\"dt\":1789772270,\"text\":\"quest started\"," +
+        "\"templateId\":\"60896bca6ee58f38c417d4f2 successMessageText\",\"items\":{\"data\":[],\"stash\":\"x\"}}}]";
+
+    /// <summary>
     /// A notification line shaped like the ones the game writes.
     /// </summary>
     /// <remarks>

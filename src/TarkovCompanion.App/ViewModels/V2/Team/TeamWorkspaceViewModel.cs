@@ -2,11 +2,11 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Controls.ApplicationLifetimes;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
-using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
@@ -177,10 +177,13 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
         SaveCommand = new AsyncDelegateCommand(SaveAsync);
         LeaveCommand = new AsyncDelegateCommand(LeaveAsync);
-        PairTabletCommand = new DelegateCommand(OpenPairing);
+        PairTabletCommand = new DelegateCommand(ShowDevices);
         OpenSharedPlanCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Raid));
         ManageGroupCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Group));
         ManageDevicesCommand = new DelegateCommand(() => _navigate?.Invoke(V2Routes.Tablet));
+        // Every other workspace has one. Without it, a Team pane that failed to read its settings
+        // had no way back short of restarting the application.
+        ReloadCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
     /// <summary>
@@ -219,6 +222,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
     public ICommand ManageDevicesCommand { get; }
 
+    /// <summary>Reads the stored settings again, after a load that failed.</summary>
+    public ICommand ReloadCommand { get; }
+
     /// <summary>
     /// Which route brought this workspace up, so its own pane is the one shown.
     /// </summary>
@@ -248,16 +254,36 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
     /// <summary>Reads the stored group settings into the join/leave/create form.</summary>
+    /// <remarks>
+    /// This was the one workspace load with no catch of its own, and the shell discarded the task
+    /// it returned. A settings file that could not be read therefore produced an empty Team pane
+    /// with nothing on it and nothing in the log, and it stayed that way until the application was
+    /// restarted — "panes/tabs not rendering at all until a restart", reported 2026-09-19. It now
+    /// says what happened in the log and on the pane, and <see cref="ReloadCommand"/> is a way back
+    /// without a restart.
+    /// </remarks>
     public async Task LoadAsync(CancellationToken cancellationToken)
     {
-        var stored = await _groupSettings.GetAsync(cancellationToken).ConfigureAwait(true);
-        IsEnabled = stored.IsEnabled;
-        ServerUri = stored.ServerUri ?? string.Empty;
-        DisplayName = stored.DisplayName ?? string.Empty;
-        Key = stored.Key ?? string.Empty;
-        SharesLoadout = stored.SharesLoadout;
-        SharesQuests = stored.SharesQuests;
-        Status = stored.IsEnabled ? "Saved" : "Not sharing";
+        try
+        {
+            var stored = await _groupSettings.GetAsync(cancellationToken).ConfigureAwait(true);
+            IsEnabled = stored.IsEnabled;
+            ServerUri = stored.ServerUri ?? string.Empty;
+            DisplayName = stored.DisplayName ?? string.Empty;
+            Key = stored.Key ?? string.Empty;
+            SharesLoadout = stored.SharesLoadout;
+            SharesQuests = stored.SharesQuests;
+            Status = stored.IsEnabled ? "Saved" : "Not sharing";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The raw exception goes to the log, the pane says what a player can do about it.
+            // Not rethrown: Reload runs this same method, and a Reload that throws would travel
+            // out through the command's async void and be handled by the window instead of by the
+            // pane the player is looking at.
+            CrashLog.Write("workspace-fault/team", $"load: {exception}");
+            Status = "Sharing settings couldn't be read. Try Reload, or set them again below.";
+        }
     }
 
     public string Status
@@ -667,7 +693,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 null,
                 reached)
             {
-                RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(waypoint.Id)),
+                RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(
+                    waypoint.Id,
+                    new RemovedMark(waypoint.MapId, new WorldPosition(waypoint.X, waypoint.Y, waypoint.Z), waypoint.Label, IsPing: false, name))),
                 Number = numbered.ToString(CultureInfo.CurrentCulture),
                 Title = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {numbered}" : waypoint.Label!,
                 Detail = JoinDetail(MapLabel(waypoint.MapId), reached ? $"by {waypoint.By} · reached by {waypoint.Reached}" : $"by {waypoint.By}", age),
@@ -688,7 +716,9 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring",
                 false)
             {
-                RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(ping.Id)),
+                RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(
+                    ping.Id,
+                    new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, "Ping"))),
                 Detail = JoinDetail(MapLabel(ping.MapId), $"by {ping.By}", $"{GroupSessionService.Ago(elapsed)} ago"),
             });
         }
@@ -752,8 +782,61 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         _ => string.Empty,
     };
 
-    private async Task RemoveMarkAsync(long id) =>
-        await _groupSession.RemoveMarkAsync(id, CancellationToken.None).ConfigureAwait(true);
+    /// <summary>What a removed mark was, so it can be put back.</summary>
+    private sealed record RemovedMark(string MapId, WorldPosition Position, string? Label, bool IsPing, string Name);
+
+    private RemovedMark? _undoable;
+
+    /// <summary>Whether the last removal can still be put back.</summary>
+    public bool CanUndoRemove => _undoable is not null;
+
+    /// <summary>What Undo would put back, named, so it is not a blind button.</summary>
+    public string UndoRemoveLabel => _undoable is { } mark ? $"Put {mark.Name} back" : string.Empty;
+
+    /// <summary>Puts the last removed mark back.</summary>
+    public ICommand UndoRemoveCommand => _undoRemoveCommand ??= new AsyncDelegateCommand(UndoRemoveAsync);
+
+    private ICommand? _undoRemoveCommand;
+
+    /// <summary>
+    /// Removes a mark and offers to put it back.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 60 — Team] #289 asks for preview, confirmation or undo "as appropriate",
+    /// and for a mark undo is the appropriate one: a confirmation dialog on every removed ping
+    /// would be in the way constantly, and putting one back costs nothing. Revoking a device is
+    /// the opposite case and is confirmed instead, because it cannot be put back.
+    ///
+    /// It comes back as a *new* mark with a new id and a new time, because that is all the relay
+    /// offers; the label and place are the same. Anything watching mark ids sees a new one.
+    /// </remarks>
+    private async Task RemoveMarkAsync(long id, RemovedMark? removed = null)
+    {
+        if (await _groupSession.RemoveMarkAsync(id, CancellationToken.None).ConfigureAwait(true))
+        {
+            SetUndoable(removed);
+        }
+    }
+
+    private async Task UndoRemoveAsync()
+    {
+        if (_undoable is not { } mark)
+        {
+            return;
+        }
+
+        SetUndoable(null);
+        await _groupSession
+            .MarkAsync(mark.MapId, mark.Position, mark.Label, mark.IsPing, CancellationToken.None)
+            .ConfigureAwait(true);
+    }
+
+    private void SetUndoable(RemovedMark? mark)
+    {
+        _undoable = mark;
+        OnPropertyChanged(nameof(CanUndoRemove));
+        OnPropertyChanged(nameof(UndoRemoveLabel));
+    }
 
     /// <summary>This desktop's own paired devices — never the group's members.</summary>
     public IReadOnlyList<PairedDeviceRowViewModel> Devices => _pairing?.Devices ?? [];
@@ -782,6 +865,17 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
     /// something else is driving it and can take it back without hunting for a setting — which is
     /// what the tablet concept (docs/design/v2/v2-tablet-desktop-control-concept.png) shows.
     /// </remarks>
+    /// <summary>
+    /// The pairing panel, bound directly rather than forwarded property by property.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] Pairing used to be a bare popout <c>Window</c> with its own title bar
+    /// and no way back to the page behind it — the only V2 surface that was not in the shell. It is
+    /// a section of this workspace now, so the view binds its fields through here instead of this
+    /// view model growing a forwarding property for each one.
+    /// </remarks>
+    public CompanionPairingViewModel? Pairing => _pairing;
+
     public string? ControlRequestMessage => _pairing?.ControlRequestMessage;
 
     public bool HasControlRequest => _pairing?.HasControlRequest == true;
@@ -823,25 +917,21 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         }
     }
 
-    /// <summary>Opens the pairing ceremony (#383) as its own window, the same one Settings opens.</summary>
-    private void OpenPairing()
+    /// <summary>
+    /// Brings pairing on screen, which now means going to the section it lives in.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] This used to construct and show <c>CompanionPairingWindow</c>. The
+    /// window is deleted; leaving it would have been a second way in to the same ceremony, which is
+    /// how the two drifted in the first place. The automation ids on both "Pair a tablet" buttons
+    /// are unchanged, so anything that pressed them still reaches pairing — it just stays in the
+    /// shell now.
+    /// </remarks>
+    private void ShowDevices()
     {
-        if (_pairing is null)
+        if (ActiveSection != TeamWorkspaceSection.Devices)
         {
-            return;
-        }
-
-        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            var window = new CompanionPairingWindow(_pairing);
-            if (desktop.MainWindow is { } owner)
-            {
-                window.Show(owner);
-            }
-            else
-            {
-                window.Show();
-            }
+            _navigate?.Invoke(V2Routes.Tablet);
         }
     }
 }

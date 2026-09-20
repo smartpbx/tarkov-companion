@@ -170,7 +170,10 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         ValidateRequiredString(generation, nameof(generation));
         ValidateRequiredString(gameMode, nameof(gameMode));
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        // A read of one snapshot, not a write: BEGIN DEFERRED gives the same consistent view under WAL
+        // without taking the write lock that the default BEGIN IMMEDIATE does, so a page's read is not
+        // queued behind a background refresh's write.
+        await using var transaction = connection.BeginTransaction(deferred: true);
         RawInventorySnapshot row;
         await using (var command = connection.CreateCommand())
         {

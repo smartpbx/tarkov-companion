@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Raid;
+using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -26,12 +27,14 @@ using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
@@ -43,6 +46,7 @@ using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.StashScan;
 using TarkovCompanion.Application.Services.Strategy;
+using TarkovCompanion.Infrastructure.Strategy.Datasets;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -59,6 +63,7 @@ using TarkovCompanion.Infrastructure.Persistence.Stash;
 using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.Infrastructure.Workspaces;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
@@ -68,7 +73,6 @@ using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Infrastructure.Wiki;
-using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Security;
@@ -254,8 +258,21 @@ public static class AppComposition
         services.AddSingleton<IItemSearchService, ItemSearchService>();
         services.AddSingleton<IPriceHistoryService, PriceHistoryService>();
 
+        // [V2 rough package 46] How the player arranged the window: the navigation rail's width
+        // and the Raid context panel's. Chrome preferences, remembered so they are set once.
+        services.AddSingleton<IWorkspaceLayoutStore>(_ => new JsonFileWorkspaceLayoutStore(
+            Path.Combine(paths.Config, "workspace-layout.json")));
+
         services.AddSingleton(TarkovDevMapCatalogClientOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Catalog")));
-        services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")));
+        // [P0 stability] Map drawings are rasterised in a child process. A native access
+        // violation inside Skia killed the application on 2026-09-19 and cannot be caught, so the
+        // draw happens somewhere the application can afford to lose. Null under a test, a tool or
+        // `dotnet run`, where the running process is not this application's own host executable
+        // and re-launching it would run something else; rasterisation is then in process, as before.
+        services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")) with
+        {
+            Rasterizer = ResolveRasterizerHost(),
+        });
         services.AddSingleton<TarkovDevMapCatalogClient>();
         services.AddSingleton<TarkovDevMapAssetCache>();
         services.AddSingleton<TarkovDevLootSpawnNormalizer>();
@@ -285,6 +302,31 @@ public static class AppComposition
         // local pings/waypoints kept between runs.
         services.AddSingleton<MapSceneAssembler>();
         services.AddSingleton<HistoricalTrafficRuntimeService>();
+        // [Issue 311] The governed traffic snapshot store, which was merged and tested and never
+        // constructed. Packages are the five files tools/TrafficModelBuilder writes, left one
+        // directory each in Traffic/Inbox; only a key listed in Config/traffic-trusted-keys.json
+        // can make one install, and with none listed nothing does.
+        services.AddSingleton(provider => new TrafficSnapshotStore(
+            new TrafficSnapshotStoreOptions(Path.Combine(paths.Root, "Traffic", "Snapshots")),
+            new TrafficModelPackageImporter(TrafficTrustedKeys.Load(
+                Path.Combine(paths.Config, "traffic-trusted-keys.json"),
+                provider.GetService<ILogger<TrafficSnapshotStore>>())),
+            timeProvider));
+        services.AddSingleton<ITrafficPublicationSource>(provider => new InstalledTrafficPublicationSource(
+            provider.GetRequiredService<TrafficSnapshotStore>(),
+            Path.Combine(paths.Root, "Traffic", "Inbox"),
+            provider.GetService<ILogger<InstalledTrafficPublicationSource>>()));
+        services.AddSingleton<IGameVersionSource>(provider => new EftLogFolderGameVersionSource(
+            async cancellationToken => (await provider.GetRequiredService<IEftPathLocator>()
+                .FindAsync(cancellationToken).ConfigureAwait(false)).LogRoot,
+            timeProvider));
+        services.AddSingleton(provider => new HistoricalTrafficSource(
+            provider.GetRequiredService<ITrafficPublicationSource>(),
+            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<IGameVersionSource>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            provider.GetRequiredService<IMapDataService>(),
+            timeProvider));
         services.AddSingleton<IRaidMarkStore>(_ =>
             new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
@@ -316,6 +358,12 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [V2 rough package 60 — appearance] #266/#315: the one versioned record that says how
+        // the companion looks. Nothing persisted a theme, a text scale, a density or a motion
+        // choice before this, so every palette the design system shipped was unreachable.
+        services.AddSingleton<IWorkspacePreferenceStore>(_ =>
+            new JsonFileWorkspacePreferenceStore(Path.Combine(paths.Config, "preferences.json")));
+        services.AddSingleton<WorkspacePreferenceService>();
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -328,10 +376,21 @@ public static class AppComposition
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
 
-        services.AddSingleton<IPlayerProfileService>(provider => new JsonFilePlayerProfileService(
+        // [#269] profile.json stays the first profile's progress; every other profile gets its own file
+        // under profiles/, and IPlayerProfileService hands each caller the active profile's file.
+        services.AddSingleton(provider => new JsonFilePlayerProfileService(
             provider.GetRequiredService<JsonProfileOptions>(),
             timeProvider,
             provider.GetRequiredService<SqliteConnectionFactory>()));
+        services.AddSingleton<IPlayerProfileService>(provider => new ProfileScopedPlayerProfileService(
+            provider.GetRequiredService<JsonFilePlayerProfileService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            Path.Combine(paths.Config, "profiles"),
+            path => new JsonFilePlayerProfileService(
+                new JsonProfileOptions(path),
+                timeProvider,
+                provider.GetRequiredService<SqliteConnectionFactory>()),
+            provider.GetService<ILogger<ProfileScopedPlayerProfileService>>()));
         services.AddSingleton(provider => new ProjectQuestProgressJson(
             provider.GetRequiredService<ProjectQuestProgressJsonOptions>(),
             timeProvider));
@@ -497,7 +556,10 @@ public static class AppComposition
                 commandLine.DeveloperMode,
                 pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
-            services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
+            // [Issue 316] GDI window capture is retired: scans read the screenshots the game writes.
+            // The slot stays because the scan use case and the capture-session source take one;
+            // both report an unavailable capture instead of failing.
+            services.AddSingleton<IScreenCaptureService, UnavailableScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
             services.AddSingleton<IExtractRecognitionService>(provider =>
                 provider.GetRequiredService<ExtractRecognitionService>());
@@ -623,7 +685,7 @@ public static class AppComposition
             provider.GetRequiredService<IRuntimeStateStore>(),
             provider.GetRequiredService<MapSceneAssembler>(),
             provider.GetRequiredService<IHighValueLootRuntimeSource>(),
-            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<HistoricalTrafficSource>(),
             provider.GetRequiredService<IRaidMarkStore>(),
             provider.GetRequiredService<TarkovDevMapAssetCache>(),
             timeProvider,
@@ -674,6 +736,9 @@ public static class AppComposition
         services.AddSingleton<LootScanDecisionService>();
         services.AddSingleton<LootScanCaptureHandoff>();
         services.AddSingleton<StashScanCaptureHandoff>();
+        // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
+        // item. Every intent but Loot and Stash used to be acknowledged and dropped.
+        services.AddSingleton<IntelCaptureHandoff>();
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());
@@ -719,13 +784,47 @@ public static class AppComposition
             provider.GetService<DesktopCompanionAuthority>(),
             provider.GetService<TabletMapSurfacePublisher>(),
             provider.GetRequiredService<CompanionPairingAvailability>().RelayOrigin ?? companionOrigin,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>()));
         services.AddSingleton(provider => new SetupSelfTestViewModel(
             provider.GetRequiredService<ISelfTestReadings>,
             provider.GetRequiredService<SelfTestJournal>(),
             provider.GetRequiredService<TimeProvider>(),
             action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
         services.AddSingleton<LegacyProfileContextBootstrap>();
+        // [#269] What Setup › Game & Profile drives: create, switch, archive, restore. A first profile
+        // waits for the V1 one to be seeded, so V1 progress always has a profile to belong to.
+        services.AddSingleton(provider => new ProfileManagementService(
+            provider.GetRequiredService<ProfileContextService>(),
+            provider.GetRequiredService<IProfileRuntimeContextService>(),
+            timeProvider,
+            provider.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync));
+        services.AddSingleton(provider => new SetupProfilesViewModel(
+            provider.GetRequiredService<ProfileManagementService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+        // [#292] Setup's data detail, About, Data & Privacy and Displays.
+        services.AddSingleton(provider => new SetupDataDetailViewModel(
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            runtimeOptions,
+            provider.GetRequiredService<TimeProvider>(),
+            provider.GetService<IProfileRuntimeContextService>(),
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+            () => provider.GetRequiredService<ApplicationStartupCoordinator>().RefreshAsync(force: true, CancellationToken.None)));
+        services.AddSingleton(provider => new SetupDisplaysViewModel(
+            provider.GetService<IMonitorService>(),
+            provider.GetService<IGameWindowLocator>()));
+        services.AddSingleton(provider => new SetupAdminViewModel(
+            provider.GetRequiredService<SetupDataDetailViewModel>(),
+            new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),
+            new SetupInfoPageViewModel(
+                "Data & Privacy",
+                SetupPageContent.DataPrivacy,
+                anchor => SetupPageFacts.ForDataPrivacy(
+                    anchor,
+                    provider.GetRequiredService<IRuntimeStateStore>().Current.IsOffline,
+                    provider.GetRequiredService<SetupDataDetailViewModel>().Facts.FirstOrDefault()?.Value,
+                    provider.GetRequiredService<MainWindowViewModel>().Group)),
+            provider.GetRequiredService<SetupDisplaysViewModel>()));
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -908,5 +1007,34 @@ public static class AppComposition
             return Task.FromException<HttpResponseMessage>(
                 new HttpRequestException("Network access is disabled by TARKOV_COMPANION_OFFLINE."));
         }
+    }
+
+    /// <summary>
+    /// How to re-launch this application as a map rasteriser, when it can be re-launched at all.
+    /// </summary>
+    /// <remarks>
+    /// Only when the running process really is this application's own host executable. Under
+    /// `dotnet run`, a test host or a tool, <see cref="Environment.ProcessPath"/> is the muxer or
+    /// the tool: passing it the rasteriser's options would start something that has never heard of
+    /// them. Returning null there is not a degradation — it is the behaviour every build had
+    /// before the child process existed.
+    ///
+    /// Ninety seconds is generous by two orders of magnitude for a drawing that takes about two,
+    /// and it is a deadline rather than a budget: its job is to end a child that has hung, not to
+    /// hurry one that is working.
+    /// </remarks>
+    private static SvgRasterizerHost? ResolveRasterizerHost()
+    {
+        if (Environment.ProcessPath is not { Length: > 0 } path)
+        {
+            return null;
+        }
+
+        return string.Equals(
+            Path.GetFileNameWithoutExtension(path),
+            "TarkovCompanion",
+            StringComparison.OrdinalIgnoreCase)
+            ? new(path, [], TimeSpan.FromSeconds(90))
+            : null;
     }
 }

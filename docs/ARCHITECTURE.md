@@ -19,7 +19,11 @@ GroupServer ──────────────> Core            (a secon
 
 Startup applies the hand-written migrations, seeds deterministic local data only in demo mode, loads the local profile and usable cached records, and publishes an observable runtime snapshot before starting any refresh. When local data is stale, the coordinator performs a bounded forced refresh on a background task; each successful endpoint remains transactionally independent. `TARKOV_COMPANION_OFFLINE=1` substitutes a rejecting HTTP handler, skips refresh, and labels either the existing cache or its absence honestly.
 
+Each page's own startup load runs on its own. Migrations and the database are the one genuine prerequisite; the ten page loads after them — items, quests, history, scanner, hideout, ammo, keys, events, group, map — are siblings, not a chain. They were a single await chain in one try block, so a failure in any one of them skipped every step after it for the rest of the session and left several pages that never filled in until the application was restarted. One that fails now fails alone, is logged, and is named in `MainWindowViewModel.StartupFaults`; every page has its own Reload, so it is recoverable without a restart.
+
 The UI consumes runtime snapshots and repositories rather than constructing a second fake application model. Normal and demo modes use the same commands and ViewModels. Demo mode changes only the registered fixture adapter and deterministic seed, while unavailable data, map state, position, or scans are presented as unavailable. Application shutdown cancels and awaits startup/map work before disposing the service provider.
+
+Profiles are first-class (#269). The profile workspace (`ProfileContextService`) says which profile is active and carries its game mode, wipe and language; `ProfileRuntimeContextService` publishes that as one revisioned snapshot. Two things read it. `ApplicationStartupCoordinator` fetches the catalog for the active profile's mode and language, and fetches again when a switch changes either, instead of using the `RuntimeOptions` Regular/`en` defaults; with no profile at all (a V1 launch) it still uses those defaults, and a profile whose mode is unknown fetches nothing. `ProfileScopedPlayerProfileService` implements `IPlayerProfileService` over one progress file per profile: the profile that already existed keeps `profile.json`, every other profile has `profiles/<id>.json`, and a write that carries another profile's id is refused. Setup › Game & Profile creates, switches, archives and restores them through `ProfileManagementService`.
 
 The quest view also composes the project-owned JSON v2 exchange service. Infrastructure performs bounded, checksummed, atomic local file I/O; Application selects one exact profile/mode/generation scope and classifies monotonic, conflicting, unchanged, and unresolved proposals; SQLite applies a confirmed preview and its inverse journal in one transaction. The UI never parses JSON or merges records itself, and project exchange performs no network access.
 
@@ -81,6 +85,23 @@ closed report projection does not.
 The relay cannot start a systemd unit and must not be able to — asking it to update writes a file
 that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
 them reaches the box.
+
+## Times the player reads
+
+Storage, the protocol, the database, the logs, and the checksummed exchange envelopes (profile,
+quest-progress, and stash-snapshot documents) hold UTC and never change. Every absolute time a
+person reads is that instant shown in the player's own zone, and only
+`TarkovCompanion.Core.Common.LocalTime` does the conversion. A view model calls `LocalTime.Moment`,
+`Time`, `ShortTime`, or `Date` (the player's culture) or `Sortable` / `SortableSeconds` (a fixed
+order for diagnostics); it never calls `ToLocalTime`, prints `:u`, or writes "UTC" after a time.
+Relative times ("4h ago") stay relative and are computed from two UTC instants.
+
+Output that leaves the screen says which clock it uses. The raid-history CSV is opened in a
+spreadsheet, so it carries the local clock under `start_local` / `end_local` headers; the JSON is
+ISO-8601 at the local numeric offset, so a program reads the identical instant. Copied diagnostics
+name the player's offset once in the header. Tests pin a zone that is never UTC
+(`LocalTime.UseZone`), because a UTC-only CI box prints local and UTC identically and hid this bug;
+`LocalTimeRuleContractTests` fails when a call site goes around the helper.
 
 ## Cross-platform contract
 

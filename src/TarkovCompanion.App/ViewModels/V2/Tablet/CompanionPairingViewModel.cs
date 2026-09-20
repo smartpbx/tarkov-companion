@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Windows.Input;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services.V2.Team;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.CompanionProtocol;
@@ -29,12 +31,29 @@ public sealed record CompanionPairingAvailability(
 }
 
 /// <summary>One row of the paired-device list.</summary>
-public sealed class PairedDeviceRowViewModel
+public sealed class PairedDeviceRowViewModel : BindableViewModel
 {
+    private bool _confirming;
+
     public PairedDeviceRowViewModel(PairedDevice device, Func<PairedDeviceRowViewModel, Task> revoke)
     {
+        ArgumentNullException.ThrowIfNull(revoke);
         Device = device;
-        RevokeCommand = new AsyncDelegateCommand(() => revoke(this));
+        RevokeCommand = new AsyncDelegateCommand(async () =>
+        {
+            // [V2 rough package 60 — Team] #289: two presses, because revoking cannot be
+            // undone. The grant is gone and the tablet has to be paired again from scratch, so
+            // the confirmation has to come before the act rather than as an undo after it. The
+            // second press is the confirmation, and the button says which one it is on.
+            if (!_confirming)
+            {
+                Confirming = true;
+                return;
+            }
+
+            Confirming = false;
+            await revoke(this).ConfigureAwait(true);
+        });
     }
 
     public PairedDevice Device { get; }
@@ -50,6 +69,30 @@ public sealed class PairedDeviceRowViewModel
     public DateTimeOffset ExpiresUtc => Device.ExpiresUtc;
 
     public bool CanRevoke => Device.Status == DeviceLifecycleStatus.Active;
+
+    /// <summary>Whether the next press revokes, rather than asks.</summary>
+    public bool Confirming
+    {
+        get => _confirming;
+        private set
+        {
+            if (SetProperty(ref _confirming, value))
+            {
+                OnPropertyChanged(nameof(RevokeLabel));
+                OnPropertyChanged(nameof(RevokeWarning));
+            }
+        }
+    }
+
+    public string RevokeLabel => Confirming ? "Confirm revoke" : "Revoke";
+
+    /// <summary>What the second press will do, said before it is pressed.</summary>
+    public string RevokeWarning => Confirming
+        ? $"{DisplayName} will have to be paired again. This cannot be undone."
+        : string.Empty;
+
+    /// <summary>Puts the row back to asking, for a selection change or a reload.</summary>
+    public void CancelConfirmation() => Confirming = false;
 
     public ICommand RevokeCommand { get; }
 }
@@ -80,6 +123,20 @@ public enum RelayOwnerClaimState
     NotClaimed,
     ClaimedByThisDesktop,
     ClaimedByAnotherDesktop,
+
+    /// <summary>
+    /// The relay refuses to be claimed at all, because its operator has not configured an
+    /// owner-recovery secret.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] This is the state that produced the complaint. `/admin/relay/claim`
+    /// answers 501 before it even looks at the admin key when
+    /// <c>TARKOV_RELAY_OWNER_RECOVERY_SECRET</c> is unset, so no desktop can ever become owner and
+    /// no amount of retrying or re-typing the admin key changes anything. It has to be named
+    /// separately from a wrong key and from a transient refusal, because only the relay's operator
+    /// can fix it.
+    /// </remarks>
+    NotConfiguredForClaiming,
 }
 
 public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
@@ -101,6 +158,11 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     private CompanionPairingStage _stage = CompanionPairingStage.Idle;
     private string? _qrPayload;
+    private string? _qrPath;
+    private int _qrExtent;
+    private string _codeExpiry = string.Empty;
+    private bool _isCodeExpired;
+    private DateTimeOffset? _previewExpiry;
     private string? _pairingCode;
     private string? _requestedDisplayName;
     private string? _verificationCode;
@@ -172,6 +234,107 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     }
 
     public bool HasControlRequest => !string.IsNullOrEmpty(ControlRequestMessage);
+
+    /// <summary>
+    /// What an admin key is, where it comes from, and what claiming does — said where it is asked
+    /// for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] The box used to say only "Type the relay's admin key to make this
+    /// desktop its owner", which assumes the reader already knows there is such a thing and that
+    /// they are the person who set it. One line, naming the variable, because the answer to "what
+    /// is the admin key" is a variable name on a server.
+    /// </remarks>
+    public static string AdminKeyHelp =>
+        "The admin key is the secret the relay's operator set as TARKOV_RELAY_ADMIN_KEY. Claiming " +
+        "makes this desktop the relay's owner, which is what lets it pair devices at all. The key " +
+        "is used once and never stored.";
+
+    /// <summary>The message for a relay whose operator has not configured claiming at all.</summary>
+    public const string NotConfiguredForClaimingMessage =
+        "This relay is not configured for claiming. Its operator must set " +
+        "TARKOV_RELAY_OWNER_RECOVERY_SECRET and restart it; until then no desktop can become its " +
+        "owner and no device can be paired.";
+
+    /// <summary>Whether starting a pairing ceremony can succeed, as last known from this desktop.</summary>
+    /// <remarks>
+    /// Ownership is a fact about this process, not about the relay's disk: the owner session
+    /// credential lives in memory (see <c>RelayMarksBridge.SetOwnerCredential</c>), so after a
+    /// desktop restart this correctly reads false until the relay is claimed again.
+    /// </remarks>
+    public bool CanStartPairing => CanPair && RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
+
+    /// <summary>Why "Start pairing" is unavailable, or null when it is.</summary>
+    public string? StartPairingBlockedReason => CanStartPairing
+        ? null
+        : !CanPair
+            ? UnavailableReason
+            : RelayClaimState switch
+            {
+                // Short here on purpose: the claim card directly above is already showing the
+                // whole message, and saying it twice reads as two different problems.
+                RelayOwnerClaimState.NotConfiguredForClaiming =>
+                    "This relay cannot be claimed yet — see above.",
+                RelayOwnerClaimState.ClaimedByAnotherDesktop =>
+                    "Another desktop owns this relay, so it cannot pair devices for this one.",
+                _ => "Claim this relay first: enter its admin key above and press Claim.",
+            };
+
+    /// <summary>Puts this view model into one named state so a render can photograph it.</summary>
+    /// <remarks>
+    /// [V2 rough package 48] The pairing panel has four states worth looking at and three refusal
+    /// messages, and none of them can be reached in a render without a relay and a tablet. This is
+    /// the seam <c>tools/V2RenderPreview</c> uses; it sets only what the panel shows and never
+    /// touches the authority, the coordinator or the relay.
+    /// </remarks>
+    /// <summary>
+    /// Set only by <see cref="PresentForPreview"/>, so a render on Linux can draw a panel that in
+    /// production needs Windows and a configured relay. Nothing else assigns it, and no production
+    /// path can reach it.
+    /// </summary>
+    private bool _previewAvailability;
+
+    internal void PresentForPreview(
+        RelayOwnerClaimState claimState,
+        CompanionPairingStage stage,
+        string? pairingCode = null,
+        string? verificationCode = null,
+        string? requestedDisplayName = null,
+        string? statusMessage = null,
+        string? claimMessage = null,
+        IReadOnlyList<PairedDeviceRowViewModel>? devices = null,
+        DateTimeOffset? codeExpiresUtc = null)
+    {
+        _previewAvailability = true;
+        OnPropertyChanged(nameof(CanPair));
+        OnPropertyChanged(nameof(CanClaimRelay));
+        OnPropertyChanged(nameof(NeedsClaim));
+
+        if (devices is not null)
+        {
+            Devices = devices;
+            OnPropertyChanged(nameof(Devices));
+            OnPropertyChanged(nameof(HasNoDevices));
+        }
+
+        RelayClaimState = claimState;
+        RelayClaimMessage = claimMessage;
+        Stage = stage;
+        PairingCode = pairingCode;
+        // The shape the ceremony really produces, so a render shows the symbol a tablet would
+        // actually be asked to scan rather than a placeholder that happens to be shorter.
+        QrPayload = pairingCode is null
+            ? null
+            : PairedTransportBinding.QrPayloadPrefix + pairingCode.Replace("-", string.Empty, StringComparison.Ordinal)
+                + "/" + new string('a', 43);
+        _previewExpiry = codeExpiresUtc;
+        TickExpiry();
+        VerificationCode = verificationCode;
+        RequestedDisplayName = requestedDisplayName;
+        StatusMessage = statusMessage;
+        OnPropertyChanged(nameof(CanStartPairing));
+        OnPropertyChanged(nameof(StartPairingBlockedReason));
+    }
 
     public string? ControlHolderMessage
     {
@@ -274,7 +437,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
     }
 
-    public bool CanPair => _coordinator is not null && _relay is not null;
+    public bool CanPair => _previewAvailability || (_coordinator is not null && _relay is not null);
 
     public string UnavailableReason => CanPair
         ? string.Empty
@@ -307,7 +470,113 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     public string? QrPayload
     {
         get => _qrPayload;
-        private set => SetProperty(ref _qrPayload, value);
+        private set
+        {
+            if (!SetProperty(ref _qrPayload, value))
+            {
+                return;
+            }
+
+            // [V2 rough package 60 — Team] #289: the payload has always been produced and never
+            // drawn, so the only way onto a tablet was to type the code. A symbol that cannot be
+            // built is not an error worth showing: the code beside it still works.
+            QrPath = null;
+            QrExtent = 0;
+            if (value is not null)
+            {
+                try
+                {
+                    var code = QrCode.Encode(value);
+                    QrExtent = QrGeometry.Extent(code);
+                    QrPath = QrGeometry.PathData(code);
+                }
+                catch (ArgumentException)
+                {
+                    QrPath = null;
+                    QrExtent = 0;
+                }
+            }
+
+            OnPropertyChanged(nameof(HasQrSymbol));
+        }
+    }
+
+    /// <summary>The pairing payload as path data, or null when there is none to draw.</summary>
+    public string? QrPath
+    {
+        get => _qrPath;
+        private set => SetProperty(ref _qrPath, value);
+    }
+
+    /// <summary>The symbol's width in modules, quiet zone included, for the view's viewbox.</summary>
+    public int QrExtent
+    {
+        get => _qrExtent;
+        private set => SetProperty(ref _qrExtent, value);
+    }
+
+    public bool HasQrSymbol => QrPath is not null;
+
+    /// <summary>
+    /// How long the code has left, or why it no longer has any.
+    /// </summary>
+    /// <remarks>
+    /// The offer has always carried an expiry and the panel never showed it, so a code that had
+    /// quietly gone stale looked exactly like one that had not, and the tablet's refusal was the
+    /// first anybody heard of it.
+    /// </remarks>
+    public string CodeExpiry
+    {
+        get => _codeExpiry;
+        private set => SetProperty(ref _codeExpiry, value);
+    }
+
+    public bool HasCodeExpiry => CodeExpiry.Length > 0;
+
+    /// <summary>
+    /// How long is left, in words.
+    /// </summary>
+    /// <remarks>
+    /// Minutes and seconds while there are minutes, because "4m 36s" is read once and understood,
+    /// and a bare "276s" is arithmetic. Under a minute it drops to seconds, which is the point at
+    /// which somebody decides whether to start over rather than keep typing.
+    /// </remarks>
+    internal static string DescribeExpiry(TimeSpan left) => left <= TimeSpan.Zero
+        ? "This code has expired. Start pairing again."
+        : left.TotalMinutes >= 1
+            ? string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalMinutes}m {left.Seconds:00}s")
+            : string.Create(CultureInfo.CurrentCulture, $"Expires in {(int)left.TotalSeconds}s");
+
+    /// <summary>Whether the code has run out, which is when the panel stops offering it.</summary>
+    public bool IsCodeExpired
+    {
+        get => _isCodeExpired;
+        private set => SetProperty(ref _isCodeExpired, value);
+    }
+
+    /// <summary>
+    /// Recomputes the countdown. The shell calls this on its own one-second pass.
+    /// </summary>
+    /// <remarks>
+    /// Driven from outside rather than by a timer of its own: the shell already ticks once a
+    /// second for the raid clock, and a second timer would be a second thing to stop on dispose.
+    /// </remarks>
+    public void TickExpiry()
+    {
+        var expires = _offer?.ExpiresUtc ?? _previewExpiry;
+        if (expires is not { } expiresUtc
+            || Stage is not (CompanionPairingStage.AwaitingTablet or CompanionPairingStage.AwaitingApproval))
+        {
+            CodeExpiry = string.Empty;
+            IsCodeExpired = false;
+            OnPropertyChanged(nameof(HasCodeExpiry));
+            return;
+        }
+
+        var left = expiresUtc - Now();
+        IsCodeExpired = left <= TimeSpan.Zero;
+        CodeExpiry = DescribeExpiry(left);
+        OnPropertyChanged(nameof(HasCodeExpiry));
     }
 
     public string? PairingCode
@@ -356,7 +625,16 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public ICommand ClaimRelayCommand { get; }
 
-    public bool CanClaimRelay => _identitySigner is not null && _relay is not null;
+    public bool CanClaimRelay => _previewAvailability || (_identitySigner is not null && _relay is not null);
+
+    /// <summary>
+    /// Whether the claim card still has anything to ask for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] An empty admin-key box sitting above a working pairing flow is noise,
+    /// and worse than noise: it suggests there is something still to type when there is not.
+    /// </remarks>
+    public bool NeedsClaim => CanClaimRelay && RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop;
 
     /// <summary>Typed once to claim the relay; never persisted, and cleared as soon as the attempt finishes.</summary>
     public string AdminKeyInput
@@ -373,6 +651,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             if (SetProperty(ref _relayClaimState, value))
             {
                 OnPropertyChanged(nameof(IsClaimedByThisDesktop));
+                OnPropertyChanged(nameof(NeedsClaim));
+                OnPropertyChanged(nameof(CanStartPairing));
+                OnPropertyChanged(nameof(StartPairingBlockedReason));
             }
         }
     }
@@ -458,6 +739,13 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                     _relayMarksBridge?.SetOwnerCredential(credential.SessionId, credential.Credential, credential.ExpiresUtc);
                 }
             }
+            else if (response.StatusCode == HttpStatusCode.NotImplemented)
+            {
+                // Refused before the admin key was read, so re-typing it cannot help and neither
+                // can waiting: the relay's operator has to set the secret.
+                RelayClaimState = RelayOwnerClaimState.NotConfiguredForClaiming;
+                RelayClaimMessage = NotConfiguredForClaimingMessage;
+            }
             else if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
                 RelayClaimMessage = "That admin key was not accepted.";
@@ -538,6 +826,28 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             return;
         }
 
+        // Checked before an invitation is minted, not after the relay has refused it. A device
+        // paired to a relay this desktop does not own can never live-sync (RelayMarksBridge has no
+        // owner credential to route its frames with), so starting the ceremony here would produce
+        // a tablet that pairs and then does nothing.
+        if (RelayClaimState == RelayOwnerClaimState.NotConfiguredForClaiming)
+        {
+            StatusMessage = NotConfiguredForClaimingMessage;
+            return;
+        }
+
+        if (RelayClaimState == RelayOwnerClaimState.ClaimedByAnotherDesktop)
+        {
+            StatusMessage = "Another desktop owns this relay, so it cannot pair devices for this one.";
+            return;
+        }
+
+        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop)
+        {
+            StatusMessage = "Claim this relay first: enter its admin key above and press Claim.";
+            return;
+        }
+
         ResetCeremony();
         IsBusy = true;
         StatusMessage = null;
@@ -546,14 +856,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             var invitation = await _coordinator.CreateInvitationAsync(Now()).ConfigureAwait(true);
             _attemptId = invitation.Offer.AttemptId;
             _offer = invitation.Offer;
-            var registered = await PostAsync(
+            var registered = await PostForStatusAsync(
                 "v2/companion/pairing/offers",
                 invitation.Offer,
                 new KeyValuePair<string, string>("Tarkov-Pairing-Code", invitation.PairingCode),
                 _ceremony!.Token).ConfigureAwait(true);
-            if (!registered)
+            if (registered.Status is not HttpStatusCode.OK and not HttpStatusCode.NoContent)
             {
-                StatusMessage = "The relay would not accept a new pairing invitation. Try again shortly.";
+                StatusMessage = DescribeOfferRefusal(registered);
                 Stage = CompanionPairingStage.Idle;
                 return;
             }
@@ -829,6 +1139,72 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private Task<bool> PostAsync<T>(string routePrefix, T value, PairingAttemptId attemptId, CancellationToken cancellationToken)
         where T : class =>
         PostAsync($"{routePrefix}/{attemptId.Value:D}", value, cancellationToken);
+
+    /// <summary>
+    /// The same post, but reporting what the relay actually said.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] A bool could only ever produce one message for every refusal, which
+    /// is how "Try again shortly" came to be shown for a state that retrying could not fix.
+    /// </remarks>
+    private async Task<RelayRefusal> PostForStatusAsync<T>(
+        string path,
+        T value,
+        KeyValuePair<string, string> header,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(value));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = content };
+        request.Headers.Add(header.Key, header.Value);
+        using var response = await _relay!.SendAsync(request, cancellationToken).ConfigureAwait(true);
+        var body = response.IsSuccessStatusCode
+            ? string.Empty
+            : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(true);
+        return new RelayRefusal(response.StatusCode, body.Trim().Trim('"'));
+    }
+
+    /// <summary>What the relay said when it refused: its status, and the code in its body.</summary>
+    internal sealed record RelayRefusal(HttpStatusCode Status, string Code);
+
+    /// <summary>
+    /// The relay's own refusal code, said in words, and never with a retry suggestion attached to a
+    /// state that retrying cannot change.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 48] The one message this replaced — "The relay would not accept a new
+    /// pairing invitation. Try again shortly." — was true of every cause and useful for one. The
+    /// relay's code is appended where it is not already the whole message, so the next occurrence
+    /// is diagnosable from the screen instead of from its journal.
+    /// </remarks>
+    internal static string DescribeOfferRefusal(RelayRefusal refusal) => refusal.Status switch
+    {
+        HttpStatusCode.TooManyRequests =>
+            "The relay is rate-limiting pairing attempts. Try again in a minute.",
+        _ => refusal.Code switch
+        {
+            "offer-future-dated" or "offer-expired" =>
+                "This desktop's clock and the relay's disagree by too much to pair. Check the time " +
+                "on both, then start pairing again.",
+            "pairing-code-malformed" =>
+                "The relay could not read the pairing code this desktop generated. This desktop and " +
+                "the relay are probably different builds; update the relay.",
+            "attempt-duplicate" =>
+                "That invitation already exists on the relay. Press Start pairing to make a new one.",
+            "invitation-limit" =>
+                "The relay is already holding as many pairing invitations as it allows. Wait for " +
+                "them to expire, or revoke a device, then start pairing again.",
+            "" =>
+                "The relay refused the invitation without saying why.",
+            var code when code.Contains(' ', StringComparison.Ordinal) =>
+                // A sentence rather than a code: the relay could not read the invitation at all,
+                // which is what a relay older than this desktop looks like.
+                $"The relay could not read this invitation ({code}) — it is probably an older build " +
+                "than this desktop. Update the relay.",
+            var code => $"The relay refused the invitation: {code}.",
+        },
+    };
 
     private async Task<bool> PostAsync<T>(string path, T value, CancellationToken cancellationToken)
         where T : class

@@ -394,6 +394,29 @@ public interface IQuestProgressCommandService
         RecordedTaskState state,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The same change, attributed to whatever established it.
+    /// </summary>
+    /// <remarks>
+    /// The game announces each quest starting, failing and being handed in, and what it says
+    /// was being written down as though the player had typed it. That is not a cosmetic lie: a
+    /// page that cannot tell the two apart cannot say "the game told me this at 22:41", so a
+    /// session in which nothing was read looks exactly like a session in which nothing
+    /// happened. It took a day to notice that no quest had been recorded from a log, and this
+    /// is why.
+    ///
+    /// Defaulted so the existing manual call sites and the test doubles that stand in for this
+    /// service keep working unchanged.
+    /// </remarks>
+    Task<QuestProgressCommandResult> SetTaskStateAsync(
+        QuestProfileScope scope,
+        string taskId,
+        RecordedTaskState state,
+        QuestProgressActor actor,
+        string source,
+        CancellationToken cancellationToken) =>
+        SetTaskStateAsync(scope, taskId, state, cancellationToken);
+
     Task<QuestProgressCommandResult> SetObjectiveProgressAsync(
         QuestProfileScope scope,
         string objectiveId,

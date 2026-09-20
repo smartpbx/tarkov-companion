@@ -17,7 +17,7 @@ public sealed class StashScanEndToEndMeasurementTests(ITestOutputHelper output)
     public async Task ReportsTheGuidedPathOverAPackedStash()
     {
         var layout = SyntheticStashLayout.Build(rows: 34);
-        var lowContrast = new SyntheticStashFrameOptions(CellLuminance: 60, LineLuminance: 30);
+        var lowContrast = new SyntheticStashFrameOptions(CellLuminance: 38, LineLuminance: 50);
         var results = new[]
         {
             await StashScanMeasurement.RunAsync("icon cache empty (the app today) · identity stitch only", layout, ThreeScreens, new(), StashIconReferences.None, layoutStitch: false),

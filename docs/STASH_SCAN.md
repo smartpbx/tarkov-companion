@@ -150,6 +150,51 @@ catalogue-style icons the painted tiles were bit-exact 0 times in 67 (median 5 b
 icon, 11 at most), where a rule of "within 12 bits and 4 clear of the runner-up" would have named
 65 of them, none wrongly.
 
+### The same code on real screenshots (2026-09-18)
+
+Nine screenshots of a real stash arrived after the table above was written: 3840x1080, taken in
+one burst at the hideout (menu screens, not a raid), with the gear panel, pockets, special slots
+and a backpack grid on screen at the stash's own pitch, and on two of them a fourteen-column Junk
+case opened in front. They live outside every checkout and are never committed.
+`RealStashFrameMeasurementTests` runs over them and skips when they are absent; footprint truth is
+the hand-read `<screenshot>.expected.json` labels the Loot Scan measurement writes beside them.
+
+| | Painted frames | Real, code as merged | Real, after this change |
+| --- | --- | --- | --- |
+| Stash panel found, and it is the stash | 3 / 3 | 6 / 9 — nothing on a screen of large cases; the opened case taken for the stash twice | 7 / 7, and both case-covered screens refused |
+| Whole rows only | 3 / 3 | 0 / 6 | 7 / 7 |
+| Footprints against labels (six frames, 385 items) | 202 / 202 | 359 (93.2%), 106 spurious | 366 (95.1%), 8 spurious |
+| Boundaries judged right (1,109 labelled) | — | not measured | 1,089 (the ridge alone: 1,070) |
+| Screens placed, in the order captured | 3 / 3 | 1 / 7 | 1 / 7 |
+| Pairs that do overlap, placed at the true row | 3 / 3 | not measured | 3 / 3 |
+| Pairs with no whole row in common left unplaced | — | not measured | 6 / 6, none placed wrongly |
+
+The burst still places one screen of seven, and that is the right answer for it: the player paged
+the stash, so no later screen shares a whole row with the first, and nothing may be placed by
+guessing. The pairwise rows are what show the stitch itself working.
+
+Three things the painted frames had assumed were false, and each is now drawn the way it measured:
+
+- **An item does not hide the grid inside it.** It shows through the transparent parts of large
+  art at 8 to 10 levels. An item's border is a single pixel 25 to 45 over both neighbours, on the
+  lattice line itself. Armour and backpacks sit on a pale tile whose border measures 1 to 5 and
+  whose edge is a step of 50 to 65 instead. A shared side is a border at a median ridge of 12 or a
+  median step of 40, chosen from every combination against the labelled boundaries.
+- **An empty cell is not flat.** It carries a one-pixel hatch of about 6 levels, with grid lines
+  15 over it, so it is judged on 5x5 block means.
+- **Screens do not overlap by half.** Unguided, the player paged: most neighbours share only the
+  row the viewport cuts. Those are rightly left unplaced, and the guided card's "scroll about half
+  a screen" is what makes a scan stitchable. Where screens did overlap (by 3, 9 and 13 rows),
+  comparing occupancy and border bits - which a viewport cut cannot corrupt - agreed on 251 of 251
+  bits at the true offset and under 0.79 everywhere else.
+
+What is left: borders between two dark weapon parts measure 8 to 10, the same as grid showing
+through an item, so a row of scopes can merge (frame 2: 92 of 107). One mis-joined border used to
+shatter a whole group into single cells; the strongest-evidence side inside an irregular group is
+now cut until rectangles emerge. The scroll truth for stitching is the vertical shift that best
+lays one viewport's pixels over the other's, believed only when it clearly beats every other
+shift, so it judges the lattice and footprints without depending on them.
+
 `tools/V2RenderPreview --stash-scan-demo mid|complete|mid-unnamed|complete-unnamed` drives the
 composed services from the same painted frames.
 

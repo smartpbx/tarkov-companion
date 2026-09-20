@@ -113,6 +113,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     // coordinates are the same normalized square for every map, so this is the only thing that
     // knows Streets is wide and Factory is not. NaN until (or unless) artwork resolves.
     private double _planAspect = double.NaN;
+    private string _floorSourceNote = string.Empty;
     // V2 rough package 20: a drag used to move nothing until the pointer came up, then jump. The
     // plan now follows the pointer 1:1 through these two numbers, which only feed the canvas's
     // RenderTransform — no measure, no arrange, no marker rebuild per pointer delta. The camera
@@ -333,6 +334,16 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public bool HasFloorStack => IsStacked && FloorLayers.Count > 1;
     /// <summary>The one flat picture, drawn only while the stack is not.</summary>
     public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
+
+    /// <summary>
+    /// What the Layers button says: the word, and how many layers are on.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] The count is the whole reason a menu is allowed to replace a strip
+    /// of visible switches. Folded away, the switches no longer say what is drawn; the count on
+    /// the button does, so nothing has to be opened to find out.
+    /// </remarks>
+    public string LayersMenuLabel => $"Layers · {Layers.Count(layer => layer.IsVisible)} on";
     /// <summary>What the stack did, in one line: how many plates of how many floors.</summary>
     public string StackStatus { get; private set; } = string.Empty;
     public bool HasStackStatus => StackStatus.Length > 0;
@@ -347,6 +358,53 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             "Map.Floor.Position",
             _presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected)),
             _presentation.Number(Floors.Count));
+    /// <summary>
+    /// Why this floor is the one on screen, beside the ladder that chooses it.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as vertical following not working: he went down to a
+    /// basement and the map stayed where it was. The words already existed — package 39's
+    /// FloorSource says whether following is on, whether it has a height yet, and whether that
+    /// height matched a floor — but they were only in the status line at the other end of the
+    /// card. A map stuck on the wrong floor looks the same as a map whose following is broken
+    /// unless the answer is where the floors are chosen. The host sets it; a host that has no
+    /// such notion leaves it empty and nothing is drawn.
+    /// </remarks>
+    public string FloorSourceNote
+    {
+        get => _floorSourceNote;
+        set
+        {
+            var text = value ?? string.Empty;
+            if (string.Equals(text, _floorSourceNote, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _floorSourceNote = text;
+            OnPropertyChanged(nameof(FloorSourceNote));
+            OnPropertyChanged(nameof(HasFloorSourceNote));
+        }
+    }
+
+    public bool HasFloorSourceNote => _floorSourceNote.Length > 0;
+
+    /// <summary>
+    /// The floor ladder, folded into the one line that says where you are.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported from a Customs raid: the block in the plan's top-left
+    /// corner is about 500x130 pixels of chrome sitting on artwork. Five floor buttons, two
+    /// arrows and two lines of text were most of it, for a control pressed a handful of times a
+    /// raid. They are behind this now; the arrows beside it still change floor in one press, so
+    /// nothing costs more than it did.
+    /// </remarks>
+    public string FloorSummaryLabel => Floors.Count == 0 || SelectedFloor is null
+        ? string.Empty
+        : $"{SelectedFloor.Name} · " +
+          $"{_presentation.Number(Floors.Count - FindIndex(Floors, floor => floor.IsSelected))} of " +
+          $"{_presentation.Number(Floors.Count)}";
+
     public bool CanGoUpAFloor => StepTarget(1) is not null;
     public bool CanGoDownAFloor => StepTarget(-1) is not null;
     public string FloorUpLabel => Text("Map.Action.FloorUp");
@@ -372,6 +430,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// <summary>The two-or-three-word form drawn over the plan; the full notice is its tooltip.</summary>
     public string DenseSceneChip { get; private set; } = string.Empty;
     public bool HasDenseSceneNotice => !string.IsNullOrWhiteSpace(DenseSceneNotice);
+
+    /// <summary>Whether anything about the scene is worth a chip over the plan (package 46).</summary>
+    /// <remarks>
+    /// Narrower than <see cref="HasDenseSceneNotice"/>: a scene whose only notice is how many
+    /// pages the list beside the map has draws nothing on the map, because that is not something
+    /// about the map. The sentence is still the chip's tooltip wherever a chip is drawn, and the
+    /// list's own pager says how many pages it has.
+    /// </remarks>
+    public bool HasDenseSceneChip => DenseSceneChip.Length > 0;
     public string ModeFallbackNotice => _scene.View.Mode switch
     {
         MapSceneMode.Flat2D => string.Empty,
@@ -757,6 +824,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 camera.Zoom * factor,
                 camera.BearingDegrees,
                 camera.PitchDegrees))));
+        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     public void RequestPan(double viewportDeltaX, double viewportDeltaY)
@@ -786,6 +854,27 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     }
 
     /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
+    /// <summary>
+    /// The player moved the camera themselves — a drag they finished, or a zoom they asked for.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] Reported as "when I zoom in and then try to pan, it snaps back to
+    /// where it was". The clamp was not the cause: it already divides the viewport's half-extent
+    /// by the camera's zoom, so zooming in allows strictly more pan, and a rebuild already reuses
+    /// the current view rather than re-fitting. What snapped the map back is that V1 was still
+    /// following the player. V1 turns its own following off when somebody pans V1's canvas
+    /// (<c>ReportManualPan</c>), and nothing turned it off when they panned the V2 renderer, so
+    /// the next screenshot re-centred the camera on the player a beat after the drag. At zoom 1
+    /// that is nearly invisible, because the fit already shows the whole map; at zoom 2 or 3 it
+    /// is exactly the snap he describes.
+    ///
+    /// Raised at the gesture boundary rather than from the camera change, because the follow
+    /// moves the camera through the same reducer and must not be mistaken for the player doing
+    /// it. Fit does not raise it either: fitting is how you ask for the whole map back, and V1
+    /// treats it as re-arming the follow.
+    /// </remarks>
+    public event EventHandler? CameraMovedByPlayer;
+
     public void BeginPan()
     {
         _panStartCamera = _scene.View.Camera;
@@ -837,6 +926,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             // synchronously, so the committed camera replaces the drag offset within the same
             // frame and the plan does not flash back to where the drag started.
             Request(new(MapSceneViewChangeKind.SetCamera, Camera: camera));
+            CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
         }
 
         SetPanOffset(0, 0);
@@ -886,6 +976,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         Request(new(
             MapSceneViewChangeKind.SetCamera,
             Camera: Clamp(new(moved.X, moved.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
+        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)
@@ -1610,14 +1701,29 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         DenseSceneNotice = messages.Count == 0
             ? string.Empty
             : string.Join("; ", messages) + ". " + Text("Map.Dense.Suffix");
-        // What actually draws over the plan: two or three words. The sentences above stay as its
-        // tooltip and its accessible name, so nothing is lost, it just is not painted on the map.
-        DenseSceneChip = messages.Count switch
+        // [V2 rough package 46] What actually draws over the plan, and only for the conditions
+        // that change what is on it. "2 map notes" counted the sentences in the tooltip — a
+        // number about the notice rather than about the map, which is why he asked what it
+        // meant. Each chip now names its own condition, and list paging, which changes only how
+        // the list beside the map is read, no longer puts anything on the plan at all; it stays
+        // in the tooltip, and the list's own pager already says how many pages it has.
+        var chips = new List<string>(3);
+        if (pointCount > MaximumPointMarkers)
         {
-            0 => string.Empty,
-            1 when outsideBounds > 0 => Format("Map.Dense.Chip.Outside", _presentation.Number(outsideBounds)),
-            _ => Format("Map.Dense.Chip.Many", _presentation.Number(messages.Count)),
-        };
+            chips.Add(Format("Map.Dense.Chip.Grouped", _presentation.Number(pointCount)));
+        }
+
+        if (geometryCount > MaximumGeometryObjects)
+        {
+            chips.Add(Format("Map.Dense.Chip.Shapes", _presentation.Number(geometryCount - MaximumGeometryObjects)));
+        }
+
+        if (outsideBounds > 0)
+        {
+            chips.Add(Format("Map.Dense.Chip.Outside", _presentation.Number(outsideBounds)));
+        }
+
+        DenseSceneChip = string.Join(" · ", chips);
     }
 
     private bool CanRenderMode(MapSceneMode mode) => mode switch
@@ -1874,7 +1980,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(SelectedFloor));
             RaiseFloorStackChanged();
         }
-        if (layers) OnPropertyChanged(nameof(Layers));
+        if (layers)
+        {
+            OnPropertyChanged(nameof(Layers));
+            // [V2 rough package 46] The Layers button's count is the only thing saying what is
+            // drawn once the switches are behind a menu, so it has to move when they do.
+            OnPropertyChanged(nameof(LayersMenuLabel));
+        }
+
         if (visibleContent)
         {
             OnPropertyChanged(nameof(SpatialObjects));
@@ -1892,6 +2005,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(ShowsEmptyMap));
             OnPropertyChanged(nameof(DenseSceneNotice));
             OnPropertyChanged(nameof(DenseSceneChip));
+            OnPropertyChanged(nameof(HasDenseSceneChip));
             OnPropertyChanged(nameof(HasDenseSceneNotice));
             RaiseListChanged();
         }
@@ -1933,6 +2047,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                  {
                      nameof(FloorLayers), nameof(IsStacked), nameof(HasFloorStack), nameof(ShowsFlatBackground),
                      nameof(StackStatus), nameof(HasStackStatus), nameof(FloorPositionLabel),
+                     nameof(FloorSummaryLabel),
                      nameof(CanGoUpAFloor), nameof(CanGoDownAFloor),
                  })
         {
@@ -2454,8 +2569,17 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// <summary>Where to point the facing cone on screen; see <see cref="ConeFor"/>.</summary>
     public double ConeDegrees => _coneDegrees;
 
-    /// <summary>The V1 player/squadmate cone, drawn inside the 44px marker box.</summary>
-    public string ConeGeometry => "M 22,22 L 8,2 A 18,18 0 0 1 36,2 Z";
+    /// <summary>
+    /// The V1 player/squadmate cone, drawn inside the 44px marker box.
+    /// </summary>
+    /// <remarks>
+    /// The apex is at the centre of that box on purpose: it is the point the dot is drawn on and
+    /// the point the heading turns the cone about. The two only agree while the Path is given the
+    /// whole box — see MapPersonConeTests, and the note beside the Path in the view.
+    /// </remarks>
+    public const string PersonConeGeometry = "M 22,22 L 8,2 A 18,18 0 0 1 36,2 Z";
+
+    public string ConeGeometry => PersonConeGeometry;
 
     /// <summary>A host-chosen style for this marker (a squadmate's own colour), where there is one.</summary>
     public MapSceneObjectStyle? Style { get; }

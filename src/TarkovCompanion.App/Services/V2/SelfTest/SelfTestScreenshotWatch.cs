@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services;
 using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
@@ -28,23 +29,78 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
     private readonly IScreenshotFilenameParser _parser = parser ?? throw new ArgumentNullException(nameof(parser));
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
 
+    /// <summary>
+    /// Looks for a screenshot already on disk from the last few minutes.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 43a] The probe used to demand a screenshot taken while it watched, which
+    /// asks somebody to alt-tab into a game and press a key inside a window they cannot see —
+    /// Clayton's report was that it "fails the screenshot section only because i cant alt tab back
+    /// to the game and screenshot fast enough". A shot from two minutes ago exercises the identical
+    /// path, and during a session one nearly always exists.
+    ///
+    /// Newest first, and the first one carrying a position wins. A shot taken outside a raid is
+    /// remembered as the fallback rather than accepted, because it can say why this could not be
+    /// measured but it cannot measure it.
+    /// </remarks>
+    public Task<SelfTestScreenshot> RecentAsync(
+        string? root,
+        TimeSpan lookBack,
+        TimeSpan localUtcOffset,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (Unusable(root) is { } unusable)
+        {
+            return Task.FromResult(unusable);
+        }
+
+        var nowUtc = _clock.GetUtcNow();
+        SelfTestScreenshot? fallback = null;
+        try
+        {
+            foreach (var path in Directory.EnumerateFiles(root!, "*", SearchOption.TopDirectoryOnly)
+                         .Where(IsImage)
+                         .Select(path => new FileInfo(path))
+                         .Where(info => nowUtc - new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero) <= lookBack)
+                         .OrderByDescending(info => info.LastWriteTimeUtc)
+                         .Select(info => info.Name))
+            {
+                var reading = Describe(root!, path, localUtcOffset, TimeSpan.Zero) with { WasAlreadyThere = true };
+                reading = reading with { Age = reading.WrittenUtc is { } at ? nowUtc - at : null };
+                if (reading.Parsed)
+                {
+                    return Task.FromResult(reading);
+                }
+
+                // An in-raid name that will not parse is the one worth showing somebody, so it
+                // outranks a menu shot however much newer the menu shot is.
+                fallback = fallback is { NameKind: ScreenshotNameKind.InRaid } ? fallback : reading;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return Task.FromResult(Nothing(root, TimeSpan.Zero, $"The screenshot folder could not be listed: {exception.Message}"));
+        }
+
+        return Task.FromResult(fallback ?? Nothing(root, TimeSpan.Zero, null));
+    }
+
     public async Task<SelfTestScreenshot> WatchAsync(
         string? root,
         TimeSpan patience,
         TimeSpan localUtcOffset,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+        if (Unusable(root) is { } unusable)
         {
-            return Nothing(root, TimeSpan.Zero, root is null
-                ? "No screenshot folder has been chosen, so nothing could be watched."
-                : $"The screenshot folder {root} does not exist.");
+            return unusable;
         }
 
         HashSet<string> before;
         try
         {
-            before = Listing(root);
+            before = Listing(root!);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -52,32 +108,56 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
         }
 
         var startedAt = _clock.GetTimestamp();
+        // Kept so a wait that only ever saw menu screenshots can say so, instead of reporting that
+        // nothing arrived when three things did.
+        SelfTestScreenshot? withoutPosition = null;
         while (_clock.GetElapsedTime(startedAt) < patience)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var listedAt = _clock.GetTimestamp();
-            string? arrived = null;
+            string[] arrived;
             try
             {
-                arrived = Listing(root).FirstOrDefault(name => !before.Contains(name));
+                arrived = [.. Listing(root!).Where(name => !before.Contains(name))];
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 return Nothing(root, _clock.GetElapsedTime(startedAt), $"The screenshot folder could not be listed: {exception.Message}");
             }
 
-            var listingCost = _clock.GetElapsedTime(listedAt);
-            if (arrived is not null)
+            foreach (var name in arrived)
             {
-                return Describe(root, arrived, localUtcOffset, _clock.GetElapsedTime(startedAt));
+                before.Add(name);
+                var reading = Describe(root!, name, localUtcOffset, _clock.GetElapsedTime(startedAt));
+                if (reading.Parsed)
+                {
+                    return reading;
+                }
+
+                // A shot taken in the menu is not the end of the wait: the player may still walk
+                // into a raid and take the one this is actually asking for.
+                withoutPosition = withoutPosition is { NameKind: ScreenshotNameKind.InRaid }
+                    ? withoutPosition
+                    : reading;
             }
 
+            var listingCost = _clock.GetElapsedTime(listedAt);
             var wait = listingCost * DutyCycle > PollInterval ? listingCost * DutyCycle : PollInterval;
             await Task.Delay(wait, _clock, cancellationToken).ConfigureAwait(false);
         }
 
-        return Nothing(root, patience, null);
+        return withoutPosition is { } seen
+            ? seen with { Waited = patience }
+            : Nothing(root, patience, null);
     }
+
+    /// <summary>The reading for a folder that cannot be looked at, or null when it can.</summary>
+    private static SelfTestScreenshot? Unusable(string? root) =>
+        string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)
+            ? Nothing(root, TimeSpan.Zero, root is null
+                ? "No screenshot folder has been chosen, so nothing could be watched."
+                : $"The screenshot folder {root} does not exist.")
+            : null;
 
     private SelfTestScreenshot Describe(string root, string name, TimeSpan localUtcOffset, TimeSpan waited)
     {
@@ -97,6 +177,7 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             writtenUtc = null;
         }
 
+        var kind = ScreenshotFilenameParser.Classify(name);
         if (!_parser.TryParseFile(path, localUtcOffset, out var position) || position is null)
         {
             return new(
@@ -110,7 +191,10 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
                 null,
                 "the file's own write time",
                 waited,
-                writtenUtc is { } unparsedAt ? noticedUtc - unparsedAt : null);
+                writtenUtc is { } unparsedAt ? noticedUtc - unparsedAt : null)
+            {
+                NameKind = kind,
+            };
         }
 
         // Which clock won is the parser's decision, and it is the difference between a position
@@ -129,15 +213,21 @@ public sealed class SelfTestScreenshotWatch(IScreenshotFilenameParser parser, Ti
             position.Position.Z,
             clock,
             waited,
-            noticedUtc - position.Timestamp);
+            noticedUtc - position.Timestamp)
+        {
+            NameKind = kind,
+        };
     }
 
     private static SelfTestScreenshot Nothing(string? root, TimeSpan waited, string? problem) =>
         new(root, null, null, null, false, null, null, null, "no clock", waited, null, problem);
 
+    private static bool IsImage(string path) =>
+        ImageExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
     private static HashSet<string> Listing(string root) =>
         Directory.EnumerateFiles(root, "*", SearchOption.TopDirectoryOnly)
-            .Where(path => ImageExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .Where(IsImage)
             .Select(Path.GetFileName)
             .Where(name => name is not null)
             .Select(name => name!)

@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -477,7 +478,10 @@ public sealed class SqliteRaidHistoryService(
         ArgumentNullException.ThrowIfNull(destination);
         var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
         await using var writer = new StreamWriter(destination, new UTF8Encoding(false), leaveOpen: true);
-        await writer.WriteLineAsync("id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes".AsMemory(), cancellationToken)
+        // The file is opened in a spreadsheet by the player, so times are their own clock in a shape a
+        // spreadsheet reads as a date-time (an ISO string with "+00:00" arrives as text), and the
+        // header says which clock. The database and JSON export keep the exact instant.
+        await writer.WriteLineAsync("id,profile_id,map_id,mode,start_local,end_local,outcome,notes".AsMemory(), cancellationToken)
             .ConfigureAwait(false);
         foreach (var raid in raids)
         {
@@ -487,8 +491,8 @@ public sealed class SqliteRaidHistoryService(
                 Escape(raid.ProfileId.ToString("D")),
                 Escape(raid.MapId),
                 Escape(raid.Mode),
-                Escape(raid.StartedUtc is null ? null : Format(raid.StartedUtc.Value)),
-                Escape(raid.EndedUtc is null ? null : Format(raid.EndedUtc.Value)),
+                Escape(raid.StartedUtc is null ? null : LocalTime.SortableSeconds(raid.StartedUtc.Value)),
+                Escape(raid.EndedUtc is null ? null : LocalTime.SortableSeconds(raid.EndedUtc.Value)),
                 Escape(raid.Outcome),
                 Escape(raid.Notes),
             });
@@ -502,7 +506,18 @@ public sealed class SqliteRaidHistoryService(
     {
         ArgumentNullException.ThrowIfNull(destination);
         var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
-        await JsonSerializer.SerializeAsync(destination, raids, JsonOptions, cancellationToken).ConfigureAwait(false);
+        // Local for the person who opens it, with the numeric offset so a program reads the same
+        // instant. The keys drop "Utc" because the values are no longer written at offset zero.
+        var rows = raids.Select(raid => new RaidHistoryExportRow(
+            raid.Id,
+            raid.ProfileId,
+            raid.MapId,
+            raid.Mode,
+            raid.StartedUtc is { } started ? LocalTime.ToLocal(started) : null,
+            raid.EndedUtc is { } ended ? LocalTime.ToLocal(ended) : null,
+            raid.Outcome,
+            raid.Notes)).ToList();
+        await JsonSerializer.SerializeAsync(destination, rows, JsonOptions, cancellationToken).ConfigureAwait(false);
     }
 
     private static void BindRaid(SqliteCommand command, RaidHistoryEntry raid)
@@ -544,4 +559,14 @@ public sealed class SqliteRaidHistoryService(
     }
 
     private sealed record OperationTransaction(SqliteConnection Connection, SqliteTransaction Transaction);
+
+    private sealed record RaidHistoryExportRow(
+        Guid Id,
+        Guid ProfileId,
+        string? MapId,
+        string Mode,
+        DateTimeOffset? Started,
+        DateTimeOffset? Ended,
+        string? Outcome,
+        string? Notes);
 }

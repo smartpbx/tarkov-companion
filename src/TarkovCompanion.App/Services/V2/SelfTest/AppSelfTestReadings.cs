@@ -8,6 +8,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Infrastructure.Diagnostics;
+using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.App.Services.V2.SelfTest;
 
@@ -45,6 +46,7 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
     private readonly string _gameMode;
     private readonly string _language;
     private readonly TimeProvider _clock;
+    private readonly IProfileRuntimeContextService? _profileContext;
 
     public AppSelfTestReadings(
         SqliteSelfTestReader database,
@@ -61,8 +63,11 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
         DesktopCompanionAuthority? authority = null,
         TabletMapSurfacePublisher? publisher = null,
         Uri? companionOrigin = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        // #269: which mode and language's endpoints to report on. Without it, the fixed ones above.
+        IProfileRuntimeContextService? profileContext = null)
     {
+        _profileContext = profileContext;
         _database = database ?? throw new ArgumentNullException(nameof(database));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
@@ -130,12 +135,24 @@ public sealed class AppSelfTestReadings : ISelfTestReadings
             _clock.LocalTimeZone.GetUtcOffset(_clock.GetUtcNow()),
             cancellationToken);
 
+    public Task<SelfTestScreenshot> RecentScreenshotAsync(TimeSpan lookBack, CancellationToken cancellationToken) =>
+        _screenshots.RecentAsync(
+            LastKnownScreenshotRoot(),
+            lookBack,
+            _clock.LocalTimeZone.GetUtcOffset(_clock.GetUtcNow()),
+            cancellationToken);
+
     public async Task<SelfTestGameData> ReadGameDataAsync(CancellationToken cancellationToken)
     {
-        var rows = await _database.ReadEndpointsAsync(_gameMode, _language, cancellationToken).ConfigureAwait(false);
+        // The active profile's scope when there is one: the catalog is fetched for it, so its endpoints
+        // are the ones whose age and size mean anything after a switch.
+        var (gameMode, language) = _profileContext?.Current.CatalogScope is { } scope
+            ? (TarkovDevDataRefreshOperation.ModeSlug(scope.GameMode), scope.Language)
+            : (_gameMode, _language);
+        var rows = await _database.ReadEndpointsAsync(gameMode, language, cancellationToken).ConfigureAwait(false);
         return new(
-            _gameMode,
-            _language,
+            gameMode,
+            language,
             [.. rows.Select(row => new SelfTestEndpoint(
                 row.SourceKey,
                 row.Bytes,

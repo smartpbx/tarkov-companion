@@ -8,6 +8,9 @@ uncomposed and is not evidence for the request boundary or deployed behavior. Hi
 release blockers until their named owner issues implement the complete control and exact-head
 GitHub Actions (plus any stated manual `dev` verification) supplies the required evidence.
 
+The counts below were re-derived on 2026-09-19 against `main`, not carried forward. See
+[Triage of 2026-09-19](#triage-of-2026-09-19-317).
+
 ## Wave-2 audit coverage
 
 | Lane | Integrated document | Standalone draft evidence superseded by this integration | Finding scope |
@@ -25,10 +28,51 @@ sharing the same stable risk rather than inflating counts.
 
 ## Canonical register status
 
-The integrated register contains **48 open findings and three closed findings**. Open severity is
-**zero Critical, 15 High, 26 Medium, and seven Low**. Every open row has an explicit
+The integrated register contains **47 open findings and four closed findings**. Open severity is
+**zero Critical, 10 High, 30 Medium, and seven Low**. Every open row has an explicit
 Accept/Mitigate/Defer disposition, a named GitHub-issue owner, Reviewed source evidence, and exact
 verification required before its status can change.
+
+### Triage of 2026-09-19 (#317)
+
+The fifteen open High findings were re-read against `main`, not against the audit's own snapshot.
+Five moved, and each moved for a stated reason:
+
+| Finding | Was | Now | Why |
+| --- | --- | --- | --- |
+| RISK-EXTERNAL-DATA-BOUNDS | High | Medium | The desktop reader had already become bounded (`ReadBoundedUtf8Async` against a 32 MB ceiling, checked on the declared length and again while streaming). The relay's two outbound clients had a timeout and no ceiling; they now carry `MaxResponseContentBufferSize`. No reader accepts an unbounded body. What follows acceptance — decompressed size, element counts, string lengths — is still only bounded by the byte ceiling. |
+| RISK-PERSISTENCE-SCHEMA-COMPATIBILITY | High | Medium | The fence the finding asked for exists: `SqliteMigrationRunner` refuses to apply a known missing migration to a database carrying an unknown newer one, leaving the original intact. Resource checksums remain absent. |
+| RISK-RELAY-KEY-BRUTEFORCE | High | Medium | Guessing now costs something. `RelayAttemptLimiter` delays from the fifth refused key and refuses for a minute after twenty in five minutes. Key entropy is unchanged. |
+| RISK-ADMIN-KEY-BRUTEFORCE | High | Medium | The same limiter covers `/admin*` and `/reports*`. No entropy floor was added: refusing a short configured key at startup would take the deployed relay down on upgrade, which is the operator's decision to make. |
+| RISK-RELAY-REGISTRY-FAIL-OPEN | High | **Closed** | An unreadable `rooms.json` refuses every room and says so with a 503, instead of clearing the list — which meant open. Fixed and tested rather than re-reviewed. |
+
+The remaining ten Highs were re-read against source on 2026-09-19 and every one is still open.
+What that reading found:
+
+- **Three share one cause.** RISK-RELAY-IDENTITY, RISK-RELAY-KEY-DISCLOSURE and
+  RISK-PAIRED-AUTH-COMPOSITION all wait on the same thing: `RelayHttpSecurity` and the paired
+  authorization core merged under #278 are **still not composed**. Searching the repository finds
+  `RelayHttpSecurity` referenced only by its own test file. (The same is true of the paired half of
+  the registry finding closed above, whose `VerifiedRelayRegistryStore` is likewise uncomposed.)
+  Composing them is the single change that would move the most of this register, and it is
+  #278/#294 work rather than an audit repair.
+- **One is a contradiction, not a defect, and needs a decision rather than a patch.**
+  RISK-RELAY-OBSERVED-DATA-POLICY: the relay prunes `Observed` entries to the names currently in
+  the room, which bounds who receives them, while `docs/SAFETY.md` says log-derived data about
+  another player is *never transmitted*. Both cannot stand. Either the rule is stricter than it was
+  meant to be — the same document lists a player's own party's composition as permitted, and these
+  are the people it is being sent to — or the relay must stop sending the field. #294's acceptance
+  asks for exactly this kind of contradiction to be reconciled against verified behaviour; the
+  reconciliation is Clayton's call and is recorded here rather than silently resolved either way.
+- **Six were confirmed by reading the named code and remain as written.** RISK-UPDATE-CHANNEL-TRUST
+  (#280's rings still do not exist — `capture_controls.py` records all three release environments
+  as absent), RISK-REPORT-REDACTION (`/report` caps a body at 64 KiB and still accepts free text
+  that can name the reporter), RISK-PROFILE-IMPORT-STATE (import validates and replaces, with no
+  freshness or scope comparison), RISK-CONTEXT-ISOLATION (`SqliteRaidHistoryService`'s list query
+  selects `profile_id` and `mode` without filtering on them, and the trail query filters only on
+  map), RISK-WATCHED-PATH-CONTAINMENT (no canonical-root or final-handle check exists on the
+  watched paths) and RISK-NATIVE-OCR-SUPPLY-CHAIN (no `NativeLibrary`, `DllImportResolver`,
+  `SetDllDirectory` or Authenticode policy appears anywhere in the source).
 
 The narrow issue-#278 evidence cited by the register is reproducible: exact head
 `07c53aeedb094a21a1bea585b8fab3122ba92dbc` passed
