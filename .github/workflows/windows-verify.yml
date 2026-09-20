@@ -425,6 +425,23 @@ jobs:
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
+      # A native fault raises no managed exception, so the crash log and the probe report are both
+      # empty and the only record is Windows' own. This is what named the 2.0.1278 launch crash
+      # (Skia's PNG encoder, reached from the tablet publisher) in one run, after a bisect had not.
+      - name: Name the fault if the launch died natively
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Level = 1,2,3 } -MaxEvents 40 -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -in 'Application Error', '.NET Runtime', 'Windows Error Reporting' } |
+            ForEach-Object { "DIAG-EVENT $($_.TimeCreated.ToString('o')) [$($_.ProviderName)] $($_.Id)"; ($_.Message -split "`n" | Select-Object -First 30 | ForEach-Object { "DIAG   $_" }) }
+          $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
+          Get-ChildItem -LiteralPath $Root -Recurse -Filter "breadcrumbs*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            "DIAG-BREADCRUMBS $($_.Name)"
+            Get-Content -LiteralPath $_.FullName -Tail 40 | ForEach-Object { "DIAG   $_" }
+          }
+
       # Fails a launch that shows no responsive, visually varied window, whose toolkit reported
       # an interface fault, whose warning capture was never armed, or whose required packaged-shell
       # UI Automation interaction failed. Legacy, V2 A and V2 B are launched and captured; both V2
