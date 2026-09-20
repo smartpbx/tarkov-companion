@@ -302,6 +302,19 @@ Inside a cell: the caption is **top-right**, roughly the top third; the stack co
 **bottom-right**, roughly the bottom quarter; some cells carry a small circular badge, presumably
 found-in-raid. Cropping the caption band alone keeps "50" out of the same reading as the label.
 
+**What the stash grid's lines are made of** (nine 3840x1080 menu screenshots, 2026-09-18, measured
+through `StashLuminancePlane`). An item's border is one pixel, teal-tinted, 25 to 45 luminance
+levels over the pixels on both sides (85,108,105 between 56,73,50 and 55,62,70), unbroken along
+the side and drawn on the lattice line itself. The line between two empty cells is 15 over a
+purple hatch that alternates by about 6 from pixel to pixel (36,27,41 / 42,33,46). Grid showing
+through the transparent parts of a large item's art is 8 to 10. Armour and backpacks sit on a pale
+tile (about 90) whose own border measures 1 to 5; its edge is a step of 50 to 65 to the dark tile
+next door. The viewport has its own top line across the whole panel two or three pixels above the
+first row (0.66 to 0.89 of the width reads as a line, against 0.1 to 0.2 for the header text above
+it), and the panel's outer frame runs up into that header, so the frame is not the viewport. The
+scroll is not row-aligned at the bottom of the stash: the first row can be the cut one. A hover
+tooltip covers about eight cells and one outer edge.
+
 **Detect the phase, do not hardcode it.** The panel moves with the window, so a hardcoded origin
 is wrong the first time somebody plays windowed. All of the above came from one screenshot, at
 one window size, on one machine.
@@ -319,3 +332,88 @@ comparison tests the engine rather than the merging.
 
 The quick use strip **does** exist on the character screen, drawn as numbered empty boxes. That
 is the same element reported absent in raid: it is a menu element, not a HUD one.
+
+### What nine real stash screenshots settled (2026-09-18)
+
+Nine menu screenshots from one minute on Clayton's machine, all 3840x1080: the character screen
+with the stash scrolled to six positions, one with a hover tooltip, and two with an item case
+opened in a window over it. They are hideout screens. No in-raid container is among them.
+
+| Fact | Measured |
+|---|---|
+| Cell pitch | **63.0** pixels on both axes in all nine, on every grid on the screen |
+| Stash panel | ten columns, x = 2225 to 2855, in every frame |
+| Item and cell borders | one bright pixel, at x = 2225 + 63k, so **x mod 63 = 20** |
+| Row phase | differs per frame (y = 79, 64, 127, 331 ...): the stash scrolls by pixels, not by rows |
+| A case window | its own lattice at the same pitch and another phase (1518,149 and 1604,109) |
+| Interface | drawn in the centred 1920 pixels of the 3840; the outer quarters are backdrop |
+
+The paragraph above gives the column phase as 19. That measurement found the dark gap beside
+each line by autocorrelation. Icon fingerprints settle which one is the cell edge: a lattice at
+2224 named 3 to 7 items a frame and the same lattice at 2225 named 11 to 13.
+
+Several grids share the screen at that one pitch, each at its own phase: gear slots, pockets,
+special slots, the backpack, the stash, and any open case window. A lattice search that may
+re-anchor on each line it finds walks from one into the next. `ContainerGridDetector` returned
+one lattice across several panels in 8 of these 9 frames until it was held to the known pitch.
+
+What is drawn over an icon: the caption top-right, in a font close enough to json.tarkov.dev's
+renders that two armbands differing only in band colour were told apart; a found-in-raid tick
+bottom-right on most items; a stack count or durability figure bottom-right (`30/30`,
+`1295/1500`); a hatched tint on tagged containers. A hover tooltip covered eight cells in one
+frame, and the game's own "screenshot saved" toast sits bottom-right of the interface in some.
+
+A weapon is drawn at the size of its build, not its catalog size: an M9A3 with a magazine is
+2x2 against a catalog 2x1, so references filtered by catalog shape never include it.
+
+### The carried panel, the gear slots and the vitals strip on the same nine frames (2026-09-19)
+
+Measured by `RealCharacterScreenMeasurementTests`, which reports and never asserts, and skips
+without the private folder. Coordinates are for 3840x1080, where the interface is a 1920-wide
+panel centred in the frame.
+
+**The nine frames are one sample of all of this.** They were taken in one minute while the
+stash was scrolled. The carried panel did not move and the loadout did not change: the
+backpack's grid lines fall on the same pixels in frames (0) to (5), and (6) to (8) have a
+tooltip or a case window over that part of the screen. Nine screenshots are one backpack and
+one loadout, six times over.
+
+**The carried panel is not a grid. It is a scrolling column of separate grids.** From the top:
+the tactical rig (a 2x2 slot for the rig itself, then its pouches, each its own small grid with
+gaps between them), POCKETS, SPECIAL SLOTS, BACKPACK (a 2x2 slot for the bag, then its grid),
+and below that whatever the scroll position hides. Each has a text header. A rig and a backpack
+are the same shape to a line detector, a slot with a grid to its right, so "the panel with the
+most line" cannot say which one it found. The header can.
+
+The backpack in these frames is a 3-column sling bag. Its vertical lines are at x = 1748, 1812,
+1875 and 1939, the same 63 to 64 pixel pitch as the stash. Its horizontal lines are at y = 525,
+589, 652, 715, 778, 841 and 904, and then the quick-use bar begins at y = 949. That is six whole
+rows and **45 of the seventh row's 63 pixels**: the bag has seven rows and the panel cuts the
+last one. So a carried grid read from a screenshot can be short of the real bag, which a fit
+claimed inside the visible rows survives and a "no room" claim does not.
+
+**Gear-slot occupancy is a bright tail, not a mean.** Eleven slots: earpiece, headwear, face
+cover, armband, body armor, eyewear, dogtag, on sling, holster, on back, sheath. An empty slot
+is a dark hatch with a faint placeholder glyph. In this loadout three are empty.
+
+| | Brightest pixel | 99th percentile | Share of pixels over 90 |
+|---|---|---|---|
+| Empty (eyewear, holster, on back) | 56 to 64 | 46 to 51 | 0 |
+| Occupied (the other eight) | 209 to 255 | 132 to 210 | 0.03 to 0.35 |
+
+The mean does not separate them: the sling slot, holding a black submachine gun on a black
+tile, averages 16.1, under all three empty slots (17.0 to 20.0). The gap in the tail is wide,
+and it is eight occupied slots and three empty ones from one loadout, so it is a measurement
+and not a threshold. Nothing has been built on it.
+
+**The Gear tab draws no limb health.** There is a dim figure behind the slots and no per-limb
+values; those are on the HEALTH tab, and none of the nine frames is the HEALTH tab.
+
+**The vitals strip is bright.** Bottom-left of the Gear tab: weight, total health, hydration and
+energy, each with its maximum and a rate (`440/440`, `66/100`, `26/110`). Its brightest pixel is
+224 and 1,866 of its 30,740 pixels are over 150. The in-raid HUD silhouette peaks at 83. So this
+text is of the legible kind, unlike the HUD. Whether OCR reads it is not measured: the packaged
+Tesseract provider runs on Windows only, and these figures were taken on the Linux build host.
+
+All 360 labelled items sit in exactly the catalog's footprint. None is rotated and none is drawn
+at a different size, so these frames cannot measure a rotated item at all.

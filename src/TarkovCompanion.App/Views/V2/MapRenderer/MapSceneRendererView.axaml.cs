@@ -10,6 +10,13 @@ using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.Views.V2.MapRenderer;
 
+/// <summary>A secondary gesture on bare map: where it landed, and whether Shift was held.</summary>
+/// <remarks>
+/// [V2 rough package 46] Shift is carried rather than resolved here because which mark a modifier
+/// means is the host's business, not the renderer's. The renderer only reports the gesture.
+/// </remarks>
+public readonly record struct MapPlanGesture(MapScenePoint Point, bool IsSecondary);
+
 /// <summary>Responsive pointer, touch, and keyboard handoff for the canonical map view.</summary>
 public sealed partial class MapSceneRendererView : UserControl
 {
@@ -50,6 +57,17 @@ public sealed partial class MapSceneRendererView : UserControl
     /// right-click used to do before this existed.
     /// </remarks>
     public event EventHandler<MapSceneObjectId>? MarkerRightClicked;
+
+    /// <summary>
+    /// A right-click (or equivalent secondary gesture) landed on bare map, and whether Shift was held.
+    /// </summary>
+    /// <remarks>
+    /// [V2 rough package 46] The other half of <see cref="MarkerRightClicked"/>, and deliberately
+    /// exclusive with it: exactly one of the two is raised per right-click, so the host cannot
+    /// place a mark on top of the one it was asked to remove. What was under the pointer wins,
+    /// and the hit area is the marker's own, not the pixel.
+    /// </remarks>
+    public event EventHandler<MapPlanGesture>? PlanRightClicked;
 
     /// <summary>Wires named XAML controls only after they exist in the visual tree.</summary>
     /// <remarks>
@@ -171,7 +189,18 @@ public sealed partial class MapSceneRendererView : UserControl
                 var position = eventArgs.GetPosition(PlanViewport);
                 if (rightClickRenderer.TryHitObjectAt(position.X, position.Y, out var objectId))
                 {
+                    // [V2 rough package 46] Removal beats placement: something under the pointer
+                    // ends the gesture here, so the same press can never also drop a mark.
                     MarkerRightClicked?.Invoke(this, objectId);
+                    eventArgs.Handled = true;
+                }
+                else if (rightClickRenderer.TryScenePointAt(position.X, position.Y, out var scenePoint))
+                {
+                    PlanRightClicked?.Invoke(
+                        this,
+                        new(scenePoint, eventArgs.KeyModifiers.HasFlag(KeyModifiers.Shift)));
+                    // Handled either way, so nothing further up opens a context menu over the
+                    // plan and swallows the gesture the next time.
                     eventArgs.Handled = true;
                 }
             }

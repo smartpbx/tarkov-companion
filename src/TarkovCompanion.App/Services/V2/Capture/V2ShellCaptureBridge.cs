@@ -16,19 +16,33 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// adapter is the seam both of their designs left for wiring.
 /// </summary>
 /// <remarks>
-/// Scope for this rough pass: every capture review is resolved automatically (preferring the
-/// detected context, falling back to the armed intent) so a screenshot always reaches handoff
-/// without a blocking dialog. The richer manual intent-mismatch/unknown-context attention UI the
-/// shell already renders (<see cref="V2ShellViewModel.CaptureAttentionActions"/>) is intentionally
-/// left unset here; deciding when to interrupt the player instead of auto-resolving is a UX call
-/// for a later pass, not a wiring gap. Only one capture session is tracked at a time, matching the
-/// shell's single global Capture affordance.
+/// [V2 rough package 60 — Intel scan] #287. This used to resolve every review automatically,
+/// preferring the detected context and falling back to the armed intent, so a screenshot always
+/// reached handoff without a dialog — and the player never saw that the recognizer had disagreed
+/// with them, never saw the alternatives, and had nothing to correct or retry. The shell already
+/// rendered all of that; nothing ever filled it in.
+///
+/// Now the bridge pauses on exactly the cases where the answer is in doubt and the player is the
+/// one who can settle it: the recognizer read a different screen than the one that was armed
+/// (<see cref="V2CaptureAttentionKind.IntentMismatch"/>, offering Skip / Analyze as armed /
+/// Analyze as detected), or it could not place the screen at all
+/// (<see cref="V2CaptureAttentionKind.UnknownContext"/>, offering Skip / Analyze as the selected
+/// intent). Agreement still resolves silently, because interrupting somebody to confirm what they
+/// already asked for is the reason the auto-resolve was written in the first place.
+///
+/// The capture context was also empty — every field null — so nothing downstream could tell which
+/// workspace, profile, map, plan or selection a frame was taken from. It is filled from the
+/// router's own navigation context, which the shell keeps current for exactly this purpose.
+///
+/// Only one capture session is tracked at a time, matching the shell's single global Capture
+/// affordance.
 /// </remarks>
 public sealed class V2ShellCaptureBridge : IDisposable
 {
     private readonly V2ShellViewModel _shell;
     private readonly ICaptureSessionService _captureSessions;
     private readonly LootScanCaptureHandoff _lootScanHandoff;
+    private readonly IntelCaptureHandoff _intelHandoff;
     private readonly WorkspaceOrigin _origin;
     private readonly ILogger<V2ShellCaptureBridge> _logger;
     private readonly Lock _gate = new();
@@ -37,18 +51,21 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private string _settingDevice = V2NavigationContext.ThisDesktop;
     private CaptureSessionId? _currentSessionId;
     private V2CaptureReview? _review;
+    private V2CaptureAttention? _attention;
     private bool _disposed;
 
     public V2ShellCaptureBridge(
         V2ShellViewModel shell,
         ICaptureSessionService captureSessions,
         LootScanCaptureHandoff lootScanHandoff,
+        IntelCaptureHandoff intelHandoff,
         WorkspaceOrigin origin,
         ILogger<V2ShellCaptureBridge>? logger = null)
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _captureSessions = captureSessions ?? throw new ArgumentNullException(nameof(captureSessions));
         _lootScanHandoff = lootScanHandoff ?? throw new ArgumentNullException(nameof(lootScanHandoff));
+        _intelHandoff = intelHandoff ?? throw new ArgumentNullException(nameof(intelHandoff));
         _origin = origin ?? throw new ArgumentNullException(nameof(origin));
         _logger = logger ?? NullLogger<V2ShellCaptureBridge>.Instance;
 
@@ -57,6 +74,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.Changed += OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested += OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated += OnLootScanEvaluated;
+        _intelHandoff.ItemIdentified += OnItemIdentified;
         Push();
     }
 
@@ -71,14 +89,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
             var sessionId = new CaptureSessionId(Guid.NewGuid());
             var now = TimeProvider.System.GetUtcNow();
-            var context = new CaptureContextMetadata(
-                activeWorkspace: null,
-                activeProfile: null,
-                activeMap: null,
-                activePlan: null,
-                selectedEntity: null,
-                priorScan: null,
-                initiatingDevice: request.RequestingDevice);
+            var context = ContextFrom(request.RequestingDevice);
             var receipt = _captureSessions.Arm(new(
                 new(
                     sessionId,
@@ -100,6 +111,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
             _settingDevice = request.RequestingDevice;
             _currentSessionId = sessionId;
             _review = null;
+            _attention = null;
         }
 
         Push();
@@ -129,18 +141,110 @@ public sealed class V2ShellCaptureBridge : IDisposable
             }
         }
 
-        // Review/Correct/AnalyzeAsSelected/KeepCurrentIntent/ArmSelectedIntent: the result is
-        // already visible on the Loot route once evaluated, and this pass does not yet offer a
-        // corrected re-analysis. Acknowledged rather than rejected, since nothing failed.
+        // Review/Correct/KeepCurrentIntent/ArmSelectedIntent: the result is already visible on
+        // its destination route, and re-analysing a frame as a *different* intent is something
+        // #271's coordinator has no action for — its five are Use detected, Use armed, Redecode,
+        // Retry and Cancel. Acknowledged rather than rejected, since nothing failed.
     }
 
+    /// <summary>
+    /// The workspace facts a capture is taken in, frozen at intake.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these was null. The router keeps the same facts current for its own address
+    /// bar and continuity, so reading them here costs nothing and means a frame that reaches a
+    /// handoff, a report or a paired device carries where it came from.
+    /// </remarks>
+    private CaptureContextMetadata ContextFrom(string requestingDevice)
+    {
+        var context = _shell.Router.Context;
+        return new(
+            activeWorkspace: context.WorkspaceId ?? _shell.Router.Current.Location.Route.Value,
+            // The profile's stable id, never its display name: a capture context that named
+            // "Clayton" instead of a guid would put a player's handle into every report.
+            activeProfile: context.ProfileId,
+            activeMap: context.MapId,
+            activePlan: context.PlanId,
+            selectedEntity: context.SelectedEntity ?? _shell.Router.Current.SelectedEntity,
+            priorScan: context.PriorScan,
+            initiatingDevice: requestingDevice);
+    }
+
+    /// <summary>
+    /// Decides whether a finished decode needs the player, or can be resolved where it stands.
+    /// </summary>
+    /// <remarks>
+    /// The two cases that need asking are the two the player can actually answer: the recognizer
+    /// read a different screen than the one that was armed, and the recognizer could not place the
+    /// screen at all. Anything else — agreement, or a detected context with no disagreement flag —
+    /// is resolved without interrupting, which is what the previous pass did for everything.
+    /// </remarks>
     private void OnReviewRequested(object? sender, CaptureReviewRequestedEventArgs eventArgs)
     {
         var review = eventArgs.Review;
-        var action = review.DetectedContext is not null
-            ? CaptureReviewAction.UseDetected
-            : CaptureReviewAction.UseArmedIntent;
-        _captureSessions.TryReview(review.SessionId, review.ArtifactId, review.DecodeRevision, action, "system-auto-resolve");
+        var kind = review switch
+        {
+            { HasIntentDisagreement: true, DetectedContext: not null } => V2CaptureAttentionKind.IntentMismatch,
+            { DetectedContext: null } => V2CaptureAttentionKind.UnknownContext,
+            _ => (V2CaptureAttentionKind?)null,
+        };
+
+        if (kind is null)
+        {
+            _captureSessions.TryReview(
+                review.SessionId,
+                review.ArtifactId,
+                review.DecodeRevision,
+                CaptureReviewAction.UseDetected,
+                "system-agreed");
+            return;
+        }
+
+        lock (_gate)
+        {
+            _attention = new V2CaptureAttention(
+                kind.Value,
+                review.SessionId,
+                review.ArtifactId,
+                review.DecodeRevision,
+                review.RequestedIntent,
+                new StateRevision(_intentRevision),
+                _settingDevice,
+                kind == V2CaptureAttentionKind.IntentMismatch ? review.DetectedContext : null);
+        }
+
+        Push();
+    }
+
+    /// <summary>Shows what one capture was read as, and opens that item's Intel page.</summary>
+    /// <remarks>
+    /// The review names the alternates as well as the answer. A recognizer that was 62% sure and
+    /// had two runners-up is a different thing from one that was certain, and a player looking at
+    /// the wrong item needs to see the second guess to know that Retry is worth pressing.
+    /// </remarks>
+    private void OnItemIdentified(object? sender, CaptureItemIdentification identification)
+    {
+        var alternates = identification.Alternates.Count == 0
+            ? string.Empty
+            : $" · also {string.Join(", ", identification.Alternates.Take(2).Select(item => item.DisplayName))}";
+        lock (_gate)
+        {
+            _attention = null;
+            _review = new V2CaptureReview(
+                identification.SessionId,
+                identification.ArtifactId,
+                0,
+                identification.EffectiveIntent,
+                RecognizedContext.Item,
+                identification.ObservedUtc,
+                $"{identification.Best.DisplayName} · {identification.Best.Confidence.Value:P0} sure{alternates}",
+                identification.DiagnosticCode is { } code
+                    ? $"Screenshot · {code}"
+                    : "Screenshot");
+        }
+
+        _shell.ShowScannedItem(identification.Best.CanonicalId);
+        Push();
     }
 
     private void OnLootScanEvaluated(object? sender, LootScanResult result)
@@ -150,6 +254,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         {
             // The frame that reached handoff is the only capture this session's single-review
             // lifecycle produces, so ordinal 0 names it without inventing a count.
+            _attention = null;
             _review = new V2CaptureReview(
                 result.CaptureSessionId,
                 result.ArtifactId,
@@ -177,6 +282,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
         CaptureSessionSnapshot? session;
         V2CaptureReview? review;
+        V2CaptureAttention? attention;
         ScanIntent armedIntent;
         long intentRevision;
         string settingDevice;
@@ -186,6 +292,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
             intentRevision = _intentRevision;
             settingDevice = _settingDevice;
             review = _review;
+            attention = _attention;
             session = _currentSessionId is { } id
                 ? _captureSessions.Snapshot.Sessions.FirstOrDefault(item => item.Request.SessionId == id)?.Snapshot
                 : null;
@@ -198,8 +305,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 new StateRevision(intentRevision),
                 settingDevice,
                 session,
-                attention: null,
-                review: review));
+                attention,
+                review));
         }
         catch (Exception exception)
         {
@@ -222,5 +329,6 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.Changed -= OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested -= OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated -= OnLootScanEvaluated;
+        _intelHandoff.ItemIdentified -= OnItemIdentified;
     }
 }

@@ -10,13 +10,20 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Profile;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.Services.V2.SelfTest;
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.Services.V2.Appearance;
+using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Personalization;
+using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
 using AppClass = TarkovCompanion.App.App;
@@ -75,6 +82,12 @@ internal static class Program
                 // printing them here lets a Linux run catch the same faults before CI does.
                 .LogToTextWriter(Console.Out, Avalonia.Logging.LogEventLevel.Warning, Avalonia.Logging.LogArea.Binding, Avalonia.Logging.LogArea.Layout)
                 .SetupWithoutStarting();
+
+            // [V2 rough package 60 — appearance] #266/#315. SetupWithoutStarting never reaches
+            // OnFrameworkInitializationCompleted, so the applier the running app installs there
+            // is installed here instead. Without it every render is Dark at 100%, which is the
+            // one combination the appearance work does not need proving.
+            var appearance = ApplyAppearance(services, args);
 
             if (options.MapRendererGallery)
             {
@@ -145,6 +158,7 @@ internal static class Program
             }
 
             var window = new MainWindow { DataContext = viewModel, Width = width, Height = height };
+            appearance?.Attach(window, services.GetRequiredService<WorkspacePreferenceService>().Current);
             window.Show();
             DrainUntilComplete(viewModel.InitializeAsync());
             if (seeding is not null)
@@ -194,6 +208,38 @@ internal static class Program
                 Pump(40);
             }
 
+            // [V2 rough package 46] The chrome the player can now collapse, so a render can show
+            // the map at each of the widths it can have.
+            if (shell is not null && StringOption(args, "--nav-rail") is { } railMode)
+            {
+                var wanted = TarkovCompanion.App.Services.V2.Shell.V2NavigationRailTokens.Parse(railMode);
+                for (var guard = 0; guard < 3 && shell.NavigationRail != wanted; guard++)
+                {
+                    shell.CycleNavigationRail();
+                }
+
+                Pump(10);
+                Console.WriteLine($"Nav rail: {shell.NavigationRail}");
+            }
+
+            if (shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel panelCockpit)
+            {
+                if (args.Contains("--hide-raid-panel") && panelCockpit.ShowsContextPanel)
+                {
+                    panelCockpit.ToggleContextPanel();
+                    Pump(10);
+                }
+
+                if (IntOption(args, "--raid-panel-width", 0) is var panelWidth and > 0)
+                {
+                    panelCockpit.ResizeContextPanel(panelWidth);
+                    Pump(10);
+                }
+
+                Console.WriteLine(
+                    $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
+            }
+
             if (shell is not null && route is not null)
             {
                 var result = shell.Router.NavigateToAddress(route);
@@ -215,6 +261,33 @@ internal static class Program
                 }
 
                 setup.Select(section);
+                Pump(20);
+            }
+
+            // [#269] Profiles made through the real management service, so Setup > Game & Profile
+            // renders the list a player would have: the first profile, a PvE one made active, and an
+            // archived one behind "Show archived".
+            if (shell is not null && args.Contains("--profiles-demo"))
+            {
+                var management = services.GetRequiredService<TarkovCompanion.Application.Services.Profiles.ProfileManagementService>();
+                management.CreateAsync("Old wipe", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pvp, "Wipe 2", default).GetAwaiter().GetResult();
+                var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
+                management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
+                management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+            // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
+            if (shell?.SetupWorkspace is { } setupPage)
+            {
+                if (args.Contains("--show-paths"))
+                {
+                    setupPage.Paths.ToggleCommand.Execute(null);
+                }
+
+                if (StringOption(args, "--setup-open") is { } opened && opened.Split(':') is [var openedSection, var openedAnchor]
+                    && Enum.TryParse<V2SetupSection>(openedSection, ignoreCase: true, out var openedTarget))
+                {
+                    setupPage.OpenSection(openedTarget, openedAnchor);
+                }
+
                 Pump(20);
             }
 
@@ -437,6 +510,35 @@ internal static class Program
                 Console.WriteLine("Artwork: " + string.Join(
                     ", ",
                     raid.ArtworkVariants.Select(item => item.Key + (item.IsSelected ? "*" : string.Empty))));
+
+                // [V2 rough package 46] How much of the map card the floating pill in its
+                // top-left corner covers, which is artwork nobody can see.
+                if (window.GetVisualDescendants()
+                        .OfType<Avalonia.Controls.Border>()
+                        .FirstOrDefault(border => border.Classes.Contains("v2-map-float")) is { } pill &&
+                    raid.Renderer is { } pillRenderer)
+                {
+                    var card = pillRenderer.CanvasWidth * pillRenderer.CanvasHeight;
+                    var covered = pill.Bounds.Width * pill.Bounds.Height;
+                    Console.WriteLine(
+                        $"Top-left block: {pill.Bounds.Width:F0}x{pill.Bounds.Height:F0} = {covered:F0} px, " +
+                        $"{(card > 0 ? covered / card : 0):P1} of the map card");
+                }
+
+                // [V2 rough package 46] The two numbers the aspect-ratio bug lives between: the
+                // rectangle the plan is actually drawn into, and the artwork's own pixels. A
+                // render that looks plausible can still be stretched by a per-cent nobody sees.
+                if (raid.Renderer is { } aspectRenderer)
+                {
+                    var art = aspectRenderer.BackgroundImage?.Size;
+                    var drawn = aspectRenderer.MapHeight > 0 ? aspectRenderer.MapWidth / aspectRenderer.MapHeight : double.NaN;
+                    var intrinsic = art is { Width: > 0, Height: > 0 } size ? size.Width / size.Height : double.NaN;
+                    Console.WriteLine(
+                        $"Plan aspect: card {aspectRenderer.CanvasWidth:F1}x{aspectRenderer.CanvasHeight:F1}, " +
+                        $"drawn {aspectRenderer.MapWidth:F1}x{aspectRenderer.MapHeight:F1} = {drawn:F5}, " +
+                        $"artwork {art?.Width ?? 0:F0}x{art?.Height ?? 0:F0} = {intrinsic:F5}, " +
+                        $"error {(double.IsFinite(drawn) && double.IsFinite(intrinsic) ? (drawn / intrinsic) - 1 : double.NaN):P3}");
+                }
             }
 
             // A handful of extra dispatcher turns for layout, DynamicResource resolution, and
@@ -475,6 +577,61 @@ internal static class Program
             // Package 17 (team): a render-only group, so the Team workspace can be seen populated.
             // A headless run has no relay to join, and the offline group session republishes
             // "not sharing" on its own tick, so this goes straight to the view model last.
+            // [V2 rough package 60 — Intel scan] #287: the capture dialog holding a real decision.
+            // Nothing can reach these states in a render without a game writing a screenshot, so
+            // the shell's own projection is set to each one and the real view draws it.
+            // "disagreement" is the recognizer reading a different screen than the armed intent;
+            // "identified" is a finished read with its alternates.
+            if (shell is not null && StringOption(args, "--capture-demo") is { } captureDemo)
+            {
+                var captureSession = new CaptureSessionId(Guid.Parse("30000000-0000-0000-0000-000000000287"));
+                var now = DateTimeOffset.UtcNow;
+                shell.CaptureCommand.Execute(null);
+                shell.UpdateCaptureState(captureDemo switch
+                {
+                    "disagreement" => new V2CaptureShellState(
+                        ScanIntent.Stash,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.IntentMismatch,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Stash,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop,
+                            RecognizedContext.Flea)),
+                    "unknown" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        attention: new V2CaptureAttention(
+                            V2CaptureAttentionKind.UnknownContext,
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            new StateRevision(1),
+                            V2NavigationContext.ThisDesktop)),
+                    "identified" => new V2CaptureShellState(
+                        ScanIntent.Auto,
+                        new StateRevision(1),
+                        V2NavigationContext.ThisDesktop,
+                        review: new V2CaptureReview(
+                            captureSession,
+                            "shot-1",
+                            0,
+                            ScanIntent.Auto,
+                            RecognizedContext.Item,
+                            now,
+                            "Graphics card · 82% sure · also Graphics tablet, GPU crate",
+                            "Screenshot · ambiguous_runner_up")),
+                    _ => throw new ArgumentException($"No capture demo is named '{captureDemo}'."),
+                });
+                Pump(20);
+            }
+
             if (shell is not null && args.Contains("--team-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
@@ -489,6 +646,63 @@ internal static class Program
                         .Apply(store.Current);
                     Pump(1);
                 }
+            }
+
+            // [V2 rough package 48] The pairing panel's four states, inside Team > Devices. None of
+            // them can be reached in a render without a relay and a tablet on the other end, so the
+            // view model is put into each one through its own preview seam and the real view draws
+            // it. What is being photographed is the layout and the wording, which is what was wrong.
+            if (shell is not null && StringOption(args, "--pairing-demo") is { } pairingState)
+            {
+                var pairing = services.GetRequiredService<CompanionPairingViewModel>();
+                switch (pairingState)
+                {
+                    case "unclaimed":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.NotClaimed,
+                            CompanionPairingStage.Idle);
+                        break;
+                    case "unclaimable":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.NotConfiguredForClaiming,
+                            CompanionPairingStage.Idle,
+                            claimMessage: CompanionPairingViewModel.NotConfiguredForClaimingMessage);
+                        break;
+                    case "claimed":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.");
+                        break;
+                    case "pairing":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.AwaitingTablet,
+                            pairingCode: "K7M2-9QRT-4B",
+                            // [V2 rough package 60 — Team] #289: far enough out that the
+                            // countdown reads in minutes, which is the state it spends most of
+                            // its life in.
+                            codeExpiresUtc: DateTimeOffset.UtcNow.AddMinutes(4).AddSeconds(37));
+                        break;
+                    case "approving":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.AwaitingApproval,
+                            verificationCode: "48 15 62",
+                            requestedDisplayName: "Kitchen tablet");
+                        break;
+                    case "paired":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.",
+                            devices: [DemoPairedDevice("Kitchen tablet")]);
+                        break;
+                    default:
+                        throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
+                }
+
+                Pump(40);
             }
 
             // [V2 rough package 22] A render-only raid: a player position with a heading, the
@@ -605,8 +819,11 @@ internal static class Program
                 setupWorkspace.Select(V2SetupSection.Diagnostics);
                 if (args.Contains("--selftest-demo"))
                 {
+                    // [V2 rough package 43a] --selftest-waiting renders the state that used to be
+                    // a red failure: every other capability settled, and the screenshot one open.
+                    var waiting = args.Contains("--selftest-waiting");
                     setupWorkspace.AttachSelfTest(new SetupSelfTestViewModel(
-                        () => new SelfTestDemoReadings(),
+                        () => new SelfTestDemoReadings(waiting),
                         new SelfTestJournal()));
                 }
 
@@ -616,6 +833,10 @@ internal static class Program
             }
 
             SaveFrame(window, outputPath, width, height);
+            if (StringOption(args, "--crop") is { } crop)
+            {
+                SaveCrop(window, outputPath, crop, IntOption(args, "--crop-scale", 4));
+            }
             rendered = true;
             return 0;
         }
@@ -946,6 +1167,52 @@ internal static class Program
         Console.WriteLine($"Saved {outputPath} ({width}x{height}).");
     }
 
+    /// <summary>
+    /// [V2 rough package 46] One region of the frame, magnified, as its own file.
+    /// </summary>
+    /// <remarks>
+    /// A 1920x1080 render is read at about a third of its real size, which is enough to judge a
+    /// layout and not nearly enough to judge a 44-pixel marker. `--crop x,y,w,h` with an optional
+    /// `--crop-scale` writes `<out>.crop.png` alongside the full frame so a detail — a facing cone
+    /// sitting on its dot, say — can actually be looked at.
+    /// </remarks>
+    private static void SaveCrop(Window window, string outputPath, string region, int scale)
+    {
+        var parts = region.Split(',', StringSplitOptions.TrimEntries);
+        if (parts.Length != 4 || !parts.All(part => int.TryParse(part, out _)))
+        {
+            throw new ArgumentException("--crop takes x,y,width,height in frame pixels.");
+        }
+
+        var (x, y, w, h) = (int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]), int.Parse(parts[3]));
+        using var frame = window.CaptureRenderedFrame()
+            ?? throw new InvalidOperationException("The headless platform produced no frame.");
+        using var full = new MemoryStream();
+        frame.Save(full, new PngBitmapEncoderOptions());
+        full.Position = 0;
+        using var source = SkiaSharp.SKBitmap.Decode(full)
+            ?? throw new InvalidOperationException("The captured frame could not be decoded.");
+        var rect = SkiaSharp.SKRectI.Intersect(
+            new(x, y, x + w, y + h),
+            new(0, 0, source.Width, source.Height));
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            throw new ArgumentException($"--crop {region} is outside the {source.Width}x{source.Height} frame.");
+        }
+
+        using var cropped = new SkiaSharp.SKBitmap(rect.Width, rect.Height);
+        source.ExtractSubset(cropped, rect);
+        using var enlarged = cropped.Resize(
+            new SkiaSharp.SKImageInfo(rect.Width * scale, rect.Height * scale),
+            new SkiaSharp.SKSamplingOptions(SkiaSharp.SKFilterMode.Nearest, SkiaSharp.SKMipmapMode.None))
+            ?? throw new InvalidOperationException("The crop could not be enlarged.");
+        var cropPath = Path.ChangeExtension(outputPath, ".crop.png");
+        using var data = enlarged.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        using var output = File.Create(cropPath);
+        data.SaveTo(output);
+        Console.WriteLine($"Saved {cropPath} ({rect.Width}x{rect.Height} at {scale}x).");
+    }
+
     private static void Pump(int turns)
     {
         for (var i = 0; i < turns; i++)
@@ -966,6 +1233,40 @@ internal static class Program
         task.GetAwaiter().GetResult();
     }
 
+    /// <summary>One paired device, so the list has something in it to photograph.</summary>
+    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(string name)
+    {
+        var now = new DateTimeOffset(2026, 9, 18, 21, 0, 0, TimeSpan.Zero);
+        using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var point = key.ExportParameters(false).Q;
+        byte[] cose =
+        [
+            0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20,
+            .. point.X!,
+            0x22, 0x58, 0x20,
+            .. point.Y!,
+        ];
+        var thumbprint = System.Buffers.Text.Base64Url.EncodeToString(
+            System.Security.Cryptography.SHA256.HashData(cose));
+        var device = new TarkovCompanion.CompanionProtocol.PairedDevice(
+            new TarkovCompanion.Core.Abstractions.V2.CompanionDeviceId(Guid.Parse("7a1d0000-0000-4000-8000-000000000048")),
+            name,
+            new TarkovCompanion.CompanionProtocol.DevicePublicKey(
+                new TarkovCompanion.CompanionProtocol.DeviceKeyId(thumbprint),
+                TarkovCompanion.CompanionProtocol.DeviceKeyAlgorithm.WebAuthnEs256,
+                thumbprint,
+                System.Buffers.Text.Base64Url.EncodeToString(cose)),
+            TarkovCompanion.CompanionProtocol.DeviceAuthorizationRole.Member,
+            [TarkovCompanion.CompanionProtocol.DeviceCapability.FollowDesktop],
+            TarkovCompanion.CompanionProtocol.DeviceLifecycleStatus.Active,
+            now,
+            now,
+            1,
+            now.AddDays(30),
+            now);
+        return new(device, _ => Task.CompletedTask);
+    }
+
     private static int IntOption(string[] args, string name, int fallback)
     {
         var value = StringOption(args, name);
@@ -976,5 +1277,68 @@ internal static class Program
     {
         var index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>
+    /// Applies the appearance a render asks for, and returns the applier so a window can be
+    /// given the reduced-motion class the running app gives it.
+    /// </summary>
+    /// <remarks>
+    /// Named the way the Setup page names them ("light", "high-contrast", "red-green") rather
+    /// than by enum spelling, so a render command reads like the choice it is proving.
+    /// </remarks>
+    private static V2AppearanceApplier? ApplyAppearance(IServiceProvider services, string[] args)
+    {
+        var theme = StringOption(args, "--appearance");
+        var vision = StringOption(args, "--color-vision");
+        var density = StringOption(args, "--density");
+        var scale = IntOption(args, "--text-scale", 0);
+        var reduceMotion = args.Contains("--reduce-motion");
+        if (theme is null && vision is null && density is null && scale == 0 && !reduceMotion)
+        {
+            return null;
+        }
+
+        var preferences = new WorkspacePreferences(
+            theme switch
+            {
+                "light" => AppearanceTheme.Light,
+                "high-contrast" => AppearanceTheme.HighContrast,
+                "system" => AppearanceTheme.System,
+                null or "dark" => AppearanceTheme.Dark,
+                _ => throw new ArgumentException($"No appearance is named '{theme}'."),
+            },
+            vision switch
+            {
+                "red-green" => ColorVisionMode.RedGreenSafe,
+                "blue-yellow" => ColorVisionMode.BlueYellowSafe,
+                "mono" => ColorVisionMode.Monochrome,
+                null or "standard" => ColorVisionMode.Standard,
+                _ => throw new ArgumentException($"No colour-vision palette is named '{vision}'."),
+            },
+            scale == 0 ? 100 : scale,
+            density switch
+            {
+                "compact" => InterfaceDensity.Compact,
+                "comfortable" => InterfaceDensity.Comfortable,
+                null or "standard" => InterfaceDensity.Standard,
+                _ => throw new ArgumentException($"No density is named '{density}'."),
+            },
+            reduceMotion);
+
+        var service = services.GetRequiredService<WorkspacePreferenceService>();
+        DrainUntilComplete(service.UpdateAsync(preferences, CancellationToken.None));
+        var applier = new V2AppearanceApplier(
+            Avalonia.Application.Current ?? throw new InvalidOperationException("No application was built."),
+            // Headless has no platform colour values; "system" would otherwise mean "dark"
+            // silently and a --appearance system render would prove nothing.
+            () => new Avalonia.Platform.PlatformColorValues
+            {
+                ThemeVariant = Avalonia.Platform.PlatformThemeVariant.Light,
+            });
+        applier.Apply(preferences);
+        Console.WriteLine($"Appearance: {applier.Applied?.Key} text {preferences.TextScalePercent}% {preferences.Density}" +
+            (preferences.ReduceMotion ? " reduced-motion" : string.Empty));
+        return applier;
     }
 }

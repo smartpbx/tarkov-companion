@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Threading;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
@@ -10,6 +12,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Quests;
@@ -98,6 +101,19 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     }
 
     public bool ShowsNoMapPosition => HasMapPosition == false;
+
+    /// <summary>
+    /// Whether this quest's recorded state is the game's own word rather than the player's.
+    /// </summary>
+    /// <remarks>
+    /// Worth four words on the row. A player who has just handed a quest in wants to know the
+    /// companion noticed by itself, and a player whose board is wrong wants to know whether he
+    /// typed it or the log did.
+    /// </remarks>
+    public bool StateCameFromTheGame =>
+        string.Equals(Task.ProgressSource, QuestProgressSources.GameLog, StringComparison.Ordinal);
+
+    public string StateSourceLabel => StateCameFromTheGame ? "from the game" : string.Empty;
 
     /// <summary>A bare recorded state ("Unknown") says nothing on the page; only counts are shown.</summary>
     public bool HasRemainingLabel => Objective.TargetCount is not null || Objective.RecordedCount is not null;
@@ -312,6 +328,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<PlanTraderLoyaltyViewModel> _traderLoyalty = [];
     private int _playerLevel = QuestsPageViewModel.MinimumLevel;
     private string _rollup = string.Empty;
+    private readonly QuestLogProgressService? _questLog;
+    private string _gameLogStatus = string.Empty;
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
@@ -331,9 +349,15 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         QuestMapProjectionService? projection = null,
         // Package 28: names the items a map's objectives ask for. Optional like the rest, so a
         // composition without the item catalog still plans, with the ids as the names.
-        IItemRepository? itemRepository = null)
+        IItemRepository? itemRepository = null,
+        // Package 47: what the game's logs have said about quests this session. The board used to
+        // refresh only after a mutation it had made itself, so a quest handed in while the player
+        // was looking at this page did not appear until the page was left and come back to -- and
+        // a session in which nothing was read said nothing at all.
+        QuestLogProgressService? questLog = null)
     {
         _itemRepository = itemRepository;
+        _questLog = questLog;
         _profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
         _readService = readService ?? throw new ArgumentNullException(nameof(readService));
         _commandService = commandService ?? throw new ArgumentNullException(nameof(commandService));
@@ -346,6 +370,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         if (_raidCockpit is not null)
         {
             _raidCockpit.SceneRebuilt += (_, _) => RefreshMapPreview();
+        }
+
+        if (_questLog is not null)
+        {
+            _questLog.Changed += OnQuestLogChanged;
+            UpdateGameLogStatus(_questLog.Reading);
         }
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         OpenHideoutCommand = new DelegateCommand(() => OpenHideoutRequested?.Invoke(this, EventArgs.Empty));
@@ -566,6 +596,29 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         private set => SetProperty(ref _scopeLabel, value);
     }
 
+    /// <summary>
+    /// What the game's logs have told this session about quests, in one line.
+    /// </summary>
+    /// <remarks>
+    /// Silence is what made a whole raid's quest hand-ins go a day unnoticed: a board that had
+    /// learned nothing looked exactly like a board with nothing to learn. So this says which it
+    /// is, including when the answer is "nothing yet", and including when the game named a quest
+    /// the loaded catalog does not have.
+    /// </remarks>
+    public string GameLogStatus
+    {
+        get => _gameLogStatus;
+        private set
+        {
+            if (SetProperty(ref _gameLogStatus, value))
+            {
+                OnPropertyChanged(nameof(HasGameLogStatus));
+            }
+        }
+    }
+
+    public bool HasGameLogStatus => _gameLogStatus.Length > 0;
+
     public AsyncDelegateCommand RefreshCommand { get; }
 
     public Task LoadAsync() => RefreshAsync(CancellationToken.None);
@@ -586,6 +639,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             _projected.Clear();
             ApplyProfile(profile.Level, profile.TraderLevels);
             ApplyFilter();
+            UpdateGameLogStatus(_questLog?.Reading);
             await RefreshMapQuestLayerAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -597,8 +651,61 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Groups = [];
             SelectedGroup = null;
             Status = "Quest data isn't available yet.";
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace refresh failed: {exception}");
+            WorkspaceFault.Record("plan", "refresh", exception);
         }
+    }
+
+    /// <summary>
+    /// The game said something about a quest, so the board the player is looking at reloads.
+    /// </summary>
+    /// <remarks>
+    /// Raised on whichever thread was reading the log, so it is marshalled here rather than in
+    /// the service: every other caller of RefreshAsync is already on the UI thread.
+    /// </remarks>
+    private void OnQuestLogChanged(object? sender, QuestLogProgressReading reading)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnQuestLogChanged(sender, reading));
+            return;
+        }
+
+        UpdateGameLogStatus(reading);
+        _ = RefreshAsync(CancellationToken.None);
+    }
+
+    private void UpdateGameLogStatus(QuestLogProgressReading? reading)
+    {
+        if (reading is null)
+        {
+            GameLogStatus = string.Empty;
+            return;
+        }
+
+        if (!reading.HeardAnything)
+        {
+            GameLogStatus = "The game hasn't reported a quest yet this session.";
+            return;
+        }
+
+        var heard = reading.LastObservedUtc is { } observed
+            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
+            : "The game has reported quests";
+        var what = reading.Recorded switch
+        {
+            0 => "; none of them changed your board",
+            1 => "; 1 updated your board",
+            var many => $"; {many} updated your board",
+        };
+        var caveat = (reading.Unmatched, reading.Failed) switch
+        {
+            (0, 0) => ".",
+            (> 0, 0) => $". {CountLabel(reading.Unmatched, "quest")} not in the loaded catalog.",
+            (0, > 0) => $". {CountLabel(reading.Failed, "quest")} couldn't be saved.",
+            var (unmatched, failed) =>
+                $". {CountLabel(unmatched, "quest")} not in the catalog, {CountLabel(failed, "quest")} couldn't be saved.",
+        };
+        GameLogStatus = heard + what + caveat;
     }
 
     /// <summary>
@@ -614,7 +721,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not refresh the map's quest layer: {exception.Message}");
+            WorkspaceFault.Record("plan", "refresh the map's quest layer", exception.Message);
         }
     }
 
@@ -866,7 +973,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 // One unreadable item costs one name, not the panel.
-                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name item {id}: {exception.Message}");
+                WorkspaceFault.Record("plan", $"name item {id}", exception.Message);
             }
         }
 
@@ -929,7 +1036,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not place objectives on {gameMapId}: {exception.Message}");
+            WorkspaceFault.Record("plan", $"place objectives on {gameMapId}", exception.Message);
             _projected[gameMapId] = [];
         }
         finally
@@ -971,7 +1078,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            System.Diagnostics.Trace.TraceWarning($"Plan workspace could not load map {mapId}: {exception.Message}");
+            WorkspaceFault.Record("plan", $"load map {mapId}", exception.Message);
         }
 
         RefreshMapPreview();
@@ -1193,7 +1300,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
                 // One unreadable map falls back to the catalog name below; it must not blank the page.
-                System.Diagnostics.Trace.TraceWarning($"Plan workspace could not name map {mapId}: {exception.Message}");
+                WorkspaceFault.Record("plan", $"name map {mapId}", exception.Message);
             }
         }
 

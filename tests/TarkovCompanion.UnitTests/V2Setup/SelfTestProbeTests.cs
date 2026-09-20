@@ -1,6 +1,8 @@
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.SelfTest;
 
+using TarkovCompanion.Application.Services;
+
 namespace TarkovCompanion.UnitTests.V2Setup;
 
 /// <summary>
@@ -126,14 +128,47 @@ public sealed class SelfTestProbeTests
 
     /// <summary>The failure nobody could see: the file is there and no position comes out of it.</summary>
     [Fact]
-    public void ScreenshotsFailWhenANameYieldsNoPosition()
+    public void ScreenshotsFailOnlyWhenAnInRaidNameYieldsNoPosition()
     {
-        var reading = Screenshot() with { Parsed = false, X = null, Y = null, Z = null };
-
-        var result = SelfTestProbes.Screenshots(reading, Took, Culture);
+        var result = SelfTestProbes.Screenshots(UnreadableInRaidScreenshot(), Took, Culture);
 
         Assert.Equal(SelfTestOutcome.Fail, result.Outcome);
         Assert.Contains(result.Facts, fact => fact.Text.Contains("put nobody on the map", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// [V2 rough package 43a] Reported by Clayton: the probe called
+    /// <c>2026-09-18[19-03]_19.67 (1).png</c> broken. The game writes the coordinate blocks only
+    /// for a shot taken in a raid, so that name never had a position and refusing to read one is
+    /// the parser working. This is the branch that stops correct behaviour being reported as a
+    /// fault.
+    /// </summary>
+    [Fact]
+    public void AScreenshotTakenOutsideARaidIsAFactRatherThanAFault()
+    {
+        var result = SelfTestProbes.Screenshots(OutsideRaidScreenshot(), Took, Culture);
+
+        Assert.Equal(SelfTestOutcome.Unknown, result.Outcome);
+        Assert.Contains("outside a raid", result.Headline, StringComparison.Ordinal);
+        Assert.Contains("during a raid", result.Headline, StringComparison.Ordinal);
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("carries no coordinates", StringComparison.Ordinal));
+    }
+
+    /// <summary>A shot already on disk answers the same question, and says which file it used.</summary>
+    [Fact]
+    public void AScreenshotAlreadyOnDiskCountsAndIsNamed()
+    {
+        var reading = Screenshot() with { WasAlreadyThere = true, Age = TimeSpan.FromMinutes(3) };
+
+        var result = SelfTestProbes.Screenshots(reading, Took, Culture);
+
+        Assert.Equal(SelfTestOutcome.Pass, result.Outcome);
+        Assert.Contains("already had", result.Headline, StringComparison.Ordinal);
+        Assert.Contains(result.Facts, fact => fact.Text.Contains(reading.FileName!, StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("3 min before this ran", StringComparison.Ordinal));
+        // The reporting the original probe had, kept: which clock, and the end-to-end delay.
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("taken from the file's own write time", StringComparison.Ordinal));
+        Assert.Contains(result.Facts, fact => fact.Text.Contains("to this position being parsed", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -145,7 +180,9 @@ public sealed class SelfTestProbeTests
         var result = SelfTestProbes.Screenshots(reading, Took, Culture);
 
         Assert.Equal(SelfTestOutcome.Unknown, result.Outcome);
-        Assert.Contains("Press the game's screenshot key", result.Headline, StringComparison.Ordinal);
+        // Never a red failure for something the player did not do in time.
+        Assert.NotEqual(SelfTestOutcome.Fail, result.Outcome);
+        Assert.Contains("Nothing is wrong", result.Headline, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -377,6 +414,56 @@ public sealed class SelfTestProbeTests
         "the file's own write time",
         TimeSpan.FromSeconds(6.2),
         TimeSpan.FromMilliseconds(410));
+
+    /// <summary>A folder that was looked at and held no screenshot worth reading.</summary>
+    internal static SelfTestScreenshot NoScreenshot(TimeSpan? waited = null) => new(
+        @"D:\Shots",
+        null,
+        null,
+        null,
+        false,
+        null,
+        null,
+        null,
+        "no clock",
+        waited ?? TimeSpan.Zero,
+        null);
+
+    /// <summary>A screenshot taken outside a raid: the game wrote no position into the name.</summary>
+    internal static SelfTestScreenshot OutsideRaidScreenshot() => new(
+        @"D:\Shots",
+        "2026-09-18[19-03]_19.67 (1).png",
+        Now.AddMinutes(-2),
+        Now,
+        false,
+        null,
+        null,
+        null,
+        "the file's own write time",
+        TimeSpan.Zero,
+        TimeSpan.FromMinutes(2))
+    {
+        WasAlreadyThere = true,
+        NameKind = ScreenshotNameKind.OutsideRaid,
+        Age = TimeSpan.FromMinutes(2),
+    };
+
+    /// <summary>A screenshot whose name says it was taken in a raid and still will not parse.</summary>
+    internal static SelfTestScreenshot UnreadableInRaidScreenshot() => new(
+        @"D:\Shots",
+        "2026-09-18[19-03]_-125.4, 2.3, 189.7_0.0, 0.7, 0.0, -0.7_12.34.png",
+        Now.AddSeconds(-1),
+        Now,
+        false,
+        null,
+        null,
+        null,
+        "the file's own write time",
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromMilliseconds(900))
+    {
+        NameKind = ScreenshotNameKind.InRaid,
+    };
 
     internal static SelfTestGameData GameData() => new(
         "regular",

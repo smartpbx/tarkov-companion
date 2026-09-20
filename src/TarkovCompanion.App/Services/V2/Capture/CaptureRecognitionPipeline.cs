@@ -33,11 +33,18 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 public sealed class CaptureRecognitionPipeline(
     OcrCoordinator ocr,
     GridPixelReconstructionBuilder gridBuilder,
-    TimeProvider? timeProvider = null) : ICaptureSessionPipeline
+    TimeProvider? timeProvider = null,
+    // [V2 rough package 60 — Intel scan] #287: the catalog resolver, so a single-item screen
+    // leaves this pipeline knowing WHICH item it showed. Optional so a host that composes the
+    // pipeline without a catalog still builds; it then identifies nothing rather than guessing.
+    CanonicalItemResolverCache? resolverCache = null,
+    OcrTextNormalizer? normalizer = null) : ICaptureSessionPipeline
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly CanonicalItemResolverCache? _resolverCache = resolverCache;
+    private readonly OcrTextNormalizer _normalizer = normalizer ?? new OcrTextNormalizer();
 
     public async Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -68,8 +75,67 @@ public sealed class CaptureRecognitionPipeline(
             isAvailable,
             coordinated.DiagnosticCode,
             detection.Confidence,
-            grid);
+            grid,
+            await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
+                .ConfigureAwait(false));
     }
+
+    /// <summary>
+    /// What single item this frame showed, when the screen is one that holds a single item.
+    /// </summary>
+    /// <remarks>
+    /// Resolved from the lines the coordinator already read rather than by asking a second
+    /// recognizer, which would double the slowest step of a capture and let two code paths
+    /// disagree about the same screenshot. Only item-shaped screens are resolved: running the
+    /// fuzzy catalog search over a stash grid's hundreds of lines is work whose answer nothing
+    /// uses, and the grid lattice is the right reading of that frame.
+    ///
+    /// A resolver that never loaded, or a deadline that expired mid-search, identifies nothing.
+    /// Both are honest: the review still says what the recognizer was sure of, and the player
+    /// still has Retry.
+    /// </remarks>
+    private async Task<IReadOnlyList<CaptureIdentifiedItem>> IdentifyAsync(
+        CoordinatedOcrResult coordinated,
+        RecognizedContext? detectedContext,
+        ScanIntent requestedIntent,
+        CancellationToken cancellationToken)
+    {
+        if (_resolverCache is null || !IdentifiesItems(detectedContext, requestedIntent))
+        {
+            return [];
+        }
+
+        try
+        {
+            var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
+            return
+            [
+                .. OcrItemCandidates
+                    .Rank(coordinated.Candidates, resolver, _normalizer, cancellationToken)
+                    .Select(candidate => new CaptureIdentifiedItem(
+                        candidate.CanonicalId,
+                        candidate.DisplayName,
+                        candidate.Confidence,
+                        candidate.Evidence)),
+            ];
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Whether this screen is one whose answer is an item rather than a lattice.</summary>
+    /// <remarks>
+    /// The detected context decides when there is one. When there is not — an unreadable or
+    /// ambiguous screen — only Auto tries anyway, because a player who armed Auto and pressed the
+    /// shutter asked "what is this", which is a question worth attempting on a frame the detector
+    /// could not place. An armed Stash or Loot on an unreadable frame is a different question and
+    /// a catalog search of its lines would answer neither.
+    /// </remarks>
+    internal static bool IdentifiesItems(RecognizedContext? detectedContext, ScanIntent requestedIntent) =>
+        detectedContext is RecognizedContext.Item
+        || (detectedContext is null && requestedIntent is ScanIntent.Auto);
 
     /// <summary>
     /// Which lattice a grid-shaped intent's screen measures. Ammo/Keys/Quest-items grids are other

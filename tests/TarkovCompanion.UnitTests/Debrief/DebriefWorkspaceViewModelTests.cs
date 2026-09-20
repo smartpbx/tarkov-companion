@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.UnitTests.PlayerTime;
 
 namespace TarkovCompanion.UnitTests.Debrief;
 
@@ -42,6 +43,51 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal("customs", viewModel.SelectedMapLabel);
         Assert.Equal("24m 00s", viewModel.SelectedDurationLabel);
         Assert.Equal("2 screenshots recorded.", viewModel.SelectedPathLabel);
+    }
+
+    /// <summary>
+    /// The raid began at 18:00 UTC. A player at UTC-4 was in the lobby at 14:00, and the page must
+    /// say so: the list, the selected raid and its quest and sale rows all read that clock. The zone
+    /// is pinned to one that is never UTC, so a UTC-only CI box cannot pass this by coincidence.
+    /// </summary>
+    [Fact]
+    public async Task Raid_times_are_shown_on_the_players_clock_not_in_utc()
+    {
+        using var pin = PlayerClock.Pin();
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedEvent(RaidId, "quest", JsonSerializer.Serialize(new QuestStatusObservation(
+            "EVENT_1", "TASK_1", RecordedTaskState.Completed, Started.AddMinutes(3))));
+        service.SeedEvent(RaidId, "sale", JsonSerializer.Serialize(new FleaSaleObservation(
+            "OFFER_1", "ITEM_1", 1, Started.AddMinutes(5))));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+
+        await viewModel.LoadAsync();
+
+        var row = Assert.Single(viewModel.Raids);
+        Assert.Equal("09/15/2026 14:00", row.StartedLabel);
+        Assert.Equal("09/15/2026 14:24", row.EndedLabel);
+        Assert.Equal("09/15/2026 14:00", viewModel.SelectedStartedLabel);
+        Assert.Equal("09/15/2026 14:24", viewModel.SelectedEndedLabel);
+        Assert.Equal("14:03", Assert.Single(viewModel.SelectedQuestEvents).TimeLabel);
+        Assert.Equal("14:05", Assert.Single(viewModel.SelectedSales).TimeLabel);
+    }
+
+    /// <summary>
+    /// The export is named for the moment it was made, in a folder the player opens: the name
+    /// carries their own clock rather than the UTC one the app stores.
+    /// </summary>
+    [Fact]
+    public async Task An_export_is_named_by_the_players_clock()
+    {
+        using var pin = PlayerClock.Pin();
+        var paths = TestPaths();
+        var viewModel = new DebriefWorkspaceViewModel(new FakeRaidHistoryService(), paths, new FixedClock(Started));
+
+        await ((AsyncDelegateCommand)viewModel.ExportCsvCommand).ExecuteAsync();
+
+        Assert.StartsWith("Exported to ", viewModel.Status, StringComparison.Ordinal);
+        Assert.Equal("20260915-140000-raid-history.csv", Path.GetFileName(viewModel.Status["Exported to ".Length..]));
     }
 
     /// <summary>
@@ -253,6 +299,11 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.False(viewModel.CanWatch);
         Assert.False(raised);
         Assert.Equal("That raid has no screenshots to watch.", viewModel.Status);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private static AppDataPaths TestPaths() => AppDataPaths.Resolve(

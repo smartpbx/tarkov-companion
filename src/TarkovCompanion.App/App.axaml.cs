@@ -6,6 +6,7 @@ using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2;
+using TarkovCompanion.App.Services.V2.Appearance;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.App.Services.V2.Profile;
@@ -14,18 +15,20 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Views;
 using TarkovCompanion.App.Views.V2.MapRenderer;
+using TarkovCompanion.Application.Services.Personalization;
 
 namespace TarkovCompanion.App;
 
 public sealed class App(IServiceProvider services) : Avalonia.Application
 {
-    private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
     private MainWindowViewModel? _mainViewModel;
     private TrayPresenceHost? _tray;
     private NotificationBridge? _notifications;
     private bool _closesToTray;
+    private V2AppearanceApplier? _appearance;
+    private WorkspacePreferenceService? _preferences;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -33,6 +36,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // [V2 rough package 60 — appearance] #266/#315. Before any window exists, so the
+            // first frame is already the theme, the text scale and the density that were chosen
+            // last time rather than the default repainted a moment later.
+            ApplyStoredAppearance();
+
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             _mainViewModel = viewModel;
 
@@ -82,6 +90,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 {
                     DataContext = viewModel,
                 };
+                if (_appearance is { } appearance && _preferences is { } preferences)
+                {
+                    appearance.Attach(window, preferences.Current);
+                }
+
                 desktop.MainWindow = window;
                 // [V2 rough package 43 (#314)] The tray, and the five notifications behind it.
                 // Attached after the window exists because closing to the tray only makes sense
@@ -180,34 +193,91 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     }
 
     /// <summary>
-    /// Cancels startup work and waits a bounded time for it to unwind.
+    /// Reads the stored appearance and paints the application with it, now and on every change.
+    /// </summary>
+    /// <remarks>
+    /// Best effort by design. A preferences file that cannot be read must not stop the companion
+    /// opening, so a failure here leaves the application exactly as <c>App.axaml</c> authored it.
+    /// The read is synchronous because the alternative is a window that opens in the wrong theme
+    /// and flips a frame later, which is worse than a few milliseconds of file access.
+    /// </remarks>
+    private void ApplyStoredAppearance()
+    {
+        try
+        {
+            var preferences = services.GetService<WorkspacePreferenceService>();
+            if (preferences is null)
+            {
+                return;
+            }
+
+            _preferences = preferences;
+            var applier = new V2AppearanceApplier(this);
+            _appearance = applier;
+            // Loaded before subscribing, so the first paint happens once rather than twice.
+            applier.Apply(preferences.LoadAsync(CancellationToken.None).GetAwaiter().GetResult());
+            preferences.Changed += (_, current) => applier.Apply(current);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Cancels startup work and unwinds the interface, every step under its own deadline.
     /// </summary>
     /// <remarks>
     /// <see cref="MainWindowViewModel.InitializeAsync"/> runs on the UI thread and resumes on
     /// the Avalonia dispatcher. By the time shutdown runs the dispatcher has stopped, so those
     /// continuations can never complete and an unbounded await here would hang forever.
+    ///
+    /// That was true of the preview shell too, and it was not bounded. Closing the window raises
+    /// <c>Closing</c>, <c>MainWindow.RememberLayout</c> records the window's bounds, and that
+    /// enqueues a save — so the close creates the work that this method then waited on, through a
+    /// queue whose own drain awaits its writer with <see cref="CancellationToken.None"/>. One
+    /// slow file write on the way out and the process never reached its own exit.
+    ///
+    /// So the drain is gone rather than shortened: waiting on work that cannot finish is worth
+    /// removing outright, not budgeting for. A startup that has already completed is still
+    /// awaited, because that costs nothing and surfaces what it threw. The preview shell gets a
+    /// deadline of its own, and what each step cost is in the log.
     /// </remarks>
-    public async Task StopAsync()
+    public async Task<string> StopAsync(TimeSpan budget)
     {
+        var stages = new ShutdownStages(budget);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_mainViewModel?.PreviewShell is { } preview)
         {
-            await preview.DisposeAsync().ConfigureAwait(false);
+            await stages
+                .RunAsync("preview-shell", () => preview.DisposeAsync().AsTask(), TimeSpan.FromSeconds(2))
+                .ConfigureAwait(false);
         }
 
         _mainViewModel?.Map.Dispose();
         _notifications?.Dispose();
         _tray?.Dispose();
-        try
+        // Observed, not waited for. Startup's continuations are posted to a dispatcher that has
+        // already stopped running them, so a startup still in flight here can never finish and
+        // every second spent waiting on it is a second bought for nothing — five of them, out of
+        // a fifteen-second budget, before this. Awaiting a task that has *already* completed is
+        // free and surfaces anything it threw, so that is all this does; the rest is recorded and
+        // left behind with the process.
+        if (_initialization.IsCompleted)
         {
-            await _initialization.WaitAsync(InitializationDrainTimeout, CancellationToken.None).ConfigureAwait(false);
+            // Whatever is left of the budget, which it cannot spend: the task is already
+            // complete, so this returns at once and only exists to surface what it threw.
+            await stages
+                .RunAsync("initialization", () => _initialization, stages.Remaining)
+                .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is OperationCanceledException or TimeoutException)
+        else
         {
+            stages.Skip("initialization", "still running; its continuations cannot complete");
         }
-        finally
-        {
-            _stopping.Dispose();
-        }
+
+        _stopping.Dispose();
+        return stages.Report();
     }
 }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Threading;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -7,6 +8,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.Quests;
 
@@ -262,9 +264,33 @@ public sealed class QuestTaskViewModel
 
     public string ObjectiveSummary => $"{Objectives.Count(objective => objective.Model.RecordedState == RecordedObjectiveState.Completed)}/{Objectives.Count} recorded complete · {Model.RecordedObjectivesSatisfied}";
 
-    public string Source => Model.ProgressModifiedUtc is { } modified
-        ? $"{Model.ProgressSource} · {QuestsPageViewModel.FormatAge(modified, _owner.NowUtc)}"
-        : Model.ProgressSource;
+    /// <summary>
+    /// Where this quest's recorded state came from, and when.
+    /// </summary>
+    /// <remarks>
+    /// The stored source is a code, and two of them are worth naming in words on the page: a
+    /// state the player typed and a state the game announced. A player who has just handed a
+    /// quest in wants to see that the companion noticed it by itself.
+    /// </remarks>
+    public string Source
+    {
+        get
+        {
+            var origin = Model.ProgressSource switch
+            {
+                QuestProgressSources.GameLog => "From the game",
+                QuestProgressSources.Manual => "Recorded by you",
+                var other => other,
+            };
+            return Model.ProgressModifiedUtc is { } modified
+                ? $"{origin} · {QuestsPageViewModel.FormatAge(modified, _owner.NowUtc)}"
+                : origin;
+        }
+    }
+
+    /// <summary>Whether this quest's state is the game's own word rather than the player's.</summary>
+    public bool StateCameFromTheGame =>
+        string.Equals(Model.ProgressSource, QuestProgressSources.GameLog, StringComparison.Ordinal);
 
     /// <summary>Who gives this quest, named rather than identified.</summary>
     /// <remarks>
@@ -408,6 +434,8 @@ public sealed class QuestsPageViewModel : PageViewModel
     private IReadOnlyList<TraderLoyaltyViewModel> _traderLoyalty = [];
     private IReadOnlyList<QuestImportHistoryRowViewModel> _importHistoryRows = [];
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
+    private readonly QuestLogProgressService? _questLog;
+    private string _gameLogStatus = string.Empty;
 
     public QuestsPageViewModel(
         IPlayerProfileService profileService,
@@ -429,7 +457,11 @@ public sealed class QuestsPageViewModel : PageViewModel
         ITraderCatalog? traderCatalog = null,
         // Optional for the same reason as the others: without it, a task with a wiki link has
         // nothing that can open one, so the Wiki action stays hidden instead of failing.
-        IWikiLinkOpener? wikiLinkOpener = null)
+        IWikiLinkOpener? wikiLinkOpener = null,
+        // Package 47: what the game's logs have said about quests this session. Without it this
+        // page cannot tell "the game has reported nothing" from "the game reported nothing new",
+        // and a quest handed in while the page is open does not appear until it is reloaded.
+        QuestLogProgressService? questLog = null)
         : base(
             "Quests",
             "What you are working on, and what each one needs",
@@ -447,6 +479,13 @@ public sealed class QuestsPageViewModel : PageViewModel
         _importHistory = importHistory;
         _traderCatalog = traderCatalog;
         _wikiLinkOpener = wikiLinkOpener;
+        _questLog = questLog;
+        if (_questLog is not null)
+        {
+            _questLog.Changed += OnQuestLogChanged;
+            UpdateGameLogStatus(_questLog.Reading);
+        }
+
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
@@ -603,6 +642,29 @@ public sealed class QuestsPageViewModel : PageViewModel
         get => _status;
         private set => SetProperty(ref _status, value);
     }
+
+    /// <summary>
+    /// What the game's logs have told this session about quests, in one line.
+    /// </summary>
+    /// <remarks>
+    /// The game announces every quest starting, failing and being handed in, and this page had
+    /// no way of saying whether any of that had reached it. A player who finished quests in a
+    /// raid and saw nothing change could not tell a companion that had read nothing from a
+    /// companion that had read everything and found nothing new.
+    /// </remarks>
+    public string GameLogStatus
+    {
+        get => _gameLogStatus;
+        private set
+        {
+            if (SetProperty(ref _gameLogStatus, value))
+            {
+                OnPropertyChanged(nameof(HasGameLogStatus));
+            }
+        }
+    }
+
+    public bool HasGameLogStatus => _gameLogStatus.Length > 0;
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
@@ -910,6 +972,7 @@ public sealed class QuestsPageViewModel : PageViewModel
                 ? "Catalog unavailable"
                 : $"{board.Tasks.Count} quests · {board.CatalogProvenance.SourceMode}";
             ApplyFilter(selectedTaskId);
+            UpdateGameLogStatus(_questLog?.Reading);
             Status = board.UnavailableReason ?? (Tasks.Count == 0
                 ? EmptyBoardText
                 : $"{Tasks.Count} of {_allTasks.Count} quests");
@@ -925,6 +988,56 @@ public sealed class QuestsPageViewModel : PageViewModel
         {
             _refreshLock.Release();
         }
+    }
+
+    /// <summary>
+    /// The game said something about a quest, so the page the player is looking at reloads.
+    /// </summary>
+    /// <remarks>
+    /// Raised on whichever thread was reading the log, so it is marshalled here. Without this,
+    /// the board only ever refreshed after a change made on the page itself, and a hand-in read
+    /// out of a log while the page was open sat in the database unseen.
+    /// </remarks>
+    private void OnQuestLogChanged(object? sender, QuestLogProgressReading reading)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnQuestLogChanged(sender, reading));
+            return;
+        }
+
+        UpdateGameLogStatus(reading);
+        _ = RefreshAsync(CancellationToken.None);
+    }
+
+    private void UpdateGameLogStatus(QuestLogProgressReading? reading)
+    {
+        if (reading is null)
+        {
+            GameLogStatus = string.Empty;
+            return;
+        }
+
+        if (!reading.HeardAnything)
+        {
+            GameLogStatus = "The game hasn't reported a quest yet this session.";
+            return;
+        }
+
+        var heard = reading.LastObservedUtc is { } observed
+            ? $"The game last reported a quest at {LocalTime.ShortTime(observed)}"
+            : "The game has reported quests";
+        var what = reading.Recorded == 1
+            ? "; 1 updated this board"
+            : $"; {reading.Recorded} updated this board";
+        var caveat = (reading.Unmatched, reading.Failed) switch
+        {
+            (0, 0) => ".",
+            (> 0, 0) => $". {reading.Unmatched} not in the loaded catalog.",
+            (0, > 0) => $". {reading.Failed} couldn't be saved.",
+            var (unmatched, failed) => $". {unmatched} not in the catalog, {failed} couldn't be saved.",
+        };
+        GameLogStatus = heard + what + caveat;
     }
 
     internal void Select(QuestTaskViewModel task)
@@ -1199,7 +1312,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             ? $" Read quota remaining: {remaining}/{status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
             : " Read quota is unknown.";
         var backoff = status.NextEligibleRefreshUtc is { } next
-            ? $" Next eligible refresh: {next:O}."
+            ? $" Next eligible refresh: {LocalTime.Moment(next)}."
             : string.Empty;
         TarkovTrackerStatus = string.Join(" ", new[] { operation, availability }
                 .Where(value => !string.IsNullOrWhiteSpace(value))) + quota + backoff;
@@ -1331,7 +1444,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     private static QuestImportHistoryRowViewModel Describe(QuestImportRecord record) => new(
         string.Create(
             CultureInfo.CurrentCulture,
-            $"{record.ProfileName} · {record.ImportedUtc.ToLocalTime():g}"),
+            $"{record.ProfileName} · {LocalTime.Moment(record.ImportedUtc)}"),
         string.Create(
             CultureInfo.CurrentCulture,
             $"Applied {record.AppliedChangeCount} · kept {record.KeptLocalCount} local · {record.Unresolved.Count} unresolved · from {record.SourceAppVersion}"),

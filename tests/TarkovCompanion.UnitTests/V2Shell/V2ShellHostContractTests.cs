@@ -138,7 +138,10 @@ public sealed class V2ShellHostContractTests
 
         foreach (var binding in new[]
         {
-            "UsesRailNavigation", "UsesRowNavigation", "ShowsHeaderSetup", "ShowsSeparatedSetup",
+            // [V2 rough package 46] ShowsNavigationRail rather than UsesRailNavigation: the rail
+            // still leaves at narrow width, and now also when the player collapses it.
+            "ShowsNavigationRail", "ShowsNavigationLauncher", "NavigationRailWidth",
+            "UsesRowNavigation", "ShowsHeaderSetup", "ShowsSeparatedSetup",
             "ShowsHeaderSearch", "ShowsWorkspaceSearch", "ShowsPrimaryContent", "ShellBodyRowSpan",
             "IntelColumn", "IntelColumnSpan",
         })
@@ -150,6 +153,11 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("V2ShellAdaptation.Classify(effectiveWidth)", model, StringComparison.Ordinal);
         Assert.Contains("v2-shell-navigation-rail", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-navigation-row", shell, StringComparison.Ordinal);
+        // [V2 rough package 46] Collapsing the rail must not hide a destination: the launcher that
+        // replaces it is in the markup, and it carries the same list.
+        Assert.Contains("v2-shell-navigation-rail-toggle", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-navigation-launcher", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-navigation-show-rail", shell, StringComparison.Ordinal);
         Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
         Assert.Contains("Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter", shell, StringComparison.Ordinal);
         Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
@@ -175,7 +183,12 @@ public sealed class V2ShellHostContractTests
 
         Assert.DoesNotContain("GetService<V2ShellViewModel>()", app, StringComparison.Ordinal);
         Assert.Contains("_mainViewModel?.PreviewShell", app, StringComparison.Ordinal);
-        Assert.Contains("await preview.DisposeAsync()", app, StringComparison.Ordinal);
+        // Still disposed on the way out, and now under a deadline. The shape changed when
+        // shutdown was given one shared budget: closing the window enqueues a preview save, and
+        // the queue's drain awaits its writer with CancellationToken.None, so an unbounded await
+        // here was the close waiting on work the close had just created.
+        Assert.Contains("preview.DisposeAsync().AsTask()", app, StringComparison.Ordinal);
+        Assert.Contains("\"preview-shell\"", app, StringComparison.Ordinal);
         var keyHandler = window.IndexOf("private void WindowKeyDown", StringComparison.Ordinal);
         var previewBoundary = window.IndexOf("if (viewModel.PreviewShell is { } preview)", keyHandler, StringComparison.Ordinal);
         var legacyKeys = window.IndexOf("if (eventArgs.KeyModifiers == KeyModifiers.Control)", previewBoundary, StringComparison.Ordinal);
