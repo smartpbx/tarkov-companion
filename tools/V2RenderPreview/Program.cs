@@ -51,7 +51,10 @@ internal static class Program
         var search = StringOption(args, "--search");
         // Package 28: run a Flea lookup, so the Flea workspace can be rendered with results.
         var fleaQuery = StringOption(args, "--flea-query");
-        var options = AppCommandLine.Parse(args) with { Demo = true };
+        // --no-demo: the demo fixture is always mid-raid on Customs, so it can never show what a
+        // first launch shows, which is no raid and no map anybody chose.
+        var demoMode = !args.Contains("--no-demo");
+        var options = AppCommandLine.Parse(args) with { Demo = demoMode };
 
         var rendered = false;
         var dataRoot = Path.Combine(Path.GetTempPath(), $"v2-render-preview-{Guid.NewGuid():N}");
@@ -63,10 +66,13 @@ internal static class Program
         // startup migrates it forward, and it is deleted with the root afterwards.
         if (StringOption(args, "--seed-database") is { } seedDatabase)
         {
-            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: true).Database;
+            var databaseDirectory = AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Database;
             Directory.CreateDirectory(databaseDirectory);
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
+
+        MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
+        MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
         try
         {
             // Not disposed: some services' DisposeAsync continues on the UI dispatcher, which
@@ -80,7 +86,7 @@ internal static class Program
                     System.Globalization.CultureInfo.InvariantCulture,
                     System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal))
                 : null;
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now));
+            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -503,7 +509,8 @@ internal static class Program
 
                 // A page other than Raid picks its own map (Plan follows its selected map group),
                 // so only a Raid render, or an explicit --map, chooses one here.
-                var picked = mapId is null && options.StartPage is not null
+                // --no-map: leave the page as a first launch finds it, with nobody having chosen anything.
+                var picked = (mapId is null && options.StartPage is not null) || args.Contains("--no-map")
                     ? null
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
@@ -704,6 +711,13 @@ internal static class Program
                         }
                     }
                 }
+                // Change map inside the run, and say what the view drew and how long it took.
+                if (StringOption(args, "--then-map") is { } thenMaps)
+                {
+                    MapSwitchProbe.FirstPicturePath = StringOption(args, "--then-map-first");
+                    MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
+                }
+
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
                 // that shows no chooser says whether that is a bug or a one-variant map.
                 Console.WriteLine("Artwork: " + string.Join(
@@ -749,10 +763,15 @@ internal static class Program
             // layout has settled at its final requested size, leaving the canvas sized to an
             // earlier, smaller pass. A nudge-and-restore forces one more SizeChanged once
             // everything else (map data, the details-panel toggle) has already settled.
-            window.Width = width - 1;
-            Pump(5);
-            window.Width = width;
-            Pump(10);
+            // Not after --then-map: resizing the card is exactly what used to put a stale plan
+            // rectangle right, so the nudge would hide the fault that option exists to show.
+            if (StringOption(args, "--then-map") is null)
+            {
+                window.Width = width - 1;
+                Pump(5);
+                window.Width = width;
+                Pump(10);
+            }
 
             // [V2 rough package 39] The Raid workspace's context panel is a scroller taller than
             // any screen, so a card further down it cannot be photographed without scrolling to
@@ -1110,6 +1129,7 @@ internal static class Program
         {
             try
             {
+                MapSwitchProbe.UnlinkMapCache(dataRoot, demoMode);
                 Directory.Delete(dataRoot, recursive: true);
             }
             catch (IOException)
