@@ -179,6 +179,51 @@ public sealed class RuntimeCompositionTests
     }
 
     [Fact]
+    public async Task ExportingThePlanWritesAFileAndCopiesTheSameText()
+    {
+        // [V2 rough package 61 — plan export] #288/#315. The wiring test: the Plan view model has
+        // to receive AppDataPaths and a clock from the container, the shell has to expose it so a
+        // view can hand it a clipboard, and pressing Export has to reach the disk. Remove any one
+        // and this fails.
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: true) with { UiShell = V2ShellMode.VariantA },
+                new(DataRoot: root, Offline: true));
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            var shell = services.GetRequiredService<V2ShellViewModel>();
+            await viewModel.InitializeAsync();
+
+            var plan = shell.PlanWorkspace;
+            Assert.NotNull(plan);
+
+            string? copied = null;
+            plan.Clipboard = text =>
+            {
+                copied = text;
+                return Task.CompletedTask;
+            };
+            await plan.ExportAsync(TestContext.Current.CancellationToken);
+
+            Assert.NotNull(copied);
+            Assert.Contains("# Next raid plan", copied, StringComparison.Ordinal);
+            Assert.Contains("Copied", plan.ExportStatus, StringComparison.Ordinal);
+
+            // The file a player still has tomorrow, not just the clipboard they lose on the next copy.
+            var exports = Directory.GetFiles(
+                Path.Combine(services.GetRequiredService<AppDataPaths>().Config, "Exports"),
+                "plan-*.md");
+            var written = Assert.Single(exports);
+            Assert.Equal(copied, await File.ReadAllTextAsync(written, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
     public async Task NormalOfflineCompositionShowsHonestUnavailableState()
     {
         var root = TemporaryRoot();

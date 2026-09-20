@@ -84,11 +84,13 @@ public sealed class GuidedStashScanEndToEndTests(ITestOutputHelper output) : IDi
 
         var after = await HideoutBoltsAsync(hideout);
         var neededAfter = needs.GetItemNeed(await profiles.GetActiveAsync(CancellationToken.None), Bolts).Summary.HideoutCount;
-        var line = $"[stash-e2e] downstream: Bolts owned 0 -> {boltsInStash} because a scan said so · Lavatory level 2 row \"{before.ProgressLabel}\" -> \"{after.ProgressLabel}\" · hideout still needs {neededBefore} -> {neededAfter}";
+        var line = $"[stash-e2e] downstream: Bolts owned unknown -> {boltsInStash} because a scan said so · Lavatory level 2 row \"{before.ProgressLabel}\" -> \"{after.ProgressLabel}\" · hideout still needs {neededBefore} -> {neededAfter}";
         output.WriteLine(line);
         Console.WriteLine(line);
 
-        Assert.Equal($"0 / {boltsInStash}", before.ProgressLabel);
+        // Before any scan nobody has counted the bolts, and the row says so rather than "0": an
+        // unrecorded holding is unknown, not none (HeldCount). The scan is what makes it known.
+        Assert.Equal($"? / {boltsInStash}", before.ProgressLabel);
         Assert.False(before.IsSatisfied);
         Assert.Equal($"{boltsInStash} / {boltsInStash}", after.ProgressLabel);
         Assert.True(after.IsSatisfied);

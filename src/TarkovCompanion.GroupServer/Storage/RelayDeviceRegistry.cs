@@ -329,20 +329,37 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("pairing-incomplete");
             }
 
-            if (_state.Devices.Count >= ProtocolBounds.MaxDevices ||
-                HasIdentityCollision(deviceKey, establishment))
+            // [#290] The same tablet pairing again. Its device key never changes, so once this
+            // registry kept an owner's devices across a restart instead of being wiped by every
+            // re-claim, a tablet that had expired, been revoked, or lost its page could never be
+            // registered again: its old record collided with the new one for good. The live owner
+            // presenting a freshly completed pairing for that key is the authority saying the old
+            // record is finished, so it is dropped here rather than left to block its successor.
+            // Never an owner's own record: that one changes hands by recovery alone.
+            var retainedDevices = _state.Devices
+                .Where(existing => existing.Role == DeviceAuthorizationRole.Owner ||
+                    existing.DeviceKey.KeyId != deviceKey.KeyId)
+                .ToList();
+            var retainedIds = retainedDevices.Select(existing => existing.DeviceId).ToHashSet();
+            var retainedSessions = _state.Sessions
+                .Where(record => retainedIds.Contains(record.Session.DeviceId))
+                .ToList();
+            if (retainedDevices.Count >= ProtocolBounds.MaxDevices ||
+                retainedDevices.Any(existing => existing.DeviceId == establishment.Assignment.DeviceId ||
+                    existing.DeviceKey.KeyId == deviceKey.KeyId) ||
+                retainedSessions.Any(record => CollidesWith(record, establishment)))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("device-limit-or-duplicate");
             }
 
             var device = CreateDevice(deviceKey, establishment, role);
             var issued = IssueSession(device, establishment, surface, now);
-            var sessions = MakeRoomForSession(_state.Sessions);
+            var sessions = MakeRoomForSession(retainedSessions);
             sessions.Add(issued.Record);
             await CommitAsync(
                 new RelayRegistryState(
                     true,
-                    [.. _state.Devices, device],
+                    [.. retainedDevices, device],
                     sessions,
                     AppendAudit(_state.Audit, new RelayAuditEvent(
                         Guid.NewGuid(),
@@ -944,14 +961,16 @@ public sealed class RelayDeviceRegistry
         HasSessionCollision(establishment);
 
     private bool HasSessionCollision(SessionEstablished establishment) =>
-        _state.Sessions.Any(record =>
-            record.Session.SessionId == establishment.Assignment.SessionId ||
-            record.ChannelId == establishment.Assignment.RelayChannelId ||
-            record.Session.Establishment.ChallengeId == establishment.ChallengeId ||
-            string.Equals(
-                record.Session.TranscriptHashBase64Url,
-                establishment.TranscriptHashBase64Url,
-                StringComparison.Ordinal));
+        _state.Sessions.Any(record => CollidesWith(record, establishment));
+
+    private static bool CollidesWith(RelaySessionRecord record, SessionEstablished establishment) =>
+        record.Session.SessionId == establishment.Assignment.SessionId ||
+        record.ChannelId == establishment.Assignment.RelayChannelId ||
+        record.Session.Establishment.ChallengeId == establishment.ChallengeId ||
+        string.Equals(
+            record.Session.TranscriptHashBase64Url,
+            establishment.TranscriptHashBase64Url,
+            StringComparison.Ordinal);
 
     private static bool TryCompletedPairing(
         PairingAttempt attempt,

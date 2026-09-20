@@ -21,7 +21,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("gunsmith-4", "obj-1", "item-spring", 2, false)],
         };
-        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)]);
+        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements);
         var viewModel = new KeepListWorkspaceViewModel(
             requirements,
             new FakePlayerProfileService(TestProfile()),
@@ -46,7 +46,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("prapors-choice", "obj-1", "item-bolts", 1, false)],
         };
-        var quests = new FakeQuestReadService([Quest("prapors-choice", "Prapor's Choice", RecordedTaskState.NotStarted)]);
+        var quests = new FakeQuestReadService([Quest("prapors-choice", "Prapor's Choice", RecordedTaskState.NotStarted)], requirements);
         var viewModel = new KeepListWorkspaceViewModel(
             requirements,
             new FakePlayerProfileService(TestProfile()),
@@ -67,7 +67,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("gunsmith-4", "obj-1", "item-spring", 5, false)],
         };
-        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)]);
+        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements);
         var profile = TestProfile(objectiveProgress: new Dictionary<string, int>(StringComparer.Ordinal)
         {
             ["obj-1"] = 3,
@@ -92,7 +92,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("gunsmith-4", "obj-1", "item-spring", 2, false)],
         };
-        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Completed)]);
+        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Completed)], requirements);
         var profile = TestProfile(completedTaskIds: new HashSet<string>(StringComparer.Ordinal) { "gunsmith-4" });
         var viewModel = new KeepListWorkspaceViewModel(
             requirements,
@@ -177,7 +177,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("laundry-1", "obj-1", "item-key-office", 1, false)],
         };
-        var quests = new FakeQuestReadService([Quest("laundry-1", "Laundry Part 1", RecordedTaskState.Active)]);
+        var quests = new FakeQuestReadService([Quest("laundry-1", "Laundry Part 1", RecordedTaskState.Active)], requirements);
         var factCatalog = new FakeItemFactCatalog
         {
             KeyFacts = [new("item-key-office", "customs", null, [], [], 5_000, 0, 0, false, 0, Provenance())],
@@ -242,7 +242,7 @@ public sealed class KeepListWorkspaceViewModelTests
         {
             QuestRequirements = [new("gunsmith-4", "obj-1", "item-rare-part", 1, false)],
         };
-        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)]);
+        var quests = new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements);
         var itemRepository = new FakeItemRepository()
             .WithName("item-rare-part", "Rare part")
             .WithPrice("item-rare-part", 150_000);
@@ -277,6 +277,150 @@ public sealed class KeepListWorkspaceViewModelTests
 
         Assert.False(viewModel.HasGroups);
         Assert.Equal("No keep-list data cached yet.", viewModel.Status);
+    }
+
+    [Fact]
+    public async Task A_quest_that_needs_some_found_in_raid_says_how_many_in_the_reason_and_the_count()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("gunsmith-4", "obj-1", "item-spring", 3, true),
+                new("gunsmith-4", "obj-2", "item-spring", 2, false),
+            ],
+        };
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-spring", "Spring"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        Assert.Contains("5 for Gunsmith Part 4 (3 found in raid)", row.Reasons);
+        Assert.Equal("Quests 5 · 3 found in raid", row.QuestCountLabel);
+        Assert.True(row.HasCounts);
+        Assert.False(row.HasHideoutCount);
+    }
+
+    [Fact]
+    public async Task A_quest_that_needs_it_all_found_in_raid_says_so_and_one_that_does_not_stays_plain()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("gunsmith-4", "obj-1", "item-spring", 3, true),
+                new("debut", "obj-2", "item-bolts", 2, false),
+            ],
+        };
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-spring", "Spring").WithName("item-bolts", "Bolts"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService(
+            [
+                Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active),
+                Quest("debut", "Debut", RecordedTaskState.Active),
+            ], requirements));
+
+        await viewModel.RefreshAsync();
+
+        var rows = Assert.Single(viewModel.Groups).Items.ToDictionary(row => row.Name);
+        Assert.Contains("3 for Gunsmith Part 4 (found in raid)", rows["Spring"].Reasons);
+        Assert.Equal("Quests 3 · all found in raid", rows["Spring"].QuestCountLabel);
+        Assert.Contains("2 for Debut", rows["Bolts"].Reasons);
+        Assert.Equal("Quests 2", rows["Bolts"].QuestCountLabel);
+    }
+
+    [Fact]
+    public async Task A_hideout_item_shows_what_is_still_needed_against_the_whole_build()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            HideoutRequirements =
+            [
+                new("workbench", 1, "item-bolts", 2),
+                new("workbench", 2, "item-bolts", 3),
+                new("workbench", 3, "item-bolts", 4),
+            ],
+            Stations = [new("workbench", "Workbench", [1, 2, 3])],
+        };
+        var profile = TestProfile(hideoutLevels: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["workbench"] = 1 });
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(profile),
+            new FakeItemRepository().WithName("item-bolts", "Bolts"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([]));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        Assert.Equal("Hideout 7 of 9 for the full build", row.HideoutCountLabel);
+        Assert.False(row.HasQuestCount);
+    }
+
+    [Fact]
+    public async Task A_row_says_how_many_are_held_and_says_unknown_rather_than_zero()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("gunsmith-4", "obj-1", "item-spring", 3, true),
+                new("gunsmith-4", "obj-2", "item-bolts", 2, false),
+                new("gunsmith-4", "obj-3", "item-wires", 2, false),
+            ],
+        };
+        var profile = TestProfile(owned: new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["item-spring"] = 2,
+            ["item-wires"] = 0,
+        });
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(profile),
+            new FakeItemRepository().WithName("item-spring", "Spring").WithName("item-bolts", "Bolts").WithName("item-wires", "Wires"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements));
+
+        await viewModel.RefreshAsync();
+
+        var rows = Assert.Single(viewModel.Groups).Items.ToDictionary(row => row.Name);
+        Assert.Equal("Held 2", rows["Spring"].HeldLabel);
+        // Nothing recorded is not the same as a recorded nothing.
+        Assert.Equal("Held unknown", rows["Bolts"].HeldLabel);
+        Assert.Equal("Held 0", rows["Wires"].HeldLabel);
+    }
+
+    [Fact]
+    public async Task A_long_list_of_quests_is_cut_short_and_says_how_many_more()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements = [.. Enumerable.Range(1, 5).Select(n => new QuestItemRequirement($"q{n}", "obj", "item-marker", n, false))],
+        };
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-marker", "Marker"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService(
+                [.. Enumerable.Range(1, 5).Select(n => Quest($"q{n}", $"Quest {n}", n == 1 ? RecordedTaskState.Active : RecordedTaskState.NotStarted))],
+                requirements));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        // The quest the player is on leads, though it asks for the least.
+        Assert.Equal("1 for Quest 1", row.Reasons[0]);
+        Assert.Contains("+2 more quests", row.Reasons);
+        Assert.Equal("Quests 1 now, 14 later", row.QuestCountLabel);
     }
 
     private static QuestSummaryReadModel Quest(string taskId, string name, RecordedTaskState state, bool isPinned = false) => new(
@@ -362,10 +506,47 @@ public sealed class KeepListWorkspaceViewModelTests
         }
     }
 
-    private sealed class FakeQuestReadService(IReadOnlyList<QuestSummaryReadModel> tasks) : IQuestReadService
+    /// <remarks>
+    /// The Keep list reads quest needs off the board now, not the requirement catalog. These
+    /// tests still declare a need as a catalog row, which says everything a need has, so the
+    /// fake hangs each row on its quest as the hand-over objective it describes. What the tests
+    /// declare and what they assert did not change; only where the service looks did.
+    /// </remarks>
+    private sealed class FakeQuestReadService(
+        IReadOnlyList<QuestSummaryReadModel> tasks,
+        FakeRequirementCatalog? declared = null) : IQuestReadService
     {
         public Task<QuestBoardReadModel> GetQuestBoardAsync(QuestProfileScope scope, CancellationToken cancellationToken) =>
-            Task.FromResult(new QuestBoardReadModel(scope, 1, null, tasks, []));
+            Task.FromResult(new QuestBoardReadModel(scope, 1, null, [.. tasks.Select(WithDeclaredNeeds)], []));
+
+        private QuestSummaryReadModel WithDeclaredNeeds(QuestSummaryReadModel task) => task with
+        {
+            Objectives =
+            [
+                .. (declared?.QuestRequirements ?? [])
+                    .Where(row => row.TaskId == task.TaskId)
+                    .GroupBy(row => row.ObjectiveId)
+                    .Select(rows => new QuestObjectiveReadModel(
+                        rows.Key,
+                        Description: $"Hand over for {rows.Key}",
+                        Kind: QuestObjectiveKind.GiveItem,
+                        IsOptional: false,
+                        IsUnsupported: false,
+                        RecordedState: RecordedObjectiveState.InProgress,
+                        RecordedCount: null,
+                        TargetCount: rows.First().Required,
+                        FoundInRaidRequired: rows.First().FoundInRaidRequired,
+                        ProgressSource: "Manual",
+                        ProgressModifiedUtc: null,
+                        IsPinned: false,
+                        MapIds: [],
+                        ItemTargets:
+                        [
+                            .. rows.Select((row, index) => new QuestObjectiveItemTarget(
+                                row.ItemId, "items", 0, index, row.Required, row.FoundInRaidRequired)),
+                        ])),
+            ],
+        };
 
         public Task<QuestItemNeedsReadModel> GetItemNeedsAsync(
             QuestProfileScope scope,

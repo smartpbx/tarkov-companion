@@ -360,7 +360,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             // its replay bar on the Raid page. The same replay view model, now on the V2 Raid map.
             if (_debrief is not null)
             {
-                _debrief.ReplayRequested += (_, request) => _ = WatchRaidAsync(legacy, request);
+                _debrief.ReplayRequested += (_, request) => WatchRaidAsync(legacy, request).Observe("debrief", "open a replay");
             }
         }
 
@@ -477,6 +477,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public ObservableCollection<V2ShellDestinationViewModel> PrimaryDestinations { get; }
     public V2ShellDestinationViewModel SetupDestination { get; }
     public V2SetupWorkspaceViewModel? SetupWorkspace { get; }
+
+    /// <summary>The Plan workspace, so the view can hand it a clipboard (#288's export).</summary>
+    public PlanWorkspaceViewModel? PlanWorkspace => _plan;
     public IReadOnlyList<V2ShellSectionViewModel> SectionItems { get; private set; } = [];
     public IReadOnlyList<V2ShellCommand> Commands { get; }
     public ObservableCollection<V2ShellCommandViewModel> CommandItems { get; }
@@ -1652,6 +1655,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // a breadcrumb naming the destination is the difference between "it died" and "it died
         // going to Plan".
         CrashBreadcrumbs.Drop("navigate", CurrentAddress);
+        UiActivity.Navigated(CurrentAddress);
         if (!resetting)
         {
             Recents = Recents
@@ -1746,8 +1750,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// Still not awaited, and deliberately so. Navigation must not wait for a database read, and a
     /// workspace that is slow to fill is a workspace filling in, not a frozen window. What changes
     /// is that the failure is now recorded where a player's log will show it, and that it fails
-    /// alone: every workspace here has its own Reload, and returning to the route reloads it, so a
-    /// pane that failed is recoverable without restarting the application.
+    /// alone. Recoverable without a restart, and this sentence used to claim more than was true:
+    /// Plan, Hideout and Keep now put a notice with a Retry button in the pane
+    /// (<see cref="LoadFaultNoticeViewModel"/>); Team has Reload; Debrief, Stash, Ammo, Keys and
+    /// Events have their Refresh; and returning to any route loads it again.
     /// </remarks>
     private void Load(string surface, Func<Task> load) => _ = ObserveWorkspaceLoad(surface, load);
 
@@ -1759,6 +1765,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// </remarks>
     internal static async Task ObserveWorkspaceLoad(string surface, Func<Task> load)
     {
+        UiActivity.LoadStarted(surface);
         try
         {
             await load().ConfigureAwait(true);
@@ -1769,6 +1776,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         catch (Exception exception)
         {
             CrashLog.Write($"workspace-fault/{surface}", $"load: {exception}");
+        }
+        finally
+        {
+            UiActivity.LoadFinished(surface);
         }
     }
 
@@ -1789,8 +1800,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _homeOverviewLoaded = true;
             _homeOverviewLoadedUtc = _clock.GetUtcNow();
             _homeOverviewRaid = snapshot.Raid.State;
-            _ = _plan?.LoadAsync();
-            _ = _debrief?.LoadAsync();
+            LoadForOverview();
         }
         else if (_homeOverviewRaid != snapshot.Raid.State ||
             _clock.GetUtcNow() - _homeOverviewLoadedUtc >= HomeOverviewRefresh)
@@ -1801,7 +1811,21 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             // load would leave "No raids recorded yet" on screen for the rest of the session.
             _homeOverviewLoadedUtc = _clock.GetUtcNow();
             _homeOverviewRaid = snapshot.Raid.State;
-            _ = _debrief?.LoadAsync();
+            LoadForOverview(planToo: false);
+        }
+    }
+
+    /// <summary>The Setup overview's two sources, loaded the observed way like every other workspace.</summary>
+    private void LoadForOverview(bool planToo = true)
+    {
+        if (planToo && _plan is { } plan)
+        {
+            Load("plan", plan.LoadAsync);
+        }
+
+        if (_debrief is { } debrief)
+        {
+            Load("debrief", debrief.LoadAsync);
         }
     }
 
@@ -1828,6 +1852,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             source.PropertyChanged += LegacyContextChanged;
         }
+
+        WireStartupFaults();
     }
 
     private void LegacyContextChanged(object? sender, PropertyChangedEventArgs eventArgs)
@@ -2070,7 +2096,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _loadedIntelItemId = itemId;
         _intelResult = null;
         _intelLoading = true;
-        _ = LoadIntelAsync(itemId, cts.Token);
+        LoadIntelAsync(itemId, cts.Token).Observe("intel", "load an item");
     }
 
     private async Task LoadIntelAsync(string itemId, CancellationToken cancellationToken)

@@ -1,3 +1,4 @@
+using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
 using TarkovCompanion.Core.Common;
 using System.Windows.Input;
@@ -674,7 +675,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             return;
         }
 
-        _ = RefreshComparisonAsync(CancellationToken.None);
+        RefreshComparisonAsync(CancellationToken.None).Observe("loadout", "refresh the comparison");
     }
 
     /// <summary>Removes a saved kit.</summary>
