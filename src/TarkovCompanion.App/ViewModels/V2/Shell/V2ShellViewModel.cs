@@ -392,6 +392,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         RetryPersistenceCommand = new DelegateCommand(RetryPersistence);
         PaletteAddressCommand = new DelegateCommand(OpenPaletteAddress);
         ArmCaptureCommand = new DelegateCommand(ArmSelectedCaptureIntent);
+        InitializeManualCapture();
         // V2 rough package 17 (scan): the Loot decision tab's "Scan loot" / "Scan again".
         ScanLootCommand = new DelegateCommand(() => StashScanRequested(this, ScanIntent.Loot));
         Commands = V2ShellCommands.For(Variant, Registry);

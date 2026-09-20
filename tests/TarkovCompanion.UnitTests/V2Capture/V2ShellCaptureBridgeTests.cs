@@ -120,6 +120,46 @@ public sealed class V2ShellCaptureBridgeTests
         Assert.Contains("intel/item-a", fixture.Shell.Router.CurrentAddress, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// "Correct result" was acknowledged and dropped. A wrong item is put right by picking the
+    /// candidate it was, which opens that item and says who chose it.
+    /// </summary>
+    [Fact]
+    public async Task PickingAnotherCandidateOpensThatItemAndSaysThePlayerChoseIt()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Arm(ScanIntent.Auto);
+        await fixture.Intel.AcceptAsync(
+            IdentifiedHandoff(
+                new CaptureIdentifiedItem("item-a", "Graphics card", new Confidence(0.82), "line"),
+                new CaptureIdentifiedItem("item-b", "Graphics tablet", new Confidence(0.61), "line")),
+            CancellationToken.None);
+
+        Assert.DoesNotContain(fixture.Shell.CaptureReviewActions, action => action.Resolution == V2CaptureResolutionKind.Correct);
+        Assert.Equal(2, fixture.Shell.CaptureReviewCandidates.Count);
+        Assert.True(fixture.Shell.CaptureReviewCandidates[0].IsChosen);
+        fixture.Shell.CaptureReviewCandidates[1].ChooseCommand.Execute(null);
+
+        Assert.Contains("intel/item-b", fixture.Shell.Router.CurrentAddress, StringComparison.Ordinal);
+        Assert.Equal("Graphics tablet · chosen by you", fixture.Shell.CaptureState.Review!.Summary);
+        Assert.True(fixture.Shell.CaptureReviewCandidates[1].IsChosen);
+    }
+
+    [Theory]
+    [InlineData(ScanIntent.HealthAndCharacter)]
+    [InlineData(ScanIntent.ExtractsAndMap)]
+    public async Task AnIntentNothingReadsIsShownAsSuchAndCannotBeArmed(ScanIntent intent)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        var offered = fixture.Shell.CaptureIntents.Single(item => item.Intent == intent);
+        fixture.Arm(intent);
+
+        Assert.False(offered.IsSupported);
+        Assert.EndsWith("not supported yet", offered.Label, StringComparison.Ordinal);
+        Assert.Empty(fixture.Sessions.Armed);
+    }
+
     private static CaptureHandoffRequest IdentifiedHandoff(params CaptureIdentifiedItem[] identified) =>
         new(
             Session,

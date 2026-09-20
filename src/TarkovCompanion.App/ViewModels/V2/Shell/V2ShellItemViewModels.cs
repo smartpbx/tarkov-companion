@@ -19,7 +19,15 @@ public sealed class V2CaptureIntentViewModel : BindableViewModel
     }
 
     public ScanIntent Intent { get; }
-    public string Label => V2ShellText.Get($"V2.Shell.Intent.{Intent}");
+    /// <summary>
+    /// [f920 capture] An intent nothing reads yet is shown disabled and says so, instead of
+    /// arming and returning nothing.
+    /// </summary>
+    public bool IsSupported => TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.IsSupported(Intent);
+
+    public string Label => IsSupported
+        ? V2ShellText.Get($"V2.Shell.Intent.{Intent}")
+        : $"{V2ShellText.Get($"V2.Shell.Intent.{Intent}")} · {TarkovCompanion.App.Services.V2.Capture.CaptureIntentSupport.NotSupportedYet}";
     public string AutomationId => $"v2-shell-capture-intent-{Intent.ToString().ToLowerInvariant()}";
     public bool IsSelected
     {

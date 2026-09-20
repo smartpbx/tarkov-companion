@@ -68,13 +68,31 @@ public sealed class CaptureRecognitionPipeline(
                 .ConfigureAwait(false);
         }
 
+        // A measured lattice is a usable reading whether or not any text was read. Availability
+        // was OCR's alone, so a Loot or Stash frame on a machine with no OCR engine - or one whose
+        // text simply was not legible - resolved its review and then ended "no change", with the
+        // grid it had measured thrown away.
+        isAvailable |= grid?.Lattice is not null;
+
+        // The text detector could not place the screen, the player armed Loot or Stash, and the
+        // pixels hold a measured inventory lattice: that is a grid screen, placed from its lines
+        // instead of its words. Without this the review offered "Analyse as armed" and intake
+        // then refused it as "context unknown, no change" - the button did nothing, on the one
+        // machine class (no OCR, or OCR that read no anchor) where it was the only way forward.
+        (detectedContext, isAmbiguous, var confidence) = PlaceFromLattice(
+            detectedContext,
+            isAmbiguous,
+            detection.Confidence,
+            grid?.Lattice is not null,
+            request.RequestedIntent);
+
         return new(
             contentHash,
             detectedContext,
             isAmbiguous,
             isAvailable,
             coordinated.DiagnosticCode,
-            detection.Confidence,
+            confidence,
             grid,
             await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
                 .ConfigureAwait(false));
@@ -148,6 +166,24 @@ public sealed class CaptureRecognitionPipeline(
         ScanIntent.Stash => InventoryGridSurface.Stash,
         _ => null,
     };
+
+    /// <summary>
+    /// Places a screen the text detector could not, from the lattice measured in its pixels.
+    /// </summary>
+    /// <remarks>
+    /// Only under an armed Loot or Stash, where the player has said what the screen is and the
+    /// lattice bears them out. The confidence is the floor at which intake will act on a reading,
+    /// never the "auto-selected" band: the lines were measured, the words were not read.
+    /// </remarks>
+    internal static (RecognizedContext? Context, bool IsAmbiguous, Confidence Confidence) PlaceFromLattice(
+        RecognizedContext? detected,
+        bool isAmbiguous,
+        Confidence confidence,
+        bool latticeMeasured,
+        ScanIntent intent) =>
+        isAmbiguous && latticeMeasured && GridSurfaceFor(intent) is not null
+            ? (MapContainer(intent), false, new(Math.Max(confidence.Value, RecognitionThresholds.Ambiguous)))
+            : (detected, isAmbiguous, confidence);
 
     /// <summary>
     /// The same, for a frame nobody armed an intent for.

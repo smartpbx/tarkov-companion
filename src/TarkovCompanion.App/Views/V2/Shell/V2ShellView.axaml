@@ -829,13 +829,27 @@
                   <RadioButton Classes="v2-target" GroupName="v2-capture-intent"
                                AutomationProperties.AutomationId="{Binding AutomationId}"
                                AutomationProperties.Name="{Binding Label}"
-                               Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                               Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                               IsEnabled="{Binding IsSupported}" />
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
             <Button Classes="v2-target" HorizontalAlignment="Left"
                     AutomationProperties.AutomationId="v2-shell-capture-arm"
                     Content="{Binding CaptureArmLabel}" Command="{Binding ArmCaptureCommand}" />
+            <!-- [f920 capture] A picture the player already has: paste, drop or choose. -->
+            <Border Classes="v2-card" AutomationProperties.AutomationId="v2-shell-capture-manual">
+              <StackPanel Classes="v2-stack">
+                <TextBlock Classes="v2-heading-3" Text="{Binding CaptureManualHeading}" />
+                <TextBlock Classes="v2-label" Text="{Binding CaptureManualHint}" TextWrapping="Wrap" />
+                <Button Classes="v2-target" HorizontalAlignment="Left"
+                        AutomationProperties.AutomationId="v2-shell-capture-pick"
+                        Content="{Binding CapturePickLabel}" Command="{Binding PickCaptureImageCommand}" />
+                <TextBlock Classes="v2-body" IsVisible="{Binding HasCaptureManualStatus}"
+                           AutomationProperties.AutomationId="v2-shell-capture-manual-status"
+                           Text="{Binding CaptureManualStatus}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
             <Border Classes="v2-card" IsVisible="{Binding HasCaptureAttention}"
                     AutomationProperties.AccessibilityView="Control"
                     AutomationProperties.AutomationId="v2-shell-capture-attention"
@@ -882,6 +896,21 @@
                 <TextBlock Classes="v2-heading-3" Text="{Binding CaptureReviewHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding CaptureReviewSummary}" />
                 <TextBlock Classes="v2-label" Text="{Binding CaptureReviewEvidence}" />
+                <TextBlock Classes="v2-label" IsVisible="{Binding HasCaptureReviewCandidates}"
+                           Text="{Binding CaptureCandidatesHeading}" />
+                <ItemsControl ItemsSource="{Binding CaptureReviewCandidates}" IsVisible="{Binding HasCaptureReviewCandidates}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2CaptureCandidateViewModel">
+                      <RadioButton Classes="v2-target" GroupName="v2-capture-candidate"
+                                   AutomationProperties.AutomationId="{Binding AutomationId}"
+                                   AutomationProperties.Name="{Binding Label}" Content="{Binding Label}"
+                                   IsChecked="{Binding IsChosen, Mode=OneWay}" Command="{Binding ChooseCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <ItemsControl ItemsSource="{Binding CaptureReviewActions}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
