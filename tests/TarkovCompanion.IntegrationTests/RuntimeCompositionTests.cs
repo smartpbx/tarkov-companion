@@ -526,7 +526,7 @@ public sealed class RuntimeCompositionTests
             await using var csv = new MemoryStream();
             await history.ExportCsvAsync(csv, CancellationToken.None);
             var text = Encoding.UTF8.GetString(csv.ToArray());
-            Assert.StartsWith("id,profile_id,map_id,mode,start_utc,end_utc,outcome,notes", text, StringComparison.Ordinal);
+            Assert.StartsWith("id,profile_id,map_id,mode,start_local,end_local,outcome,notes", text, StringComparison.Ordinal);
             Assert.Contains(",customs,", text, StringComparison.Ordinal);
         }
         finally

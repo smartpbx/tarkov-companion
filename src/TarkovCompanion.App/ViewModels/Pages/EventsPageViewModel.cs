@@ -951,5 +951,5 @@ public sealed class EventsPageViewModel : PageViewModel
     };
 
     private static string Local(DateTimeOffset timestamp) =>
-        timestamp.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
+        LocalTime.Moment(timestamp);
 }

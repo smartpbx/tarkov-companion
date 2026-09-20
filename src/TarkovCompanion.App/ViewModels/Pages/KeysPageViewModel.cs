@@ -3,6 +3,7 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -404,5 +405,5 @@ public sealed class KeysPageViewModel : PageViewModel
     private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
 
     private static string Describe(DateTimeOffset? timestamp) =>
-        timestamp is { } value ? value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) : "no timestamp";
+        timestamp is { } value ? LocalTime.Moment(value) : "no timestamp";
 }

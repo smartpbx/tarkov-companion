@@ -22,6 +22,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -1026,7 +1027,7 @@ public sealed class RaidPageViewModel : PageViewModel
             history = entry is null
                 ? "Not saved"
                 : entry.EndedUtc is { } endedUtc
-                    ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {endedUtc.ToLocalTime():g}")
+                    ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {LocalTime.Moment(endedUtc)}")
                     : "Saved · no end time";
 
             // Out of the raid's own record rather than counted as they went past. Counting
@@ -1297,7 +1298,7 @@ public sealed class ItemsPageViewModel : PageViewModel
                     $"{hit.Score:P0} · matched {hit.MatchedText}",
                     bestValue > 0 ? $"{bestValue:N0} ₽ · {hit.Item.ValuePerSlot(price!):N0} ₽ / slot" : "Price unavailable",
                     channel,
-                    $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}",
+                    $"json.tarkov.dev · {LocalTime.Moment(hit.Item.Provenance.SourceUpdatedUtc)}",
                     bestValue > 0 ? bestValue : null,
                     bestValue > 0 ? hit.Item.ValuePerSlot(price!) : null,
                     hit.Score,
@@ -1409,7 +1410,7 @@ public sealed class ScannerPageViewModel : PageViewModel
         entry.Name,
         entry.ObservedUtc == DateTimeOffset.UnixEpoch
             ? "at an unrecorded time"
-            : string.Create(CultureInfo.CurrentCulture, $"{entry.ObservedUtc.ToLocalTime():g}"),
+            : LocalTime.Moment(entry.ObservedUtc),
         string.Join(
             " · ",
             new[]
@@ -1514,7 +1515,7 @@ public sealed class ScannerPageViewModel : PageViewModel
         Source = scan.Source;
         Detail = scan.Detail;
         Evidence = scan.Succeeded
-            ? $"{Confidence} confidence · {scan.Source} · {scan.ObservedUtc.ToLocalTime():T}"
+            ? $"{Confidence} confidence · {scan.Source} · {LocalTime.Time(scan.ObservedUtc)}"
             : scan.Detail;
     }
 }
@@ -1672,8 +1673,8 @@ public sealed class HistoryPageViewModel : PageViewModel
                     raid.MapId ?? string.Empty,
                     _nameOfMap(raid.MapId),
                     raid.Mode,
-                    raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
-                    raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
+                    LocalTime.Moment(raid.StartedUtc) ?? "Unknown",
+                    LocalTime.Moment(raid.EndedUtc) ?? "In progress",
                     raid.Outcome ?? "Not recorded",
                     raid.Notes ?? "No notes")
                 {
@@ -3589,7 +3590,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             new(
                 "Raid",
                 RaidStateText.Describe(raid.State),
-                raid.StartedUtc is null ? "No active session" : $"Started {raid.StartedUtc.Value.ToLocalTime():T}",
+                raid.StartedUtc is null ? "No active session" : $"Started {LocalTime.Time(raid.StartedUtc.Value)}",
                 raid.State switch
                 {
                     RaidLifecycleState.InRaid => SageColor,
