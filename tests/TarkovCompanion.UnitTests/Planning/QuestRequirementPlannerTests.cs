@@ -100,6 +100,24 @@ public sealed class QuestRequirementPlannerTests
     }
 
     [Fact]
+    public void A_find_objective_beside_a_hand_over_of_the_same_item_is_counted_once()
+    {
+        var find = Objective("find", fir: true, target: 3, items: [Target("salewa", "items", 0, 0)]);
+        var give = Objective("give", fir: true, target: 3, items: [Target("salewa", "items", 0, 0)]) with
+        {
+            Kind = QuestObjectiveKind.GiveItem,
+        };
+        IReadOnlySet<string> handedOver = new HashSet<string> { "salewa" };
+
+        var paired = QuestRequirementPlanner.Build([find, give], Nothing, _ => handedOver);
+        var unpaired = QuestRequirementPlanner.Build([find, give], Nothing);
+
+        Assert.Equal(3, Assert.Single(paired).Need);
+        // Without the pairing the caller cannot say, and both are kept: the old answer, six.
+        Assert.Equal(6, Assert.Single(unpaired).Need);
+    }
+
+    [Fact]
     public void The_order_does_not_depend_on_the_order_the_objectives_arrive_in()
     {
         QuestObjectiveReadModel[] objectives =

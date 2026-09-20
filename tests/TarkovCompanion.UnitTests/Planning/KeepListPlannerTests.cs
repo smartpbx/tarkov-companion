@@ -205,6 +205,117 @@ public sealed class KeepListPlannerTests
         Assert.Equal(0, entry.HideoutTotalBuild);
     }
 
+    [Fact]
+    public async Task A_holding_nobody_recorded_is_unknown_and_a_recorded_zero_is_zero()
+    {
+        QuestItemRequirement[] quests =
+        [
+            new("t1", "o1", "item-unrecorded", 2, false),
+            new("t1", "o2", "item-none", 2, false),
+            new("t1", "o3", "item-some", 2, false),
+        ];
+        var profile = Profile(owned: new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["item-none"] = 0,
+            ["item-some"] = 5,
+        });
+
+        var plan = await KeepListPlanner.PlanAsync(Inputs(profile, quests), Resolve(), CancellationToken.None);
+
+        Assert.Null(plan.Entries.Single(entry => entry.ItemId == "item-unrecorded").Held);
+        Assert.Equal(0, plan.Entries.Single(entry => entry.ItemId == "item-none").Held);
+        Assert.Equal(5, plan.Entries.Single(entry => entry.ItemId == "item-some").Held);
+    }
+
+    [Fact]
+    public async Task A_need_any_of_several_items_would_meet_says_how_many_would()
+    {
+        QuestItemRequirement[] quests =
+        [
+            new("t1", "o1", "water-a", 3, true),
+            new("t1", "o1", "water-b", 3, true),
+            new("t2", "o2", "water-a", 1, false),
+        ];
+        var inputs = Inputs(Profile(), quests) with
+        {
+            InterchangeableCounts = new Dictionary<(string, string), int>
+            {
+                [("t1", "water-a")] = 2,
+                [("t1", "water-b")] = 2,
+            },
+        };
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var needs = plan.Entries.Single(entry => entry.ItemId == "water-a").QuestNeeds;
+        Assert.Equal(2, needs.Single(need => need.TaskId == "t1").AnyOf);
+        // The other quest names this item alone.
+        Assert.Equal(1, needs.Single(need => need.TaskId == "t2").AnyOf);
+    }
+
+    [Fact]
+    public async Task One_key_serves_every_quest_that_asks_and_the_quests_you_are_on_come_first()
+    {
+        QuestItemRequirement[] quests =
+        [
+            new("t1", "o1", "key", 1, false),
+            new("t2", "o2", "key", 1, false),
+            new("t", "o3", "key", 1, false),
+        ];
+        var inputs = Inputs(Profile(), quests, tracked: ["t2"]) with
+        {
+            Reusable = new HashSet<(string, string)> { ("t1", "key"), ("t2", "key"), ("t", "key") },
+        };
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var entry = Assert.Single(plan.Entries);
+        // Three quests, one key: not three.
+        Assert.Equal(1, entry.QuestRemaining);
+        Assert.Equal(1, entry.QuestRemainingTracked);
+        Assert.Equal("t2", entry.QuestNeeds[0].TaskId);
+    }
+
+    [Fact]
+    public async Task What_is_used_up_adds_up_and_is_split_into_now_and_later()
+    {
+        QuestItemRequirement[] quests =
+        [
+            new("t1", "o1", "marker", 4, false),
+            new("t2", "o2", "marker", 3, false),
+        ];
+
+        var plan = await KeepListPlanner.PlanAsync(Inputs(Profile(), quests, tracked: ["t2"]), Resolve(), CancellationToken.None);
+
+        var entry = Assert.Single(plan.Entries);
+        Assert.Equal(7, entry.QuestRemaining);
+        Assert.Equal(3, entry.QuestRemainingTracked);
+    }
+
+    [Fact]
+    public async Task Two_quests_of_one_name_are_one_quest_and_are_not_added_together()
+    {
+        QuestItemRequirement[] quests =
+        [
+            new("branch-a", "o1", "flare", 2, false),
+            new("branch-b", "o2", "flare", 3, false),
+        ];
+        var inputs = Inputs(Profile(), quests) with
+        {
+            TaskNames = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["branch-a"] = "The Price of Independence",
+                ["branch-b"] = "The Price of Independence",
+            },
+        };
+
+        var plan = await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None);
+
+        var need = Assert.Single(Assert.Single(plan.Entries).QuestNeeds);
+        // The larger of the two, since either may be the one taken; never five.
+        Assert.Equal(3, need.Remaining);
+    }
+
     private static Func<string, CancellationToken, Task<KeepItemFacts>> Resolve(params (string ItemId, string Tier)[] tiers)
     {
         var byId = tiers.ToDictionary(entry => entry.ItemId, entry => entry.Tier, StringComparer.Ordinal);

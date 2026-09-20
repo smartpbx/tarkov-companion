@@ -81,9 +81,12 @@
                                         AutomationProperties.AutomationId="v2-keep-quest-count">
                                   <TextBlock Classes="v2-label" Text="{Binding QuestCountLabel}" />
                                 </Border>
-                                <Border Classes="v2-keep-chip" IsVisible="{Binding HasHideoutCount}"
+                                <Border Classes="v2-keep-chip" Margin="0,0,6,0" IsVisible="{Binding HasHideoutCount}"
                                         AutomationProperties.AutomationId="v2-keep-hideout-count">
                                   <TextBlock Classes="v2-label" Text="{Binding HideoutCountLabel}" />
+                                </Border>
+                                <Border Classes="v2-keep-chip" AutomationProperties.AutomationId="v2-keep-held">
+                                  <TextBlock Classes="v2-label" Text="{Binding HeldLabel}" />
                                 </Border>
                               </WrapPanel>
                             </StackPanel>

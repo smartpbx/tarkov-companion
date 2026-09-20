@@ -170,13 +170,14 @@ public static class PlanQuestRules
     public static IReadOnlyList<PlanRequirementRowViewModel> BuildRequirements(
         IEnumerable<QuestObjectiveReadModel> objectives,
         Func<string, string> nameOf,
-        IReadOnlyDictionary<string, int> owned)
+        IReadOnlyDictionary<string, int> owned,
+        Func<QuestObjectiveReadModel, IReadOnlySet<string>>? handedOverByItsTask = null)
     {
         ArgumentNullException.ThrowIfNull(nameOf);
 
         return
         [
-            .. QuestRequirementPlanner.Build(objectives, owned)
+            .. QuestRequirementPlanner.Build(objectives, owned, handedOverByItsTask)
                 .Select(requirement => new PlanRequirementRowViewModel(
                     requirement.PrimaryItemId,
                     requirement.AlternativeCount == 0
