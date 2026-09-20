@@ -1240,9 +1240,13 @@ $V2AcceptanceRoutes = @(
         expected = @("v2-shell-navigation-rail") },
     # The two bounded ones. Both were measured on this branch at under 2% of the body, against
     # roughly a quarter of it before the context column learned to collapse.
+    # The landing page opens its first suggestion by itself now, so the context column is there
+    # whenever the catalog has anything to suggest and absent on an empty one. It is neither
+    # expected nor forbidden here; the item route below still proves it collapses when nothing
+    # resolves.
     [pscustomobject]@{ key = "intel"; address = "#/intel"; heading = "Intel"
         expected = @("v2-shell-navigation-rail", "v2-intel-results")
-        forbidden = @("v2-intel-context"); edge = 0.12 },
+        forbidden = @(); edge = 0.12 },
     # Package 28 made these three native V2 workspaces, so they no longer host a V1 page and no
     # longer have a V1 button to measure. Their own controls are named and identified, so they
     # are asserted by id and measured with the same rule instead.
