@@ -70,4 +70,17 @@ public static class QuestItemTargetFields
     /// </summary>
     public static bool IsCondition(string sourceField) =>
         sourceField is "notWearing" or "attributes" or "containsAll" or "containsOne";
+
+    /// <summary>
+    /// Whether a requirement field names an item that exists only inside its quest: the journal an
+    /// objective sends the player to pick up, then hand over.
+    /// </summary>
+    /// <remarks>
+    /// Measured on the 2026-09-14 catalog: 222 <c>questItem</c> targets and not one of them is in
+    /// the item catalog, against 15,435 targets of every other field that all are. It cannot be
+    /// bought, brought or held before the raid, so listing it as something to have put four rows
+    /// reading "Item not in the catalog" on a nine-quest shopping list. The objective that finds
+    /// it is already on the plan; that is where the player learns of it.
+    /// </remarks>
+    public static bool IsQuestOnlyItem(string sourceField) => sourceField is "questItem";
 }

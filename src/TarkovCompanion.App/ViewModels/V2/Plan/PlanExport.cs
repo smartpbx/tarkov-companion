@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
@@ -62,7 +63,7 @@ public sealed record PlanExportDocument(
         text.Append("# Next raid plan\n\n");
         // Local time, not UTC: this line is read by a person deciding whether the plan is stale,
         // and every other user-facing timestamp in the application is their own clock.
-        text.Append(CultureInfo.InvariantCulture, $"Generated {GeneratedUtc.ToLocalTime().ToString("f", culture)}");
+        text.Append(CultureInfo.InvariantCulture, $"Generated {LocalTime.ToLocal(GeneratedUtc).ToString("f", culture)}");
         text.Append(CultureInfo.InvariantCulture, $" · {Scope} · showing {Filter}");
         if (!string.IsNullOrWhiteSpace(Search))
         {

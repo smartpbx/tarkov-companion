@@ -763,7 +763,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                 // and "plan-2026-09-20-1432.md" is the one thing that makes that work.
                 var name = string.Create(
                     CultureInfo.InvariantCulture,
-                    $"plan-{_clock.GetUtcNow().ToLocalTime():yyyy-MM-dd-HHmm}.md");
+                    $"plan-{LocalTime.ToLocal(_clock.GetUtcNow()):yyyy-MM-dd-HHmm}.md");
                 written = Path.Combine(directory, name);
                 await File.WriteAllTextAsync(written, markdown, cancellationToken).ConfigureAwait(true);
             }

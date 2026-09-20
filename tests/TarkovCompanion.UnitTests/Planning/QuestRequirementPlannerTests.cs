@@ -84,6 +84,22 @@ public sealed class QuestRequirementPlannerTests
     }
 
     [Fact]
+    public void An_item_that_exists_only_inside_its_quest_is_not_something_to_have()
+    {
+        // The journal is picked up by one objective and handed over by the next. Neither is a
+        // thing to buy or bring, and the real one beside it still is.
+        var requirements = QuestRequirementPlanner.Build(
+            [
+                Objective("obtain", fir: null, target: 1, items: [Target("journal", "questItem", 0, 0)]),
+                Objective("hand-over", fir: false, target: 1, items: [Target("journal", "questItem", 0, 0)]),
+                Objective("real", fir: false, target: 2, items: [Target("item-a", "items", 0, 0)]),
+            ],
+            Nothing);
+
+        Assert.Equal("item-a", Assert.Single(requirements).PrimaryItemId);
+    }
+
+    [Fact]
     public void The_order_does_not_depend_on_the_order_the_objectives_arrive_in()
     {
         QuestObjectiveReadModel[] objectives =

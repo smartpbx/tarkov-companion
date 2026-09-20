@@ -11,7 +11,7 @@ namespace TarkovCompanion.Application.Services.Planning;
 /// over, as many as the objective still needs. Alternatives ("this or that") are one requirement
 /// satisfied by any of them. The same item asked for by two objectives is one requirement,
 /// because the player holds one pile of it. "Not wearing" and container-content conditions name
-/// nothing to have, so they are left out. Bring, Hand in and Find in raid stay three separate
+/// nothing to have, and a quest-only item cannot be had before the raid, so they are left out. Bring, Hand in and Find in raid stay three separate
 /// requirements even for the same item: they are needed at different moments.
 ///
 /// This lived in the Plan view model until #307 moved it here, so the same answer can feed the
@@ -30,7 +30,9 @@ public static class QuestRequirementPlanner
         var rows = new Dictionary<(string ItemId, RequirementHandling Handling), PlannedRequirement>();
         foreach (var objective in objectives.Where(objective => objective.RecordedState != RecordedObjectiveState.Completed))
         {
-            var targets = objective.ItemTargets.Where(target => !QuestItemTargetFields.IsCondition(target.SourceField));
+            var targets = objective.ItemTargets.Where(target =>
+                !QuestItemTargetFields.IsCondition(target.SourceField) &&
+                !QuestItemTargetFields.IsQuestOnlyItem(target.SourceField));
             foreach (var alternatives in targets.GroupBy(target => (target.SourceField, target.AlternativeGroup)))
             {
                 var ids = alternatives
