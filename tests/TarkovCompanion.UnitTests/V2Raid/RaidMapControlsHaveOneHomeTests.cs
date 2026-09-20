@@ -14,7 +14,9 @@ namespace TarkovCompanion.UnitTests.V2Raid;
 public sealed class RaidMapControlsHaveOneHomeTests
 {
     private static readonly string[] Cockpit = ["src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"];
-    private static readonly string[] Renderer = ["src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml"];
+    // The mode segment and the floor ladder are their own control, which the renderer's pill hosts
+    // and the Raid strip hosts; it is still the one place they are written.
+    private static readonly string[] Renderer = ["src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapPresentationControls.axaml"];
 
     [Fact]
     public void The_bottom_strip_no_longer_repeats_the_artwork_choice_or_the_floor_controls()

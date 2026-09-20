@@ -28,6 +28,33 @@ public sealed partial class MapSceneRendererView : UserControl
     private Point _pointerStart;
     private string? _appliedLayoutMode;
 
+    /// <summary>
+    /// The host places the presentation and floor controls itself, so nothing is floated over the plan for them.
+    /// </summary>
+    /// <remarks>
+    /// Reported on 2026-09-20: "the top-left view-mode box ... sits on top of the map awkwardly".
+    /// On a tall map (Factory, Reserve) the pill covered the plan's top-left corner, and one of
+    /// Factory's extracts with it. A host with a strip of its own puts a
+    /// <see cref="MapPresentationControls"/> there and sets this; every other host keeps the pill.
+    /// </remarks>
+    public static readonly StyledProperty<bool> DocksPresentationProperty =
+        AvaloniaProperty.Register<MapSceneRendererView, bool>(nameof(DocksPresentation));
+
+    public bool DocksPresentation
+    {
+        get => GetValue(DocksPresentationProperty);
+        set => SetValue(DocksPresentationProperty, value);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        if (change.Property == DocksPresentationProperty && PresentationPill is not null)
+        {
+            PresentationPill.IsVisible = !DocksPresentation;
+        }
+    }
+
     public MapSceneRendererView()
     {
         // InitializeComponent, not AvaloniaXamlLoader.Load: only the generated method assigns the
@@ -35,6 +62,7 @@ public sealed partial class MapSceneRendererView : UserControl
         // so the responsive layout and viewport sizing below silently never ran and the plan kept
         // its default 1000x700 canvas beside an empty details column.
         InitializeComponent();
+        PresentationPill.IsVisible = !DocksPresentation;
         DataContextChanged += RendererDataContextChanged;
     }
 
