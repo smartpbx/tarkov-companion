@@ -207,11 +207,16 @@ blank in its own square and every other tile is still in the right place, which 
 
 ### Camera
 
-The camera is a centre, a zoom and a bearing over the plan rectangle. Zoom 1 is the fit, because
-the projection has already fitted the rectangle to the card, so a map opens (and "Fit" returns)
-with the whole plan on screen at whatever size the card is, and a wider card shows the same plan
-larger rather than at a different zoom. Zoom limits come from the plan: out stops at the fit, in
-stops at about twice the drawn artwork's own resolution.
+The camera is a centre, a zoom and a bearing over the plan rectangle. Zoom 1 is the plan rectangle
+fitted to the card at bearing 0, because the projection has already done that. "Fit" (and a map
+opening) is not zoom 1: it turns the map's fixed features (extracts, transits, spawn areas, locks,
+hazards, place names) to the camera's bearing and scales what they cover into the card, with the
+markers' inset plus 4% (`MapFitGeometry`, #551), so a tall map turned to lie along a wide card
+fills it and artwork with an empty border is fitted to the map rather than to its canvas. With
+too few features it fits the rectangle's corners the same way. A view still at the fit is fitted
+again when the card resizes or the map is turned. Zoom limits come from the plan: out stops at the
+whole rectangle on the card at the current bearing, in stops at about twice the drawn artwork's
+own resolution.
 
 Panning clamps what the viewport can see against that same rectangle, not the camera's centre
 against it: the plan stops with its edge on the card's edge, and an axis whose visible span is
