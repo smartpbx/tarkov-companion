@@ -372,9 +372,29 @@ attempt that can only fail.
 
 The claim is kept (2026-09-20, #289). The session the relay issues is stored in the desktop's
 protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
-panel reads claimed after a restart with nothing typed, for as long as the relay honours that
-session (twelve hours, two hours idle); "Forget this relay" drops it. The owner-recovery rule is
-unchanged: no claim, this desktop's included, replaces an owner the relay still counts as live.
+panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
+
+The admin key is typed once per machine, not once per day (2026-09-20, #289). A session still lives
+twelve hours and an owner two idle, and the owner-recovery rule is unchanged for anybody holding
+only the admin key: it never replaces an owner the relay still counts as live. What the relay can
+now do is recognise the key holder. The owner's public key is on record from the first claim
+(`relay-devices.json`); `POST /v2/companion/relay/possession/challenge` hands out a single-use
+nonce, and `POST /v2/companion/relay/owner/resume` takes the same self-pairing body as the claim
+route, built around that nonce and signed by the desktop's identity key. A body whose signing key
+is the one on record is accepted at any time — expired, idle or live — replaces that owner's own
+session, and keeps every paired device; any other key gets `owner-key-mismatch` (or
+`owner-unknown`, `challenge-rejected`) and is left with the admin key. The desktop does this at
+startup and whenever its session is refused, and after "Forget this relay" on pressing Claim.
+
+A paired tablet comes back the same way. It signs the relay's nonce (hashed under
+`TarkovCompanion.PairedDevice/v2/relay-resume-door`, never bare) with its device key at
+`POST /v2/companion/relay/resume/requests?deviceKeyId=…`; the relay checks that against the key it
+holds for that device and refuses `device-unknown`, `device-revoked` or `proof-rejected`. A ticket
+is all it gives: the owner sees it on its next frames read (`resumeRequests`), opens an ordinary
+pairing offer, answers the ticket with the offer's code
+(`POST …/resume/requests/{ticket}/offer`), and the pairing handshake runs with the code entry and
+the six-digit comparison left out, both long-term keys being already pinned. A revoke now also
+marks a device that had merely expired, so going quiet is not a way around being revoked.
 `POST /v2/companion/relay/devices/{deviceId}/revoke` (owner session) is how a desktop's Revoke
 reaches the relay, and an owner registering a tablet whose device key is already known replaces
 that tablet's old record.

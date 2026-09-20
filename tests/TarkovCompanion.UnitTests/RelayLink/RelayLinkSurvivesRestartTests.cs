@@ -160,8 +160,14 @@ public sealed class RelayLinkSurvivesRestartTests
     }
 
     [Fact]
-    public async Task ForgettingTheRelayClearsTheKeptClaimAndLeavesTheRelaysOwnRuleAlone()
+    public async Task ForgettingTheRelayClearsTheKeptClaimAndTheSameDesktopCanClaimAgainAtOnce()
     {
+        // [#289] This test used to end with the relay refusing this same desktop for two hours
+        // ("owner-already-live"): forgetting dropped the session here while the relay still counted
+        // its owner live, and the relay had no way to tell that owner coming back from a stranger
+        // with the admin key. It has one now — the key the desktop first claimed with — so the
+        // refusal this pinned is gone for the key holder and only for the key holder
+        // (RelayLinkNextDayTests.AnotherDesktopsKeyIsRefused... holds the other half).
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
         await using var relay = await LinkRelay.StartAsync(clock);
         using var disk = new DesktopDisk();
@@ -177,16 +183,17 @@ public sealed class RelayLinkSurvivesRestartTests
 
         clock.Advance(TimeSpan.FromMinutes(5));
         await using var secondRun = await DesktopRun.StartAsync(disk, relay.Origin, clock);
+        // Forgotten means forgotten: nothing is claimed behind the player's back at startup.
         Assert.True(secondRun.Panel.NeedsClaim);
+        await secondRun.Bridge.PollOnceAsync(CancellationToken.None);
+        Assert.Equal(RelayOwnerLinkState.None, secondRun.Bridge.OwnerLink);
 
-        // The relay does not replace an owner it has heard from recently, and forgetting here does
-        // not change that: the panel says so rather than pretending the claim went through.
-        await secondRun.ClaimAsync();
-        Assert.False(secondRun.Panel.IsClaimedByThisDesktop);
-        Assert.Contains("two hours", secondRun.Panel.RelayClaimMessage, StringComparison.Ordinal);
-
-        clock.Advance(ProtocolBounds.DeviceInactivityExpiry);
-        await secondRun.ClaimAsync();
+        // Claim, with nothing typed, five minutes after forgetting.
+        await secondRun.ClaimAsync(adminKey: string.Empty);
         Assert.True(secondRun.Panel.IsClaimedByThisDesktop, secondRun.Panel.RelayClaimMessage);
+
+        // And the tablet paired before the forget was not swept away by claiming again.
+        using var still = await tablet.ReadFramesRawAsync();
+        Assert.Equal(HttpStatusCode.OK, still.StatusCode);
     }
 }
