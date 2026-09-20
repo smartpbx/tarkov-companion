@@ -669,6 +669,12 @@ public static class V2ShellText
         ["V2.Shell.Intel.Trade.ProfitUnknown"] = "Profit unknown",
         ["V2.Shell.Intel.Trade.Ready"] = "Ready",
         ["V2.Shell.Intel.Trade.Locked"] = "Locked",
+        // #287 review: a station/trader level the active profile has never recorded is its own
+        // state, distinct from a recorded level that falls short.
+        ["V2.Shell.Intel.Trade.LevelUnknown"] = "Level unknown",
+        ["V2.Shell.Intel.Trade.YourLevel"] = "you: Level {0}",
+        ["V2.Shell.Intel.Trade.YourLoyalty"] = "you: Loyalty {0}",
+        ["V2.Shell.Intel.Trade.UnknownCount"] = "{0} more unknown, not shown",
         ["V2.Shell.Intel.Trade.Duration"] = "{0}",
         ["V2.Shell.Intel.Trade.Empty"] = "No crafts or barters match.",
         ["V2.Shell.Intel.Trade.Loading"] = "Loading crafts and barters…",

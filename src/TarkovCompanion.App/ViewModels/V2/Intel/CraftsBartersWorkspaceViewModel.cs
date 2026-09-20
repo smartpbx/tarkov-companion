@@ -52,7 +52,12 @@ public sealed record IntelTradeRowViewModel(
     bool ProfitIsUnknown,
     bool ProfitIsNegative,
     IntelTradeReadiness Readiness,
-    ICommand OpenOutputCommand)
+    ICommand OpenOutputCommand,
+    // #287 review: a station/trader level this profile has never recorded reads as Unknown, not
+    // Locked. RecordedLevelLabel is only ever non-empty for a genuine Locked — a real, known
+    // level short of what the trade asks for — never for an Unknown one, which has nothing to
+    // report.
+    string RecordedLevelLabel = "")
 {
     public string AutomationId => $"v2-intel-trade-{TradeId}";
     public string InputsLabel => string.Join(" + ", Inputs.Select(input => input.Label));
@@ -61,10 +66,13 @@ public sealed record IntelTradeRowViewModel(
     public bool HasDuration => DurationLabel.Length > 0;
     public bool IsLocked => Readiness == IntelTradeReadiness.Locked;
     public bool IsReady => Readiness == IntelTradeReadiness.Ready;
+    public bool IsUnknownReadiness => Readiness == IntelTradeReadiness.Unknown;
+    public bool HasRecordedLevel => RecordedLevelLabel.Length > 0;
     public string ReadinessLabel => Readiness switch
     {
         IntelTradeReadiness.Ready => V2ShellText.Get("V2.Shell.Intel.Trade.Ready"),
         IntelTradeReadiness.Locked => V2ShellText.Get("V2.Shell.Intel.Trade.Locked"),
+        IntelTradeReadiness.Unknown => V2ShellText.Get("V2.Shell.Intel.Trade.LevelUnknown"),
         _ => string.Empty,
     };
 }
@@ -153,6 +161,18 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         ? V2ShellText.Get("V2.Shell.Intel.OneResult")
         : V2ShellText.Format("V2.Shell.Intel.Results", CultureInfo.CurrentCulture, Rows.Count);
 
+    /// <summary>
+    /// How many of the current search's matches "I can do this now" left out because their
+    /// readiness is unknown, not because they were locked. Shown so the filter never reads as
+    /// "everything else is locked" when some of it simply was not checkable.
+    /// </summary>
+    public int ReadyNowUnknownCount => _readyNowOnly
+        ? SearchMatches().Count(row => row.Readiness == IntelTradeReadiness.Unknown)
+        : 0;
+    public bool HasReadyNowUnknownCount => ReadyNowUnknownCount > 0;
+    public string ReadyNowUnknownLabel =>
+        V2ShellText.Format("V2.Shell.Intel.Trade.UnknownCount", CultureInfo.CurrentCulture, ReadyNowUnknownCount);
+
     /// <summary>Every row whose output is this item — the recipe(s) that make it.</summary>
     public IReadOnlyList<IntelTradeRowViewModel> MadeBy(string itemId) => _all
         .Where(row => string.Equals(row.Output.ItemId, itemId, StringComparison.Ordinal))
@@ -206,20 +226,32 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private IEnumerable<IntelTradeRow> Filtered()
+    /// <summary>Every row the current search text matches, before the readiness filter narrows it further.</summary>
+    private IEnumerable<IntelTradeRow> SearchMatches()
     {
-        var query = _all.AsEnumerable();
-        if (_readyNowOnly)
+        if (string.IsNullOrWhiteSpace(_searchText))
         {
-            query = query.Where(row => row.Readiness != IntelTradeReadiness.Locked);
+            return _all;
         }
 
-        if (!string.IsNullOrWhiteSpace(_searchText))
+        var needle = _searchText.Trim();
+        return _all.Where(row =>
+            row.Output.Name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
+            row.Inputs.Any(input => input.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// "I can do this now" keeps only what is actually known to be ready — an unknown
+    /// station/trader level is left out of the list exactly like a locked one, but
+    /// <see cref="ReadyNowUnknownCount"/> says so, so leaving a row out is never silently the
+    /// same thing as calling it locked.
+    /// </summary>
+    private IEnumerable<IntelTradeRow> Filtered()
+    {
+        var query = SearchMatches();
+        if (_readyNowOnly)
         {
-            var needle = _searchText.Trim();
-            query = query.Where(row =>
-                row.Output.Name.Contains(needle, StringComparison.OrdinalIgnoreCase) ||
-                row.Inputs.Any(input => input.Name.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+            query = query.Where(row => row.Readiness == IntelTradeReadiness.Ready);
         }
 
         return _sort switch
@@ -246,6 +278,9 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(Rows));
         OnPropertyChanged(nameof(ResultCountLabel));
         OnPropertyChanged(nameof(ShowsEmpty));
+        OnPropertyChanged(nameof(ReadyNowUnknownCount));
+        OnPropertyChanged(nameof(HasReadyNowUnknownCount));
+        OnPropertyChanged(nameof(ReadyNowUnknownLabel));
     }
 
     private IntelTradeRowViewModel Describe(IntelTradeRow row) => new(
@@ -264,7 +299,17 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
         row.ProfitRoubles is null,
         row.ProfitRoubles is < 0,
         row.Readiness,
-        new DelegateCommand(() => _openItem(row.Output.ItemId)));
+        new DelegateCommand(() => _openItem(row.Output.ItemId)),
+        RecordedLevelLabel(row));
+
+    /// <summary>"you: Loyalty N"/"you: Level N" — only for a genuine Locked, never for an Unknown, which has nothing to report.</summary>
+    private static string RecordedLevelLabel(IntelTradeRow row) =>
+        row.Readiness == IntelTradeReadiness.Locked && row.RecordedLevel is { } level
+            ? V2ShellText.Format(
+                row.Kind == IntelTradeKind.Craft ? "V2.Shell.Intel.Trade.YourLevel" : "V2.Shell.Intel.Trade.YourLoyalty",
+                CultureInfo.CurrentCulture,
+                level)
+            : string.Empty;
 
     private static string DurationLabel(TimeSpan duration) => duration.TotalHours >= 1
         ? string.Create(CultureInfo.CurrentCulture, $"{(int)duration.TotalHours}h {duration.Minutes}m")
