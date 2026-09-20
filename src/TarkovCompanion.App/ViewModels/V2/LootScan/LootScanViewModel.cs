@@ -8,6 +8,7 @@ using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
 using V2RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
+using V2RecommendationReason = TarkovCompanion.Core.Abstractions.V2.RecommendationReason;
 
 namespace TarkovCompanion.App.ViewModels.V2.LootScan;
 
@@ -180,10 +181,13 @@ public sealed class LootScanViewModel : BindableViewModel
     {
         get
         {
-            var parts = new[] { Result.Context.ActiveMap, Result.Context.ActiveProfile }
-                .Where(value => !string.IsNullOrWhiteSpace(value));
-            var context = string.Join(" • ", parts);
-            return string.IsNullOrEmpty(context) ? _text.CurrentCaptureContext : context;
+            // The map and nothing else. The profile rides in the context as its stable id, and
+            // a guid beside the map name told the player nothing; the shell's own header already
+            // names the profile.
+            var map = Result.Context.ActiveMap;
+            return string.IsNullOrWhiteSpace(map)
+                ? _text.CurrentCaptureContext
+                : _culture.TextInfo.ToTitleCase(map.Replace('-', ' '));
         }
     }
 
@@ -609,6 +613,14 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         {
             // A refusal says it is one. This used to fall through to "Value only", which read as
             // a reason to take an item nobody had identified.
+            // What the Events page recorded outranks everything else the row could say: the
+            // Safety category is shared with "protected", and an allergic item headed
+            // "Protected item" told the player the opposite of what they had written down.
+            if (EventHeadline is { } eventHeadline)
+            {
+                return eventHeadline;
+            }
+
             if (_decision.Verdict == LootScanVerdict.Review)
             {
                 return IsAdvisedTake ? AdviceHeadline : RefusalHeadline;
@@ -636,7 +648,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 return planner;
             }
 
-            return category switch
+            return Named(category switch
             {
                 RecommendationReasonCategory.ExplicitOverride => _text.ReasonExplicit,
                 RecommendationReasonCategory.Safety => _text.ReasonProtected,
@@ -649,11 +661,56 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 RecommendationReasonCategory.PinOrWishlist => _text.ReasonPinned,
                 RecommendationReasonCategory.ScarcityOrObtainability => _text.ReasonScarce,
                 _ => planner ?? _text.ReasonValueOnly,
-            };
+            });
         }
     }
 
+    /// <summary>
+    /// "Current quest" becomes "Current quest · 10 for Acquaintance" where a need decided it.
+    /// </summary>
+    /// <remarks>
+    /// The list row is the only thing most scans are read from, and "Current quest" did not say
+    /// which one or how many. The need's name and count exist only inside the engine's sentence,
+    /// so they are read out of it; a sentence this does not recognise leaves the label as it was.
+    /// </remarks>
+    private string Named(string label)
+    {
+        if (StrongestAdvice is not { Code: var code, Explanation: var sentence } ||
+            !code.StartsWith("need.", StringComparison.Ordinal))
+        {
+            return label;
+        }
+
+        var match = NeedSentence.Match(sentence);
+        return match.Success
+            ? Message(_text.ReasonNeedTemplate, ("reason", label), ("count", match.Groups[1].Value), ("need", match.Groups[2].Value))
+            : label;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex NeedSentence = new(
+        @"^Keep (\d+) more(?: found-in-raid)? for (.+?) \((?:current|\d+ step\(s\) ahead)\)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(50));
+
     internal EvidencedValue<RecognizedItem> ItemField => _decision.Item;
+
+    /// <summary>The Events page's result for this item, where the engine weighed one.</summary>
+    private string? EventHeadline
+    {
+        get
+        {
+            var codes = (_decision.Recommendation?.Decision.Value?.Reasons ?? []).Select(reason => reason.Code).ToArray();
+            return codes.Contains("event.allergic", StringComparer.Ordinal) ? _text.ReasonEventAllergic
+                : codes.Contains("event.untested", StringComparer.Ordinal) && !IsAdvisedTake && _decision.Verdict == LootScanVerdict.Review ? _text.ReasonEventUntested
+                : null;
+        }
+    }
+
+    /// <summary>The engine's strongest reason that is about the item and not about the evidence.</summary>
+    private V2RecommendationReason? StrongestAdvice =>
+        _decision.Recommendation?.Decision.Value?.Reasons
+            .OrderByDescending(reason => reason.Priority)
+            .FirstOrDefault(reason => reason.Category != RecommendationReasonCategory.EvidenceQuality);
 
     /// <summary>
     /// The engine says take it and the planner could not finish the call.
@@ -692,6 +749,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 RecommendationReasonCategory.ScarcityOrObtainability => _text.ReasonScarce,
                 _ => _text.ReasonWorthItsSquares,
             }))
+            .Select(label => label is null ? null : Named(label))
             .FirstOrDefault() ?? _text.ReasonWorthItsSquares;
 
     /// <summary>
@@ -890,6 +948,15 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     {
         get
         {
+            if (_decision.Verdict is LootScanVerdict.Take or LootScanVerdict.Swap)
+            {
+                // The planner's sentence is about the fit. Why the item is wanted at all - the
+                // quest by name, the hideout level, the pin - is the engine's, and a TAKE that
+                // said only "it fits" left the player to guess which of those it was.
+                var fit = string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
+                return StrongestAdvice is { } wanted ? $"{wanted.Explanation} {fit}" : fit;
+            }
+
             if (_decision.Verdict != LootScanVerdict.Review)
             {
                 return string.Join(" ", _decision.Reasons.Select(reason => reason.Explanation));
@@ -903,6 +970,13 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             if (_decision.Item.Value.Quantity.Value is null || _decision.Item.Value.Condition.Value is null)
             {
                 return _text.WhyAttributesUnread;
+            }
+
+            // What the player wrote on the Events page is the whole answer for this row.
+            if ((_decision.Recommendation?.Decision.Value?.Reasons ?? [])
+                .FirstOrDefault(reason => reason.Code == "event.allergic") is { } allergy)
+            {
+                return allergy.Explanation;
             }
 
             if (IsAdvisedTake)
@@ -1312,6 +1386,9 @@ public sealed record LootScanPresentationText
     public string ReasonPinned { get; init; } = "Pinned";
     public string ReasonScarce { get; init; } = "Hard to find";
     public string ReasonValueOnly { get; init; } = "Value only";
+    public string ReasonNeedTemplate { get; init; } = "{reason} · {count} for {need}";
+    public string ReasonEventAllergic { get; init; } = "Allergic · do not eat";
+    public string ReasonEventUntested { get; init; } = "Untested event item";
     public string RefusedNoMatch { get; init; } = "Not recognised";
     public string RefusedOneLookalikeTemplate { get; init; } = "Maybe {first}";
     public string RefusedTwoLookalikesTemplate { get; init; } = "{first} or {second}";

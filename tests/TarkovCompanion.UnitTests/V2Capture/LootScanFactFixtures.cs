@@ -117,13 +117,13 @@ internal static class LootScanFactFixtures
             CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
-    internal sealed class Requirements : IRequirementCatalog
+    internal sealed class Requirements(QuestItemRequirement[]? quest = null) : IRequirementCatalog
     {
         public Task<IReadOnlyList<HideoutItemRequirement>> GetHideoutRequirementsAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<HideoutItemRequirement>>([]);
 
         public Task<IReadOnlyList<QuestItemRequirement>> GetQuestRequirementsAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<QuestItemRequirement>>([]);
+            Task.FromResult<IReadOnlyList<QuestItemRequirement>>(quest ?? []);
 
         public Task<IReadOnlyList<HideoutStationSummary>> GetStationsAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<HideoutStationSummary>>([]);

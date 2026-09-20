@@ -298,6 +298,23 @@ internal static class Program
                     $"Raid panel: {(panelCockpit.ShowsContextPanel ? $"{panelCockpit.ContextPanelWidth:F0}px" : "hidden")}");
             }
 
+            // [V2 rough package 61 — plan export] #288/#315: press Export and print what it
+            // produced, so the document can be read rather than assumed.
+            if (args.Contains("--plan-export"))
+            {
+                var exported = services.GetRequiredService<PlanWorkspaceViewModel>();
+                exported.Clipboard = text =>
+                {
+                    Console.WriteLine("----- exported plan -----");
+                    Console.WriteLine(text);
+                    Console.WriteLine("----- end -----");
+                    return Task.CompletedTask;
+                };
+                DrainUntilComplete(exported.ExportCommand.ExecuteAsync());
+                Pump(20);
+                Console.WriteLine("Export status: " + exported.ExportStatus);
+            }
+
             if (shell is not null && route is not null)
             {
                 V2NavigationResult? result = null;
@@ -915,6 +932,21 @@ internal static class Program
                     profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
                 shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
                     ScanDemo.LootResult(scope)));
+                Pump(20);
+            }
+
+            // [f920 capture] The same workspace decided by the composed application from a
+            // seeded profile: an active quest, a pin, an Allergic event result. See SeededLootScan.
+            if (shell is not null && args.Contains("--loot-seeded"))
+            {
+                SeededLootScan.Run(
+                    services,
+                    viewModel,
+                    DrainUntilComplete,
+                    Pump,
+                    StringOption(args, "--loot-scan-flea-rates"),
+                    StringOption(args, "--loot-scan-phase"),
+                    StringOption(args, "--seed-database"));
                 Pump(20);
             }
 
