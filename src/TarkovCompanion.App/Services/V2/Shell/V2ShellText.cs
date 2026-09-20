@@ -383,6 +383,10 @@ public static class V2ShellText
         ["V2.Shell.Command.Capture"] = "Capture",
         ["V2.Shell.Command.Health"] = "Setup status",
         ["V2.Shell.Command.Palette"] = "Commands",
+        // #292 task 4: the real top bar's own entry to the palette, and the palette's own entry
+        // to the shortcut table Setup > Accessibility lists.
+        ["V2.Shell.Command.PaletteTooltip"] = "Commands (Ctrl+K)",
+        ["V2.Shell.Command.KeyboardShortcuts"] = "Keyboard shortcuts",
         ["V2.Shell.Command.NavigationRail"] = "Sidebar: labels, icons or hidden",
         ["V2.Shell.Nav.RailLabels"] = "Sidebar showing labels",
         ["V2.Shell.Nav.RailIcons"] = "Sidebar showing icons only",

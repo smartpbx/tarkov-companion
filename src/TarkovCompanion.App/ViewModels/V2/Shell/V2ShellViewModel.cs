@@ -574,6 +574,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             : V2ShellText.Get("V2.Shell.Command.Capture");
     public string HealthLabel => HealthSummary;
     public string PaletteLabel => V2ShellText.Get("V2.Shell.Command.Palette");
+
+    /// <summary>#292 task 4: the real chrome's one entry point to the palette, replacing the
+    /// scaffold's own Commands button (still reachable under developer mode, never in a normal
+    /// launch). The gesture is spelled out here rather than left to a tooltip convention, since
+    /// this is the only place a player who has never opened Setup would see it.</summary>
+    public string PaletteTooltip => V2ShellText.Get("V2.Shell.Command.PaletteTooltip");
     public string CopyAddressLabel => V2ShellText.Get("V2.Shell.Command.CopyAddress");
     public string PinLabel => V2ShellText.Get("V2.Shell.Command.Pin");
     public string AddressLabel => V2ShellText.Get("V2.Shell.Address.Label");
@@ -2946,6 +2952,17 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 break;
             case V2ShellCommandKind.NextRegion: MoveRegion(reverse: false); break;
             case V2ShellCommandKind.PreviousRegion: MoveRegion(reverse: true); break;
+            case V2ShellCommandKind.ShowKeyboardShortcuts:
+            {
+                var opened = Router.Navigate(V2Routes.Setup, effectiveInvoker);
+                Act(opened);
+                if (opened.Succeeded)
+                {
+                    SetupWorkspace?.Select(V2SetupSection.Accessibility);
+                }
+
+                break;
+            }
         }
     }
 

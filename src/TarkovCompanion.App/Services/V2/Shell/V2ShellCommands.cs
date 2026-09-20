@@ -18,6 +18,9 @@ public enum V2ShellCommandKind
     PreviousRegion,
     // [V2 rough package 46] "The left sidebar should be collapsible ... more map is better."
     CycleNavigationRail,
+    // #292 task 4: opens Setup > Accessibility, which lists every gesture below by the same
+    // Label/Gesture pairs the palette itself uses.
+    ShowKeyboardShortcuts,
 }
 
 /// <summary>How much of the shell's left navigation rail is showing.</summary>
@@ -161,6 +164,7 @@ public static class V2ShellCommands
             new("previous-region", "V2.Shell.Command.PreviousRegion", V2ShellCommandKind.PreviousRegion, "Shift+F6"),
             new("capture-shortcut", "V2.Shell.Command.CaptureShortcut", V2ShellCommandKind.ToggleCaptureShortcut, null),
             new("reset-preview", "V2.Shell.Command.ResetPreview", V2ShellCommandKind.ResetPreview, null),
+            new("keyboard-shortcuts", "V2.Shell.Command.KeyboardShortcuts", V2ShellCommandKind.ShowKeyboardShortcuts, null),
         ]);
         return commands;
     }
