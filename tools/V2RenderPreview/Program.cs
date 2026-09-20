@@ -266,6 +266,23 @@ internal static class Program
 
                 DrainUntilComplete(loadout.EvaluateCommand.ExecuteAsync());
                 Pump(20);
+
+                // [V2 rough package 60 — Plan] #288: the budget line and a saved kit to compare
+                // against, neither of which a cold render can reach on its own.
+                if (StringOption(args, "--loadout-budget") is { } budget)
+                {
+                    loadout.BudgetInput = budget;
+                    Pump(10);
+                }
+
+                if (StringOption(args, "--loadout-preset") is { } presetName)
+                {
+                    loadout.PresetName = presetName;
+                    DrainUntilComplete(loadout.SavePresetCommand.ExecuteAsync());
+                    Pump(20);
+                    loadout.Compare(presetName);
+                    Pump(40);
+                }
             }
 
             if (args.Contains("--events-demo"))

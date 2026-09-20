@@ -22,6 +22,7 @@ using TarkovCompanion.Platform.Windows.Devices;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
@@ -356,6 +357,9 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        // [V2 rough package 60 — Plan] #288: saved kits, so a loadout survives closing the page.
+        services.AddSingleton<ILoadoutPresetStore>(_ =>
+            new JsonFileLoadoutPresetStore(Path.Combine(paths.Config, "loadouts.json")));
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.

@@ -11,6 +11,7 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
@@ -2660,7 +2661,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         TimeProvider timeProvider,
         ILogger<MainWindowViewModel> logger,
         // V2 rough package 41 (#292, #281): optional so every hand-built test graph still builds.
-        SelfTestJournal? selfTest = null)
+        SelfTestJournal? selfTest = null,
+        // [V2 rough package 60 — Plan] #288: saved kits, optional for the same reason. With no
+        // store the Loadout page offers no presets rather than a Save button that does nothing.
+        ILoadoutPresetStore? loadoutPresets = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2705,7 +2709,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
-        Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
+        Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider);
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);

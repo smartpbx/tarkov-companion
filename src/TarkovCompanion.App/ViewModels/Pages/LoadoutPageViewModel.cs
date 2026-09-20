@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Items;
@@ -44,15 +45,58 @@ public sealed record LoadoutSearchResultViewModel(
     ICommand AssignCommand);
 
 /// <summary>One item currently standing in a slot.</summary>
+/// <param name="AllowsMany">
+/// Whether its slot holds more than one. The board tile shows what is in a slot and clears the
+/// whole slot; only a slot that holds several needs a row per item to remove one of them, so the
+/// itemised list below the board is filtered to those and the board carries the rest.
+/// </param>
 public sealed record LoadoutAssignmentViewModel(
     string ItemId,
     string SlotName,
     string ItemName,
     string Detail,
-    ICommand RemoveCommand);
+    ICommand RemoveCommand,
+    bool AllowsMany = false);
 
 /// <summary>A single line returned by the evaluation, issue or warning.</summary>
 public sealed record LoadoutFindingViewModel(string Message);
+
+/// <summary>
+/// One tile of the kit board: a slot, whatever is standing in it, and a way to aim at it.
+/// </summary>
+/// <remarks>
+/// [V2 rough package 60 — Plan] #288 asked for visual loadout slots. The page had a combo box and
+/// a flat list of whatever happened to be assigned, so the two questions a kit is actually looked
+/// at to answer — what is in it, and what is still missing — both needed counting. Ten tiles
+/// answer both at a glance, and an empty one says so rather than being absent.
+/// </remarks>
+public sealed record LoadoutSlotTileViewModel(
+    LoadoutSlot Slot,
+    string Name,
+    string Hint,
+    bool IsFilled,
+    string Summary,
+    string Detail,
+    bool IsSelected,
+    string AutomationId,
+    ICommand SelectCommand,
+    ICommand ClearSlotCommand);
+
+/// <summary>One saved kit, as it reads in the preset list.</summary>
+public sealed record LoadoutPresetViewModel(
+    string Name,
+    string Detail,
+    bool IsComparing,
+    ICommand LoadCommand,
+    ICommand CompareCommand,
+    ICommand DeleteCommand)
+{
+    /// <summary>What the compare button will do, said on the button rather than by its state.</summary>
+    public string CompareLabel => IsComparing ? "Comparing" : "Compare";
+}
+
+/// <summary>One row of the side-by-side comparison: a measure, both values, and the difference.</summary>
+public sealed record LoadoutComparisonRowViewModel(string Measure, string Current, string Other, string Difference);
 
 /// <summary>
 /// Prices, weighs and sanity-checks a kit the player assembles by hand.
@@ -90,6 +134,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private const string DataNote = "Missing prices and weights count as zero, so both totals are floors.";
 
+    /// <summary>What the budget line says before anybody has typed one.</summary>
+    private const string NoBudget = "No budget set. Type one to see what a kit leaves you.";
+
     private static readonly IReadOnlyList<LoadoutSlotOption> SlotOptions =
     [
         new(LoadoutSlot.Weapon, "Weapon", false, "One weapon. Its caliber is what the ammunition is checked against."),
@@ -110,6 +157,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IItemSearchService _searchService;
     private readonly IItemRepository _itemRepository;
+    // [V2 rough package 60 — Plan] #288. Optional: the V1 page predates saved kits and every test
+    // that builds this view model builds it without one. A page with no store offers no presets
+    // rather than offering a Save button that silently does nothing.
+    private readonly ILoadoutPresetStore? _presets;
+    private readonly TimeProvider _clock;
     private readonly Dictionary<LoadoutSlot, List<AssignedItem>> _selection = [];
 
     private IReadOnlyList<LoadoutItemFacts> _factList = [];
@@ -136,19 +188,40 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private IReadOnlyList<LoadoutAssignmentViewModel> _assignments = [];
     private IReadOnlyList<LoadoutFindingViewModel> _issues = [];
     private IReadOnlyList<LoadoutFindingViewModel> _warnings = [];
+    private IReadOnlyList<LoadoutAssignmentViewModel> _multiAssignments = [];
+    private IReadOnlyList<LoadoutSlotTileViewModel> _slotBoard = [];
+    private IReadOnlyList<LoadoutPresetViewModel> _presetRows = [];
+    private IReadOnlyList<LoadoutComparisonRowViewModel> _comparison = [];
+    private string _presetName = string.Empty;
+    private string _presetStatus = "No kit saved yet.";
+    private string _budgetInput = string.Empty;
+    private string _budgetSummary = NoBudget;
+    private bool _isOverBudget;
+    private string? _comparingPreset;
+    private long? _evaluatedCost;
+    private double? _evaluatedWeight;
+    private string _evaluatedAmmoTier = string.Empty;
 
     public LoadoutPageViewModel(
         IItemFactCatalog catalog,
         IItemSearchService searchService,
-        IItemRepository itemRepository)
+        IItemRepository itemRepository,
+        ILoadoutPresetStore? presets = null,
+        TimeProvider? clock = null)
         : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
         _searchService = searchService;
         _itemRepository = itemRepository;
+        _presets = presets;
+        _clock = clock ?? TimeProvider.System;
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         EvaluateCommand = new AsyncDelegateCommand(EvaluateAsync);
         ClearCommand = new DelegateCommand(Clear);
+        SavePresetCommand = new AsyncDelegateCommand(() => SavePresetAsync(CancellationToken.None));
+        RefreshPresetsCommand = new AsyncDelegateCommand(() => LoadPresetsAsync(CancellationToken.None));
+        ClearComparisonCommand = new DelegateCommand(() => Compare(null));
+        RefreshSlotBoard();
     }
 
     public AsyncDelegateCommand SearchCommand { get; }
@@ -156,6 +229,15 @@ public sealed class LoadoutPageViewModel : PageViewModel
     public AsyncDelegateCommand EvaluateCommand { get; }
 
     public DelegateCommand ClearCommand { get; }
+
+    public AsyncDelegateCommand SavePresetCommand { get; }
+
+    public AsyncDelegateCommand RefreshPresetsCommand { get; }
+
+    public DelegateCommand ClearComparisonCommand { get; }
+
+    /// <summary>Whether saved kits are offered at all; false with no store composed.</summary>
+    public bool CanSavePresets => _presets is not null;
 
     public IReadOnlyList<LoadoutSlotOption> Slots => SlotOptions;
 
@@ -174,9 +256,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
         get => _selectedSlot;
         set
         {
-            if (value is not null)
+            if (value is not null && SetProperty(ref _selectedSlot, value))
             {
-                SetProperty(ref _selectedSlot, value);
+                RefreshSlotBoard();
             }
         }
     }
@@ -247,6 +329,13 @@ public sealed class LoadoutPageViewModel : PageViewModel
         private set => SetProperty(ref _assignments, value);
     }
 
+    /// <summary>The assignments in slots that hold several, which need a row each to remove one.</summary>
+    public IReadOnlyList<LoadoutAssignmentViewModel> MultiAssignments
+    {
+        get => _multiAssignments;
+        private set => SetProperty(ref _multiAssignments, value);
+    }
+
     public IReadOnlyList<LoadoutFindingViewModel> Issues
     {
         get => _issues;
@@ -257,6 +346,85 @@ public sealed class LoadoutPageViewModel : PageViewModel
     {
         get => _warnings;
         private set => SetProperty(ref _warnings, value);
+    }
+
+    /// <summary>The ten slots, filled or not. Always ten rows; an empty slot says so.</summary>
+    public IReadOnlyList<LoadoutSlotTileViewModel> SlotBoard
+    {
+        get => _slotBoard;
+        private set => SetProperty(ref _slotBoard, value);
+    }
+
+    /// <summary>How many of the ten have something in them, for the board's heading.</summary>
+    public string SlotBoardSummary =>
+        $"{SlotBoard.Count(tile => tile.IsFilled)} of {SlotOptions.Count} slots filled";
+
+    public IReadOnlyList<LoadoutPresetViewModel> Presets
+    {
+        get => _presetRows;
+        private set => SetProperty(ref _presetRows, value);
+    }
+
+    /// <summary>The comparison table, empty until a saved kit is chosen to compare against.</summary>
+    public IReadOnlyList<LoadoutComparisonRowViewModel> Comparison
+    {
+        get => _comparison;
+        private set
+        {
+            if (SetProperty(ref _comparison, value))
+            {
+                OnPropertyChanged(nameof(HasComparison));
+            }
+        }
+    }
+
+    public bool HasComparison => Comparison.Count > 0;
+
+    /// <summary>The name a Save press will use.</summary>
+    public string PresetName
+    {
+        get => _presetName;
+        set => SetProperty(ref _presetName, value);
+    }
+
+    public string PresetStatus
+    {
+        get => _presetStatus;
+        private set => SetProperty(ref _presetStatus, value);
+    }
+
+    /// <summary>What the player is willing to spend, as they typed it.</summary>
+    /// <remarks>
+    /// Free text rather than a numeric control: a kit budget is typed as "250000" or "250,000"
+    /// or "250k" depending on the person, and refusing two of those is a worse answer than
+    /// reading all three.
+    /// </remarks>
+    public string BudgetInput
+    {
+        get => _budgetInput;
+        set
+        {
+            if (SetProperty(ref _budgetInput, value))
+            {
+                RefreshBudget();
+            }
+        }
+    }
+
+    public string BudgetSummary
+    {
+        get => _budgetSummary;
+        private set => SetProperty(ref _budgetSummary, value);
+    }
+
+    /// <summary>Whether the last evaluated kit costs more than the budget.</summary>
+    /// <remarks>
+    /// Paired with the word "over" in <see cref="BudgetSummary"/>, never colour alone (#266).
+    /// </remarks>
+    public bool IsOverBudget
+    {
+        get => _isOverBudget;
+        private set => SetProperty(ref _isOverBudget, value);
     }
 
     /// <summary>Takes the runtime snapshot and drops any projection the last sync invalidated.</summary>
@@ -352,6 +520,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
             CostSummary = DescribeCost(evaluation, selectedIds);
             WeightSummary = DescribeWeight(evaluation, selectedIds);
             AmmoTierSummary = DescribeAmmoTier(evaluation);
+            _evaluatedCost = evaluation.ApproximateCostRoubles;
+            _evaluatedWeight = evaluation.ApproximateWeightKg;
+            _evaluatedAmmoTier = evaluation.AmmoTier;
+            RefreshBudget();
+            await RefreshComparisonAsync(cancellationToken).ConfigureAwait(true);
 
             // IsCompatible is "no issue was raised", and three of the five checks cannot raise
             // one, so it must never be rendered as a verdict of compatible.
@@ -375,6 +548,379 @@ public sealed class LoadoutPageViewModel : PageViewModel
         _selection.Clear();
         RefreshAssignments();
         ResetEvaluation("Assign at least one item, then evaluate.");
+    }
+
+    /// <summary>Reads the saved kits, so the page can offer them.</summary>
+    public async Task LoadPresetsAsync(CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var saved = await _presets.GetAsync(cancellationToken).ConfigureAwait(true);
+            Presets = [.. saved.Select(Describe)];
+            PresetStatus = Presets.Count == 0
+                ? "No kit saved yet."
+                : $"{Presets.Count} saved";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Presets = [];
+            PresetStatus = $"Saved kits unreadable · {exception.Message}";
+        }
+    }
+
+    /// <summary>Saves the board as it stands, under the typed name.</summary>
+    public async Task SavePresetAsync(CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            return;
+        }
+
+        if (!LoadoutPreset.IsUsableName(PresetName))
+        {
+            PresetStatus = "Give the kit a name first, up to 64 characters.";
+            return;
+        }
+
+        var items = SlotOptions
+            .Where(option => _selection.ContainsKey(option.Slot))
+            .SelectMany(option => _selection[option.Slot]
+                .Select(item => new LoadoutPresetItem(option.Slot.ToString(), item.ItemId, item.Name)))
+            .ToArray();
+        if (items.Length == 0)
+        {
+            PresetStatus = "Assign something before saving a kit.";
+            return;
+        }
+
+        var name = PresetName.Trim();
+        try
+        {
+            await _presets
+                .SaveAsync(new LoadoutPreset(name, _clock.GetUtcNow(), items), cancellationToken)
+                .ConfigureAwait(true);
+            PresetName = string.Empty;
+            await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
+            PresetStatus = $"Saved {name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            PresetStatus = $"Not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>Replaces the board with a saved kit.</summary>
+    /// <remarks>
+    /// Replaces rather than merges. Loading a kit on top of another would produce a third kit
+    /// nobody chose, and the two-item slots make it silently additive.
+    /// </remarks>
+    public async Task LoadPresetAsync(string name, CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            return;
+        }
+
+        var saved = (await _presets.GetAsync(cancellationToken).ConfigureAwait(true))
+            .FirstOrDefault(preset => string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (saved is null)
+        {
+            PresetStatus = $"{name} is no longer saved.";
+            await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
+            return;
+        }
+
+        _selection.Clear();
+        foreach (var item in saved.Items)
+        {
+            if (!Enum.TryParse<LoadoutSlot>(item.Slot, out var slot))
+            {
+                continue;
+            }
+
+            if (!_selection.TryGetValue(slot, out var items))
+            {
+                items = [];
+                _selection[slot] = items;
+            }
+
+            items.Add(new(item.ItemId, item.Name, SlotOptions.First(option => option.Slot == slot).Name));
+        }
+
+        RefreshAssignments();
+        ResetEvaluation("Loaded. Evaluate to price and weigh it.");
+        PresetStatus = $"Loaded {saved.Name}";
+    }
+
+    /// <summary>Picks the saved kit the current one is measured against, or none.</summary>
+    public void Compare(string? name)
+    {
+        _comparingPreset = name;
+        Presets = [.. Presets.Select(row => row with
+        {
+            IsComparing = string.Equals(row.Name, name, StringComparison.OrdinalIgnoreCase),
+        })];
+        if (name is null)
+        {
+            Comparison = [];
+            return;
+        }
+
+        _ = RefreshComparisonAsync(CancellationToken.None);
+    }
+
+    /// <summary>Removes a saved kit.</summary>
+    public async Task DeletePresetAsync(string name, CancellationToken cancellationToken)
+    {
+        if (_presets is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _presets.DeleteAsync(name, cancellationToken).ConfigureAwait(true);
+            if (string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase))
+            {
+                _comparingPreset = null;
+                Comparison = [];
+            }
+
+            await LoadPresetsAsync(cancellationToken).ConfigureAwait(true);
+            PresetStatus = $"Deleted {name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            PresetStatus = $"Not deleted · {exception.Message}";
+        }
+    }
+
+    private LoadoutPresetViewModel Describe(LoadoutPreset preset)
+    {
+        var name = preset.Name;
+        return new(
+            name,
+            $"{preset.Items.Count} items · saved {preset.SavedUtc.ToLocalTime().ToString("d MMM HH:mm", CultureInfo.CurrentCulture)}",
+            string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase),
+            new AsyncDelegateCommand(() => LoadPresetAsync(name, CancellationToken.None)),
+            new DelegateCommand(() => Compare(string.Equals(_comparingPreset, name, StringComparison.OrdinalIgnoreCase) ? null : name)),
+            new AsyncDelegateCommand(() => DeletePresetAsync(name, CancellationToken.None)));
+    }
+
+    /// <summary>
+    /// Prices and weighs the kit being compared against, and states the differences.
+    /// </summary>
+    /// <remarks>
+    /// The saved kit is run through the same evaluation the current one is, rather than storing
+    /// the numbers it had when it was saved. Prices move; a comparison against last week's price
+    /// of a kit would be a comparison against nothing in particular.
+    /// </remarks>
+    private async Task RefreshComparisonAsync(CancellationToken cancellationToken)
+    {
+        if (_presets is null || _comparingPreset is null)
+        {
+            Comparison = [];
+            return;
+        }
+
+        var saved = (await _presets.GetAsync(cancellationToken).ConfigureAwait(true))
+            .FirstOrDefault(preset => string.Equals(preset.Name, _comparingPreset, StringComparison.OrdinalIgnoreCase));
+        if (saved is null)
+        {
+            Comparison = [];
+            return;
+        }
+
+        try
+        {
+            var service = await EnsureServiceAsync(cancellationToken).ConfigureAwait(true);
+            var other = await service
+                .EvaluateAsync(SelectionFrom(saved), profile: null, cancellationToken)
+                .ConfigureAwait(true);
+            Comparison =
+            [
+                new(
+                    "Approximate cost",
+                    Roubles(_evaluatedCost),
+                    Roubles(other.ApproximateCostRoubles),
+                    Difference(_evaluatedCost, other.ApproximateCostRoubles)),
+                new(
+                    "Total weight",
+                    Kilograms(_evaluatedWeight),
+                    Kilograms(other.ApproximateWeightKg),
+                    Difference(_evaluatedWeight, other.ApproximateWeightKg)),
+                new("Ammo tier", _evaluatedAmmoTier, other.AmmoTier, string.Empty),
+                new(
+                    "Slots filled",
+                    _selection.Count.ToString(CultureInfo.CurrentCulture),
+                    saved.Items.Select(item => item.Slot).Distinct(StringComparer.Ordinal).Count().ToString(CultureInfo.CurrentCulture),
+                    string.Empty),
+                new(
+                    "Compatibility issues",
+                    Issues.Count.ToString(CultureInfo.CurrentCulture),
+                    other.CompatibilityIssues.Count.ToString(CultureInfo.CurrentCulture),
+                    string.Empty),
+            ];
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Comparison = [];
+            PresetStatus = $"Not compared · {exception.Message}";
+        }
+    }
+
+    private static LoadoutSelection SelectionFrom(LoadoutPreset preset)
+    {
+        var bySlot = preset.Items
+            .Where(item => Enum.TryParse<LoadoutSlot>(item.Slot, out _))
+            .GroupBy(item => Enum.Parse<LoadoutSlot>(item.Slot))
+            .ToDictionary(group => group.Key, group => group.Select(item => item.ItemId).ToArray());
+
+        string? One(LoadoutSlot slot) => bySlot.TryGetValue(slot, out var ids) && ids.Length > 0 ? ids[0] : null;
+        IReadOnlyList<string> Many(LoadoutSlot slot) => bySlot.TryGetValue(slot, out var ids) ? ids : [];
+
+        return new(
+            One(LoadoutSlot.Weapon),
+            One(LoadoutSlot.Ammunition),
+            Many(LoadoutSlot.Magazine),
+            One(LoadoutSlot.Armor),
+            Many(LoadoutSlot.Plate),
+            One(LoadoutSlot.Helmet),
+            One(LoadoutSlot.Headset),
+            One(LoadoutSlot.Rig),
+            One(LoadoutSlot.Backpack),
+            Many(LoadoutSlot.Medical));
+    }
+
+    private static string Roubles(long? value) =>
+        value is { } amount ? amount.ToString("N0", CultureInfo.CurrentCulture) + " \u20bd" : "unknown";
+
+    private static string Kilograms(double? value) =>
+        value is { } weight ? weight.ToString("0.##", CultureInfo.CurrentCulture) + " kg" : "unknown";
+
+    private static string Difference(long? current, long? other) =>
+        current is { } left && other is { } right
+            ? Signed(left - right, (left - right).ToString("N0", CultureInfo.CurrentCulture) + " \u20bd")
+            : string.Empty;
+
+    private static string Difference(double? current, double? other) =>
+        current is { } left && other is { } right
+            ? Signed((long)Math.Sign(left - right), (left - right).ToString("+0.##;-0.##;0", CultureInfo.CurrentCulture) + " kg")
+            : string.Empty;
+
+    private static string Signed(long sign, string text) => sign > 0 ? "+" + text : text;
+
+    /// <summary>
+    /// Restates the budget line against the last evaluation.
+    /// </summary>
+    /// <remarks>
+    /// Against the *evaluated* cost, not a running total of what is assigned: the totals count a
+    /// missing price as zero and are floors, and a budget line that moved while items were being
+    /// added would be quoting a number the page had not computed.
+    /// </remarks>
+    private void RefreshBudget()
+    {
+        if (!TryReadBudget(BudgetInput, out var budget))
+        {
+            IsOverBudget = false;
+            BudgetSummary = BudgetInput.Trim().Length == 0
+                ? NoBudget
+                : "That is not a number of roubles.";
+            return;
+        }
+
+        if (_evaluatedCost is not { } cost)
+        {
+            IsOverBudget = false;
+            BudgetSummary = $"Budget {Roubles(budget)}. Evaluate a kit to compare it.";
+            return;
+        }
+
+        var difference = budget - cost;
+        IsOverBudget = difference < 0;
+        BudgetSummary = difference >= 0
+            ? $"{Roubles(cost)} of {Roubles(budget)} · {Roubles(difference)} left"
+            : $"{Roubles(cost)} of {Roubles(budget)} · over by {Roubles(-difference)}";
+    }
+
+    /// <summary>Reads a typed budget, accepting separators and a trailing k or m.</summary>
+    internal static bool TryReadBudget(string? input, out long roubles)
+    {
+        roubles = 0;
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+
+        var text = input.Trim().Replace(" ", string.Empty, StringComparison.Ordinal)
+            .Replace(",", string.Empty, StringComparison.Ordinal)
+            .Replace("\u20bd", string.Empty, StringComparison.Ordinal);
+        var multiplier = 1L;
+        if (text.EndsWith('k') || text.EndsWith('K'))
+        {
+            multiplier = 1_000;
+            text = text[..^1];
+        }
+        else if (text.EndsWith('m') || text.EndsWith('M'))
+        {
+            multiplier = 1_000_000;
+            text = text[..^1];
+        }
+
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var value)
+            && !double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+        {
+            return false;
+        }
+
+        if (value < 0 || value * multiplier > long.MaxValue)
+        {
+            return false;
+        }
+
+        roubles = (long)Math.Round(value * multiplier);
+        return true;
+    }
+
+    /// <summary>Rebuilds the ten tiles from whatever is assigned.</summary>
+    private void RefreshSlotBoard()
+    {
+        SlotBoard =
+        [
+            .. SlotOptions.Select(option =>
+            {
+                var items = _selection.GetValueOrDefault(option.Slot) ?? [];
+                var slot = option.Slot;
+                return new LoadoutSlotTileViewModel(
+                    slot,
+                    option.Name,
+                    option.Hint,
+                    items.Count > 0,
+                    items.Count == 0 ? "Empty" : string.Join(", ", items.Select(item => item.Name)),
+                    items.Count == 0 ? option.Hint : items[0].Detail,
+                    SelectedSlot.Slot == slot,
+                    $"v2-loadout-slot-{slot.ToString().ToLowerInvariant()}",
+                    new DelegateCommand(() => SelectedSlot = option),
+                    new DelegateCommand(() => ClearSlot(slot)));
+            }),
+        ];
+        OnPropertyChanged(nameof(SlotBoardSummary));
+    }
+
+    private void ClearSlot(LoadoutSlot slot)
+    {
+        if (!_selection.Remove(slot))
+        {
+            return;
+        }
+
+        RefreshAssignments();
+        AssignmentStatus = $"{SlotOptions.First(option => option.Slot == slot).Name} is empty again.";
     }
 
     private async Task AssignAsync(string itemId, CancellationToken cancellationToken)
@@ -452,11 +998,14 @@ public sealed class LoadoutPageViewModel : PageViewModel
                     option.Name,
                     items[index].Name,
                     items[index].Detail,
-                    new DelegateCommand(() => Remove(slot, position))));
+                    new DelegateCommand(() => Remove(slot, position)),
+                    option.AllowsMany));
             }
         }
 
         Assignments = rows;
+        MultiAssignments = [.. rows.Where(row => row.AllowsMany)];
+        RefreshSlotBoard();
         if (rows.Count == 0)
         {
             AssignmentStatus = "Nothing is assigned yet.";

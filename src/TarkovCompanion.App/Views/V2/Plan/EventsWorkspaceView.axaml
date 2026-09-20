@@ -70,7 +70,7 @@
       <Border Grid.Column="1" Classes="v2-intel-pane" Padding="18,14"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-events-detail">
-        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
           <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
             <TextBlock Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
             <Button Grid.Column="1" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
@@ -81,8 +81,46 @@
           <TextBlock Grid.Row="2" Classes="v2-heading-3" Text="{Binding Progress}" TextWrapping="Wrap" />
           <TextBlock Grid.Row="3" Classes="v2-label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
 
+          <!-- [V2 rough package 60 — Plan] #288. The file format has always carried a name, a
+               window and an active flag; nothing in the application ever let anybody set them, so
+               every event created here was unnamed-after-the-fact, undated and permanently on.
+               Archive switches an event off and keeps it, along with everything recorded against
+               it; only Delete removes a definition. -->
+          <Border Grid.Row="4" Classes="v2-intel-section" IsVisible="{Binding CanEditSchedule}">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Schedule" AutomationProperties.HeadingLevel="2" />
+              <TextBox Classes="v2-field-input" Text="{Binding RenameTo}"
+                       PlaceholderText="Event name"
+                       AutomationProperties.AutomationId="v2-events-rename"
+                       AutomationProperties.Name="Event name" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                <TextBox Classes="v2-field-input" Text="{Binding ScheduleStart}"
+                         PlaceholderText="First day, or leave blank"
+                         AutomationProperties.AutomationId="v2-events-start"
+                         AutomationProperties.Name="First day of the event" />
+                <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding ScheduleEnd}"
+                         PlaceholderText="Last day, or leave blank"
+                         AutomationProperties.AutomationId="v2-events-end"
+                         AutomationProperties.Name="Last day of the event" />
+              </Grid>
+              <TextBlock Classes="v2-body" Text="{Binding SchedulePreview}" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="v2-events-schedule-preview"
+                         AutomationProperties.LiveSetting="Polite" />
+              <WrapPanel ItemSpacing="8" LineSpacing="6">
+                <Button Classes="v2-target v2-outline" Content="Save schedule"
+                        AutomationProperties.AutomationId="v2-events-save-schedule"
+                        Command="{Binding SaveScheduleCommand}" />
+                <Button Classes="v2-target v2-plain" Content="{Binding ArchiveLabel}"
+                        AutomationProperties.AutomationId="v2-events-archive"
+                        Command="{Binding ToggleArchivedCommand}" />
+              </WrapPanel>
+              <TextBlock Classes="v2-label" Text="{Binding ScheduleStatus}" TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+
           <!-- A definition names items by id and nobody knows them by id, so they are chosen from the catalog. -->
-          <StackPanel Grid.Row="4" Spacing="6" IsVisible="{Binding CanEdit}">
+          <StackPanel Grid.Row="5" Spacing="6" IsVisible="{Binding CanEdit}">
             <Border Classes="v2-intel-search" MinHeight="42">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
@@ -114,7 +152,7 @@
             </ScrollViewer>
           </StackPanel>
 
-          <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Disabled">
+          <ScrollViewer Grid.Row="6" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Items}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="pages:EventItemViewModel">
