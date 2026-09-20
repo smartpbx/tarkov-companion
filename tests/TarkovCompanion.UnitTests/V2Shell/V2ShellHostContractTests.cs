@@ -183,7 +183,12 @@ public sealed class V2ShellHostContractTests
 
         Assert.DoesNotContain("GetService<V2ShellViewModel>()", app, StringComparison.Ordinal);
         Assert.Contains("_mainViewModel?.PreviewShell", app, StringComparison.Ordinal);
-        Assert.Contains("await preview.DisposeAsync()", app, StringComparison.Ordinal);
+        // Still disposed on the way out, and now under a deadline. The shape changed when
+        // shutdown was given one shared budget: closing the window enqueues a preview save, and
+        // the queue's drain awaits its writer with CancellationToken.None, so an unbounded await
+        // here was the close waiting on work the close had just created.
+        Assert.Contains("preview.DisposeAsync().AsTask()", app, StringComparison.Ordinal);
+        Assert.Contains("\"preview-shell\"", app, StringComparison.Ordinal);
         var keyHandler = window.IndexOf("private void WindowKeyDown", StringComparison.Ordinal);
         var previewBoundary = window.IndexOf("if (viewModel.PreviewShell is { } preview)", keyHandler, StringComparison.Ordinal);
         var legacyKeys = window.IndexOf("if (eventArgs.KeyModifiers == KeyModifiers.Control)", previewBoundary, StringComparison.Ordinal);
