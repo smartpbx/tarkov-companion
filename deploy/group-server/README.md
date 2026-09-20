@@ -212,3 +212,30 @@ arbitrary caller bodies, so back up and delete `reports/` as sensitive data.
 
 Until `StateDirectory=` is set on the running unit, marks and the room registry live in memory
 and a restart clears them, reports are not kept, and the panel cannot ask for an update.
+
+### Upgrading onto a build with the device registry (#289, #290, #407)
+
+`relay-devices.json`'s shape (owner and paired devices' key thumbprints, sessions, audit trail —
+see above) has not changed since it was introduced (#278, 2026-09-16/17); today's three PRs
+(#506, #514, #516) add new routes that read and write the *same* records, not a new file or a new
+field. So upgrading from a relay that already runs #278 or later carries the owner and every
+paired tablet forward with nothing to redo.
+
+Upgrading from an older build — one that never wrote this file at all — is different. On first
+start, `VerifiedRelayRegistryStore.LoadAsync` finds neither `relay-devices.json` nor
+`relay-devices.json.backup` and returns an empty, uninitialized registry rather than an error; the
+process starts normally, but every device-scoped route (pairing, resume, revoke, map, frames)
+refuses until something claims the relay. **The owner must claim once more with the admin key**
+(`POST /admin/relay/claim`, `X-Admin-Key`/`TARKOV_RELAY_ADMIN_KEY`) after such an upgrade — the new
+key-possession resume route has no prior owner key to resume against. That one claim writes the
+desktop's key to `relay-devices.json` as owner; every later restart resumes by key possession alone
+(no admin key) for as long as the state directory survives. The same empty-registry path is what
+runs if `relay-devices.json` is corrupt or its backup disagrees with it (#317): the registry closes
+to the admin-key/owner-recovery ceremony rather than guessing, so a wiped or unreadable state
+directory also costs the owner one more admin-key claim, and every paired tablet one more pairing.
+
+No new environment variable. New routes added by #506/#514/#516, all under
+`/v2/companion/relay/`: `POST devices/{deviceId}/revoke`, `POST possession/challenge`,
+`POST owner/resume`, `POST resume/requests`, `GET resume/requests/{ticketId}`,
+`POST resume/requests/{ticketId}/offer`, `POST frames/reset`. Deploy them the way every other
+route deploys — there is nothing route-specific to configure.
