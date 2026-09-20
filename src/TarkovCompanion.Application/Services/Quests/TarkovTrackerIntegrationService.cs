@@ -1,4 +1,5 @@
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.Application.Services.Quests;
@@ -135,7 +136,7 @@ public sealed class TarkovTrackerIntegrationService : ITarkovTrackerIntegrationS
             if (session.NextEligibleRefreshUtc is { } nextEligible && nextEligible > now)
             {
                 throw new InvalidOperationException(
-                    $"TarkovTracker refresh is paused until {nextEligible:O} by quota or failure backoff.");
+                    $"TarkovTracker refresh is paused until {LocalTime.Moment(nextEligible)} by quota or failure backoff.");
             }
 
             if (kind == TarkovTrackerRefreshKind.Foreground &&
@@ -144,7 +145,7 @@ public sealed class TarkovTrackerIntegrationService : ITarkovTrackerIntegrationS
             {
                 var nextForeground = lastChecked + _options.MinimumForegroundRefreshInterval;
                 throw new InvalidOperationException(
-                    $"Foreground TarkovTracker refresh is limited to once per minute; retry after {nextForeground:O}.");
+                    $"Foreground TarkovTracker refresh is limited to once per minute; retry after {LocalTime.Moment(nextForeground)}.");
             }
 
             TarkovTrackerProgressFetch fetched;

@@ -30,6 +30,35 @@ public static class RelayAccess
             && !registry.Allows(GroupKey.RoomFor(key!));
     }
 
+    /// <summary>
+    /// Whether a path is one that checks the operator's key rather than a member's.
+    /// </summary>
+    /// <remarks>
+    /// [#317] Separate from <see cref="IsGroupPath"/> because the two keys are separate secrets
+    /// and the attempt limiter has to count a wrong one of either. /reports is the operator
+    /// reading every group's reports; /admin/... is the registry and the update controls behind
+    /// the panel.
+    ///
+    /// The panel page itself, bare /admin, is deliberately not here, and the reason is the
+    /// limiter rather than tidiness. It takes no key and always answers 200, so counting it
+    /// would let a caller clear its own penalty between guesses by asking for the page — a
+    /// throttle with a reset button is not a throttle. It is static markup; there is nothing on
+    /// it to guess.
+    /// </remarks>
+    public static bool IsAdminPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        var value = path.AsSpan().TrimStart('/');
+        var end = value.IndexOf('/');
+        var first = end < 0 ? value : value[..end];
+        return first.Equals("reports", StringComparison.OrdinalIgnoreCase)
+            || (first.Equals("admin", StringComparison.OrdinalIgnoreCase) && end >= 0 && value.Length > end + 1);
+    }
+
     /// <summary>Whether a path is one that acts on a group's room.</summary>
     /// <remarks>
     /// Matched on the first segment rather than by prefix, because /report and /reports are two

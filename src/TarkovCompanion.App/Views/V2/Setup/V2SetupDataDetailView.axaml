@@ -1,0 +1,29 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupDataDetailView"
+             x:DataType="vm:SetupDataDetailViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:setup="using:TarkovCompanion.App.Services.V2.Setup"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#292] Every line is a label and a value the refresh itself reported, so "when did it last work"
+       and "when will it try again" are answered without opening a log. -->
+  <StackPanel Classes="v2-stack">
+    <ItemsControl ItemsSource="{Binding Facts}" AutomationProperties.AutomationId="v2-setup-data-facts">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="setup:SetupFact">
+          <Grid ColumnDefinitions="140,*" ColumnSpacing="16" Margin="0,2">
+            <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Label}" />
+            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Value}" TextWrapping="Wrap" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Button Classes="v2-target primary" HorizontalAlignment="Left" IsVisible="{Binding NeedsRetry}"
+            AutomationProperties.AutomationId="v2-setup-data-retry"
+            Content="{Binding RetryLabel}" Command="{Binding RetryCommand}" />
+    <StackPanel Classes="v2-field" IsVisible="{Binding HasReason}">
+      <TextBlock Classes="v2-label" Text="{Binding ReasonLabel}" />
+      <TextBlock Classes="v2-body" Text="{Binding Reason}" TextWrapping="Wrap"
+                 AutomationProperties.AutomationId="v2-setup-data-reason" />
+    </StackPanel>
+  </StackPanel>
+</UserControl>

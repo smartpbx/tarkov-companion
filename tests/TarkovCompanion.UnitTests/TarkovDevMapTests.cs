@@ -484,6 +484,164 @@ public sealed class TarkovDevMapTests
         Assert.Equal(1, handler.RequestCount);
     }
 
+    /// <summary>
+    /// Two floors of one map are two files, not one file written twice.
+    /// </summary>
+    /// <remarks>
+    /// Every floor used to rasterise onto the same <c>&lt;hash&gt;.preview.png</c>. Both the V1 map
+    /// and the V2 cockpit hold this cache, so two consumers reading two floors each got whichever
+    /// floor had finished writing last — and a stacked view, which asks for every floor in turn,
+    /// read the same file once per floor. <c>RaidCockpitViewModel</c> carried a remark about
+    /// exactly that.
+    /// </remarks>
+    [Fact]
+    public async Task EachUpstreamLayerGetsItsOwnPreviewFile()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(directory, out var variant);
+
+        var ground = await cache.GetSvgAsync(variant, variant.Floors[0], CancellationToken.None);
+        var upper = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.NotEqual(ground.Asset!.RenderPath, upper.Asset!.RenderPath);
+        Assert.True(File.Exists(ground.Asset.RenderPath));
+        Assert.True(File.Exists(upper.Asset.RenderPath));
+        // Still there after the second floor was drawn, which is the whole claim.
+        var groundPixels = await File.ReadAllBytesAsync(ground.Asset.RenderPath);
+        var upperPixels = await File.ReadAllBytesAsync(upper.Asset.RenderPath);
+        Assert.False(groundPixels.SequenceEqual(upperPixels));
+    }
+
+    /// <summary>
+    /// A preview already on disk is not drawn again.
+    /// </summary>
+    /// <remarks>
+    /// A stacked Reserve load asked for six floors and rasterised all six, every time, at about
+    /// two seconds of processor each — seconds of freeze for pictures already on disk, and six more
+    /// chances at the native fault this is all guarding against.
+    /// </remarks>
+    [Fact]
+    public async Task APreviewAlreadyDrawnFromTheSameSourceIsNotDrawnAgain()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(directory, out var variant);
+
+        var first = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+        var drawnAt = File.GetLastWriteTimeUtc(first.Asset!.RenderPath);
+        var second = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.Equal(first.Asset.RenderPath, second.Asset!.RenderPath);
+        Assert.Equal(drawnAt, File.GetLastWriteTimeUtc(second.Asset.RenderPath));
+    }
+
+    /// <summary>
+    /// A floor drawn from a source that has since been replaced is drawn again.
+    /// </summary>
+    /// <remarks>
+    /// The other half of not drawing twice. Skipping on "the file is there" alone would serve last
+    /// month's artwork for the life of the cache entry after an upstream map changed.
+    /// </remarks>
+    [Fact]
+    public async Task APreviewIsRedrawnOnceItsSourceHasBeenReplaced()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(directory, out var variant);
+
+        var first = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+        var drawnAt = File.GetLastWriteTimeUtc(first.Asset!.RenderPath);
+        File.SetLastWriteTimeUtc(first.Asset.LocalPath, drawnAt + TimeSpan.FromMinutes(1));
+        var second = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.True(
+            File.GetLastWriteTimeUtc(second.Asset!.RenderPath) > drawnAt,
+            "The preview was not redrawn although its source is newer than it.");
+    }
+
+    /// <summary>
+    /// A rasteriser child that cannot be started sends the work back into this process.
+    /// </summary>
+    /// <remarks>
+    /// The alternative is a map that stops working because of how the application happens to have
+    /// been launched. A child that cannot start says nothing at all about the drawing.
+    /// </remarks>
+    [Fact]
+    public async Task AChildProcessThatCannotStartFallsBackToRasterisingHere()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(
+            directory,
+            out var variant,
+            new(Path.Combine(directory.Path, "no-such-executable"), [], TimeSpan.FromSeconds(5)));
+
+        var result = await cache.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.NotNull(result.Asset);
+        Assert.True(File.Exists(result.Asset.RenderPath));
+    }
+
+    /// <summary>
+    /// A rasteriser child that ran and failed leaves the whole drawing on screen, not nothing.
+    /// </summary>
+    /// <remarks>
+    /// It is not retried in this process: that is how the application would be killed by the fault
+    /// the child exists to contain. What it falls back to is the base preview — the same artwork
+    /// with every floor drawn, which the download already produced — so a floor that will not
+    /// rasterise costs the floor filter and not the map.
+    /// </remarks>
+    [Fact]
+    public async Task AChildProcessThatFailsFallsBackToTheWholeDrawing()
+    {
+        using var directory = new TemporaryDirectory();
+        var cache = FloorFixtureCache(directory, out var variant);
+        var baseline = await cache.GetSvgAsync(variant, variant.Floors[0], CancellationToken.None);
+        var failing = FloorFixtureCache(
+            directory,
+            out _,
+            OperatingSystem.IsWindows()
+                ? new("cmd.exe", ["/c", "exit 1"], TimeSpan.FromSeconds(20))
+                : new("/bin/sh", ["-c", "exit 1"], TimeSpan.FromSeconds(20)),
+            fetch: false);
+
+        var result = await failing.GetSvgAsync(variant, variant.Floors[1], CancellationToken.None);
+
+        Assert.NotNull(baseline.Asset);
+        Assert.NotNull(result.Asset);
+        Assert.EndsWith(".preview.png", result.Asset.RenderPath, StringComparison.Ordinal);
+        Assert.Contains("every floor is shown", result.Message!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A cache over the two-floor synthetic fixture, with the drawing already downloaded.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="fetch"/> is false for a second cache over a directory the first one already
+    /// filled: the queued handler would have no response left to give, and the point of the second
+    /// cache is that it reads what is already there.
+    /// </remarks>
+    private static TarkovDevMapAssetCache FloorFixtureCache(
+        TemporaryDirectory directory,
+        out MapVariant variant,
+        SvgRasterizerHost? rasterizer = null,
+        bool fetch = true)
+    {
+        const string Svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10">
+              <g id="Ground_Level"><rect width="20" height="10" fill="#123456" /></g>
+              <g id="Upper_Floor"><rect width="20" height="10" fill="#ABCDEF" /></g>
+            </svg>
+            """;
+        var handler = fetch
+            ? new QueueHttpMessageHandler(_ => AssetResponse(Encoding.UTF8.GetBytes(Svg), "image/svg+xml"))
+            : new QueueHttpMessageHandler();
+        variant = ParseFixture().Locations[0].Variants[0];
+        return new(
+            new HttpClient(handler),
+            new(directory.Path, TimeSpan.FromDays(1), TimeSpan.FromSeconds(1), 1024 * 1024)
+            {
+                Rasterizer = rasterizer,
+            });
+    }
+
     [Fact]
     public async Task SvgPreviewRejectsExternalResourceReferences()
     {

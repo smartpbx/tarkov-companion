@@ -167,6 +167,29 @@ manifest lacks the requested cell, the consumer receives unavailable/unknown cov
 fall back to a compatible last-known-good snapshot without moving the global current head. It must
 never generalize from another map, game version, mode, wipe, or cohort.
 
+## Where the running app gets a snapshot, and what it shows
+
+The store is composed in `AppComposition` and read by `HistoricalTrafficSource`, which the Raid
+cockpit asks for the map on screen. Nothing downloads a package; the app installs one that has been
+left on disk:
+
+- **Packages.** The five files `tools/TrafficModelBuilder` writes (`dataset.json`, `build-report.json`,
+  `manifest.json`, `manifest.signature.json`, `model.artifact`), one directory per package, under
+  `<data root>/Traffic/Inbox/`. They are read once per run and never deleted; installing the same
+  signed manifest again is a no-op, and a refused package leaves only a quarantine receipt.
+- **Trust.** Only a key listed in `<data root>/Config/traffic-trusted-keys.json` (a JSON object of key id
+  to base64 SubjectPublicKeyInfo) can make a package install. No key ships with the app, so a fresh
+  machine trusts nothing and the cockpit says "no installed model yet".
+- **Scope.** Map is the cockpit's map, mode and wipe are the active profile's, game version is the
+  newest `log_<stamp>_<version>` folder name under the EFT log root (the folder's name only, never a file
+  in it), and the cohort is the manifest's only one for that cell, or `all-players` when it lists several.
+  If any part is unknown or unlisted the line says so; nothing nearby is substituted.
+- **Clock.** Phase comes from the raid clock read off a screenshot, or counted from the raid start when
+  the map's length is known. With neither, the phase stays unknown and nothing is drawn.
+- **Presentation.** The Raid context panel shows one line ("Historical traffic — estimate, data through
+  <date>") and the busiest regions and routes by relative traffic. There is no map geometry for region
+  ids yet, so nothing is drawn on the map itself.
+
 ## Verification gate
 
 Unit coverage fixes source/consent/use rules, explicit unknown feedback, full correction and
