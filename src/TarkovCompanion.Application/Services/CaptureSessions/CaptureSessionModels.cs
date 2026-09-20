@@ -314,6 +314,16 @@ public sealed record CaptureIdentifiedItem(
     Confidence Confidence,
     string Evidence);
 
+/// <summary>
+/// One row of the flea market screen the player opened and photographed: a price, and how many
+/// units the offer holds where that was legible.
+/// </summary>
+/// <remarks>
+/// Pixel-free, like the rest of <see cref="CaptureAnalysis"/>. It is read from a screenshot the
+/// player took and nothing else; the companion never asks the market for anything.
+/// </remarks>
+public sealed record CaptureFleaListing(long PriceRoubles, int? Quantity, Confidence Confidence, string? SourceText);
+
 public sealed record CaptureAnalysis(
     string ResultId,
     RecognizedContext? DetectedContext,
@@ -328,8 +338,14 @@ public sealed record CaptureAnalysis(
     // The player's own backpack or rig where the same frame showed it and something measured it.
     // Nothing in the shipped pipeline does yet (it needs the loot screen's second panel told
     // apart from the first); the Loot Scan plans a fit against it whenever it is present.
-    GridReconstructionRequest? CarriedGrid = null)
+    GridReconstructionRequest? CarriedGrid = null,
+    // The visible rows of a flea screen, where the frame was one. V1 parsed these and reduced
+    // them to a count; V2 never parsed them at all.
+    IReadOnlyList<CaptureFleaListing>? FleaListings = null)
 {
+    /// <summary>The flea rows this frame showed, top to bottom; empty when it was not a flea screen.</summary>
+    public IReadOnlyList<CaptureFleaListing> FleaListings { get; } = FleaListings ?? [];
+
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))
         : ResultId.Trim();

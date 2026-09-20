@@ -806,6 +806,11 @@ public static class AppComposition
         // [V2 rough package 60 — Intel scan] #287: the handoff for a capture whose answer is one
         // item. Every intent but Loot and Stash used to be acknowledged and dropped.
         services.AddSingleton<IntelCaptureHandoff>();
+        // [f920 capture] #284: the flea rows the player photographed, priced against the catalog.
+        services.AddSingleton(provider => new FleaCaptureHandoff(
+            provider.GetRequiredService<IItemRepository>(),
+            provider.GetRequiredService<IItemMarketFactSource>(),
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<FleaCaptureHandoff>>()));
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());

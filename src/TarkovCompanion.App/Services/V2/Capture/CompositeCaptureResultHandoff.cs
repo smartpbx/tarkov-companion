@@ -18,7 +18,8 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 public sealed class CompositeCaptureResultHandoff(
     LootScanCaptureHandoff lootScan,
     StashScanCaptureHandoff stashScan,
-    IntelCaptureHandoff intel) : ICaptureResultHandoff
+    IntelCaptureHandoff intel,
+    FleaCaptureHandoff? flea = null) : ICaptureResultHandoff
 {
     private readonly LootScanCaptureHandoff _lootScan = lootScan ?? throw new ArgumentNullException(nameof(lootScan));
     private readonly StashScanCaptureHandoff _stashScan = stashScan ?? throw new ArgumentNullException(nameof(stashScan));
@@ -36,6 +37,10 @@ public sealed class CompositeCaptureResultHandoff(
                 _intel.AcceptItemAsync(request, cancellationToken),
             ScanIntent.Loot => _lootScan.AcceptAsync(request, cancellationToken),
             ScanIntent.Stash => _stashScan.AcceptAsync(request, cancellationToken),
+            // [f920 capture] #284: legible flea rows go to Intel > Flea. A flea capture with no
+            // rows still names its item where it can, as it did before.
+            ScanIntent.Flea when flea is not null && request.Analysis.FleaListings.Count > 0 =>
+                flea.AcceptAsync(request, cancellationToken),
             var intent when IntelCaptureHandoff.Intents.Contains(intent) =>
                 _intel.AcceptAsync(request, cancellationToken),
             _ => ValueTask.FromResult(CaptureHandoffResult.Accepted),

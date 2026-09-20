@@ -55,6 +55,37 @@ public sealed class FleaWorkspaceViewModel : BindableViewModel
         _page.PropertyChanged += PageChanged;
     }
 
+    private FleaScanViewModel? _scan;
+
+    /// <summary>[f920 capture] #284: the flea screen the player last photographed, or null.</summary>
+    public FleaScanViewModel? Scan
+    {
+        get => _scan;
+        private set
+        {
+            if (SetProperty(ref _scan, value))
+            {
+                OnPropertyChanged(nameof(HasScan));
+            }
+        }
+    }
+
+    public bool HasScan => Scan is not null;
+
+    /// <summary>Shows a photographed flea screen above the lookup, and looks its item up below it.</summary>
+    public void ShowScan(FleaScanViewModel scan)
+    {
+        Scan = scan ?? throw new ArgumentNullException(nameof(scan));
+        if (scan.Scan.ItemName is { Length: > 0 } name)
+        {
+            _page.SearchQuery = name;
+            if (_page.SearchCommand.CanExecute(null))
+            {
+                _page.SearchCommand.Execute(null);
+            }
+        }
+    }
+
     public ICommand SearchCommand => _page.SearchCommand;
 
     public ICommand OpenInIntelCommand { get; }

@@ -143,6 +143,26 @@ public sealed partial class V2ShellViewModel
         }
     }
 
+    /// <summary>Shows a photographed flea screen in Intel &gt; Flea and goes there.</summary>
+    public void ShowFleaScan(TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel scan)
+    {
+        ArgumentNullException.ThrowIfNull(scan);
+        void Apply()
+        {
+            FleaWorkspace?.ShowScan(scan);
+            GoTo(V2Routes.Flea);
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
     /// <summary>Closes the capture panel once a reviewed result has been opened on its own page.</summary>
     public void CloseCaptureAfterReview()
     {

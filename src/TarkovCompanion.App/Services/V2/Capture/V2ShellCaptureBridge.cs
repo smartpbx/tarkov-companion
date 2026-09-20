@@ -48,6 +48,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly ILootScanWorkspaceControls? _lootScanControls;
     private readonly ShellCaptureContextSource? _contextSource;
     private readonly ManualImageIntake? _manualIntake;
+    private readonly FleaCaptureHandoff? _fleaHandoff;
+    private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
     private long _intentRevision;
@@ -67,8 +69,15 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ILogger<V2ShellCaptureBridge>? logger = null,
         ILootScanWorkspaceControls? lootScanControls = null,
         ShellCaptureContextSource? contextSource = null,
-        ManualImageIntake? manualIntake = null)
+        ManualImageIntake? manualIntake = null,
+        FleaCaptureHandoff? fleaHandoff = null)
     {
+        _fleaHandoff = fleaHandoff;
+        if (fleaHandoff is not null)
+        {
+            fleaHandoff.ListingsRead += OnFleaListingsRead;
+        }
+
         _manualIntake = manualIntake;
         _lootScanControls = lootScanControls;
         _contextSource = contextSource;
@@ -149,6 +158,30 @@ public sealed class V2ShellCaptureBridge : IDisposable
             _logger.LogWarning(exception, "Could not take in a picture the player chose.");
             _shell.ReportManualImage("That picture could not be read");
         }
+    }
+
+    /// <summary>A photographed flea screen: its rows open in Intel &gt; Flea, and the review says how many paid.</summary>
+    private void OnFleaListingsRead(object? sender, FleaScanResult scan)
+    {
+        var viewModel = new TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel(scan);
+        _fleaScan = viewModel;
+        lock (_gate)
+        {
+            _attention = null;
+            _review = new V2CaptureReview(
+                scan.SessionId,
+                scan.ArtifactId,
+                0,
+                ScanIntent.Flea,
+                RecognizedContext.Flea,
+                scan.ObservedUtc,
+                $"{scan.ItemName ?? "Flea offers"} · {viewModel.SummaryLabel}",
+                "Screenshot · flea rows",
+                false);
+        }
+
+        _shell.ShowFleaScan(viewModel);
+        Push();
     }
 
     /// <summary>The player says the capture was a different candidate: Intel opens on that one.</summary>
@@ -257,14 +290,20 @@ public sealed class V2ShellCaptureBridge : IDisposable
         if (request.Resolution == V2CaptureResolutionKind.Review)
         {
             string? itemId;
+            ScanIntent? analyzedAs;
             lock (_gate)
             {
                 itemId = _review?.ChosenCandidateId;
+                analyzedAs = _review?.AnalyzedAs;
             }
 
             if (itemId is not null)
             {
                 _shell.ShowScannedItem(itemId);
+            }
+            else if (analyzedAs == ScanIntent.Flea && _fleaScan is { } fleaScan)
+            {
+                _shell.ShowFleaScan(fleaScan);
             }
             else if (_lootScan is { } lootScan)
             {
@@ -490,6 +529,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.ReviewRequested -= OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated -= OnLootScanEvaluated;
         _intelHandoff.ItemIdentified -= OnItemIdentified;
+        if (_fleaHandoff is not null)
+        {
+            _fleaHandoff.ListingsRead -= OnFleaListingsRead;
+        }
+
         _shell.ManualImageRequested -= OnManualImageRequested;
         _shell.CaptureCandidateChosen -= OnCaptureCandidateChosen;
     }
