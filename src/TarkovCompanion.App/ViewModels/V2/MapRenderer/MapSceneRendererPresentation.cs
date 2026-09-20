@@ -229,6 +229,7 @@ public sealed class MapSceneRendererPresentation
             ["Map.Kind.LastKnownPosition"] = "Local last known position",
             ["Map.Kind.TeammateLastKnown"] = "Team-shared last known position",
             ["Map.Kind.Ping"] = "Ping",
+            ["Map.Floor.Follow"] = "Follow my floor",
             ["Map.Kind.Waypoint"] = "Waypoint",
             ["Map.Kind.Label"] = "Map label",
             ["Map.Kind.Custom"] = "Map object",

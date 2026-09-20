@@ -589,6 +589,9 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
         if (Renderer is { } renderer)
         {
             renderer.FloorSourceNote = _map.FloorSource;
+            // The switch beside it: whether the plan follows the floor you are on.
+            // It was the bottom strip's "Floors".
+            renderer.SetFollowFloor(_map.AutoSelectsFloor, ToggleAutoFloorCommand);
         }
     }
 
@@ -1303,7 +1306,7 @@ public sealed class RaidCockpitViewModel : BindableViewModel, IDisposable
             }
         }
 
-        if (e.PropertyName is nameof(MapViewModel.FloorSource))
+        if (e.PropertyName is nameof(MapViewModel.FloorSource) or nameof(MapViewModel.AutoSelectsFloor))
         {
             // [V2 rough package 46] Beside the ladder that chooses the floor, not only in the
             // status line at the other end of the card. A map on the wrong floor looks the same

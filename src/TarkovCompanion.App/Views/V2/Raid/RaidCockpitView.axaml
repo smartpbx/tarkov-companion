@@ -256,24 +256,6 @@
                                 Command="{Binding ToggleGroupNamesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-group-names"
                                 ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Floors"
-                                IsChecked="{Binding AutoSelectsFloor, Mode=OneWay}"
-                                Command="{Binding ToggleAutoFloorCommand}"
-                                AutomationProperties.AutomationId="v2-raid-auto-floor"
-                                AutomationProperties.Name="Follow the floor you are on"
-                                ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Stack"
-                                IsVisible="{Binding CanStack}"
-                                IsChecked="{Binding IsStacked, Mode=OneWay}"
-                                Command="{Binding ToggleStackCommand}"
-                                AutomationProperties.AutomationId="v2-raid-stack"
-                                ToolTip.Tip="Draw the floors one above another instead of one at a time" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Drawing"
-                                IsVisible="{Binding HasArtworkChoice}"
-                                IsChecked="{Binding PrefersDrawing, Mode=OneWay}"
-                                Command="{Binding ToggleArtworkCommand}"
-                                AutomationProperties.AutomationId="v2-raid-artwork"
-                                ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
                   <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding FrameAreaText}"
                           IsVisible="{Binding CanFrameArea}"
                           Command="{Binding FrameAreaCommand}"
@@ -285,7 +267,11 @@
                                 AutomationProperties.AutomationId="v2-raid-auto-hide"
                                 ToolTip.Tip="Fade these controls out a few seconds after the pointer leaves the map. Remembered." />
                 </WrapPanel>
-                <!-- V2 rough package 39: every reviewed piece of artwork this map publishes,
+                <!-- The one place artwork is chosen. It used to share the row above with a "Drawing"
+                     switch that did what this list's Drawing entry does, and the floors had a "Floors"
+                     and a "Stack" switch here beside the same controls in the plan's own top bar.
+                     Floors are chosen there now, and the artwork is chosen here.
+                     V2 rough package 39: every reviewed piece of artwork this map publishes,
                      not just the drawn/photo pair. Remembered per map by V1's selection service,
                      with the attribution for whichever one is showing beneath it (ADR 0015). -->
                 <StackPanel Spacing="4" IsVisible="{Binding HasArtworkVariants}">
@@ -315,9 +301,6 @@
                            AutomationProperties.AutomationId="v2-raid-artwork-attribution"
                            IsVisible="{Binding HasArtworkAttribution}"
                            Text="{Binding ArtworkAttribution}" />
-                <TextBlock Classes="v2-label" Text="{Binding StackStatus}" TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="v2-raid-stack-status"
-                           IsVisible="{Binding HasStackStatus}" />
                 <!-- V2 rough package 39 said what automatic floor selection did, or why it could
                      not, here. [Package 46] It says it beside the floor ladder instead
                      (v2-map-floor-source): the answer belongs where the choice is made, and this

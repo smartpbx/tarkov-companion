@@ -22,7 +22,6 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -274,6 +273,8 @@ internal static class Program
                 var oldWipe = management.Current.ActiveProfile!.Context.Identity.ProfileId;
                 management.CreateAsync("PvE alt", TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pve, "Wipe 3", default).GetAwaiter().GetResult();
                 management.ArchiveAsync(oldWipe, default).GetAwaiter().GetResult();
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
@@ -362,6 +363,45 @@ internal static class Program
                     : mapId is null
                     ? raid.MapPicker.FirstOrDefault()
                     : raid.MapPicker.FirstOrDefault(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase));
+                // First paint: the app opens on the raid's own map with nobody selecting it, and the tool
+                // used to select it again, which measures a second load, not the one a player sees
+                // every launch. --first-paint leaves the first load alone and prints how the plan's
+                // drawn rectangle and the artwork's own shape stand at each step of it.
+                if (args.Contains("--first-paint"))
+                {
+                    var clock = System.Diagnostics.Stopwatch.StartNew();
+                    string? last = null;
+                    for (var i = 0; i < 1200 && clock.Elapsed < TimeSpan.FromSeconds(60); i++)
+                    {
+                        Dispatcher.UIThread.RunJobs();
+                        string current;
+                        if (raid.Renderer is { } probe)
+                        {
+                            var art = probe.BackgroundImage?.Size;
+                            var drawnAspect = probe.MapHeight > 0 ? probe.MapWidth / probe.MapHeight : double.NaN;
+                            var artAspect = art is { Height: > 0 } size ? size.Width / size.Height : double.NaN;
+                            var ci = System.Globalization.CultureInfo.InvariantCulture;
+                            current = string.Create(
+                                ci,
+                                $"scene r{probe.Scene.Revision} {probe.Scene.LocationId} card {probe.CanvasWidth:F0}x{probe.CanvasHeight:F0} drawn {probe.MapWidth:F1}x{probe.MapHeight:F1}={drawnAspect:F4} art {art?.Width:F0}x{art?.Height:F0}={artAspect:F4} v1canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0} tiles {viewModel.Map.Tiles.Count} drawing={raid.PrefersDrawing}");
+                        }
+                        else
+                        {
+                            current = $"no renderer yet; v1 status '{viewModel.Map.Status}' tiles {viewModel.Map.Tiles.Count} canvas {viewModel.Map.CanvasWidth:F0}x{viewModel.Map.CanvasHeight:F0}";
+                        }
+
+                        if (current != last)
+                        {
+                            Console.WriteLine($"[{clock.Elapsed.TotalSeconds:F2}s] {current}");
+                            last = current;
+                        }
+
+                        Thread.Sleep(20);
+                    }
+
+                    picked = null;
+                }
+
                 if (picked is not null)
                 {
                     picked.SelectCommand.Execute(null);
