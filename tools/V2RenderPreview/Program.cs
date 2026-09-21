@@ -922,6 +922,28 @@ internal static class Program
                     }
                 }
 
+                // [Issue 594] Selects an extract or transit by name, the same as pressing its row
+                // in Extract options would: selects and centres its marker, and draws its route if
+                // one was planned. A render can then show the hover-free name label, the ring, and
+                // the "Selected" card without a live click.
+                if (StringOption(args, "--select-extract") is { } selectExtract)
+                {
+                    var extractRow = raid.MapExtracts.FirstOrDefault(item =>
+                        string.Equals(item.Name, selectExtract, StringComparison.OrdinalIgnoreCase));
+                    if (extractRow is null)
+                    {
+                        Console.Error.WriteLine($"No extract or transit named '{selectExtract}'.");
+                    }
+                    else
+                    {
+                        extractRow.SelectCommand.Execute(null);
+                        Pump(40);
+                        Console.WriteLine(
+                            $"Selected extract: '{raid.Renderer?.SelectedObject?.Label}', detail '{raid.Renderer?.SelectedObject?.Detail}', " +
+                            $"HasGenericSelection={raid.Renderer?.HasGenericSelection}, ShowsSelectedExtract={raid.ShowsSelectedExtract}, HasRenderer={raid.HasRenderer}.");
+                    }
+                }
+
                 // [Issue 571] Marks an objective done by hand for the render — the same "Done" the
                 // Objectives list offers — so a before/after render can show it leaving the map and
                 // the list without driving a live app through the gesture.

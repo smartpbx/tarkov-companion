@@ -82,8 +82,10 @@
     <Style Selector="Ellipse.v2-raid-mark-dot.v2-raid-mark-waypoint">
       <Setter Property="Fill" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
+    <!-- [Issue 598] Matches the map's own ping colour (V2.Brush.Danger, not Info — see
+         MapSceneRendererView's ping styles). -->
     <Style Selector="Ellipse.v2-raid-mark-dot.v2-raid-mark-ping">
-      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Danger}" />
     </Style>
     <Style Selector="Border.v2-raid-strip">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -789,15 +791,15 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:RaidExtractRowViewModel">
-                    <!-- [Issue 286] A row with a planned route is a button: pressing it draws that
-                         extract's routes. A row without one has no command and presses nothing. -->
-                    <Button Classes="v2-raid-rowbutton" Command="{Binding RouteCommand}"
-                            IsHitTestVisible="{Binding HasEstimate}" Focusable="{Binding HasEstimate}"
+                    <!-- [Issue 594] Pressing a row selects and centres its own marker on the map —
+                         "clicking an extract doesn't tell me what one it is" — and where a route was
+                         already planned to it (Issue 286), the same press still draws that route. -->
+                    <Button Classes="v2-raid-rowbutton" Command="{Binding SelectCommand}"
                             AutomationProperties.AutomationId="v2-raid-extract-row"
                             AutomationProperties.Name="{Binding Name}">
                     <Border Classes="v2-raid-row"
                             Classes.v2-raid-offered="{Binding IsOffered}"
-                            Classes.v2-raid-routed="{Binding IsRouted}"
+                            Classes.v2-raid-routed="{Binding IsHighlighted}"
                             Classes.v2-raid-not-offered="{Binding IsNotOffered}">
                       <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
                         <Viewbox Width="20" Height="20">
@@ -1102,6 +1104,46 @@
                             Command="{Binding MakeWaypointCommand}" IsVisible="{Binding CanMakeWaypoint}"
                             AutomationProperties.AutomationId="v2-raid-loot-waypoint"
                             AutomationProperties.Name="{Binding MakeWaypointLabel}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+          </Border>
+          </Panel>
+          </Panel>
+
+          <!-- [Issue 594] "Clicking an extract or transit doesn't tell me what one it is, either
+               in the sidebar or on the map." ContentControl.Content, like the loot card above: its
+               ContentTemplate is only ever instantiated once Content is not null, so nothing here
+               binds through a null Renderer or a null SelectedObject the way a direct
+               "Renderer.SelectedObject.Label" path would (the page gallery fails on any binding
+               fault, and a null step in a compiled path logs exactly one). The estimate is read
+               outside the template, off MapExtracts, which is this page's own list. -->
+          <Panel IsVisible="{Binding HasRenderer}">
+          <Panel DataContext="{Binding Renderer}">
+          <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section"
+                  IsVisible="{Binding HasGenericSelection}"
+                  AutomationProperties.AutomationId="v2-raid-extract-selection">
+            <ContentControl Content="{Binding SelectedObject}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="mapVm:MapSceneRendererObjectViewModel">
+                  <StackPanel Spacing="6" IsVisible="{Binding IsExtractOrTransit}">
+                    <TextBlock Classes="v2-heading-3" Text="{Binding Label}" TextWrapping="Wrap" />
+                    <TextBlock Classes="v2-label" Text="{Binding FactionLabel}" />
+                    <!-- ExtractConditions.Describe, already carried on the scene object as Detail:
+                         who may take it, whether a switch has to be thrown, what it costs — a
+                         sentence per condition the catalog actually states, nothing guessed for
+                         the rest. -->
+                    <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                               IsVisible="{Binding HasDetail}"
+                               AutomationProperties.AutomationId="v2-raid-extract-selection-detail" />
+                    <!-- #MapCard is a plain Border earlier in this same file whose own DataContext
+                         is never overridden, so its DataContext is this page's root view model —
+                         the estimate is this page's own (MapExtracts' route estimate), not the
+                         renderer's, and this template's own DataContext is Renderer.SelectedObject. -->
+                    <TextBlock Classes="v2-label" Opacity="0.85"
+                               Text="{Binding #MapCard.((vm:RaidCockpitViewModel)DataContext).SelectedExtractEstimate}"
+                               IsVisible="{Binding #MapCard.((vm:RaidCockpitViewModel)DataContext).HasSelectedExtractEstimate}" />
                   </StackPanel>
                 </DataTemplate>
               </ContentControl.ContentTemplate>

@@ -133,7 +133,11 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("IsVisible=\"{Binding ShowsGlyphIcon}\"", map, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding IsPersonIcon}\"", map, StringComparison.Ordinal);
         Assert.Contains("Data=\"{Binding ConeGeometry}\"", map, StringComparison.Ordinal);
-        Assert.Contains("{DynamicResource V2.Icon.Exit}", map, StringComparison.Ordinal);
+        // [Issue 606] V1's own extract glyph, proportioned for the map's small round disc — see
+        // V2.Icon.MapExtract in V2Icons.axaml — not V2.Icon.Exit, whose 24-unit-grid bracket read
+        // as a second white shape at this size ("the black fill is bad, there is a weird white
+        // square to it").
+        Assert.Contains("{DynamicResource V2.Icon.MapExtract}", map, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding HasMarkerNumber}\"", map, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding FactionGlyph}\"", map, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding OfferGlyph}\"", map, StringComparison.Ordinal);

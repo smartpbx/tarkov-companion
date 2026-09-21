@@ -143,20 +143,53 @@
     <!-- [Issue 573] An extract's chip (and the transit two-arrow, which shares the same visual):
          round instead of the square every other chip uses, and two-thirds that chip's size by
          default so several of them no longer bury the building they sit on. Selected grows it
-         back to the size every other chip already is; PMC/Scav/shared still reads from the
-         border colour the offer-state styles above give it, unchanged. -->
+         back to the size every other chip already is.
+         [Issue 606] "the black fill is bad, there is a weird white square to it ... v1 extract
+         icons were good." The generic chip's Background (V2.Brush.Surface, near-black) and its
+         18px icon were both sized for the square 32px chip every other kind uses; on this round
+         22px one the icon's own corners sat close enough to the disc's edge to read as a second
+         shape. V1's own marker (InstrumentStyles' Ellipse.markerDisc) is the reference: a solid
+         faction colour carries who the extract is for, a dark glyph sits directly on it with no
+         box of its own, and a transit is hollow rather than filled. This reproduces that with V2's
+         own tokens (Action/Warning/Success) rather than V1's fixed hex, so every theme variant —
+         including the colour-vision ones — repaints it too; V2.Icon.MapExtract/MapTransit above
+         are V1's glyphs, already proportioned for this exact 12px box. -->
     <Style Selector="Border.v2-map-marker-chip.extract, Border.v2-map-marker-chip.transit">
       <Setter Property="Width" Value="22" />
       <Setter Property="Height" Value="22" />
       <Setter Property="CornerRadius" Value="11" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <!-- PMC/Scav still read from the disc's own colour, the way V1 read them; a shared extract
+         (or one the faction feed left unknown) keeps the base Success fill above. -->
+    <Style Selector="Border.v2-map-marker-chip.extract.pmc">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Border.v2-map-marker-chip.extract.scav">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <!-- A transit belongs to nobody's faction, so V1 drew it hollow rather than filled — the one
+         way a round badge on this map is not a solid disc. -->
+    <Style Selector="Border.v2-map-marker-chip.transit">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <!-- The glyph sits directly on the coloured disc, so it needs the disc's own contrast rather
+         than the page's: Canvas is white-on-dark-theme's near-black and dark-on-light-theme's
+         near-white, the same relationship V1's fixed dark stroke had to its always-bright discs
+         (Action/Warning/Success are bright in both themes by design — see V2ThemeVariants). -->
+    <Style Selector="Grid.extract Path.v2-map-marker-icon, Grid.transit Path.v2-map-marker-icon">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Grid.transit Path.v2-map-marker-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
     <Style Selector="Grid.extract, Grid.transit">
       <Setter Property="Width" Value="16" />
       <Setter Property="Height" Value="16" />
-    </Style>
-    <Style Selector="Grid.extract Path.v2-map-marker-icon, Grid.transit Path.v2-map-marker-icon">
-      <Setter Property="Width" Value="12" />
-      <Setter Property="Height" Value="12" />
     </Style>
     <Style Selector="ToggleButton.v2-map-marker:checked Border.v2-map-marker-chip.extract,
                      ToggleButton.v2-map-marker:checked Border.v2-map-marker-chip.transit">
@@ -296,19 +329,31 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
-    <!-- A ping is a transient pulse at the exact spot, never a pin: neither a waypoint's round
-         head nor an objective's shield, and a third colour (V2.Brush.Info) so it cannot be read
-         as either even before its ring shape is noticed. -->
+    <!-- [Issue 598] A ping is a transient pulse at the exact spot, never a pin: neither a
+         waypoint's round head nor an objective's shield, and its own colour so it cannot be read
+         as either even before its ring shape is noticed. Danger, not Info: the owner's call was
+         that a ping (someone flagging danger, mid-raid) reads as an alert, not as neutral
+         information — the pulsing rings are what still say "ping" rather than "extract" or
+         "hazard" at a glance, so the shape carries the meaning the colour used to carry alone. -->
     <Style Selector="Ellipse.v2-map-ping-dot">
-      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Danger}" />
+      <!-- A Canvas-coloured edge (dark in Dark, white in Light) so the dot still reads sitting on
+           the red end of the modelled-traffic heat, which is close to the same hue. -->
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="StrokeThickness" Value="1" />
+    </Style>
+    <Style Selector="Ellipse.v2-map-ping-halo">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="StrokeThickness" Value="3" />
+      <Setter Property="Opacity" Value="0.55" />
     </Style>
     <Style Selector="Ellipse.v2-map-ping-ring-inner">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
       <Setter Property="StrokeThickness" Value="2" />
       <Setter Property="Opacity" Value="0.7" />
     </Style>
     <Style Selector="Ellipse.v2-map-ping-ring-outer">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
       <Setter Property="StrokeThickness" Value="1.5" />
       <Setter Property="Opacity" Value="0.35" />
     </Style>
@@ -587,7 +632,8 @@
                                 AutomationProperties.AutomationId="{Binding AutomationId}"
                                 AutomationProperties.Name="{Binding AutomationName}"
                                 AutomationProperties.HelpText="{Binding Detail}"
-                                Command="{Binding SelectCommand}">
+                                Command="{Binding SelectCommand}"
+                                ToolTip.Tip="{Binding Label}">
                     <ToggleButton.RenderTransform>
                       <TransformGroup>
                         <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
@@ -675,6 +721,10 @@
                         <TranslateTransform X="{Binding PinOffsetX}" Y="{Binding PinOffsetY}" />
                       </Panel.RenderTransform>
                       <Ellipse Classes="v2-map-mark-hit" Width="32" Height="32" />
+                      <!-- [Issue 598] A faint Canvas-coloured halo behind the outer ring: red on
+                           red (the ping over the traffic heat's own red end) still shows a ring. -->
+                      <Ellipse Classes="v2-map-ping-halo" Width="30" Height="30" IsHitTestVisible="False"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
                       <Ellipse Classes="v2-map-ping-ring-outer" Width="28" Height="28" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                       <Ellipse Classes="v2-map-ping-ring-inner" Width="16" Height="16" IsHitTestVisible="False"
@@ -694,15 +744,22 @@
                       <!-- An extract (or the transit two-arrow) is a round badge at two-thirds of
                            every other chip's size by default, and back to that size once selected
                            — six of them used to bury a whole building at fit zoom. -->
+                      <!-- [Issue 606] PMC/Scav/shared read from the same faction the offer-state
+                           colour used to stand alone against; a transit is nobody's, so it never
+                           carries one of these three. -->
                       <Border Classes="v2-map-marker-chip" Classes.extract="{Binding IsExtractIcon}"
-                              Classes.transit="{Binding IsTransitIcon}" IsHitTestVisible="False">
+                              Classes.transit="{Binding IsTransitIcon}"
+                              Classes.pmc="{Binding IsPmc}" Classes.scav="{Binding IsScav}"
+                              Classes.shared="{Binding IsSharedFaction}" IsHitTestVisible="False">
                         <Grid Width="26" Height="26" Classes.extract="{Binding IsExtractIcon}"
                               Classes.transit="{Binding IsTransitIcon}">
                           <TextBlock Classes="v2-map-marker-number" HorizontalAlignment="Center" VerticalAlignment="Center"
                                      IsVisible="{Binding HasMarkerNumber}" Text="{Binding MarkerGlyph}" />
                           <Panel IsVisible="{Binding ShowsGlyphIcon}">
-                            <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.Exit}" />
-                            <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.Transit}" />
+                            <!-- [Issue 606] V1's own glyphs, proportioned for this small round disc
+                                 — see V2.Icon.MapExtract/MapTransit in V2Icons.axaml. -->
+                            <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsExtractIcon}" Data="{DynamicResource V2.Icon.MapExtract}" />
+                            <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsTransitIcon}" Data="{DynamicResource V2.Icon.MapTransit}" />
                             <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsSpawnIcon}" Data="{DynamicResource V2.Icon.Spawn}" />
                             <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsLootIcon}" Data="{DynamicResource V2.Icon.Gem}" />
                             <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsHazardIcon}" Data="{DynamicResource V2.Icon.Hazard}" />
@@ -712,6 +769,21 @@
                             <Path Classes="v2-icon v2-map-marker-icon" IsVisible="{Binding IsGenericIcon}" Data="{DynamicResource V2.Icon.Target}" />
                           </Panel>
                         </Grid>
+                      </Border>
+                      <!-- [Issue 594] The selected extract or transit keeps its name under the icon,
+                           readable without hovering, over Drawing or Photo alike — the same label
+                           style a place name uses (TextBlock.v2-map-place-name), on a Canvas-toned
+                           plate: an ordinary place name has the whole map to itself to be legible
+                           in, but this one has to read over a photograph or a dark drawing right
+                           where a route line or the traffic heat is often thickest, at the exact
+                           point it is pointing to. Hovering says it for every other one (ToolTip.Tip
+                           on the marker itself, above). -->
+                      <Border Classes="v2-map-chip" IsVisible="{Binding ShowsSelectedName}"
+                              IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                              Margin="0,0,0,-20" Padding="5,1" Opacity="0.95">
+                        <TextBlock Classes="v2-map-place-name" Opacity="1" FontWeight="Bold"
+                                   TextAlignment="Center" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="210" Text="{Binding Label}" />
                       </Border>
                     </Panel>
                     </Panel>

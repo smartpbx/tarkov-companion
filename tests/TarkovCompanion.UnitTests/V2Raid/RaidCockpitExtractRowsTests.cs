@@ -47,6 +47,42 @@ public sealed class RaidCockpitExtractRowsTests
         Assert.True(row.IsOffered);
     }
 
+    /// <summary>
+    /// [Issue 594] "Clicking an extract or transit doesn't tell me what one it is." Pressing a row
+    /// is what selects and centres the extract's own marker on the map; this is the row's half of
+    /// that wiring, without a live map or a click.
+    /// </summary>
+    [Fact]
+    public void A_rows_SelectCommand_reports_its_own_scene_id_position_and_name()
+    {
+        var objects = new[]
+        {
+            Object("ruaf", MapSceneObjectKind.Extract, "RUAF Roadblock", MapFeatureFaction.Shared, MapSceneOfferState.Offered),
+        };
+        (MapSceneObjectId Id, MapScenePoint Point, string Name)? selected = null;
+
+        var row = Assert.Single(RaidCockpitViewModel.BuildExtractRows(objects, (id, point, name) => selected = (id, point, name)));
+        row.SelectCommand.Execute(null);
+
+        Assert.NotNull(selected);
+        Assert.Equal(new MapSceneObjectId("ruaf"), selected!.Value.Id);
+        Assert.Equal(new MapScenePoint(1, 1), selected.Value.Point);
+        Assert.Equal("RUAF Roadblock", selected.Value.Name);
+    }
+
+    /// <summary>A row with no select callback (the direct-coverage tests above) still has a
+    /// harmless command rather than none, so nothing bound to it throws.</summary>
+    [Fact]
+    public void A_rows_SelectCommand_is_never_null_even_without_a_callback()
+    {
+        var objects = new[] { Object("a", MapSceneObjectKind.Transit, "Transit to Factory", MapFeatureFaction.Unknown, MapSceneOfferState.Unknown) };
+
+        var row = Assert.Single(RaidCockpitViewModel.BuildExtractRows(objects));
+
+        Assert.NotNull(row.SelectCommand);
+        row.SelectCommand.Execute(null);
+    }
+
     private static MapSceneObject Object(
         string id,
         MapSceneObjectKind kind,

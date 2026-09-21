@@ -34,6 +34,17 @@
   <!-- V2 rough package 20: the map's own markers stopped being text glyphs ("⇱", "↔", "P/S ?")
        and draw these instead. Same 24x24 box and stroke conventions as the icons above. -->
   <StreamGeometry x:Key="V2.Icon.Transit">M4,9 L20,9 M16,5 L20,9 L16,13 M20,15 L4,15 M8,11 L4,15 L8,19</StreamGeometry>
+  <!-- [Issue 606] "the black fill is bad, there is a weird white square to it". V2.Icon.Exit and
+       V2.Icon.Transit above are drawn on this file's usual 24x24 grid; scaled down into the map's
+       small 12px round marker (see MapSceneRendererView's Border.v2-map-marker-chip.extract), the
+       bracket's own square corners sat close enough to the round disc's edge to read as a second
+       shape rather than as the icon. These are V1's own extract/transit glyphs (MapViewModel.Glyph,
+       InstrumentStyles' Path.markerGlyph), already drawn to sit inside a 12x12 box and proven at
+       exactly this size — used only for the map's own small marker, never for the icon elsewhere
+       (the Extract options row, the View menu) which draws V2.Icon.Exit/Transit at its usual size
+       and reads fine there. -->
+  <StreamGeometry x:Key="V2.Icon.MapExtract">M4,1.5 H1.5 V10.5 H4 M4.5,6 H11 M8.5,3.5 L11,6 L8.5,8.5</StreamGeometry>
+  <StreamGeometry x:Key="V2.Icon.MapTransit">M2.5,2.5 L6,6 L2.5,9.5 M6.5,2.5 L10,6 L6.5,9.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Objective">M12,3 L21,12 L12,21 L3,12 Z M12,8 L16,12 L12,16 L8,12 Z</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Hazard">M12,3 L22,20 L2,20 Z M12,9 L12,14 M12,16.5 L12,17.5</StreamGeometry>
   <StreamGeometry x:Key="V2.Icon.Lock">M6,11 L18,11 L18,20 L6,20 Z M8.5,11 L8.5,7.5 A3.5,3.5 0 0 1 15.5,7.5 L15.5,11</StreamGeometry>

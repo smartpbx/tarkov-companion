@@ -166,25 +166,57 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
 /// "Extract options" list, taken from the canonical scene so it lists the same points the map
 /// draws, with the same offer state.
 /// </summary>
-public sealed class RaidExtractRowViewModel(string name, string detail, MapSceneOfferState offerState)
+/// <remarks>
+/// [Issue 594] "Clicking an extract or transit doesn't tell me what one it is." <see cref="Id"/>
+/// and <see cref="Position"/> are what let a row select and centre its own marker; <see
+/// cref="IsSelected"/> is mutable (not carried by the primary constructor, which every rebuild
+/// replaces with a fresh instance) so the row can be re-marked after a rebuild without losing the
+/// player's own selection — see RaidCockpitViewModel.SyncExtractSelection.
+/// </remarks>
+public sealed class RaidExtractRowViewModel : BindableViewModel
 {
-    public string Name { get; } = name;
+    private readonly MapSceneOfferState _offerState;
+    private bool _isSelected;
+
+    public RaidExtractRowViewModel(
+        MapSceneObjectId id,
+        MapScenePoint position,
+        string name,
+        string detail,
+        MapSceneOfferState offerState,
+        ICommand selectCommand)
+    {
+        Id = id;
+        Position = position;
+        Name = name;
+        Detail = detail;
+        _offerState = offerState;
+        SelectCommand = selectCommand;
+    }
+
+    /// <summary>The scene object this row is the same extract as, for the map to select.</summary>
+    public MapSceneObjectId Id { get; }
+
+    /// <summary>Where its marker is, so selecting the row can centre the map on it too.</summary>
+    public MapScenePoint Position { get; }
+
+    public string Name { get; }
 
     /// <summary>Faction or "Transit": who can use it, in one or two words.</summary>
-    public string Detail { get; } = detail;
+    public string Detail { get; }
 
-    public bool IsOffered => offerState == MapSceneOfferState.Offered;
+    public bool IsOffered => _offerState == MapSceneOfferState.Offered;
 
-    public bool IsNotOffered => offerState == MapSceneOfferState.NotOffered;
+    public bool IsNotOffered => _offerState == MapSceneOfferState.NotOffered;
 
-    public string OfferLabel => offerState switch
+    public string OfferLabel => _offerState switch
     {
         MapSceneOfferState.Offered => "Offered",
         MapSceneOfferState.NotOffered => "Not offered",
         _ => "",
     };
 
-    public bool HasOfferLabel => offerState != MapSceneOfferState.Unknown;
+    public bool HasOfferLabel => _offerState != MapSceneOfferState.Unknown;
 
     /// <summary>[Issue 286] "~6–11 min" by the suggested route, where one was planned to this extract.</summary>
     public string Estimate { get; private init; } = string.Empty;
@@ -197,8 +229,26 @@ public sealed class RaidExtractRowViewModel(string name, string detail, MapScene
     /// <summary>Draws this extract's routes instead. Null where no route was planned.</summary>
     public ICommand? RouteCommand { get; private init; }
 
+    /// <summary>Selects this extract's own marker on the map and centres the camera on it.</summary>
+    public ICommand SelectCommand { get; }
+
+    /// <summary>[Issue 594] This is the extract selected on the map: the row highlights to match.</summary>
+    public bool IsSelected => _isSelected;
+
+    /// <summary>The row's own accent border: a planned route, a selection, or both — either says
+    /// "this is the one" and neither should read as louder than the other.</summary>
+    public bool IsHighlighted => IsRouted || IsSelected;
+
+    public void SetSelected(bool selected)
+    {
+        if (SetProperty(ref _isSelected, selected, nameof(IsSelected)))
+        {
+            OnPropertyChanged(nameof(IsHighlighted));
+        }
+    }
+
     internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
-        new(Name, Detail, offerState) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
+        new(Id, Position, Name, Detail, _offerState, SelectCommand) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
 }
 
 /// <summary>
@@ -903,6 +953,43 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     public IReadOnlyList<RaidExtractRowViewModel> MapExtracts { get; private set; } = [];
 
     public bool HasMapExtracts => MapExtracts.Count > 0;
+
+    /// <summary>
+    /// [Issue 594] "Clicking an extract or transit doesn't tell me what one it is." Selects its
+    /// marker and puts it in the middle of the map, the same way "Place on map" does for a quest
+    /// objective. Where a route was already planned to it, pressing the row still draws that
+    /// route too — selecting one is not meant to take away what pressing it already did.
+    /// </summary>
+    private void SelectExtract(MapSceneObjectId id, MapScenePoint point, string name)
+    {
+        Renderer?.SelectObject(id);
+        Renderer?.FocusOn(point);
+        if (MapExtracts.FirstOrDefault(row => row.Id == id)?.HasEstimate == true)
+        {
+            ChooseRouteExtract(name);
+        }
+    }
+
+    /// <summary>Re-marks whichever row is the one selected on the map, after a rebuild replaced every row.</summary>
+    private void SyncExtractSelection()
+    {
+        var selected = Renderer?.SelectedObject?.ObjectId;
+        foreach (var row in MapExtracts)
+        {
+            row.SetSelected(selected is { } id && row.Id == id);
+        }
+    }
+
+    /// <summary>The selected marker is an extract or a transit: the "Selected" card below the list shows it.</summary>
+    public bool ShowsSelectedExtract => Renderer?.SelectedObject is { } selected &&
+        (selected.IsExtractIcon || selected.IsTransitIcon);
+
+    /// <summary>[Issue 594] The route planner's own estimate for the selected extract, where one was planned.</summary>
+    public string SelectedExtractEstimate => Renderer?.SelectedObject is { } selected
+        ? MapExtracts.FirstOrDefault(row => row.Id == selected.ObjectId)?.Estimate ?? string.Empty
+        : string.Empty;
+
+    public bool HasSelectedExtractEstimate => SelectedExtractEstimate.Length > 0;
 
     /// <summary>Named spawn areas on the current map (potential spawns, never observed players).</summary>
     public IReadOnlyList<string> SpawnAreas { get; private set; } = [];
@@ -2437,7 +2524,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     }
 
     /// <summary>Internal for direct coverage (see the unit tests).</summary>
-    internal static IReadOnlyList<RaidExtractRowViewModel> BuildExtractRows(IReadOnlyList<MapSceneObject> objects) => objects
+    /// <param name="select">
+    /// [Issue 594] Selects this row's own marker on the map and centres it. Left null in the
+    /// direct-coverage unit tests, which build rows from raw scene objects and never click one;
+    /// the row still gets a harmless no-op command rather than a null one, so nothing in the view
+    /// binds against a null <see cref="RaidExtractRowViewModel.SelectCommand"/>.
+    /// </param>
+    internal static IReadOnlyList<RaidExtractRowViewModel> BuildExtractRows(
+        IReadOnlyList<MapSceneObject> objects,
+        Action<MapSceneObjectId, MapScenePoint, string>? select = null) => objects
         .Where(item => item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit)
         .GroupBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
         .Select(group => group.OrderByDescending(item => item.OfferState == MapSceneOfferState.Offered).First())
@@ -2449,17 +2544,26 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         })
         .ThenBy(item => item.Kind)
         .ThenBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase)
-        .Select(item => new RaidExtractRowViewModel(
-            item.Label,
-            item.Kind == MapSceneObjectKind.Transit ? "Transit" : item.Faction switch
-            {
-                MapFeatureFaction.Pmc => "PMC",
-                MapFeatureFaction.Scav => "Scav",
-                MapFeatureFaction.Shared => "PMC · Scav",
-                _ => "",
-            },
-            item.OfferState))
+        .Select(item =>
+        {
+            var point = item.Geometry.Points is [var at, ..] ? at : default;
+            return new RaidExtractRowViewModel(
+                item.Id,
+                point,
+                item.Label,
+                item.Kind == MapSceneObjectKind.Transit ? "Transit" : item.Faction switch
+                {
+                    MapFeatureFaction.Pmc => "PMC",
+                    MapFeatureFaction.Scav => "Scav",
+                    MapFeatureFaction.Shared => "PMC · Scav",
+                    _ => "",
+                },
+                item.OfferState,
+                select is null ? NoOpCommand : new DelegateCommand(() => select(item.Id, point, item.Label)));
+        })
         .ToArray();
+
+    private static readonly ICommand NoOpCommand = new DelegateCommand(() => { });
 
     /// <summary>
     /// The objectives the selected map's quests ask for, as scene objects and as the entries that
@@ -2608,6 +2712,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             OnPropertyChanged(nameof(ShowsTrafficBanner));
         }
 
+        // [Issue 594] The map's own selection changed — from a marker click or from a row's
+        // SelectCommand, either way — so the Extract options row and the "Selected" card follow it.
+        if (e.PropertyName == nameof(MapSceneRendererViewModel.SelectedObject))
+        {
+            SyncExtractSelection();
+            OnPropertyChanged(nameof(ShowsSelectedExtract));
+            OnPropertyChanged(nameof(SelectedExtractEstimate));
+            OnPropertyChanged(nameof(HasSelectedExtractEstimate));
+        }
+
         // [Issue 286] With no screenshot yet, a selected spawn is where routes start from.
         // Only when the spawn itself changed: every re-present raises SelectedObject again, and a
         // rebuild per raise is a rebuild loop.
@@ -2641,11 +2755,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? scene.Objects
             : scene.Objects.Where(item => item.Kind != MapSceneObjectKind.Extract || !CoOpExtracts.IsCoOp(item.Label)).ToArray();
         // The corrections card lists every exit by name; the rows then take their routes' estimates.
-        var extractRows = BuildExtractRows(extractObjects);
+        var extractRows = BuildExtractRows(extractObjects, SelectExtract);
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
             [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
         MapExtracts = WithRouteEstimates(extractRows);
+        // [Issue 594] Every rebuild replaces the rows with fresh instances (WithRouteEstimates
+        // included), which would otherwise silently drop the highlight on whichever one the
+        // player had selected before the last screenshot came in.
+        SyncExtractSelection();
         SpawnAreas = scene.Objects
             .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
             .Select(item => item.Label)
