@@ -356,6 +356,33 @@ public static class PairingCryptography
         }
     }
 
+    /// <summary>
+    /// [#553] The identity key id a tablet pins for a desktop — the hash of the key's SPKI — worked
+    /// out from the COSE re-encoding of that same key a relay has on record as the desktop's
+    /// device key. The two ids name one key and are different strings, because each is the hash
+    /// of its own encoding; a relay asked "which desktop is this?" by a tablet is asked in the
+    /// tablet's terms.
+    /// </summary>
+    public static DeviceKeyId? DesktopIdentityKeyIdOf(DevicePublicKey deviceKey)
+    {
+        ArgumentNullException.ThrowIfNull(deviceKey);
+        try
+        {
+            var (x, y) = P256Point(deviceKey);
+            using var key = ECDsa.Create(new ECParameters
+            {
+                Curve = ECCurve.NamedCurves.nistP256,
+                Q = new ECPoint { X = x, Y = y },
+            });
+            return new DeviceKeyId(Convert.ToBase64String(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))
+                .TrimEnd('=').Replace('+', '-').Replace('/', '_'));
+        }
+        catch (Exception exception) when (exception is CryptographicException or ArgumentException or FormatException)
+        {
+            return null;
+        }
+    }
+
     // DevicePublicKey has already checked the 77-byte CTAP2 layout these offsets come from.
     private static (byte[] X, byte[] Y) P256Point(DevicePublicKey deviceKey)
     {

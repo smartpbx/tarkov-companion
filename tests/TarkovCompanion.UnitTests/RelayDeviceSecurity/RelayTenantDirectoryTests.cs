@@ -224,8 +224,13 @@ public sealed class RelayTenantDirectoryTests : IDisposable
         Assert.Same(directory.Legacy, directory.FindBySession(registered.Value!.SessionId));
         var kept = directory.Legacy.Registry.FindPairedDeviceByKey(RelaySecurityTestFactory.DeviceKey("production-tablet").KeyId);
         Assert.Equal(DeviceLifecycleStatus.Active, kept!.Status);
-        // The tablet is found for its key-possession resume under the desktop it pinned.
-        Assert.Single(directory.FindPairedDevices(kept.DeviceKey.KeyId, owner.KeyId));
+        // The tablet is found for its key-possession resume under the desktop it pinned, which it
+        // names by the identity key id it saw in the offer (not the relay's id for the same key),
+        // and under no other desktop.
+        Assert.NotEqual(owner.KeyId, owner.Signer.PublicKey.KeyId);
+        Assert.Single(directory.FindPairedDevices(kept.DeviceKey.KeyId, owner.Signer.PublicKey.KeyId));
+        using var somebodyElse = new Desktop();
+        Assert.Empty(directory.FindPairedDevices(kept.DeviceKey.KeyId, somebodyElse.Signer.PublicKey.KeyId));
 
         // And a squadmate registers beside it without touching it.
         using var squadmate = new Desktop();

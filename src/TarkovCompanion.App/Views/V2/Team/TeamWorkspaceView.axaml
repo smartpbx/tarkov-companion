@@ -422,50 +422,17 @@
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
 
                 <!-- V2 rough package 48 (#290, #292): pairing lives here now, not in a popout
-                     window. Claim, then add a device, then the list — in the order they happen. -->
-                <Border Classes="v2-team-row" IsVisible="{Binding Pairing.NeedsClaim}">
-                  <StackPanel Spacing="8">
-                    <TextBlock Classes="v2-body v2-team-strong" Text="Claim this relay" />
-                    <!-- What an admin key is and who sets it, said where it is asked for. -->
-                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                               AutomationProperties.AutomationId="v2-team-admin-key-help"
-                               Text="{Binding Pairing.AdminKeyHelp}" />
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                      <TextBox Text="{Binding Pairing.AdminKeyInput}" PasswordChar="•"
-                               AutomationProperties.AutomationId="v2-team-admin-key"
-                               ToolTip.Tip="{Binding Pairing.AdminKeyHelp}"
-                               PlaceholderText="Admin key" />
-                      <Button Grid.Column="1" Classes="v2-team-primary" Content="Claim"
-                              AutomationProperties.AutomationId="v2-team-claim-relay"
-                              Command="{Binding Pairing.ClaimRelayCommand}"
-                              IsEnabled="{Binding !Pairing.IsClaimingRelay}" />
-                    </Grid>
-                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                               AutomationProperties.AutomationId="v2-team-claim-message"
-                               Text="{Binding Pairing.RelayClaimMessage}"
-                               IsVisible="{Binding Pairing.HasRelayClaimMessage}" />
-                  </StackPanel>
-                </Border>
-
-                <!-- [#289] Claimed, including after a restart, where nothing was typed and so
-                     there is no attempt message to show. Forgetting is the way back out. -->
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"
-                      IsVisible="{Binding Pairing.IsClaimedByThisDesktop}">
-                  <StackPanel Spacing="2" VerticalAlignment="Center">
-                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                               AutomationProperties.AutomationId="v2-team-claimed"
-                               Text="{Binding Pairing.ClaimedSummary}" />
-                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
-                               AutomationProperties.AutomationId="v2-team-claimed-message"
-                               Text="{Binding Pairing.RelayClaimMessage}"
-                               IsVisible="{Binding Pairing.HasRelayClaimMessage}" />
-                  </StackPanel>
-                  <Button Grid.Column="1" Classes="v2-team-plain" VerticalAlignment="Center"
-                          Content="Forget this relay"
-                          AutomationProperties.AutomationId="v2-team-forget-relay"
-                          ToolTip.Tip="Drops the kept claim. Claiming again needs the admin key, and the relay holds the old claim for up to two hours."
-                          Command="{Binding Pairing.ForgetRelayCommand}" />
-                </Grid>
+                     window. [#553] There is no claim step and no admin key: this desktop
+                     registers itself on the relay with the group key, and these two lines say
+                     how that went. One is shown at a time. -->
+                <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-team-claimed"
+                           Text="{Binding Pairing.ClaimedSummary}"
+                           IsVisible="{Binding Pairing.IsClaimedByThisDesktop}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-team-claim-message"
+                           Text="{Binding Pairing.RelayClaimMessage}"
+                           IsVisible="{Binding Pairing.ShowsRelayProblem}" />
 
                 <Border Classes="v2-team-row" IsVisible="{Binding CanPairDevice}">
                   <StackPanel Spacing="10">
