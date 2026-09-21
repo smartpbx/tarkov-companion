@@ -90,6 +90,15 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>Only while the field is actually drawn: a banner over a map with no heat on it is noise.</summary>
     public bool ShowsTrafficBanner => _prior is { HasField: true } && Renderer is { ShowsTrafficHeat: true };
 
+    /// <summary>
+    /// [#591] The basis lines that used to sit beside the banner on the map, now the compact
+    /// chip's tooltip and accessible help text instead — they are already spelled out on the Raid
+    /// plan card, so the chip only needs to say what it is when a player asks.
+    /// </summary>
+    public string TrafficBannerTooltip => TrafficBannerDetail.Length > 0
+        ? $"{TrafficBannerBasis}\n{TrafficBannerDetail}"
+        : TrafficBannerBasis;
+
     private string? PriorNotice => _prior switch
     {
         null => null,
@@ -335,6 +344,7 @@ public sealed partial class RaidCockpitViewModel
     private void RaiseTrafficChanged()
     {
         OnPropertyChanged(nameof(TrafficBannerDetail));
+        OnPropertyChanged(nameof(TrafficBannerTooltip));
         OnPropertyChanged(nameof(ShowsTrafficBanner));
         OnPropertyChanged(nameof(TrafficLayerNotice));
         OnPropertyChanged(nameof(TrafficRows));

@@ -101,8 +101,11 @@ public sealed class RaidMapSpaceTests
         // Fourteen switches in a WrapPanel wrapped to two rows and took 110 pixels of a 1080-tall
         // window. The button that replaced them says how many layers are on, so folding them away
         // did not also fold away what is drawn.
+        // [#591] Non-greedy to "</Border>" alone would stop at the first nested one — the traffic
+        // chip beside the mode segment is a Border too — so this anchors on the closing tag's own
+        // indentation (six spaces), which only the strip's own matches.
         var view = File.ReadAllText(RepositoryFile(CockpitView));
-        var strip = Regex.Match(view, @"Classes=""v2-raid-strip"".*?</Border>", RegexOptions.Singleline);
+        var strip = Regex.Match(view, @"Classes=""v2-raid-strip"".*?\n      </Border>", RegexOptions.Singleline);
         Assert.True(strip.Success, "The bottom strip is not where this test expects it.");
         Assert.DoesNotContain("<WrapPanel", strip.Value, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.AutomationId=\"v2-raid-layers\"", strip.Value, StringComparison.Ordinal);

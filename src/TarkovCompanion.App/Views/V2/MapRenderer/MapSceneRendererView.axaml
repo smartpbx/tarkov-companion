@@ -358,6 +358,20 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
+    <!-- [#591] Zoom, fit and the loot preset already float at the standard 32 DIP target
+         (Button.v2-target); left dim until the player is actually reaching for them so the group
+         reads as chrome, not as something drawn on the terrain beside it. Still hit-testable and
+         still in the automation tree at every opacity, so a keyboard user or a screen reader never
+         loses them. -->
+    <Style Selector="StackPanel#RendererCommands">
+      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="Transitions">
+        <Transitions><DoubleTransition Property="Opacity" Duration="0:0:0.15" /></Transitions>
+      </Setter>
+    </Style>
+    <Style Selector="StackPanel#RendererCommands:pointerover, StackPanel#RendererCommands:focus-within">
+      <Setter Property="Opacity" Value="1" />
+    </Style>
     <!-- [V2 rough package 46] The folded floor ladder: which floor you are on, and the rungs
          behind it. -->
     <Style Selector="Button.v2-map-floor-summary">
