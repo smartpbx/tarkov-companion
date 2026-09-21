@@ -8,12 +8,27 @@
        These live beside V2PrimitiveStyles.axaml rather than inside it: that file is the #266
        primitive contract (every value a token, every Button border on the Fluent template part),
        and a ghost button's transparent background has no token to take. -->
+  <!-- [#574] The quiet look every v2-target starts from; the reasons are with the rest of the
+       button family at the end of this file. It is first so that primary, outline, plain and
+       chip below, which come later, replace its colours. -->
+  <Style Selector="Button.v2-target, ToggleButton.v2-target, ToggleButton.v2-raid-viewcontrol">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="Button.v2-target:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-target:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segment:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-raid-viewcontrol:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
   <Style Selector="Border.v2-pane">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-    <Setter Property="Padding" Value="18,14" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
   </Style>
   <Style Selector="Border.v2-context-panel">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -25,7 +40,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-    <Setter Property="Padding" Value="16,12" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
   </Style>
   <Style Selector="Border.v2-section.v2-section-accent">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -36,8 +51,8 @@
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
     <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
-    <Setter Property="Padding" Value="22,8" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Large.Height}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Large.Inset}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
@@ -53,7 +68,7 @@
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-    <Setter Property="Padding" Value="16,6" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
@@ -67,7 +82,7 @@
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
   <Style Selector="Button.v2-chip">
@@ -77,7 +92,7 @@
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
-    <Setter Property="Padding" Value="14,6" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
@@ -87,5 +102,123 @@
   </Style>
   <Style Selector="Button.v2-chip.v2-selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+
+  <!-- [#574] One button family. V2PrimitiveStyles.axaml gives every v2-target its height, side
+       padding, radius and type size from tokens; this gives it one look. Quiet is the default:
+       a raised surface with a hairline border. Primary, outline, plain and chip above replace the
+       colours and keep the metrics. A view-local class may recolour a button; it should not
+       resize one.
+
+       Fluent draws a button's fill and border on ContentPresenter#PART_ContentPresenter and sets
+       them there directly in its :pointerover, :pressed and :checked styles, so a state is only
+       really changed by a rule on that part. The checked rule is the important one: Fluent's
+       checked toggle is the operating system's accent colour, a saturated blue that is in none of
+       the V2 palettes, and it is what made Raid's Phase switch look like it came from another
+       application. Checked is the V2 selected state everywhere: raised surface, action outline,
+       action text, the same as a selected chip and a selected segment. -->
+  <Style Selector="ToggleButton.v2-target:checked /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-target:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-target:checked:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segment:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-segment:checked:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-icon-btn:checked /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-icon-btn:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-raid-viewcontrol:checked /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-raid-viewcontrol:checked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                   ToggleButton.v2-raid-viewcontrol:checked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+  </Style>
+  <!-- A segmented control is the same height and type as the buttons beside it. -->
+  <Style Selector="ToggleButton.v2-segment">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <!-- [#574] A menu in a flyout: every row one height, in three columns that line up down the
+       menu: the state mark, an optional icon, the label. Raid's Layers menu is a list of
+       ToggleSwitch.v2-layer-switch; Fluent's switch is a 40 DIP track with the label after it
+       and its own 12 DIP margins, so the labels started wherever the track ended and rows were
+       taller than every other control. The row keeps being a ToggleSwitch (its name, its
+       checked state and its command are unchanged); only what it draws is a menu row. -->
+  <Style Selector="ToggleSwitch.v2-layer-switch, ToggleSwitch.v2-menu-row">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="PART_Row" Background="Transparent" CornerRadius="{DynamicResource V2.Shape.Control}"
+                MinHeight="{TemplateBinding MinHeight}" Padding="8,0">
+          <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
+            <Path x:Name="PART_Mark" Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Tick}"
+                  HorizontalAlignment="Center" Opacity="0" />
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding OnContent}"
+                              VerticalAlignment="Center" HorizontalAlignment="Left" />
+            <!-- ToggleSwitch looks these two up when its template is applied. -->
+            <Canvas Width="0" Height="0" IsVisible="False">
+              <Panel x:Name="PART_MovingKnobs" />
+              <Panel x:Name="PART_SwitchKnob" />
+            </Canvas>
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleSwitch.v2-layer-switch:checked /template/ Path#PART_Mark, ToggleSwitch.v2-menu-row:checked /template/ Path#PART_Mark">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="ToggleSwitch.v2-layer-switch:pointerover /template/ Border#PART_Row, ToggleSwitch.v2-menu-row:pointerover /template/ Border#PART_Row">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+  </Style>
+  <Style Selector="ToggleSwitch.v2-layer-switch:disabled, ToggleSwitch.v2-menu-row:disabled">
+    <Setter Property="Opacity" Value="0.5" />
+  </Style>
+
+  <!-- [#574] A drop-down is the same height and type as the chips and buttons it sits beside.
+       Scoped to the V2 shell's root, which always carries a density class, so V1 pages keep
+       Fluent's. The top bar's map picker has its own borderless style and is left to it. -->
+  <Style Selector=".v2-density-standard ComboBox:not(.v2-topbar-map)">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Height" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="12,0,0,0" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+
+  <!-- [#574] A row in a flyout menu that is a button or a toggle rather than a switch: the same
+       three columns as ToggleSwitch.v2-menu-row above, so a menu that mixes them still lines up.
+       A toggle shows the tick when checked; a plain button leaves the mark column empty. -->
+  <Style Selector="ToggleButton.v2-menu-row, Button.v2-menu-row">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="PART_Row" Background="Transparent" CornerRadius="{DynamicResource V2.Shape.Control}"
+                MinHeight="{TemplateBinding MinHeight}" Padding="8,0">
+          <Grid ColumnDefinitions="20,*" ColumnSpacing="8">
+            <Path x:Name="PART_Mark" Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Tick}"
+                  HorizontalAlignment="Center" Opacity="0" />
+            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              VerticalAlignment="Center" HorizontalAlignment="Left" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ToggleButton.v2-menu-row:checked /template/ Path#PART_Mark">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="ToggleButton.v2-menu-row:pointerover /template/ Border#PART_Row, Button.v2-menu-row:pointerover /template/ Border#PART_Row">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+  </Style>
+  <Style Selector="ToggleButton.v2-menu-row:disabled, Button.v2-menu-row:disabled">
+    <Setter Property="Opacity" Value="0.5" />
   </Style>
 </Styles>

@@ -44,16 +44,54 @@
   <CornerRadius x:Key="V2.Shape.Card">10</CornerRadius>
   <x:Double x:Key="V2.Shape.Card.Radius">10</x:Double>
 
-  <!-- Density changes whitespace only. Type sizes and target minimums are deliberately absent. -->
-  <x:Double x:Key="V2.Density.Compact.Gap">8</x:Double>
-  <Thickness x:Key="V2.Density.Compact.Inset">8</Thickness>
+  <!-- Density changes whitespace only. Type sizes and target minimums are deliberately absent.
+       Gap is the space between a card's children and between cards; Inset is a card's padding.
+       [#574] Compact was 8/8 against Standard's 12/16, which on a card of three lines was not a
+       visible difference; it is 6/10 now, and Comfortable stays a clear step the other way. -->
+  <x:Double x:Key="V2.Density.Compact.Gap">6</x:Double>
+  <Thickness x:Key="V2.Density.Compact.Inset">10</Thickness>
   <x:Double x:Key="V2.Density.Standard.Gap">12</x:Double>
   <Thickness x:Key="V2.Density.Standard.Inset">16</Thickness>
   <x:Double x:Key="V2.Density.Comfortable.Gap">16</x:Double>
   <Thickness x:Key="V2.Density.Comfortable.Inset">20</Thickness>
 
-  <x:Double x:Key="V2.Target.Desktop">44</x:Double>
+  <!-- [#574] Desktop is the height of every ordinary control: button, toggle, segment, chip, menu
+       button, field. It was 44, a touch figure, on an app driven by a mouse on a 1080p second
+       screen; 32 clears the 24 DIP pointer-target minimum with room. Touch stays what it says. -->
+  <x:Double x:Key="V2.Target.Desktop">32</x:Double>
   <x:Double x:Key="V2.Target.Touch">48</x:Double>
+
+  <!-- [#574] One button family. Three heights: Small for a choice inside a caption or a table
+       row, Desktop (above) for everything ordinary, Large for the one primary action of a page
+       or card. An icon-only button is a Desktop square, so it lines up with its neighbours. Inset is the padding that goes
+       with each height; Gap is the space between an icon and its label, everywhere. -->
+  <x:Double x:Key="V2.Control.Small.Height">24</x:Double>
+  <Thickness x:Key="V2.Control.Small.Inset">8,2</Thickness>
+  <Thickness x:Key="V2.Control.Inset">12,4</Thickness>
+  <x:Double x:Key="V2.Control.Large.Height">40</x:Double>
+  <Thickness x:Key="V2.Control.Large.Inset">20,8</Thickness>
+  <x:Double x:Key="V2.Control.Gap">8</x:Double>
+
+  <!-- [#574] Three icon sizes and one stroke weight. The geometry in V2Icons.axaml is drawn on a
+       24 grid, and a Path with Stretch=None ignores Width and Height when it draws, so a view
+       that wrote Width="16" got a 24 DIP icon hanging 8 DIP out of a 16 DIP box: that is what
+       put the Layers button's icon on top of its label. Each size is therefore a box, the scale
+       that fits the 24 grid into it, and the stroke that comes out at 1.5 DIP after that scale.
+       Small sits in a chip or a table row, Default beside body text in a button, menu row or
+       tab, Large in an icon-only button and the navigation rail. -->
+  <x:Double x:Key="V2.IconSize.Small">14</x:Double>
+  <ScaleTransform x:Key="V2.IconSize.Small.Scale" ScaleX="0.58333" ScaleY="0.58333" />
+  <x:Double x:Key="V2.IconSize.Small.Stroke">2.57</x:Double>
+  <x:Double x:Key="V2.IconSize.Default">16</x:Double>
+  <ScaleTransform x:Key="V2.IconSize.Default.Scale" ScaleX="0.66667" ScaleY="0.66667" />
+  <x:Double x:Key="V2.IconSize.Default.Stroke">2.25</x:Double>
+  <x:Double x:Key="V2.IconSize.Large">20</x:Double>
+  <ScaleTransform x:Key="V2.IconSize.Large.Scale" ScaleX="0.83333" ScaleY="0.83333" />
+  <x:Double x:Key="V2.IconSize.Large.Stroke">1.8</x:Double>
+  <!-- The grid itself, for an icon a Viewbox scales: the Viewbox does the fitting, so the Path
+       inside keeps the whole grid and is not scaled twice. -->
+  <x:Double x:Key="V2.IconSize.Grid">24</x:Double>
+  <x:Double x:Key="V2.IconSize.Grid.Stroke">1.6</x:Double>
 
   <Thickness x:Key="V2.Focus.Indicator.Thickness">3</Thickness>
 

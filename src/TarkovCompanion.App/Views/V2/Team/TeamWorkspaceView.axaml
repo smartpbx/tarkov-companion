@@ -40,7 +40,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="18,14" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="Border.v2-team-section.v2-team-accent">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -131,7 +131,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Large.Height}" />
       <Setter Property="Padding" Value="22,8" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -817,7 +817,7 @@
         </ScrollViewer>
 
         <Button Grid.Row="1" Classes="v2-team-primary" HorizontalAlignment="Stretch" Margin="16,0,16,16"
-                MinHeight="56" Command="{Binding OpenSharedPlanCommand}"
+                Command="{Binding OpenSharedPlanCommand}"
                 AutomationProperties.AutomationId="v2-team-open-shared-plan">
           <StackPanel Orientation="Horizontal" Spacing="12">
             <Path Classes="v2-icon" Stroke="{DynamicResource V2.Brush.Canvas}" Data="{DynamicResource V2.Icon.Map}" />

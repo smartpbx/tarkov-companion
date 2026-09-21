@@ -10,7 +10,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="22,18" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="TextBlock.v2-home-card-title">
       <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading2.Size}" />
@@ -84,8 +84,8 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="MinWidth" Value="120" />
-      <Setter Property="MinHeight" Value="36" />
-      <Setter Property="Padding" Value="14,4" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -107,9 +107,9 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="MinHeight" Value="56" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Large.Height}" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -126,16 +126,16 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="MinHeight" Value="44" />
-      <Setter Property="Padding" Value="18,6" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style Selector="Button.v2-home-outline.v2-home-quiet">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
-      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
-      <Setter Property="MinHeight" Value="56" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Large.Height}" />
     </Style>
     <Style Selector="Button.v2-home-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -184,7 +184,7 @@
                 Command="{Binding ExploreMapCommand}">
           <StackPanel Orientation="Horizontal" Spacing="8">
             <TextBlock Text="{Binding ExploreMapLabel}" VerticalAlignment="Center" />
-            <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Map}" Width="20" Height="20" Stretch="Uniform" />
+            <Path Classes="v2-icon v2-icon-lg v2-home-action" Data="{DynamicResource V2.Icon.Map}" />
           </StackPanel>
         </Button>
       </Grid>
@@ -261,7 +261,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:V2HomeLineViewModel">
                   <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10" Margin="0,4">
-                    <Path Classes="v2-icon v2-home-accent" Data="{DynamicResource V2.Icon.Pin}" Width="18" Height="18" Stretch="Uniform"
+                    <Path Classes="v2-icon v2-home-accent" Data="{DynamicResource V2.Icon.Pin}"
                           VerticalAlignment="Top" />
                     <TextBlock Grid.Column="1" Classes="v2-home-muted" Text="{Binding Text}" TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding Aside}" />
@@ -321,7 +321,7 @@
       <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
         <TextBlock Grid.Row="0" Classes="v2-home-card-title" Text="{Binding RecentHeading}" AutomationProperties.HeadingLevel="2" />
         <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
-          <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Refresh}" Width="20" Height="20" Stretch="Uniform" />
+          <Path Classes="v2-icon v2-icon-lg v2-home-action" Data="{DynamicResource V2.Icon.Refresh}" />
           <TextBlock Grid.Column="1" Classes="v2-home-strong" Text="{Binding DataFreshness}" VerticalAlignment="Center" />
         </Grid>
         <StackPanel Grid.Row="2" Spacing="4">
@@ -332,7 +332,7 @@
               <DataTemplate x:DataType="vm:V2HomeLineViewModel">
                 <Border BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,1,0,0" Padding="0,9">
                   <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Path Classes="v2-icon v2-home-muted" Data="{DynamicResource V2.Icon.Chart}" Width="18" Height="18" Stretch="Uniform" />
+                    <Path Classes="v2-icon v2-home-muted" Data="{DynamicResource V2.Icon.Chart}" />
                     <TextBlock Grid.Column="1" Text="{Binding Text}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource V2.Brush.TextPrimary}" />
                     <TextBlock Grid.Column="2" Classes="v2-home-muted" Text="{Binding Aside}" VerticalAlignment="Center" />

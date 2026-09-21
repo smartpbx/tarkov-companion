@@ -17,7 +17,9 @@
     "focus": ["indicator"],
     "motion": ["full", "reduced"],
     "density": ["compact", "standard", "comfortable"],
-    "target": ["desktop", "touch"]
+    "target": ["desktop", "touch"],
+    "control": ["small", "inset", "large", "gap"],
+    "iconSize": ["small", "default", "large", "grid"]
   },
   "variants": {
     "appearance": ["system", "light", "dark", "highContrast"],

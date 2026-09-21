@@ -56,7 +56,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="3,1,1,1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="Border.v2-plan-section.v2-plan-accent">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -86,10 +86,10 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="BorderThickness" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Height" Value="52" />
+      <Setter Property="Height" Value="{DynamicResource V2.Control.Large.Height}" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Button.v2-plan-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">

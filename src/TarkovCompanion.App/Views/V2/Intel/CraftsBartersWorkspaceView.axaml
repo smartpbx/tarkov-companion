@@ -72,7 +72,7 @@
                         <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
                       </Border>
                       <TextBlock Classes="v2-body" Text="{Binding InputsLabel}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                      <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" VerticalAlignment="Center"
+                      <Path Classes="v2-icon v2-icon-sm v2-icon-muted"
                             Data="{DynamicResource V2.Icon.ChevronRight}" />
                       <Button Classes="v2-target v2-intel-plain v2-intel-trade-output"
                               Content="{Binding Output.Label}"

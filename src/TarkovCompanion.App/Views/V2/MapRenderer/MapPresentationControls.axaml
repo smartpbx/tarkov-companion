@@ -15,7 +15,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
     </Style>
     <Style Selector="ToggleButton.v2-segment:checked">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />

@@ -39,8 +39,8 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="Padding" Value="16,6" />
-      <Setter Property="MinHeight" Value="38" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
     <Style Selector="Button.v2-intel-chip.selected">
@@ -52,8 +52,8 @@
     </Style>
     <!-- Result rows: a quiet raised row; the selected one takes the cyan outline. -->
     <Style Selector="Button.v2-intel-chip.v2-intel-chip-small">
-      <Setter Property="Padding" Value="12,2" />
-      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     </Style>
     <Style Selector="Button.v2-intel-row">
       <Setter Property="Background" Value="Transparent" />
@@ -111,7 +111,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="18,14" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <!-- The accent edge is the outer border's own background showing through a 3px left inset,
          so only the leading edge is cyan and the rest of the outline stays quiet. -->

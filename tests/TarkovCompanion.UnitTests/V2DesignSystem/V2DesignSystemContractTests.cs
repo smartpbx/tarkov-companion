@@ -690,7 +690,8 @@ public sealed class V2DesignSystemContractTests
 
         var sizes = tokens.Where(pair => pair.Key.StartsWith("V2.Type.", StringComparison.Ordinal) && pair.Key.EndsWith(".Size", StringComparison.Ordinal)).ToArray();
         Assert.All(sizes, pair => Assert.InRange(double.Parse(pair.Value, CultureInfo.InvariantCulture), 12d, 72d));
-        Assert.Equal("44", tokens["V2.Target.Desktop"]);
+        // [#574] 32, not the first 44: a mouse-driven desktop control, above the 24 DIP minimum.
+        Assert.Equal("32", tokens["V2.Target.Desktop"]);
         Assert.Equal("48", tokens["V2.Target.Touch"]);
 
         var styles = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").ToArray();

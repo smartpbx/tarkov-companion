@@ -1550,6 +1550,11 @@ internal static class Program
                 CrashLog.Detach();
             }
 
+            if (StringOption(args, "--open-flyout") is { } flyoutId)
+            {
+                FlyoutProbe.Save(window, flyoutId, outputPath, Pump);
+            }
+
             SaveFrame(window, outputPath, width, height);
             if (StringOption(args, "--crop") is { } crop)
             {

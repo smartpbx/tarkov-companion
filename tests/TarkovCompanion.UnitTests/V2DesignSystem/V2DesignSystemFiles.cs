@@ -41,6 +41,8 @@ internal static partial class V2DesignSystemFiles
         ["motion"] = "V2.Motion.",
         ["density"] = "V2.Density.",
         ["target"] = "V2.Target.",
+        ["control"] = "V2.Control.",
+        ["iconSize"] = "V2.IconSize.",
     };
 
     public static string ReadText(string[] segments) => File.ReadAllText(Path.Combine([RepositoryRoot(), .. segments]));
