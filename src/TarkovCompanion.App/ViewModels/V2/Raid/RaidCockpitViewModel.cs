@@ -3094,7 +3094,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 null,
                 MapSceneGeometry.At(new(item.Mark.State.X, item.Mark.State.Y)),
                 item.Mark.State.FloorId is null ? [] : [item.Mark.State.FloorId],
-                new DataProvenance("local-mark", nowUtc)))
+                new DataProvenance("local-mark", nowUtc),
+                // Issue 584: carries the store's own expiry straight through, so a ping fades and
+                // drops on the map the same moment it drops from the marks list.
+                expiresUtc: item.Mark.State.ExpiresUtc))
             .ToArray();
         return (layer, objects);
     }

@@ -43,7 +43,11 @@ public sealed record TabletMapObject(
     double? HeadingDegrees,
     bool IsEstimate,
     // Issue 508: the tablet dims a completed quest objective's pin the same way the desktop does.
-    bool IsCompleted = false);
+    bool IsCompleted = false,
+    // Issue 584: a ping's own fixed disappearance time (UTC), so the tablet can fade and drop it
+    // on its own, exactly when it should, without waiting for the desktop to publish again. Null
+    // for everything that is not a ping.
+    DateTimeOffset? ExpiresUtc = null);
 
 /// <summary>
 /// One answer to a lookup the tablet asked the desktop to run.
@@ -233,7 +237,8 @@ public static class TabletMapSurfaceBuilder
             item.FloorIds,
             item.HeadingDegrees,
             item.Truth == MapSceneTruthKind.HistoricalEstimate,
-            item.IsCompleted);
+            item.IsCompleted,
+            item.ExpiresUtc);
     }
 }
 

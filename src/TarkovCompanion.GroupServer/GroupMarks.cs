@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.GroupServer;
 
@@ -58,7 +59,11 @@ public sealed record GroupPing(
 public sealed class GroupMarks
 {
     /// <summary>How long a ping is shown before it stops meaning "now".</summary>
-    private static readonly TimeSpan PingLifetime = TimeSpan.FromSeconds(45);
+    /// <remarks>
+    /// Issue 584: the one shared constant a desktop right-click, a paired tablet and a squadmate's
+    /// ping all read now, rather than each place a ping can come from growing its own number.
+    /// </remarks>
+    private static readonly TimeSpan PingLifetime = MapMarkPolicy.PingLifetime;
 
     /// <summary>Enough for a plan, few enough that nobody can drown a map in them.</summary>
     private const int MaximumWaypointsPerRoom = 60;
