@@ -55,6 +55,16 @@ public static class RaidClosure
     public const string ClosedOnRestartOutcome = "Closed on restart";
 
     public const string ClosedOnRestartNotes = "The companion was not running when this raid ended.";
+
+    /// <summary>The outcome of a raid the game never reported as over (#568).</summary>
+    /// <remarks>
+    /// The game process died, or the machine did, so no <c>userMatchOver</c> was ever written. The
+    /// raid is closed at the last moment it showed activity, and the player can correct the outcome
+    /// by hand on Debrief.
+    /// </remarks>
+    public const string NotReportedOutcome = "Unknown (not reported)";
+
+    public const string NotReportedNotes = "The game never reported this raid as over.";
 }
 
 /// <summary>One field's value before and after a correction.</summary>
@@ -146,25 +156,33 @@ public static class RaidFactRules
         ArgumentNullException.ThrowIfNull(raid);
         ArgumentNullException.ThrowIfNull(corrections);
 
-        var closedOnRestart = raid.Outcome == RaidClosure.ClosedOnRestartOutcome
-            || raid.Notes == RaidClosure.ClosedOnRestartNotes
+        // Either text the companion writes itself: a raid closed on restart, or one the game
+        // never reported as over (#568). Both mean the end time is when it was noticed.
+        var closedOnRestart = IsCompanionOutcome(raid.Outcome)
+            || IsCompanionNotes(raid.Notes)
             || corrections.Any(correction =>
-                correction.Outcome?.From == RaidClosure.ClosedOnRestartOutcome
-                || correction.Notes?.From == RaidClosure.ClosedOnRestartNotes);
+                IsCompanionOutcome(correction.Outcome?.From)
+                || IsCompanionNotes(correction.Notes?.From));
         return new(
             Present(raid.MapId, RaidFactKind.Observed),
             Present(raid.Mode, RaidFactKind.Inferred),
             raid.StartedUtc is null ? RaidFactKind.Unknown : RaidFactKind.Observed,
             raid.EndedUtc is null ? RaidFactKind.Unknown : closedOnRestart ? RaidFactKind.Inferred : RaidFactKind.Observed,
-            Written(raid.Outcome, RaidClosure.ClosedOnRestartOutcome, corrections.Any(correction => correction.Outcome is not null)),
-            Written(raid.Notes, RaidClosure.ClosedOnRestartNotes, corrections.Any(correction => correction.Notes is not null)));
+            Written(raid.Outcome, IsCompanionOutcome(raid.Outcome), corrections.Any(correction => correction.Outcome is not null)),
+            Written(raid.Notes, IsCompanionNotes(raid.Notes), corrections.Any(correction => correction.Notes is not null)));
     }
+
+    private static bool IsCompanionOutcome(string? value) =>
+        value is RaidClosure.ClosedOnRestartOutcome or RaidClosure.NotReportedOutcome;
+
+    private static bool IsCompanionNotes(string? value) =>
+        value is RaidClosure.ClosedOnRestartNotes or RaidClosure.NotReportedNotes;
 
     private static RaidFactKind Present(string? value, RaidFactKind kind) =>
         string.IsNullOrWhiteSpace(value) ? RaidFactKind.Unknown : kind;
 
-    private static RaidFactKind Written(string? value, string companionText, bool corrected) =>
+    private static RaidFactKind Written(string? value, bool isCompanionText, bool corrected) =>
         string.IsNullOrWhiteSpace(value)
             ? RaidFactKind.Unknown
-            : corrected ? RaidFactKind.Manual : value == companionText ? RaidFactKind.Inferred : RaidFactKind.Manual;
+            : corrected ? RaidFactKind.Manual : isCompanionText ? RaidFactKind.Inferred : RaidFactKind.Manual;
 }
