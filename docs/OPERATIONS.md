@@ -67,6 +67,7 @@ itself and keeps its data beside its executable.
 | `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
 | `rooms.json` | The registered room hashes, with their labels and creation times. |
 | `relay-devices.json` | The paired-device registry (v2r-relay-owner): the owner and paired devices' key thumbprints, session/channel ids, and lifecycle audit trail. No private key material and no plaintext bearer credential — only its digest. Checksummed with one independently verified backup; see `VerifiedRelayRegistryStore`. |
+| `relay-desktops/` | One registry of the same shape per desktop that registered itself with its group key (#553), each with its own `.backup`, plus `index.json` (desktop key thumbprint to room hash). `relay-devices.json` is the desktop that claimed the relay before #553 and is read as it is. |
 | `reports/*.md` | Problem reports exactly as sent, with no expiry. |
 | `UPDATE_NOW` | The panel's transient request for the root-owned updater to run. |
 

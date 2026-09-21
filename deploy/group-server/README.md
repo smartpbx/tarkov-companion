@@ -201,6 +201,9 @@ set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
   access line says which of the three states it is in.
 - `relay-devices.json`: the paired-device registry (owner and paired devices' key thumbprints,
   sessions, audit trail); no private keys and no plaintext bearer credential
+- `relay-desktops/`: one file of the same shape (and its `.backup`) per desktop that registered
+  itself (#553), plus `index.json` naming each desktop's room. `relay-devices.json` stays as it
+  was: it is the desktop that claimed the relay before #553, and needs no migration step
 - `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them
 - `UPDATE_NOW`, the panel's request for an update; the updater's stamps are not here but in its
   own directories, [above](#where-the-updater-keeps-what-it-decides-from)
