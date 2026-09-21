@@ -30,4 +30,7 @@ public static class WorkspaceLayoutKeys
 
     /// <summary>Whether the Raid context panel is hidden entirely.</summary>
     public const string RaidPanelHidden = "raid.panel-hidden";
+
+    /// <summary>[Issue 573] Hidden / Dim / Normal — how a co-op extract is drawn and offered.</summary>
+    public const string CoOpExtractVisibility = "raid.coop-extract-visibility";
 }

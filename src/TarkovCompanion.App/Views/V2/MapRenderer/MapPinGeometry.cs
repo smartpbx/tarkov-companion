@@ -32,7 +32,16 @@ public static class MapPinGeometry
     /// centre.
     /// </summary>
     public static (double Left, double Top) TopLeftFor(double boxExtent) =>
-        ((boxExtent - Width) / 2, (boxExtent / 2) - Height);
+        TopLeftFor(boxExtent, Width, Height);
+
+    /// <summary>
+    /// The same placement as <see cref="TopLeftFor(double)"/>, for a pin drawn smaller (or larger)
+    /// than <see cref="Width"/> x <see cref="Height"/> — issue 573: a quest objective's shield
+    /// draws at two-thirds size by default so it covers less of the building under it, and the
+    /// tip still has to land on the box's exact centre at either size.
+    /// </summary>
+    public static (double Left, double Top) TopLeftFor(double boxExtent, double pinWidth, double pinHeight) =>
+        ((boxExtent - pinWidth) / 2, (boxExtent / 2) - pinHeight);
 
     /// <summary>
     /// Where the pin's tip actually lands, in the same box-local coordinates as
