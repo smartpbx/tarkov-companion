@@ -3,7 +3,10 @@ using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.Infrastructure.Processes;
 using Velopack;
 
 namespace TarkovCompanion.App;
@@ -45,6 +48,13 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // Before anything that could start a process, which includes Velopack below (it starts
+        // the updater when a downloaded build is waiting). Both shortcuts start the companion
+        // standing in the install folder, everything it launches inherits that, and a browser
+        // still standing there after the companion has gone is why no update could replace
+        // `current\` (#599). One system call; see OutsideInstallFolder.
+        OutsideInstallFolder.LeaveInstallFolder();
+
         // Before Velopack, before the command line, before anything: this is not the application
         // starting, it is the application being used as a map rasteriser by an application that is
         // already running. It draws one picture and exits. Nothing else in this method may run —
@@ -55,7 +65,10 @@ internal static class Program
         // 2026-09-19 with a native access violation inside Skia. A native fault cannot be caught,
         // so the only way to survive one is for it to happen somewhere else. See
         // OutOfProcessSvgRasterizer.
-        if (MapRasterizerHost.TryRun(args) is { } rasterizerExitCode)
+        //
+        // An installer hook never gets even that far (#599): it goes straight to Velopack below,
+        // which answers it and exits before logging, breadcrumbs, the database or a window exist.
+        if (!InstallerHook.IsHookInvocation(args) && MapRasterizerHost.TryRun(args) is { } rasterizerExitCode)
         {
             return rasterizerExitCode;
         }
@@ -147,6 +160,13 @@ internal static class Program
                 options.DeveloperMode,
                 options.DiagnosticChannelPath,
                 services.GetRequiredService<IRuntimeScanUseCase>());
+            // #599: how this process gets out of the updater's way. Set here because this is the
+            // only place that holds everything a hand-over has to stop.
+            if (services.GetService<VelopackUpdateGateway>() is { } updates)
+            {
+                updates.HandOver = UpdateHandOverFor(app, services, diagnosticChannel);
+            }
+
             // A UI-thread exception otherwise terminates the process outright. For a
             // second-monitor companion that is the worst possible failure: the window
             // vanishes mid-raid with nothing on screen to explain it. Log it, keep the
@@ -278,6 +298,59 @@ internal static class Program
             CrashBreadcrumbs.MarkCleanExit();
             ArmExitWatchdog(exitCode);
         }
+    }
+
+    /// <summary>
+    /// The update hand-over over this application: the same teardown as <see cref="ShutDown"/>,
+    /// inside two seconds instead of eight, and followed by a kill rather than a return.
+    /// </summary>
+    /// <remarks>
+    /// The stages share one budget exactly as they do at an ordinary exit, so they cannot add up
+    /// to more than the whole. What is not finished when it runs out is abandoned: every data
+    /// endpoint commits in its own transaction and SQLite's journal survives a killed process, so
+    /// the cost of abandoning is at most one in-flight refresh.
+    /// </remarks>
+    private static UpdateHandOver UpdateHandOverFor(
+        App app,
+        ServiceProvider services,
+        DiagnosticCommandChannel? diagnosticChannel)
+    {
+        static void Log(string line) => CrashLog.Write("lifecycle", line);
+        return new UpdateHandOver(
+            new UpdateHandOverSteps(
+                StopAcceptingWork: () =>
+                {
+                    // Deliberate from here on, however it ends: the next launch must not report
+                    // an update as a run that died.
+                    CrashBreadcrumbs.MarkCleanExit();
+                    app.StopAcceptingWork();
+                    var children = MapRasterizerChildren.KillAll();
+                    if (children > 0)
+                    {
+                        Log($"Update hand-over: ended {children} map rasteriser child process(es).");
+                    }
+                },
+                CloseInterface: app.CloseInterface,
+                FlushAsync: async budget =>
+                {
+                    var stages = new ShutdownStages(budget);
+                    if (diagnosticChannel is not null)
+                    {
+                        await stages
+                            .RunAsync("diagnostic-channel", diagnosticChannel.DisposeAsync().AsTask, TimeSpan.FromMilliseconds(300))
+                            .ConfigureAwait(false);
+                    }
+
+                    await stages
+                        .RunAsync("interface", () => app.StopAsync(stages.Remaining), TimeSpan.FromSeconds(1))
+                        .ConfigureAwait(false);
+                    await stages
+                        .RunAsync("services", services.DisposeAsync().AsTask, stages.Remaining)
+                        .ConfigureAwait(false);
+                    Log($"Update hand-over teardown: {stages.Report()}");
+                }),
+            new HardProcessEnder(Log),
+            Log);
     }
 
     /// <summary>

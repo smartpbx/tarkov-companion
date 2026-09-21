@@ -240,6 +240,26 @@ public sealed class VelopackUpdateGateway
         }
 
         _logger?.LogInformation("Applying version {Version} and restarting.", update.TargetFullRelease.Version);
-        manager.ApplyUpdatesAndRestart(update);
+        if (HandOver is not { } handOver)
+        {
+            manager.ApplyUpdatesAndRestart(update);
+            return;
+        }
+
+        // #599. The updater is started last and this process is ended outright, instead of the
+        // library starting it first and then calling Environment.Exit in the middle of everything.
+        handOver.Run(
+            update.TargetFullRelease.Version.ToString(),
+            () => manager.WaitExitThenApplyUpdates(update.TargetFullRelease, silent: false, restart: true));
     }
+
+    /// <summary>
+    /// How the running application gets out of the updater's way. Set by the entry point.
+    /// </summary>
+    /// <remarks>
+    /// Null anywhere there is no application to stop (tests, tools), which leaves the library's
+    /// own start-then-exit. See <see cref="UpdateHandOver"/> for why the real application must
+    /// not use that.
+    /// </remarks>
+    public UpdateHandOver? HandOver { get; set; }
 }

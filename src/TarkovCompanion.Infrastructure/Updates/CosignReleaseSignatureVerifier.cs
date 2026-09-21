@@ -303,6 +303,7 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
+            // Beside the file being checked, which is a download folder and never the install folder (#599).
             WorkingDirectory = Path.GetDirectoryName(filePath)!,
         };
         foreach (var name in new[] { "GH_TOKEN", "GITHUB_TOKEN", "TARKOV_RELEASE_FEED_TOKEN" })

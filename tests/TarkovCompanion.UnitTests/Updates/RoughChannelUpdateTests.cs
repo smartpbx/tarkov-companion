@@ -61,6 +61,49 @@ public sealed class RoughChannelUpdateTests
     }
 
     /// <summary>
+    /// #599: in the running application the updater is started after teardown, not before it, and
+    /// the library is not left to call Environment.Exit in the middle of everything.
+    /// </summary>
+    [Fact]
+    public async Task WithAHandOverTheUpdaterStartsAfterTeardownAndTheProcessIsEndedByTheHandOver()
+    {
+        using var harness = new RoughChannelHarness(installedVersion: "1.0.100");
+        harness.Publish("1.0.200");
+        var gateway = GatewayOver(harness);
+        var calls = new List<string>();
+        var ender = new RecordingEnder(calls);
+        gateway.HandOver = new UpdateHandOver(
+            new UpdateHandOverSteps(
+                StopAcceptingWork: () => calls.Add("stop"),
+                CloseInterface: () => calls.Add("close"),
+                FlushAsync: _ =>
+                {
+                    calls.Add($"flush, updater started {harness.Locator.Recorded.Started.Count()} times");
+                    return Task.CompletedTask;
+                }),
+            ender,
+            _ => { });
+
+        await gateway.CheckAsync(CancellationToken.None);
+        Assert.True((await gateway.DownloadAsync(CancellationToken.None)).CanApply);
+        gateway.ApplyAndRestart();
+
+        Assert.Equal(["stop", "close", "flush, updater started 0 times", "arm-kill", "end"], calls);
+        var apply = Assert.Single(harness.Locator.Recorded.Started);
+        Assert.Contains("apply", apply.Arguments);
+        Assert.Contains("--waitPid", apply.Arguments);
+        Assert.DoesNotContain("--norestart", apply.Arguments);
+        Assert.Null(harness.Locator.Recorded.ExitCode);
+    }
+
+    private sealed class RecordingEnder(List<string> calls) : IProcessEnder
+    {
+        public void ArmKill(TimeSpan after) => calls.Add("arm-kill");
+
+        public void EndNow() => calls.Add("end");
+    }
+
+    /// <summary>
     /// The feed says one thing and the bytes are another: refused, loudly, with both hashes in
     /// the log, nothing staged, and nothing applied however the caller asks.
     /// </summary>

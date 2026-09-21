@@ -813,17 +813,18 @@ public sealed partial class MapView : UserControl
 
     private async void AttributionClick(object? sender, RoutedEventArgs eventArgs)
     {
-        if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+        if (DataContext is MapViewModel viewModel)
         {
-            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.AttributionUri));
+            // #599: through ShellLauncher, so the browser never inherits the install folder.
+            await RunGuardedAsync(viewModel, () => Task.FromResult(TarkovCompanion.App.Services.ShellLauncher.TryOpen(viewModel.AttributionUri)));
         }
     }
 
     private async void LicenseClick(object? sender, RoutedEventArgs eventArgs)
     {
-        if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+        if (DataContext is MapViewModel viewModel)
         {
-            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.LicenseUri));
+            await RunGuardedAsync(viewModel, () => Task.FromResult(TarkovCompanion.App.Services.ShellLauncher.TryOpen(viewModel.LicenseUri)));
         }
     }
 
