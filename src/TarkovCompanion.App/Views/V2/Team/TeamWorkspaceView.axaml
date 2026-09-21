@@ -500,7 +500,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
                           <!-- Read across a desk, which is where the tablet is. -->
-                          <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
+                          <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="{DynamicResource V2.Type.Display.Size}"
                                      AutomationProperties.AutomationId="v2-team-pairing-code"
                                      Text="{Binding Pairing.PairingCode}" />
                           <!-- The QR is this same URL, with the code in its fragment (#289): a
@@ -526,7 +526,7 @@
                       <TextBlock Classes="v2-label" TextWrapping="Wrap">
                         <Run Text="{Binding Pairing.RequestedDisplayName}" /><Run Text=" wants to pair. Approve it only if the tablet shows this code:" />
                       </TextBlock>
-                      <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="40"
+                      <TextBlock Classes="v2-team-strong" FontFamily="monospace" FontSize="{DynamicResource V2.Type.Display.Size}"
                                  AutomationProperties.AutomationId="v2-team-verification-code"
                                  Text="{Binding Pairing.VerificationCode}" />
                       <StackPanel Orientation="Horizontal" Spacing="8">
@@ -821,7 +821,7 @@
                 AutomationProperties.AutomationId="v2-team-open-shared-plan">
           <StackPanel Orientation="Horizontal" Spacing="12">
             <Path Classes="v2-icon" Stroke="{DynamicResource V2.Brush.Canvas}" Data="{DynamicResource V2.Icon.Map}" />
-            <TextBlock Text="Open shared plan" VerticalAlignment="Center" FontSize="17" />
+            <TextBlock Text="Open shared plan" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
       </Grid>
