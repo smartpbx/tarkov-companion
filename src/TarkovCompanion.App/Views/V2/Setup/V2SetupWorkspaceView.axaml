@@ -45,22 +45,7 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
 
-    <!-- [#292] One switch for every path on every page. Off at each launch.
-         [#574] Shown only on the four sections that print a path (the folders, the database,
-         the update folder, the log); it stood above Accessibility and About too, switching nothing. -->
-    <StackPanel Orientation="Horizontal" Spacing="12">
-      <StackPanel.IsVisible>
-        <MultiBinding Converter="{x:Static BoolConverters.Or}">
-          <Binding Path="IsGameProfileSelected" />
-          <Binding Path="IsDataSelected" />
-          <Binding Path="IsUpdatesSelected" />
-          <Binding Path="IsDiagnosticsSelected" />
-        </MultiBinding>
-      </StackPanel.IsVisible>
-      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-toggle-paths"
-              Content="{Binding Paths.ToggleLabel}" Command="{Binding Paths.ToggleCommand}" />
-      <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Paths.Note}" />
-    </StackPanel>
+    
 
     <Panel IsVisible="{Binding IsOverviewSelected}">
       <setup:V2HomeOverviewView DataContext="{Binding Overview}" />

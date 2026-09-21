@@ -48,16 +48,13 @@ public sealed class SetupAdminTests
     }
 
     [Fact]
-    public void PathsStayHiddenUntilTheSwitchIsPressedAndFollowTheSourceWhileTheyAreShown()
+    public void PathsAreShownInFullAndFollowTheSourceAndCanStillBeMasked()
     {
         var source = new FakeSource { Value = @"Database C:\Users\Riley\AppData\Local\TarkovCompanion\db\tarkov.db" };
         var gate = new SetupPathDisclosureViewModel(@"C:\Users\Riley");
         using var text = new GatedPathText(() => source.Value, gate, source, nameof(FakeSource.Value));
 
-        Assert.False(gate.IsRevealed);
-        Assert.DoesNotContain("Riley", text.Text, StringComparison.Ordinal);
-
-        gate.ToggleCommand.Execute(null);
+        Assert.True(gate.IsRevealed);
         Assert.Contains("Riley", text.Text, StringComparison.Ordinal);
 
         source.Value = @"Database D:\Data\Games\EFT\db\other.db";
@@ -218,7 +215,7 @@ public sealed class SetupAdminTests
             var setup = shell.SetupWorkspace!;
 
             Assert.True(setup.HasAdmin);
-            Assert.False(setup.Paths.IsRevealed);
+            Assert.True(setup.Paths.IsRevealed);
             Assert.Contains(setup.Sections, tab => tab.Section == V2SetupSection.About);
             Assert.Contains(setup.Sections, tab => tab.Section == V2SetupSection.DataPrivacy);
             Assert.True(setup.OpenSection(V2SetupSection.DataPrivacy, SetupAnchors.SharingScope));
