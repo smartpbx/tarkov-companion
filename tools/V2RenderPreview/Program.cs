@@ -900,6 +900,36 @@ internal static class Program
                     }
                 }
 
+                // [Issue 571] Marks an objective done by hand for the render — the same "Done" the
+                // Objectives list offers — so a before/after render can show it leaving the map and
+                // the list without driving a live app through the gesture.
+                if (StringOption(args, "--mark-objective-done") is { } markObjectiveDone)
+                {
+                    var doneRow = raid.QuestObjectives.FirstOrDefault(item => item.Number == markObjectiveDone);
+                    if (doneRow is null)
+                    {
+                        Console.Error.WriteLine($"No objective is numbered '{markObjectiveDone}'.");
+                    }
+                    else if (!doneRow.CanToggleDone)
+                    {
+                        Console.Error.WriteLine("Done is not offered on this row (no hand-done store wired up).");
+                    }
+                    else
+                    {
+                        doneRow.ToggleDoneCommand.Execute(null);
+                        Pump(80);
+                        Console.WriteLine($"Marked done: objective {markObjectiveDone}");
+                    }
+                }
+
+                // [Issue 571] Brings every done objective back, dimmed with a check, the same as
+                // pressing "Show completed" on the Objectives card.
+                if (args.Contains("--show-completed-objectives"))
+                {
+                    raid.ShowCompletedObjectives = true;
+                    Pump(40);
+                }
+
                 // [Issue 508] Waypoints (and a ping) on the raid map, so a render can show pins
                 // next to quest objectives. --seed-marks N drops N waypoints spread across the
                 // plan and one ping; --seed-marks-collide additionally drops two more waypoints

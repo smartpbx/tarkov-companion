@@ -26,6 +26,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Maps;
 
@@ -274,6 +275,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // player's own markers. Optional: a cockpit built without a store offers no placing.
     private string? _armedObjectiveId;
     private readonly IUserQuestMarkStore? _userMarkers;
+    // [Issue 571] "Done" by hand: who marked what, and whose profile it is. Optional: a cockpit
+    // built without a store offers no Done/Not done and no Show completed.
+    private readonly IHandDoneObjectiveStore? _handDone;
+    private readonly IPlayerProfileService? _profiles;
+    private Guid _activeProfileId;
+    private bool _showCompletedObjectives;
+    // Letters are decided once per raid and kept — see QuestObjectiveLetterAssignment — so
+    // removing an objective, by hand or because the game reported its quest done, never
+    // relabels the ones still on the map.
+    private readonly QuestObjectiveLetterAssignment _questLetters = new();
     private string _unavailableReason = "Loading the map…";
     private string? _cachedAssetVariantKey;
     private string? _modelFloorId;
@@ -348,7 +359,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // tests and the map gallery want.
         IWorkspaceLayoutStore? layout = null,
         // [Issue 379] Where the player has put objectives the quest data gives no place for.
-        IUserQuestMarkStore? userMarkers = null)
+        IUserQuestMarkStore? userMarkers = null,
+        // [Issue 571] The player's own "done" marks, and whose profile they belong to.
+        IHandDoneObjectiveStore? handDone = null,
+        IPlayerProfileService? profiles = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _pictures = new(ReleasePicture);
@@ -361,6 +375,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _groupSession = groupSession;
         _wikiOpener = wikiOpener;
         _userMarkers = userMarkers;
+        _handDone = handDone;
+        _profiles = profiles;
         _layout = layout;
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
@@ -396,6 +412,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         ToggleHideControlsCommand = new DelegateCommand(() => _ = _map.ToggleHideControlsWhenIdleAsync());
         FrameAreaCommand = new DelegateCommand(FrameArea);
         ClearObjectiveCommand = new DelegateCommand(ClearObjectiveSelection);
+        // [Issue 571] Brings a done objective back on the map and the list, dimmed with a check.
+        ToggleShowCompletedObjectivesCommand = new DelegateCommand(() => ShowCompletedObjectives = !ShowCompletedObjectives);
         UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
         // [V2 rough package 46] One press puts the Raid plan column away and gives the map its width.
         ToggleContextPanelCommand = new DelegateCommand(ToggleContextPanel);
@@ -411,6 +429,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         if (_userMarkers is not null)
         {
             _userMarkers.Changed += UserMarkersChanged;
+        }
+
+        if (_handDone is not null)
+        {
+            _handDone.Changed += HandDoneChanged;
         }
 
         InitializeAsync().Observe("raid", "initialize");
@@ -722,6 +745,25 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     public bool HasQuestObjectives => QuestObjectives.Count > 0;
 
+    /// <summary>
+    /// [Issue 571] Whether a done objective (marked by hand, or already recorded complete) is
+    /// still drawn — dimmed, with its check — instead of leaving the map and the list, which is
+    /// what happens by default.
+    /// </summary>
+    public bool ShowCompletedObjectives
+    {
+        get => _showCompletedObjectives;
+        set
+        {
+            if (SetProperty(ref _showCompletedObjectives, value))
+            {
+                _rebuildRequest.Request();
+            }
+        }
+    }
+
+    public ICommand ToggleShowCompletedObjectivesCommand { get; }
+
     /// <summary>"3 on the plan · 2 with no location".</summary>
     public string QuestObjectiveSummary
     {
@@ -888,12 +930,18 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </summary>
     public void RemoveMarkAt(MapSceneObjectId objectId)
     {
-        if (!TryParseMarkId(objectId, out var markId))
+        if (TryParseMarkId(objectId, out var markId))
         {
+            _ = _marks.RemoveAsync(markId);
             return;
         }
 
-        _ = _marks.RemoveAsync(markId);
+        // [Issue 571] A right-click that hit a quest objective's pin, not one of our own marks:
+        // the pin's "right-click menu" is Done/Not done, one gesture same as removing a mark is.
+        if (_handDone is not null && TryParseObjectiveId(objectId, out var objectiveId))
+        {
+            ToggleObjectiveDone(objectiveId);
+        }
     }
 
     /// <summary>Whether a scene object id names one of ours, and which mark it is if so.</summary>
@@ -904,6 +952,26 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         markId = Guid.Empty;
         return objectId.Value.StartsWith(MarkIdPrefix, StringComparison.Ordinal) &&
             Guid.TryParse(objectId.Value.AsSpan(MarkIdPrefix.Length), out markId);
+    }
+
+    /// <summary>
+    /// The objective a quest-layer scene object id names, out of <c>quest:{objectiveId}:…</c> —
+    /// QuestObjectiveSceneBuilder's and UserQuestMarkerScene's own ids, the only ones this is ever
+    /// asked about (see <see cref="TryParseMarkId"/> for the marks this runs after).
+    /// </summary>
+    internal static bool TryParseObjectiveId(MapSceneObjectId objectId, out string objectiveId)
+    {
+        objectiveId = string.Empty;
+        var value = objectId.Value;
+        if (!value.StartsWith("quest:", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var first = "quest:".Length;
+        var second = value.IndexOf(':', first);
+        objectiveId = second < 0 ? value[first..] : value[first..second];
+        return objectiveId.Length > 0;
     }
 
     public void Dispose()
@@ -918,6 +986,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         if (_userMarkers is not null)
         {
             _userMarkers.Changed -= UserMarkersChanged;
+        }
+        if (_handDone is not null)
+        {
+            _handDone.Changed -= HandDoneChanged;
         }
         if (Renderer is { } renderer)
         {
@@ -1240,6 +1312,16 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             await _userMarkers.LoadAsync().ConfigureAwait(true);
         }
 
+        if (_handDone is not null)
+        {
+            await _handDone.LoadAsync().ConfigureAwait(true);
+        }
+
+        if (_profiles is not null)
+        {
+            _activeProfileId = (await _profiles.GetActiveAsync(CancellationToken.None).ConfigureAwait(true)).Id;
+        }
+
         await RebuildAsync().ConfigureAwait(true);
     }
 
@@ -1264,6 +1346,33 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     }
 
     private void UserMarkersChanged() => _rebuildRequest.Request();
+
+    private void HandDoneChanged() => _rebuildRequest.Request();
+
+    /// <summary>
+    /// [Issue 571] "Done" and "Not done", from the pin's right-click or the Objectives list: hides
+    /// it from the map and the active list at once, or undoes that. Needs the objective's own task
+    /// id only to mark it done — a store clears every hand mark of a quest together when the game
+    /// reports it failed, and that needs the quest, not just the one objective.
+    /// </summary>
+    private void ToggleObjectiveDone(string objectiveId)
+    {
+        if (_handDone is null)
+        {
+            return;
+        }
+
+        if (_handDone.Entries.Any(mark => mark.ProfileId == _activeProfileId && mark.ObjectiveId == objectiveId))
+        {
+            _ = _handDone.MarkNotDoneAsync(_activeProfileId, objectiveId);
+            return;
+        }
+
+        if (_questScene.Entries.FirstOrDefault(entry => entry.ObjectiveId == objectiveId) is { } entry)
+        {
+            _ = _handDone.MarkDoneAsync(_activeProfileId, entry.Objective.TaskId, objectiveId);
+        }
+    }
 
     /// <summary>Where a spawn's waypoint goes: its marker's position, on the floor it belongs to.</summary>
     internal readonly record struct SpawnWaypointPlacement(double X, double Y, string? FloorId);
@@ -1709,6 +1818,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
+        // [Issue 571] A letter belongs to one raid; a genuinely new one starts the alphabet over
+        // rather than carrying the last raid's assignments into this one's first rebuild.
+        if (raid?.RaidId != _seenRaid?.RaidId)
+        {
+            _questLetters.Reset();
+        }
+
         _seenRaid = raid;
         _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
@@ -2046,10 +2162,19 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var live = BuildLiveLayers(model, nowUtc);
         _objectStyles = live.Styles;
         _questScene = UserQuestMarkerScene.Apply(
-            BuildQuestScene(_map.QuestSceneProjection, model, nowUtc),
+            BuildQuestScene(_map.QuestSceneProjection, model, nowUtc, _questLetters),
             _userMarkers?.Markers ?? [],
             model.Location.Id,
             model.Floors);
+        if (_handDone is not null)
+        {
+            // [Issue 571] Done, by hand or because progress the app trusts already agrees:
+            // leaves the map and the list, or — "Show completed" — stays, dimmed with a check.
+            var doneIds = _handDone.Entries
+                .Where(mark => mark.ProfileId == _activeProfileId)
+                .Select(mark => mark.ObjectiveId);
+            _questScene = HandDoneObjectiveScene.Apply(_questScene, doneIds, _showCompletedObjectives);
+        }
         // The renderer requires the scene to already declare the exact loot layer it is handed
         // beside it (see EnsureHighValueLootMatchesScene), so the loot layer and its objects are
         // merged in here rather than attached only through the constructor/Present overload.
@@ -2302,12 +2427,37 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     internal static QuestObjectiveScene BuildQuestScene(
         QuestMapProjectionReadModel? projection,
         MapRenderModel model,
-        DateTimeOffset nowUtc) =>
-        projection is not null &&
-        string.Equals(projection.LocationId, model.Location.Id, StringComparison.OrdinalIgnoreCase) &&
-        string.Equals(projection.VariantKey, model.Variant.Key, StringComparison.OrdinalIgnoreCase)
-            ? new QuestObjectiveSceneBuilder().Build(projection.Objectives, model.Floors, null, nowUtc)
-            : QuestObjectiveScene.Empty;
+        DateTimeOffset nowUtc,
+        QuestObjectiveLetterAssignment? letters = null)
+    {
+        if (projection is null ||
+            !string.Equals(projection.LocationId, model.Location.Id, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(projection.VariantKey, model.Variant.Key, StringComparison.OrdinalIgnoreCase))
+        {
+            return QuestObjectiveScene.Empty;
+        }
+
+        var builder = new QuestObjectiveSceneBuilder();
+        if (letters is null)
+        {
+            return builder.Build(projection.Objectives, model.Floors, null, nowUtc);
+        }
+
+        // [Issue 571] A first pass just to learn which objectives are placed this rebuild — the
+        // second pass hands every one of those its stable letter through numberFor, so an
+        // objective that leaves the map (done, or its quest no longer active) never shifts the
+        // letter of one still on it. See QuestObjectiveLetterAssignment.
+        var natural = builder.Build(projection.Objectives, model.Floors, null, nowUtc);
+        var placedIds = natural.Entries
+            .Where(entry => entry.IsPlaced)
+            .Select(entry => entry.ObjectiveId)
+            .ToHashSet(StringComparer.Ordinal);
+        return builder.Build(
+            projection.Objectives,
+            model.Floors,
+            id => placedIds.Contains(id) ? letters.LetterFor(id) : null,
+            nowUtc);
+    }
 
     private void RefreshObjectives()
     {
@@ -2316,6 +2466,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             _selectedObjectiveId = null;
         }
+
+        // [Issue 571] Done, the same picture the map uses: a hand mark for this profile, or
+        // progress the app already trusts saying so.
+        var doneIds = (_handDone?.Entries ?? [])
+            .Where(mark => mark.ProfileId == _activeProfileId)
+            .Select(mark => mark.ObjectiveId)
+            .ToHashSet(StringComparer.Ordinal);
+        bool IsDone(QuestObjectiveEntry entry) =>
+            doneIds.Contains(entry.ObjectiveId) || entry.Objective.ObjectiveState == RecordedObjectiveState.Completed;
 
         var signature = string.Join('|', entries.Select(entry => string.Join(
             ':',
@@ -2327,16 +2486,18 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             entry.Objective.ObjectiveState,
             entry.Objective.RecordedCount,
             entry.Objective.IsTaskPinned,
-            entry.Objective.IsObjectivePinned))) + "#" + _selectedObjectiveId;
+            entry.Objective.IsObjectivePinned,
+            IsDone(entry)))) + "#" + _selectedObjectiveId + "#" + _showCompletedObjectives;
         if (signature == _objectiveSignature)
         {
             return;
         }
 
         _objectiveSignature = signature;
+        var toggleDone = _handDone is null ? null : (Action<string>)ToggleObjectiveDone;
         QuestObjectives = entries
             .OrderBy(entry => entry.IsPlaced ? 0 : 1)
-            .Select(entry => new RaidObjectiveRowViewModel(entry, SelectObjective)
+            .Select(entry => new RaidObjectiveRowViewModel(entry, SelectObjective, IsDone(entry), toggleDone)
             {
                 IsSelected = entry.ObjectiveId == _selectedObjectiveId,
             })
@@ -2348,7 +2509,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 uri => _wikiOpener?.TryOpen(uri) == true,
                 ClearObjectiveSelection,
                 _userMarkers is null ? null : ArmObjective,
-                _userMarkers is null ? null : RemoveObjectiveMarker)
+                _userMarkers is null ? null : RemoveObjectiveMarker,
+                IsDone(selected),
+                toggleDone)
             : null;
         OnPropertyChanged(nameof(QuestObjectives));
         OnPropertyChanged(nameof(HasQuestObjectives));

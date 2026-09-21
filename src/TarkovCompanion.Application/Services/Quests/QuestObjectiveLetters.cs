@@ -66,3 +66,45 @@ public static class QuestObjectiveLetters
         return value;
     }
 }
+
+/// <summary>
+/// Keeps one raid's objective letters fixed once assigned, so marking one done — or the game
+/// itself reporting its quest complete or failed — never turns C into B while the player is
+/// still looking at the map.
+/// </summary>
+/// <remarks>
+/// Issue 571: without this, every rebuild handed <see cref="QuestObjectiveLetters"/> the
+/// objectives it still had to draw, in order, and let it call the first one "A" again. That is
+/// exactly right for a scene built once; it is wrong the moment an objective can leave mid-raid,
+/// because everything after it slides up a letter under the player's eyes. The rule here is the
+/// simplest one that avoids that: an objective's letter is decided the first time this instance
+/// is asked for it, and it keeps that letter for as long as this instance lives — including while
+/// hidden — until <see cref="Reset"/> starts a new raid. A letter already spent is never handed to
+/// a different objective, so there is no gap to explain either.
+/// </remarks>
+public sealed class QuestObjectiveLetterAssignment
+{
+    private readonly Dictionary<string, string> _lettersByObjectiveId = new(StringComparer.Ordinal);
+    private int _next;
+
+    /// <summary>This objective's letter on this raid: the one it already had, or the next free one.</summary>
+    public string LetterFor(string objectiveId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(objectiveId);
+        if (_lettersByObjectiveId.TryGetValue(objectiveId, out var letter))
+        {
+            return letter;
+        }
+
+        letter = QuestObjectiveLetters.LetterFor(++_next);
+        _lettersByObjectiveId[objectiveId] = letter;
+        return letter;
+    }
+
+    /// <summary>Starts a fresh raid: the next objective asked for gets "A" again.</summary>
+    public void Reset()
+    {
+        _lettersByObjectiveId.Clear();
+        _next = 0;
+    }
+}
