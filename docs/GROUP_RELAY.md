@@ -334,6 +334,31 @@ This is the pairing hop only. Once a session is established, its own traffic —
 capture arming — travels as an `OpaqueRelayFrame` over the routes below (v2r-relay-owner), not
 through this mailbox.
 
+## One tenant per desktop (#553)
+
+A relay is a group's, so nobody claims it. Each desktop registers itself and is the owner of its
+own tablets and of nothing else:
+
+    POST /v2/companion/relay/possession/challenge      -> a single-use nonce
+    POST /v2/companion/relay/desktops/register
+    X-Group-Key: <the group key the desktop already holds>
+    {...the same self-pairing body as the claim below, built around that nonce...}
+
+The group key is checked exactly as `/state` checks it (`GroupKey.TryRead`, `GroupKey.RoomFor`,
+the operator's room list when there is one, and the wrong-key limiter); the signature inside the
+body proves the desktop's identity key. A key the relay knows resumes that desktop with its
+tablets intact (restart, next day); a new key gets a registry, frame hub, map store and resume
+tickets of its own (`RelayTenantDirectory`). Every device-scoped route finds its tenant from the
+session id, so a tablet reads only its own desktop's map and a desktop lists and revokes only its
+own tablets. A pairing is accepted only into the tenant whose identity key signed it. Bounds: 16
+desktops per room, 48 per relay. A tablet coming back names its desktop with `&desktopKeyId=` on
+`resume/requests`. The admin key plays no part in any of this.
+
+The section below is the older single-owner protocol. It still works, against the one legacy
+registry (`relay-devices.json`), so a desktop from before #553 keeps its tablets on a new relay;
+when that desktop upgrades and registers, the legacy registry becomes its tenant and its room is
+learned then.
+
 ## Claiming the relay's owner (v2r-relay-owner)
 
 `RelayDeviceRegistry` and `OpaqueRelayFrameHub` route a paired session's opaque traffic once a

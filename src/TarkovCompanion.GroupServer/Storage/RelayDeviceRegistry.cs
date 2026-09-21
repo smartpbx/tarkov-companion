@@ -162,6 +162,99 @@ public sealed class RelayDeviceRegistry
     }
 
     /// <summary>
+    /// [#553] A desktop becoming the owner of its own, so far empty, registry: the first
+    /// registration of one tenant. No operator grant, because nobody is being displaced — the
+    /// caller (<c>RelayTenantDirectory</c>) has already checked the group key, and this refuses
+    /// anything but a registry that has never held a device.
+    /// </summary>
+    public async ValueTask<RelayMutationResult<RelaySessionCredential>> RegisterFirstOwnerAsync(
+        PairingAttempt completedPairing,
+        CompanionSurfaceKind surface,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(completedPairing);
+        if (surface is not (CompanionSurfaceKind.Desktop or CompanionSurfaceKind.DesktopBrowser))
+        {
+            return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var now = Now();
+            // An unreadable file counts as empty here and nowhere else: a tenant's file is named
+            // after the key this caller has just proved, so the only thing it can start over is
+            // its own registry. The shared legacy registry is never offered to this method.
+            if (_state.IsInitialized)
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-already-live");
+            }
+
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+            }
+
+            // The same binding ResumeOwnerByKeyAsync checks: the key named is the key that signed.
+            if (completedPairing.Challenge!.DesktopIdentityKey != completedPairing.Offer.DesktopIdentityKey ||
+                !PairingCryptography.IsSameKey(deviceKey, completedPairing.Offer.DesktopIdentityKey))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("owner-key-mismatch");
+            }
+
+            var owner = CreateDevice(deviceKey, establishment, DeviceAuthorizationRole.Owner);
+            var issued = IssueSession(owner, establishment, surface, now);
+            await CommitAsync(
+                new RelayRegistryState(
+                    true,
+                    [owner],
+                    [issued.Record],
+                    [new RelayAuditEvent(
+                        Guid.NewGuid(),
+                        RelayAuditAction.OwnerRecovered,
+                        now,
+                        "registered",
+                        subjectDeviceId: owner.DeviceId,
+                        sessionId: issued.Credential.SessionId)]),
+                cancellationToken).ConfigureAwait(false);
+            return RelayMutationResult<RelaySessionCredential>.Success(issued.Credential);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>[#553] Whether this registry has a session by that id on record, live or not.</summary>
+    public bool HoldsSession(DeviceSessionId sessionId) =>
+        _state.Sessions.Any(record => record.Session.SessionId == sessionId);
+
+    /// <summary>
+    /// [#553] Whether anything a completed pairing would introduce — its device id, session id,
+    /// relay channel, challenge or transcript — is already on record here. One tenant's registry
+    /// checks this about itself on every mutation; the directory asks it of every OTHER tenant, so
+    /// a desktop cannot name another desktop's session and have the relay route by it.
+    /// </summary>
+    public bool HoldsIdentityOf(SessionEstablished establishment)
+    {
+        ArgumentNullException.ThrowIfNull(establishment);
+        var state = _state;
+        return state.Devices.Any(device => device.DeviceId == establishment.Assignment.DeviceId) ||
+            state.Sessions.Any(record => CollidesWith(record, establishment));
+    }
+
+    /// <summary>
+    /// [#553] The desktop this registry belongs to: its most recent owner that nobody revoked or
+    /// replaced, heard from lately or not. Null for a registry that was never claimed.
+    /// </summary>
+    public RelayDeviceRecord? RecordedOwner() =>
+        _state.Devices
+            .Where(device => device.Role == DeviceAuthorizationRole.Owner &&
+                device.Status is DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired)
+            .OrderByDescending(device => device.CreatedUtc)
+            .FirstOrDefault();
+
+    /// <summary>
     /// The same desktop claiming again, recognised by the key it claimed with: no admin key, at
     /// any time, and it replaces that owner's own earlier session and nothing else.
     /// </summary>

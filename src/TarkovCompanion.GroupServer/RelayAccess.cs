@@ -75,6 +75,13 @@ public static class RelayAccess
             return false;
         }
 
+        // [#553] A desktop registering for tablet pairing is a member showing its group key, so
+        // the room list refuses it and a wrong key is counted, exactly as on the routes below.
+        if (path.Equals(RelayCompanionRoutes.RegisterDesktopPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         var value = path.AsSpan().TrimStart('/');
         var end = value.IndexOf('/');
         var first = end < 0 ? value : value[..end];

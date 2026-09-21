@@ -11,6 +11,7 @@ using TarkovCompanion.GroupServer.Diagnostics;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
+using TarkovCompanion.GroupServer.Tenancy;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -184,12 +185,21 @@ var timeProvider = app.Services.GetRequiredService<TimeProvider>();
 // [#317] What a wrong key costs. See the middleware below.
 var attempts = new RelayAttemptLimiter(timeProvider);
 var relayOwnerRecoveryConfigured = OwnerRecoverySecret() is not null;
+// [#553] One tenant per desktop. The registry, hub and map store above are the legacy tenant —
+// relay-devices.json, exactly as an older relay wrote it — and every desktop that registers
+// itself gets the same three of its own, kept in relay-desktops/ beside it.
+var relayDesktops = RelayTenantDirectory.OpenAsync(
+        timeProvider,
+        app.Services.GetRequiredService<OwnerRecoveryProtector>(),
+        app.Services.GetRequiredService<RelayDeviceRegistry>(),
+        app.Services.GetRequiredService<OpaqueRelayFrameHub>(),
+        app.Services.GetRequiredService<RelayMapSurfaceStore>(),
+        StorePath("relay-desktops"))
+    .AsTask().GetAwaiter().GetResult();
 app.MapRelayCompanionRoutes(
-    app.Services.GetRequiredService<RelayDeviceRegistry>(),
-    app.Services.GetRequiredService<OpaqueRelayFrameHub>(),
+    relayDesktops,
     relayOwnerRecoveryConfigured ? app.Services.GetRequiredService<OwnerRecoveryProtector>() : null,
-    app.Services.GetRequiredService<RelayOwnerClaimGate>(),
-    app.Services.GetRequiredService<RelayMapSurfaceStore>());
+    app.Services.GetRequiredService<RelayOwnerClaimGate>());
 
 // [#562] Every map publish and every map read answered 500 for an hour on 2026-09-20 and nothing
 // an operator looks at without SSHing in said so. First in the pipeline, so it also counts
@@ -364,7 +374,7 @@ app.MapGet("/health", () => Results.Ok(new
     // [V2 rough package 34] And the same for the paired tablets' map reads, which are held by
     // the same rules against the same Kestrel. Counted separately because they are bounded
     // separately, and the only way to see either bound being reached is from outside.
-    heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
+    heldTabletReads = relayDesktops.WaitingCount,
     // [#562] route -> 5xx responses since start. Empty when nothing has failed.
     errors = routeErrors.Snapshot(),
 }));
