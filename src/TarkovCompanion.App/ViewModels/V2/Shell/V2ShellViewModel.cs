@@ -101,7 +101,6 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // V2 rough package 20: the global-problem banner is dismissible, per problem. Remembering the
     // identity (kind + detail) rather than a plain flag means a *different* problem raises the
     // banner again instead of staying silently hidden behind an earlier dismissal.
-    private bool _surfaceBannerDismissed;
     private string _dismissedSurfaceIdentity = string.Empty;
     private bool _disposed;
     // V2 rough package 15 (shell chrome + Raid workspace): the #265 scaffold chrome (variant
@@ -1059,7 +1058,12 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // under the top bar. The page body used to draw the same block a second time, which on Raid
     // pushed the map card down by about 400px on a 1080-high window. The banner can be dismissed
     // for the current problem; the status pill keeps the detail and the recovery actions.
-    public bool ShowsSurfaceBanner => ShowsStatePresenter && !_surfaceBannerDismissed;
+    // Decided from the identity alone. There used to be a flag as well, set a statement before the
+    // identity was; a surface rebuild from the runtime's own thread landing between the two saw
+    // "no identity recorded", cleared the flag, and the banner the player had just dismissed stayed
+    // up. It failed A_global_problem_is_one_dismissible_line... about one run in thirty.
+    public bool ShowsSurfaceBanner =>
+        ShowsStatePresenter && !string.Equals(_dismissedSurfaceIdentity, Surface.StableIdentity, StringComparison.Ordinal);
 
     /// <summary>The banner's one line: the specific detail when there is one, else the state word.</summary>
     public string SurfaceBannerText => string.IsNullOrWhiteSpace(Surface.Detail) ? SurfaceTitle : Surface.Detail;
@@ -2103,10 +2107,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         }
 
         // A new problem (or a recovered one) un-dismisses the banner; the same problem stays hidden.
-        var surfaceIdentity = SurfaceIdentity();
-        if (!string.Equals(_dismissedSurfaceIdentity, surfaceIdentity, StringComparison.Ordinal))
+        if (!string.Equals(_dismissedSurfaceIdentity, Surface.StableIdentity, StringComparison.Ordinal))
         {
-            _surfaceBannerDismissed = false;
             _dismissedSurfaceIdentity = string.Empty;
         }
 
@@ -2315,13 +2317,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     /// <summary>Hides the global-problem banner until the problem itself changes.</summary>
     private void DismissSurfaceBanner()
     {
-        _surfaceBannerDismissed = true;
-        _dismissedSurfaceIdentity = SurfaceIdentity();
+        _dismissedSurfaceIdentity = Surface.StableIdentity;
         OnPropertyChanged(nameof(ShowsSurfaceBanner));
         Announce(V2ShellText.Get("V2.Shell.Banner.Dismissed"), V2Announcement.Polite);
     }
-
-    private string SurfaceIdentity() => string.Concat(Surface.Kind.ToString(), "\u001f", Surface.Detail);
 
     private void ExecuteRecovery(V2RecoveryAction action)
     {
