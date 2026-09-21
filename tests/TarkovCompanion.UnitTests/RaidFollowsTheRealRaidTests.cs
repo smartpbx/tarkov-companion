@@ -162,6 +162,39 @@ public sealed class RaidFollowsTheRealRaidTests
         Assert.Null(Assert.Single(history.Rows, raid => raid.Id == next.RaidId).EndedUtc);
     }
 
+    /// <summary>
+    /// The same dead raid through the durable outbox, which is how the running app records raids.
+    /// </summary>
+    /// <remarks>
+    /// Every other test here writes straight to an in-memory history, which takes the coordinator's
+    /// compatibility path. The outbox copies each command through its own reviewed codec, so the
+    /// outcome, the notes and the end time have to survive that to reach Debrief at all.
+    /// </remarks>
+    [Fact]
+    public async Task TheUnreportedEndReachesHistoryThroughTheDurableOutbox()
+    {
+        var parser = new EftLogParser();
+        var history = new MemoryRaidHistory();
+        await using var outbox = new RaidHistoryOutbox(history, store: new FixtureOutboxStore(capacity: 64));
+        var coordinator = new RaidActivityCoordinator(
+            new RaidStateService(),
+            outbox,
+            new StubProfileService(),
+            new RuntimeStateStore(new(false, Offline: true, GameMode.Regular, "en", TimeSpan.FromHours(9), TimeSpan.FromMinutes(5))));
+
+        var dead = await coordinator.ApplyEvidenceAsync(Read(parser, Confirmed("13:57:21", "TarkovStreets", "CX0FLS"), Launch1338), default);
+        await coordinator.ApplyEvidenceAsync(Read(parser, GameStarted("13:58:54"), Launch1338), default);
+        var next = await coordinator.ApplyEvidenceAsync(Read(parser, ProfileStatus("16:34:41", "Lighthouse", "CXK77H"), Launch1626), default);
+        await outbox.FlushAsync(default);
+
+        Assert.Equal("lighthouse", next.MapId);
+        var row = Assert.Single(history.Rows, raid => raid.Id == dead.RaidId);
+        Assert.Equal(RaidClosure.NotReportedOutcome, row.Outcome);
+        Assert.Equal(RaidClosure.NotReportedNotes, row.Notes);
+        Assert.Equal(Local("13:58:54").AddMilliseconds(684), row.EndedUtc);
+        Assert.Null(Assert.Single(history.Rows, raid => raid.Id == next.RaidId).EndedUtc);
+    }
+
     [Fact]
     public async Task TwoRaidsBackToBackOnTheSameMapAreTwoRaidsEvenWhenTheFirstWasNeverReportedOver()
     {
@@ -263,7 +296,7 @@ public sealed class RaidFollowsTheRealRaidTests
         // the last run opened closed as not reported at the last thing the game wrote.
         var history = new MemoryRaidHistory();
         var deadRow = new RaidHistoryEntry(Guid.NewGuid(), Guid.NewGuid(), "streets-of-tarkov", "Regular", Local("13:57:21"), null, null, null);
-        history.Rows.Add(deadRow);
+        history.Seed(deadRow);
         var coordinator = Coordinator(history);
         var current = await coordinator.ApplyEvidenceAsync(
             new RaidEvidence(RaidEvidenceKind.LogLine, Local("19:52:15"), null, null, new Confidence(0.98), verdict.Reason)
@@ -402,13 +435,43 @@ public sealed class RaidFollowsTheRealRaidTests
         mapDataService: null,
         clock);
 
+    /// <remarks>
+    /// Locked, because the durable outbox keeps order within a raid and not between raids, so two
+    /// raids' rows can be written from two threads at once. An unlocked list lost one of them in
+    /// about one run in ten, which read exactly like the product losing a raid.
+    /// </remarks>
     private sealed class MemoryRaidHistory : IRaidHistoryService
     {
-        public List<RaidHistoryEntry> Rows { get; } = [];
+        private readonly object _gate = new();
+        private readonly List<RaidHistoryEntry> _rows = [];
+
+        /// <summary>A copy, so a test never enumerates the list while the outbox writes to it.</summary>
+        public IReadOnlyList<RaidHistoryEntry> Rows
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _rows];
+                }
+            }
+        }
+
+        public void Seed(RaidHistoryEntry raid)
+        {
+            lock (_gate)
+            {
+                _rows.Add(raid);
+            }
+        }
 
         public Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken)
         {
-            Rows.Add(raid);
+            lock (_gate)
+            {
+                _rows.Add(raid);
+            }
+
             return Task.FromResult(raid.Id);
         }
 
@@ -417,10 +480,13 @@ public sealed class RaidFollowsTheRealRaidTests
 
         public Task EndAsync(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes, CancellationToken cancellationToken)
         {
-            var index = Rows.FindIndex(raid => raid.Id == raidId);
-            if (index >= 0)
+            lock (_gate)
             {
-                Rows[index] = Rows[index] with { EndedUtc = endUtc, Outcome = outcome, Notes = notes };
+                var index = _rows.FindIndex(raid => raid.Id == raidId);
+                if (index >= 0)
+                {
+                    _rows[index] = _rows[index] with { EndedUtc = endUtc, Outcome = outcome, Notes = notes };
+                }
             }
 
             return Task.CompletedTask;
@@ -429,7 +495,7 @@ public sealed class RaidFollowsTheRealRaidTests
         public Task CorrectAsync(Guid raidId, string? outcome, string? notes, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([.. Rows]);
+            Task.FromResult(Rows);
 
         public Task SoftDeleteAsync(IReadOnlyCollection<Guid> raidIds, DateTimeOffset deletedUtc, CancellationToken cancellationToken) => Task.CompletedTask;
 

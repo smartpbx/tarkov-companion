@@ -104,7 +104,7 @@ public static class RaidReplayDecision
         if (open.WrittenUtc is { } started && (nowUtc - started > bound || started - nowUtc > ClockSlack))
         {
             return new(open.Evidence, started, lastSeen, false,
-                $"{where} was never reported over, but it began at {started:u}, longer ago than any raid lasts.");
+                $"{where} was never reported over, but it began longer ago than any raid lasts.");
         }
 
         return new(open.Evidence, open.WrittenUtc, lastSeen, true, $"{where} is still running.");
