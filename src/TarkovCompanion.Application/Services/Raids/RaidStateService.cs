@@ -84,6 +84,15 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         var observedUtc = evidence.ObservedUtc.ToUniversalTime();
         var suggested = evidence.SuggestedState ?? Current.State;
 
+        // The end of some other raid is not the end of this one. Both ids are the game's own, so
+        // a mismatch is a fact rather than a guess; without either id the end is believed as before.
+        if (suggested == RaidLifecycleState.PostRaid
+            && Current.State == RaidLifecycleState.InRaid
+            && RaidIdentity.DifferentRaid(Current.RaidKey, evidence.RaidKey))
+        {
+            return Current;
+        }
+
         // A raid does not go back to loading. The game interleaves loading-ish and in-raid-ish
         // lines throughout a raid, and reading them one at a time flipped the state between
         // the two on every line: nine transitions in two seconds was measured on a live
@@ -109,10 +118,23 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         // log files. Beginning a raid on its id rather than on its content means the second
         // copy is recognised as the event that already started this raid, instead of throwing
         // away the identity, start time and trail it just created.
-        var repeatOfThisRaid = evidence.EventId is { Length: > 0 }
-            && string.Equals(evidence.EventId, Current.StartedByEventId, StringComparison.Ordinal);
+        //
+        // And the game's own short id outranks both (#568). The same id is the same raid, however
+        // the line arrived: a reconnect after the game died writes it into a new log folder, and
+        // that is the raid continuing, not another one. A different id is another raid, whatever
+        // this still believes about the last one, because the game process can die mid-raid and
+        // then no end is ever written. One such raid used to hold every raid after it.
+        var sameRaidByKey = RaidIdentity.SameRaid(Current.RaidKey, evidence.RaidKey);
+        var anotherRaid = Current.State == RaidLifecycleState.InRaid
+            && suggested == RaidLifecycleState.InRaid
+            && RaidIdentity.IsAnotherRaid(Current, evidence);
+        var repeatOfThisRaid = sameRaidByKey
+            || (evidence.EventId is { Length: > 0 }
+                && string.Equals(evidence.EventId, Current.StartedByEventId, StringComparison.Ordinal));
         var enteringRaid = targetState == RaidLifecycleState.InRaid
-            && (Current.State != RaidLifecycleState.InRaid || (evidence.StartsNewRaid && !repeatOfThisRaid));
+            && (Current.State != RaidLifecycleState.InRaid
+                || (evidence.StartsNewRaid && !repeatOfThisRaid)
+                || anotherRaid);
         var clearingRaid = targetState == RaidLifecycleState.Menu;
         var isManual = evidence.Kind == RaidEvidenceKind.ManualOverride && evidence.MapId is not null
             ? true
@@ -125,7 +147,10 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         // always carries its own MapId, so it never reaches the fallback and is unaffected.
         var mapId = Current.IsManualMapOverride && evidence.Kind != RaidEvidenceKind.ManualOverride && !enteringNewRaid
             ? Current.MapId
-            : evidence.MapId ?? (clearingRaid || evidence.StartsNewRaid ? null : Current.MapId);
+            : evidence.MapId ?? (clearingRaid || anotherRaid || (evidence.StartsNewRaid && !repeatOfThisRaid) ? null : Current.MapId);
+        // Lines from a later launch of the game than the raid's own are not the raid doing
+        // anything, unless they are the raid itself coming back (a reconnect carries its id).
+        var isThisRaidsActivity = !RaidIdentity.IsLaterSession(Current.LogSession, evidence.LogSession) || sameRaidByKey;
 
         Current = Current with
         {
@@ -133,9 +158,26 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
             StartedByEventId = enteringRaid
                 ? evidence.EventId
                 : clearingRaid || enteringNewRaid ? null : Current.StartedByEventId,
+            RaidKey = enteringRaid
+                ? evidence.RaidKey
+                : clearingRaid || enteringNewRaid ? null : Current.RaidKey ?? evidence.RaidKey,
+            LogSession = enteringRaid
+                ? evidence.LogSession
+                : clearingRaid || enteringNewRaid
+                    ? null
+                    : isThisRaidsActivity ? evidence.LogSession ?? Current.LogSession : Current.LogSession,
+            LastActivityUtc = enteringRaid
+                ? observedUtc
+                : clearingRaid || enteringNewRaid
+                    ? null
+                    : isThisRaidsActivity && Current.State == RaidLifecycleState.InRaid && !evidence.EndsUnreported
+                        ? LaterOf(Current.LastActivityUtc, observedUtc)
+                        : Current.LastActivityUtc,
             State = targetState,
             MapId = mapId,
-            StartedUtc = enteringRaid ? observedUtc : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
+            StartedUtc = enteringRaid
+                ? evidence.RaidStartedUtc ?? observedUtc
+                : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
             // Shown to the player as how recently the raid was seen, so it never runs
             // backwards even when the clock behind it does.
             UpdatedUtc = Later(observedUtc),
@@ -275,6 +317,7 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         {
             LastKnownPosition = position,
             PositionTrail = Extend(Current.PositionTrail, position),
+            LastActivityUtc = LaterOf(Current.LastActivityUtc, observedUtc),
             // The raid clock only ever moves forward. A screenshot that is genuinely older
             // than the last log line records its position without rewinding the raid.
             UpdatedUtc = Later(observedUtc),
@@ -340,6 +383,7 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
         {
             ActiveExtracts = extracts.ToArray(),
             UpdatedUtc = Later(observedUtc),
+            LastActivityUtc = LaterOf(Current.LastActivityUtc, observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.85)),
             // A start time this call itself invented and cannot correct with a real reading is
             // worse than admitting it is unknown: see the remark above.
@@ -366,6 +410,9 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
     /// a clock that pauses. Nothing is discarded to achieve this; only what is displayed is
     /// held steady.
     /// </remarks>
+    private static DateTimeOffset LaterOf(DateTimeOffset? known, DateTimeOffset observedUtc) =>
+        known is { } value && value > observedUtc ? value : observedUtc;
+
     private DateTimeOffset Later(DateTimeOffset observedUtc) =>
         observedUtc > Current.UpdatedUtc ? observedUtc : Current.UpdatedUtc;
 }

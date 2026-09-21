@@ -5,17 +5,24 @@
        Colours and shadows vary by theme and live in V2ThemeVariants.axaml. Nothing here merges
        another dictionary, so a test can load and read this file on its own. -->
 
-  <!-- Readable floors: nothing below 14 DIP, and every size carries its line height. -->
-  <x:Double x:Key="V2.Type.Heading1.Size">28</x:Double>
-  <x:Double x:Key="V2.Type.Heading1.LineHeight">36</x:Double>
-  <x:Double x:Key="V2.Type.Heading2.Size">22</x:Double>
-  <x:Double x:Key="V2.Type.Heading2.LineHeight">28</x:Double>
-  <x:Double x:Key="V2.Type.Heading3.Size">18</x:Double>
-  <x:Double x:Key="V2.Type.Heading3.LineHeight">24</x:Double>
-  <x:Double x:Key="V2.Type.Body.Size">16</x:Double>
-  <x:Double x:Key="V2.Type.Body.LineHeight">24</x:Double>
-  <x:Double x:Key="V2.Type.Label.Size">14</x:Double>
-  <x:Double x:Key="V2.Type.Label.LineHeight">20</x:Double>
+  <!-- Readable floors: nothing below 12 DIP at 100%, and every size carries its line height.
+       [#574] The whole ramp is one step smaller than it first was (28/22/18/16/14): the app runs
+       on a 1920x1080 second screen beside the game, where the first ramp read as big. The text
+       setting (100-200%) multiplies these, so a player who wants the old size picks 125%.
+       Display is for the one number a page exists to show (a price, a pairing code); a view that
+       wants a size asks for a role here rather than writing a literal, which would not scale. -->
+  <x:Double x:Key="V2.Type.Display.Size">32</x:Double>
+  <x:Double x:Key="V2.Type.Display.LineHeight">40</x:Double>
+  <x:Double x:Key="V2.Type.Heading1.Size">24</x:Double>
+  <x:Double x:Key="V2.Type.Heading1.LineHeight">32</x:Double>
+  <x:Double x:Key="V2.Type.Heading2.Size">20</x:Double>
+  <x:Double x:Key="V2.Type.Heading2.LineHeight">26</x:Double>
+  <x:Double x:Key="V2.Type.Heading3.Size">16</x:Double>
+  <x:Double x:Key="V2.Type.Heading3.LineHeight">22</x:Double>
+  <x:Double x:Key="V2.Type.Body.Size">14</x:Double>
+  <x:Double x:Key="V2.Type.Body.LineHeight">20</x:Double>
+  <x:Double x:Key="V2.Type.Label.Size">12</x:Double>
+  <x:Double x:Key="V2.Type.Label.LineHeight">18</x:Double>
 
   <!-- Each step exists as a gap (StackPanel.Spacing is a double) and an inset (Padding and Margin
        are Thickness). A DynamicResource of the wrong type is not converted, so one value cannot

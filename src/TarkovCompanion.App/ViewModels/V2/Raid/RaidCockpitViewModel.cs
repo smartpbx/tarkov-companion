@@ -1029,6 +1029,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             renderer.ViewChangeRequested -= ViewChangeRequested;
             renderer.CameraMovedByPlayer -= CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
+            renderer.HighValueLootRefreshRequested -= HighValueLootRefreshRequested;
             renderer.PropertyChanged -= RendererPropertyChanged;
         }
 
@@ -2315,6 +2316,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
+            renderer.HighValueLootRefreshRequested += HighValueLootRefreshRequested;
             // [Issue 318] "Make waypoint" on a selected spawn.
             if (renderer.HighValueLoot is { } lootLayerViewModel)
             {
@@ -2789,6 +2791,20 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         Renderer.Present(scene, result, request.State, availableCategories: null);
     }
 
+    /// <summary>[Issue 563] "High-value loot only" with no data offers Refresh instead of
+    /// blanking the map; this is what that action, and the loot panel's own Refresh button,
+    /// runs.</summary>
+    private void HighValueLootRefreshRequested() => _ = RefreshLootDataAsync();
+
+    private async Task RefreshLootDataAsync()
+    {
+        // Reruns the same production import a catalog sync triggers (#318/#563), so a manual
+        // retry does not need a full catalog refresh to try again. The scene rebuild afterwards
+        // picks up either a newly published snapshot or a fresh failure reason.
+        await _lootSource.RefreshAsync(force: true, CancellationToken.None).ConfigureAwait(true);
+        await RebuildAsync().ConfigureAwait(true);
+    }
+
     private static MapSceneSnapshot ReplaceLootObjects(MapSceneSnapshot scene, HighValueLootLayerResult loot) => new(
         scene.Revision + 1,
         scene.LocationId,
@@ -2936,6 +2952,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 continue;
             }
 
+            // [Issue 581] inputs.ColorFor (MapViewModel.GroupColorFor) hands back an already
+            // "#AARRGGBB"-formatted colour, the same source the squad panel's own chip reads.
             var color = inputs.ColorFor(member.Name);
             if (member.Position is { } memberPosition && TryPlan(model, memberPosition, out var at))
             {
@@ -3224,6 +3242,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             Renderer.ViewChangeRequested -= ViewChangeRequested;
             Renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
+            Renderer.HighValueLootRefreshRequested -= HighValueLootRefreshRequested;
             Renderer = null;
             OnPropertyChanged(nameof(Renderer));
             OnPropertyChanged(nameof(HasRenderer));

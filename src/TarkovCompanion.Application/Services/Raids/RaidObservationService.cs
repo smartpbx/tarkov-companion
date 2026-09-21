@@ -50,10 +50,17 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly RuntimeOptions _options;
     private readonly ILogger<RaidObservationService> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly ICaptureStageTimeline? _stageTimeline;
     private readonly CancellationTokenSource _stopping = new();
     private readonly object _screenshotScanGate = new();
     private readonly HashSet<Task> _screenshotScans = [];
     private readonly object _screenshotPublicationGate = new();
+    // #572: when a screenshot's name was first seen, so the settled sighting that follows can
+    // report how long the file took to stop growing before its pixels were worth reading. Removed
+    // once consumed; a name whose settled sighting never arrives (deleted mid-write, a watch
+    // session restarting) would otherwise leak one entry, so this is capped defensively.
+    private readonly Dictionary<string, DateTimeOffset> _nameSeenAt = [];
+    private const int MaximumTrackedNames = 64;
     private Task? _worker;
     private EftPaths? _watching;
     private long _eventsSeen;
@@ -89,9 +96,13 @@ public sealed class RaidObservationService : IAsyncDisposable
         TimeProvider? timeProvider = null,
         // Last, so no positional caller moves. Where the shell is, it says which workspace,
         // plan, selection and prior scan a screenshot was taken beside.
-        ICaptureContextSource? captureContext = null)
+        ICaptureContextSource? captureContext = null,
+        // #572: starts a scan's timeline the moment its file is considered settled - see
+        // ICaptureStageTimeline's own remarks.
+        ICaptureStageTimeline? stageTimeline = null)
     {
         _captureContext = captureContext;
+        _stageTimeline = stageTimeline;
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
         _screenshotWatcher = screenshotWatcher;
@@ -381,6 +392,21 @@ public sealed class RaidObservationService : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             await DelayAsync(SquadPublishInterval, cancellationToken).ConfigureAwait(false);
+            // The same slow tick ends a raid that has outlived any raid. The game writes no end
+            // when its process dies, so nothing else ever would (#568).
+            try
+            {
+                if (await _coordinator.ExpireOverdueRaidAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogInformation("The open raid outlived the longest raid on its map and was ended as not reported.");
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The party and the sale list below must keep publishing whatever this does.
+                _logger.LogWarning(exception, "Could not check whether the open raid is overdue.");
+            }
+
             var squad = _squad.Current;
             if (squad.UpdatedUtc != publishedSquad)
             {
@@ -423,6 +449,19 @@ public sealed class RaidObservationService : IAsyncDisposable
                     var path = sighting.Path;
                     if (sighting.IsSettled)
                     {
+                        // #572: how long the file spent still being written before it was worth
+                        // reading - the "settle wait" stage nothing downstream can see, since the
+                        // capture pipeline only ever learns about a screenshot once it is settled.
+                        var settledAt = _timeProvider.GetUtcNow();
+                        TimeSpan? settleWait = null;
+                        lock (_screenshotScanGate)
+                        {
+                            if (_nameSeenAt.Remove(path, out var nameSeenAt))
+                            {
+                                settleWait = settledAt - nameSeenAt;
+                            }
+                        }
+
                         // Read whether or not the name carried coordinates: a screenshot of an
                         // item or an extract list is worth reading wherever it was taken. Menu
                         // and hideout shots simply have no position, which is ordinary and not
@@ -433,7 +472,8 @@ public sealed class RaidObservationService : IAsyncDisposable
                         //
                         // Only the pixels wait here. The position left on the sighting below,
                         // one to two seconds earlier.
-                        await QueueScreenshotScanAsync(path, sourceGeneration, source.Token).ConfigureAwait(false);
+                        await QueueScreenshotScanAsync(path, sourceGeneration, source.Token, settledAt, settleWait)
+                            .ConfigureAwait(false);
                         continue;
                     }
 
@@ -446,6 +486,17 @@ public sealed class RaidObservationService : IAsyncDisposable
                     // Remembered whether or not it parses, because the ones that do not are
                     // exactly the ones somebody needs to see.
                     RememberScreenshotName(Path.GetFileName(path));
+
+                    // #572: the other half of the settle-wait measurement above.
+                    lock (_screenshotScanGate)
+                    {
+                        if (_nameSeenAt.Count >= MaximumTrackedNames)
+                        {
+                            _nameSeenAt.Clear();
+                        }
+
+                        _nameSeenAt[path] = _timeProvider.GetUtcNow();
+                    }
 
                     // So: place the player, then read the picture.
                     if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
@@ -651,7 +702,9 @@ public sealed class RaidObservationService : IAsyncDisposable
         string path,
         long sourceGeneration,
         long scanOrdinal,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTimeOffset? fileSeenUtc = null,
+        TimeSpan? settleWait = null)
     {
         if (_imageLoader is null)
         {
@@ -683,13 +736,23 @@ public sealed class RaidObservationService : IAsyncDisposable
                         priorScan: null,
                         initiatingDevice: "desktop",
                         profileContext: activeProfile?.Context));
+                // #572: minted here rather than left to EnqueueAsync so the scan's timeline can
+                // begin under the same id the whole pipeline correlates by.
+                var correlationId = CaptureCorrelationId.New();
+                var timedFileSeenUtc = fileSeenUtc ?? _timeProvider.GetUtcNow();
+                _stageTimeline?.Begin(correlationId, timedFileSeenUtc);
+                if (settleWait is { } wait)
+                {
+                    _stageTimeline?.Mark(correlationId, "settle_wait", wait);
+                }
+
                 var receipt = await _captureSessions.EnqueueAsync(
                         new(
                             CaptureDeliveryKind.WatchedFile,
                             new ScreenshotFileCaptureSource(path, _imageLoader),
                             context,
-                            _timeProvider.GetUtcNow(),
-                            CaptureCorrelationId.New()),
+                            timedFileSeenUtc,
+                            correlationId),
                         cancellationToken)
                     .ConfigureAwait(false);
                 if (receipt.Disposition != CaptureQueueDisposition.Accepted)
@@ -934,7 +997,9 @@ public sealed class RaidObservationService : IAsyncDisposable
     private Task QueueScreenshotScanAsync(
         string path,
         long sourceGeneration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTimeOffset? fileSeenUtc = null,
+        TimeSpan? settleWait = null)
     {
         lock (_screenshotScanGate)
         {
@@ -951,7 +1016,13 @@ public sealed class RaidObservationService : IAsyncDisposable
         }
 
         var scanOrdinal = Interlocked.Increment(ref _nextScreenshotScanOrdinal);
-        var scan = ScanScreenshotAsync(path, sourceGeneration, scanOrdinal, cancellationToken);
+        var scan = ScanScreenshotAsync(
+            path,
+            sourceGeneration,
+            scanOrdinal,
+            cancellationToken,
+            fileSeenUtc ?? _timeProvider.GetUtcNow(),
+            settleWait);
         lock (_screenshotScanGate)
         {
             _screenshotScans.Add(scan);

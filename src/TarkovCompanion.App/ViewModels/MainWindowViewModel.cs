@@ -2706,7 +2706,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private const string OchreColor = "#C6A15B";
     private const string SageColor = "#77B895";
     private const string CoralColor = "#DF6A62";
-    private string? _followedMapId;
+    private readonly RaidMapFollow _raidMapFollow = new();
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
     private V2ShellViewModel? _previewShell;
@@ -3539,16 +3539,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// </remarks>
     private void FollowRaidMap(ApplicationRuntimeSnapshot snapshot)
     {
-        var mapId = snapshot.Raid.MapId;
-        if (string.IsNullOrWhiteSpace(mapId) ||
-            snapshot.Raid.IsManualMapOverride ||
-            string.Equals(mapId, _followedMapId, StringComparison.OrdinalIgnoreCase))
+        // Once per raid, not once per map id: see RaidMapFollow for the raid this used to miss.
+        if (_raidMapFollow.Next(snapshot.Raid) is { } mapId)
         {
-            return;
+            _ = FollowRaidMapAsync(mapId);
         }
-
-        _followedMapId = mapId;
-        _ = FollowRaidMapAsync(mapId);
     }
 
     private async Task FollowRaidMapAsync(string mapId)

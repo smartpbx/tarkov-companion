@@ -1,3 +1,4 @@
+using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Group;
@@ -124,6 +125,45 @@ public sealed class RaidCockpitLiveLayersTests
         Assert.Null(riley.HeadingDegrees);
     }
 
+    /// <summary>
+    /// [Issue 581] The test above stubs every member to the one fake colour, so it never actually
+    /// proved two squadmates read apart on the map — only that whatever ColorFor returns reaches
+    /// the marker. This wires the real assignment through, the same way MapViewModel.GroupColorFor
+    /// now does, so it also catches the un-prefixed-hex bug that made every teammate fall back to
+    /// one shared colour in the running app (Avalonia's colour parser silently rejected "E0B45C").
+    /// </summary>
+    [Fact]
+    public void Two_real_squadmates_get_their_own_distinct_well_formed_colour_on_marker_and_name()
+    {
+        var assigned = GroupMemberColors.Assign(["Geo", "Riley"]);
+        string ColorFor(string name) => GroupMemberColors.WithAlpha(
+            assigned.GetValueOrDefault(name, GroupMemberColors.Fallback), "FF");
+
+        var built = RaidCockpitViewModel.BuildLiveLayers(
+            Inputs(
+                squad: [Mate("Geo", 60, 20, heading: 0), Mate("Riley", 20, 70, heading: 0)],
+                showsGroupNames: true,
+                colorFor: ColorFor),
+            Model(),
+            NowUtc);
+
+        var geo = Assert.Single(built.Objects, item => item.Id.Value == "squad:Geo");
+        var riley = Assert.Single(built.Objects, item => item.Id.Value == "squad:Riley");
+        var geoColor = built.Styles[geo.Id].Color;
+        var rileyColor = built.Styles[riley.Id].Color;
+        Assert.NotNull(geoColor);
+        Assert.NotNull(rileyColor);
+        Assert.NotEqual(geoColor, rileyColor);
+        // Well-formed: a leading '#' and eight hex digits, exactly what GroupMemberColors.WithAlpha
+        // builds and what Avalonia's own Color.TryParse needs — a bare "E0B45C" (no '#') was the bug.
+        Assert.Matches("^#[0-9A-Fa-f]{8}$", geoColor!);
+        Assert.Matches("^#[0-9A-Fa-f]{8}$", rileyColor!);
+
+        // The name label is the same colour as its marker — one source of truth.
+        var geoLabel = Assert.Single(built.Objects, item => item.Id.Value == "squad-name:Geo");
+        Assert.Equal(geoColor, built.Styles[geoLabel.Id].Color);
+    }
+
     [Fact]
     public void A_squadmate_on_another_map_is_not_projected_onto_this_one()
     {
@@ -228,12 +268,13 @@ public sealed class RaidCockpitLiveLayersTests
         Func<string?, bool>? isOnThisMap = null,
         bool showsGroupNames = false,
         IReadOnlyList<RaidTrail>? visited = null,
-        bool showsVisited = false) => new(
+        bool showsVisited = false,
+        Func<string, string>? colorFor = null) => new(
             player,
             trail ?? [],
             squad ?? [],
             isOnThisMap ?? (_ => true),
-            _ => "#FF00FF00",
+            colorFor ?? (_ => "#FF00FF00"),
             showsGroupNames,
             visited ?? [],
             showsVisited);

@@ -82,6 +82,11 @@ public sealed class MapSceneRendererPresentation
             ["Map.Loot.LayerOff"] = "The high-value loot layer is off. Turn it on in Layers to show markers and rows.",
             ["Map.Loot.Partial"] = "Some spawn knowledge is incomplete or list-only. Open a row for what is unknown.",
             ["Map.Loot.Unavailable"] = "Loot-spawn data is unavailable. Reconnect to refresh, or keep using the map without this layer.",
+            // [Issue 563] What "High-value loot only" says instead of blanking the map when there
+            // is no last-known-good spawn snapshot at all: one line naming the state and why.
+            ["Map.Loot.NoDataYet"] = "No loot spawn data yet · {0}",
+            ["Map.Loot.NoDataReasonUnknown"] = "no import has completed yet.",
+            ["Map.Loot.RefreshLabel"] = "Refresh",
             ["Map.Loot.Stale"] = "This is last-known loot-spawn data and may no longer reflect current content or prices. Refresh when connected.",
             ["Map.Loot.FreshnessUnknown"] = "Loot-spawn freshness could not be verified. Check the source details before relying on this layer.",
             ["Map.Loot.NoMatches"] = "No potential spawns match these filters. Clear a category, floor, tier, or profile filter.",

@@ -35,10 +35,14 @@ public sealed class LootScanCaptureHandoff(
     TimeProvider? timeProvider = null,
     ILogger<LootScanCaptureHandoff>? logger = null,
     LootScanRecommendationSource? recommendations = null,
-    IObservedInventoryEvidenceReader? observedInventory = null) : ICaptureResultHandoff
+    IObservedInventoryEvidenceReader? observedInventory = null,
+    // #572: profile lookup, recommendation building and (in AcceptAsync only, never on a
+    // re-decide) the scan's total are marked here, then Complete()'d - see ICaptureStageTimeline.
+    ICaptureStageTimeline? stageTimeline = null) : ICaptureResultHandoff
 {
     private readonly LootScanRecommendationSource? _recommendations = recommendations;
     private readonly IObservedInventoryEvidenceReader? _observedInventory = observedInventory;
+    private readonly ICaptureStageTimeline? _stageTimeline = stageTimeline;
     private readonly IProfileRuntimeContextService _profileContext =
         profileContext ?? throw new ArgumentNullException(nameof(profileContext));
     private readonly InventoryGridReconstructor _gridReconstructor =
@@ -53,6 +57,16 @@ public sealed class LootScanCaptureHandoff(
 
     /// <summary>Raised after a Loot-intent capture is evaluated. Never raised for other intents.</summary>
     public event EventHandler<LootScanResult>? LootScanEvaluated;
+
+    /// <summary>
+    /// #572: raised the moment a Loot-intent capture is accepted, before grid reconstruction,
+    /// profile lookup or recommendation - which measured 350 ms to well over a second on real and
+    /// composed frames respectively. The Loot page must show something long before that finishes;
+    /// this is what lets the shell navigate there immediately instead of only once the full
+    /// result is ready. Never raised from <see cref="ReevaluateLastAsync"/>, which redecides an
+    /// already-shown result and has nothing new to announce.
+    /// </summary>
+    public event EventHandler? LootScanStarted;
 
     /// <summary>
     /// Decides the last scanned frame again, against the profile and raid context as they are now.
@@ -107,6 +121,7 @@ public sealed class LootScanCaptureHandoff(
             return CaptureHandoffResult.Accepted;
         }
 
+        LootScanStarted?.Invoke(this, EventArgs.Empty);
         try
         {
             var result = await EvaluateAsync(
@@ -127,6 +142,11 @@ public sealed class LootScanCaptureHandoff(
                     cancellationToken)
                 .ConfigureAwait(false);
             LootScanEvaluated?.Invoke(this, result);
+            // #572: after the event above, which is what carries the result to
+            // V2ShellCaptureBridge.ShowLootScanResult - the total below therefore covers first
+            // paint's dispatch too, not only evaluation. Only here, never from ReevaluateLastAsync:
+            // re-deciding the same frame for a pin or a phase change is not a scan's latency.
+            _stageTimeline?.Complete(request.CorrelationId, _timeProvider.GetUtcNow());
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -153,6 +173,7 @@ public sealed class LootScanCaptureHandoff(
             profile.Context.Identity.ProfileId,
             profile.Context.Identity.Generation,
             profile.Context.Mode.ToString());
+        var reconstructStopwatch = System.Diagnostics.Stopwatch.StartNew();
         var visibleLoot = _gridReconstructor.Reconstruct(
             request.Grid is { Surface: InventoryGridSurface.VisibleLoot } visibleLootRequest
                 ? visibleLootRequest
@@ -163,14 +184,19 @@ public sealed class LootScanCaptureHandoff(
                 ? carriedRequest
                 : new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),
             cancellationToken);
+        _stageTimeline?.Mark(request.CorrelationId, "grid_reconstruct", reconstructStopwatch.Elapsed);
         // The pipeline's content hash is the only thing that survives the pixel-free handoff
         // boundary; reusing it for both sides keeps this frame "current" without a redecode.
         var contentHash = request.ContentSha256;
         var evaluatedUtc = _timeProvider.GetUtcNow();
+        var holdingsStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var holdings = await ReadHoldingsAsync(scope, profile.Context.DataSnapshot.SnapshotId, cancellationToken).ConfigureAwait(false);
+        _stageTimeline?.Mark(request.CorrelationId, "profile_lookup", holdingsStopwatch.Elapsed);
+        var recommendStopwatch = System.Diagnostics.Stopwatch.StartNew();
         var recommendationContext = new LootScanRecommendationContext(
             scope,
             profile.Context.DataSnapshot.SnapshotId,
-            await ReadHoldingsAsync(scope, profile.Context.DataSnapshot.SnapshotId, cancellationToken).ConfigureAwait(false),
+            holdings,
             raidContext: _recommendations is null
                 ? null
                 : await _recommendations.ReadRaidContextAsync(evaluatedUtc, cancellationToken).ConfigureAwait(false));
@@ -200,6 +226,7 @@ public sealed class LootScanCaptureHandoff(
                     profile,
                     cancellationToken)
                 .ConfigureAwait(false);
+        _stageTimeline?.Mark(request.CorrelationId, "recommendation", recommendStopwatch.Elapsed);
         var lootScanRequest = new LootScanRequest(
             request.ScanId,
             request.SessionId,
@@ -216,7 +243,10 @@ public sealed class LootScanCaptureHandoff(
             carriedInventory,
             candidates,
             carriedPolicies);
-        return _decisionService.Evaluate(lootScanRequest, cancellationToken);
+        var decideStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var decided = _decisionService.Evaluate(lootScanRequest, cancellationToken);
+        _stageTimeline?.Mark(request.CorrelationId, "decide", decideStopwatch.Elapsed);
+        return decided;
     }
 
     /// <summary>

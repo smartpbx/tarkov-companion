@@ -344,10 +344,12 @@ public static class AppComposition
         // the marker above does.
         services.AddSingleton<IHandDoneObjectiveStore>(_ =>
             new JsonFileHandDoneObjectiveStore(Path.Combine(paths.Config, "hand-done-objectives.json"), timeProvider));
-        // [Issue 318] The last verified loot-spawn import's per-map coverage, for Setup > Data.
+        // [Issue 318/563] The last verified loot-spawn import's per-map coverage plus its last
+        // refresh attempt's own error (if any), for Setup > Data.
         services.AddSingleton(provider => new LootCoverageViewModel(
             provider.GetRequiredService<ILootSpawnSourcePublicationStore>(),
-            () => provider.GetRequiredService<MapViewModel>().Locations));
+            () => provider.GetRequiredService<MapViewModel>().Locations,
+            provider.GetRequiredService<IHighValueLootRuntimeSource>()));
         services.AddSingleton(provider => new QuestCoverageViewModel(
             provider.GetRequiredService<IQuestCatalog>(),
             provider.GetRequiredService<IUserQuestMarkStore>(),
@@ -641,6 +643,10 @@ public static class AppComposition
         // asks it, and the V2 capture bridge binds the router into it once the shell exists.
         services.AddSingleton<ShellCaptureContextSource>();
         services.AddSingleton<ICaptureContextSource>(provider => provider.GetRequiredService<ShellCaptureContextSource>());
+        // #572: one shared timeline, file seen to first paint, logged once per scan and kept for
+        // Setup > Diagnostics. RaidObservationService, CaptureRecognitionPipeline and
+        // LootScanCaptureHandoff each take it as an optional constructor parameter.
+        services.AddSingleton<ICaptureStageTimeline, CaptureStageTimeline>();
         services.AddSingleton<RaidObservationService>();
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();

@@ -1,0 +1,27 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Primitives.ControlRequestPromptView"
+             x:DataType="shell:ControlRequestPromptViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:shell="using:TarkovCompanion.App.ViewModels.V2.Shell"
+             IsVisible="{Binding IsVisible}">
+  <!-- #562: "i dont see a way to do that in the desktop" — a tablet's control request used to
+       show Allow/Deny only on Team > Tablet. This is the same prompt (CompanionPairingViewModel's
+       own AllowControlCommand/DenyControlCommand), shown wherever the player already is. -->
+  <Border Classes="v2-card" Padding="12,10"
+          BorderBrush="{DynamicResource V2.Brush.Info}" BorderThickness="1"
+          AutomationProperties.AccessibilityView="Control"
+          AutomationProperties.AutomationId="v2-shell-control-request"
+          AutomationProperties.LiveSetting="Assertive"
+          AutomationProperties.Name="{Binding Message}">
+    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+      <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center" TextWrapping="Wrap"
+                 Text="{Binding Message}" />
+      <Button Grid.Column="1" Classes="v2-target v2-banner-action" VerticalAlignment="Center"
+              Content="Allow" AutomationProperties.AutomationId="v2-shell-control-request-allow"
+              Command="{Binding AllowCommand}" />
+      <Button Grid.Column="2" Classes="v2-target v2-topbar-plain" VerticalAlignment="Center"
+              Content="Deny" AutomationProperties.AutomationId="v2-shell-control-request-deny"
+              Command="{Binding DenyCommand}" />
+    </Grid>
+  </Border>
+</UserControl>

@@ -25,6 +25,13 @@ public interface IHighValueLootRuntimeSource
 {
     LootSpawnSourceBundle? LastKnownGood { get; }
 
+    /// <summary>
+    /// What the most recent <see cref="RefreshAsync"/> attempt found, whether or not it advanced
+    /// <see cref="LastKnownGood"/>. [Issue 563] A refresh that quarantines its candidate used to
+    /// leave no trace anywhere a player or Setup > Data could see; this is that trace.
+    /// </summary>
+    LootSpawnSourceRefreshOutcome? LastRefreshOutcome { get; }
+
     bool NeedsRefresh(DateTimeOffset evaluatedUtc, TimeSpan freshFor);
 
     ValueTask InitializeAsync(CancellationToken cancellationToken = default);
@@ -41,20 +48,26 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     private readonly ILootSpawnSourcePublicationStore _publicationStore;
     private readonly ILootSpawnSourceRefreshService _refreshService;
     private readonly HighValueLootLayerService _layerService;
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private LootSpawnSourceBundle? _lastKnownGood;
+    private LootSpawnSourceRefreshOutcome? _lastRefreshOutcome;
 
     public HighValueLootRuntimeSource(
         ILootSpawnSourcePublicationStore publicationStore,
         ILootSpawnSourceRefreshService refreshService,
-        HighValueLootLayerService layerService)
+        HighValueLootLayerService layerService,
+        TimeProvider? timeProvider = null)
     {
         _publicationStore = publicationStore ?? throw new ArgumentNullException(nameof(publicationStore));
         _refreshService = refreshService ?? throw new ArgumentNullException(nameof(refreshService));
         _layerService = layerService ?? throw new ArgumentNullException(nameof(layerService));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public LootSpawnSourceBundle? LastKnownGood => Volatile.Read(ref _lastKnownGood);
+
+    public LootSpawnSourceRefreshOutcome? LastRefreshOutcome => Volatile.Read(ref _lastRefreshOutcome);
 
     public bool NeedsRefresh(DateTimeOffset evaluatedUtc, TimeSpan freshFor)
     {
@@ -104,6 +117,10 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             {
                 Volatile.Write(ref _lastKnownGood, retained);
             }
+
+            Volatile.Write(
+                ref _lastRefreshOutcome,
+                new LootSpawnSourceRefreshOutcome(_timeProvider.GetUtcNow(), result.Disposition, result.Diagnostics));
         }
         finally
         {
@@ -128,3 +145,13 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             request.FloorIds), cancellationToken);
     }
 }
+
+/// <summary>
+/// [Issue 563] What one <see cref="IHighValueLootRuntimeSource.RefreshAsync"/> attempt found.
+/// Kept even when the attempt quarantined and changed nothing, so Setup > Data can say when the
+/// import last ran and why it did not publish, instead of only ever showing silence.
+/// </summary>
+public sealed record LootSpawnSourceRefreshOutcome(
+    DateTimeOffset AttemptedUtc,
+    LootSpawnSourceImportDisposition Disposition,
+    IReadOnlyList<LootSpawnSourceDiagnostic> Diagnostics);

@@ -118,7 +118,12 @@ public sealed class TabletPageTests
     [Fact]
     public void ADesktopThatIsNotThereIsSaidSoPlainly()
     {
-        Assert.Contains("The desktop is offline.", Tablet.Page, StringComparison.Ordinal);
+        // #562: the wording now lives in relay-crypto.js's desktopStatusMessage, alongside
+        // desktopOnline, so it is real Node-tested logic rather than a fixed string this page
+        // just prints — a relay fault reads differently ("The relay had a problem · retrying")
+        // from a desktop the relay genuinely has not heard from.
+        Assert.Contains("The desktop is offline.", Tablet.RelayCryptoScript, StringComparison.Ordinal);
+        Assert.Contains("desktopStatusMessage", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]

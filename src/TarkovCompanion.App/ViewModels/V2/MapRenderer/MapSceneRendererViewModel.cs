@@ -197,7 +197,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 IsLayerVisible(highValueLoot.Layer.Id),
                 presentation,
                 RequestHighValueLootFilter,
-                SelectHighValueLootEntry);
+                SelectHighValueLootEntry,
+                RequestHighValueLootRefresh);
             HighValueLoot.ProjectionChanged += HighValueLootProjectionChanged;
         }
         RebuildAll();
@@ -208,6 +209,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     /// <summary>The owner rebuilds the typed layer and canonical scene for this request.</summary>
     public event Action<HighValueLootFilterRequest>? HighValueLootFilterRequested;
+
+    /// <summary>
+    /// [Issue 563] The player asked to refresh loot-spawn data from the "no data yet" state,
+    /// either from the preset button or the loot panel's own Refresh action. The owner (the Raid
+    /// workspace) runs the actual import and rebuilds the scene; this view model owns no I/O.
+    /// </summary>
+    public event Action? HighValueLootRefreshRequested;
 
     /// <summary>False when a host (the Raid workspace) already shows search/layers/selection/loot
     /// filters in its own context panel, so this renderer's own details column would just repeat
@@ -1442,6 +1450,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        // [Issue 563] "i click the high value loot only button ... all the names of places
+        // dissappear ... no loot shows up tho either": with no last-known-good snapshot at all,
+        // the old preset still hid every other marker layer, leaving nothing to look at. There is
+        // nothing to switch to here, so nothing is hidden; the one line says why and offers
+        // Refresh instead.
+        if (HighValueLoot.IsUnavailable)
+        {
+            SetRendererNotice(HighValueLoot.NoDataMessage);
+            return;
+        }
+
         var preserve = _lootPresetPreservedLayers
             .Where(id => _scene.Layers.Any(layer => layer.Id == id) && IsLayerVisible(id))
             .Concat(_scene.Layers
@@ -1506,6 +1525,19 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             _scene.LocationId,
             _scene.TransformVersion,
             state));
+    }
+
+    /// <summary>[Issue 563] Bridges the loot panel's Refresh action to the owner, the same way
+    /// filter changes are bridged above. This view model has no network or store access.</summary>
+    private void RequestHighValueLootRefresh()
+    {
+        if (HighValueLootRefreshRequested is null)
+        {
+            SetRendererNotice(Text("Map.Loot.FilterUnavailable"));
+            return;
+        }
+
+        HighValueLootRefreshRequested.Invoke();
     }
 
     private static IReadOnlySet<MapSceneLayerId> CreateLootPresetPreserveSet(
@@ -1746,7 +1778,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     item.Geometry.Kind == MapSceneGeometryKind.Point &&
                     _scene.Bounds.Contains(item.Geometry.Points[0]))
                 .Take(MaximumPlaceNames)
-                .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera))
+                .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera, _styleResolver?.Invoke(item)))
                 .ToArray()
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
@@ -2924,6 +2956,16 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 
     /// <summary>[Issue 573] A host-dimmed mark (a co-op extract at "Dim") draws faded; everything else is opaque.</summary>
     public double MarkerOpacity => Style?.Opacity ?? 1.0;
+
+    /// <summary>
+    /// [Issue 581] A squadmate's own colour, as a brush their dot and facing cone can be filled
+    /// with — everything else on the map keeps its themed colour from the styles below, so this
+    /// is null wherever the host gave no opinion.
+    /// </summary>
+    public IBrush? ColorHintBrush => ColorHint is { } hex && Color.TryParse(hex, out var color)
+        ? new SolidColorBrush(color)
+        : null;
+
     public string MarkerGlyph { get; }
 
     /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
@@ -2948,6 +2990,14 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool IsRiskIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Risk;
     public bool IsPlayerIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Player;
     public bool IsTeammateIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Teammate;
+
+    /// <summary>
+    /// [Issue 581] A squadmate's own colour pairs with their initial on the dot itself, so which
+    /// teammate is which never depends on colour alone (colour-vision modes).
+    /// </summary>
+    public string PersonInitial => IsTeammateIcon && SceneObject?.Label is { Length: > 0 } label
+        ? label[..1].ToUpperInvariant()
+        : string.Empty;
     public bool IsGenericIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Generic;
     /// <summary>A person marker is a dot with a facing cone, not one of the drawn glyphs.</summary>
     public bool IsPersonIcon => IsPlayerIcon || IsTeammateIcon;
@@ -3309,11 +3359,15 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     public MapSceneRendererLabelViewModel(
         MapSceneObject sceneObject,
         MapSceneProjection projection,
-        MapSceneCamera camera)
+        MapSceneCamera camera,
+        // [Issue 581] A squadmate's own name is written in their colour, the same as their marker
+        // and trail; an ordinary place name gets no opinion and keeps its themed foreground.
+        MapSceneObjectStyle? style = null)
     {
         ArgumentNullException.ThrowIfNull(sceneObject);
         ArgumentNullException.ThrowIfNull(projection);
         SceneObject = sceneObject;
+        Style = style;
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
         AnchorLeft = anchor.X - HalfWidth;
         AnchorTop = anchor.Y - HalfHeight;
@@ -3322,6 +3376,15 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     }
 
     public MapSceneObject SceneObject { get; }
+
+    private MapSceneObjectStyle? Style { get; }
+
+    /// <summary>See <see cref="MapSceneRendererObjectViewModel.ColorHintBrush"/>: null keeps the label's themed foreground.</summary>
+    public IBrush? ColorHintBrush => Style?.Color is { } hex && Color.TryParse(hex, out var color)
+        ? new SolidColorBrush(color)
+        : null;
+
+    public bool HasColorHint => ColorHintBrush is not null;
 
     public string Text => SceneObject.Label;
 

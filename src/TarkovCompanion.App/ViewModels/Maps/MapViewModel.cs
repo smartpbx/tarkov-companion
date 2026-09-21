@@ -1646,8 +1646,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Whether a map id names the map being looked at, allowing for the catalog's aliases.</summary>
     internal bool IsOnOpenMap(string? mapId) => IsOnThisMap(mapId);
 
-    /// <summary>The colour this squadmate is drawn in, so a second renderer agrees with this one.</summary>
-    internal string GroupColorFor(string name) => ColorFor(name);
+    /// <summary>
+    /// The colour this squadmate is drawn in, so a second renderer agrees with this one.
+    /// </summary>
+    /// <remarks>
+    /// [Issue 581] <see cref="ColorFor"/> hands back a bare palette entry ("E0B45C") because this
+    /// view model's own <c>Rgb</c> properties want it raw — <c>SwatchColor</c>/<c>FillColor</c>/
+    /// <c>ConeColor</c> each add the "#" and an alpha themselves via
+    /// <see cref="GroupMemberColors.WithAlpha"/>. The V2 raid map has no such second step, so it
+    /// asks here instead: every squadmate drew in one shared colour because Avalonia's own colour
+    /// parser silently rejected the un-prefixed hex and every marker fell back to the same default.
+    /// </remarks>
+    internal string GroupColorFor(string name) => GroupMemberColors.WithAlpha(ColorFor(name), "FF");
 
     /// <summary>The plan rotation the map artwork already carries, which a world heading is relative to.</summary>
     internal double ArtworkRotationDegrees => _renderModel?.Variant.Transform?.RotationDegrees ?? 0;

@@ -89,7 +89,7 @@
       <Setter Property="Height" Value="52" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
-      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Button.v2-plan-primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">

@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.GroupServer;
+using TarkovCompanion.GroupServer.Diagnostics;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
@@ -190,6 +191,22 @@ app.MapRelayCompanionRoutes(
     app.Services.GetRequiredService<RelayOwnerClaimGate>(),
     app.Services.GetRequiredService<RelayMapSurfaceStore>());
 
+// [#562] Every map publish and every map read answered 500 for an hour on 2026-09-20 and nothing
+// an operator looks at without SSHing in said so. First in the pipeline, so it also counts
+// whatever the middleware below this answers (in practice never more than a 403/503/429).
+var routeErrors = new RelayRouteErrorCounters();
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context).ConfigureAwait(false);
+    }
+    finally
+    {
+        routeErrors.Observe(context);
+    }
+});
+
 // Which rooms may be used at all.
 //
 // A room was whatever anybody's key hashed to, so anybody who could reach this relay could be
@@ -348,6 +365,8 @@ app.MapGet("/health", () => Results.Ok(new
     // the same rules against the same Kestrel. Counted separately because they are bounded
     // separately, and the only way to see either bound being reached is from outside.
     heldTabletReads = app.Services.GetRequiredService<RelayMapSurfaceStore>().WaitingCount,
+    // [#562] route -> 5xx responses since start. Empty when nothing has failed.
+    errors = routeErrors.Snapshot(),
 }));
 
 // The second screen.

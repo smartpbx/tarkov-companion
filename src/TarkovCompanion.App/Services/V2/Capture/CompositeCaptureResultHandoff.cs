@@ -25,16 +25,30 @@ public sealed class CompositeCaptureResultHandoff(
     private readonly StashScanCaptureHandoff _stashScan = stashScan ?? throw new ArgumentNullException(nameof(stashScan));
     private readonly IntelCaptureHandoff _intel = intel ?? throw new ArgumentNullException(nameof(intel));
 
+    /// <summary>
+    /// Raised for every accepted capture that was not read as a loot container (#572): the player
+    /// is looking at something else, which is the shell's cue that they moved on from Loot. Never
+    /// raised for the true Loot-grid branch, and never for a capture that could not be resolved at
+    /// all (an ambiguous or unknown screen never reaches <see cref="AcceptAsync"/>).
+    /// </summary>
+    public event EventHandler<ScanIntent>? NonLootIntentHandled;
+
     public ValueTask<CaptureHandoffResult> AcceptAsync(
         CaptureHandoffRequest request,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // One named item and no lattice is an inspect screen, not a container.
+        var isLootGrid = request.EffectiveIntent == ScanIntent.Loot &&
+            (request.Analysis.Grid is not null || request.Analysis.Identified.Count == 0);
+        if (!isLootGrid)
+        {
+            NonLootIntentHandled?.Invoke(this, request.EffectiveIntent);
+        }
+
         return request.EffectiveIntent switch
         {
-            // One named item and no lattice is an inspect screen, not a container.
-            ScanIntent.Loot when request.Analysis.Grid is null && request.Analysis.Identified.Count > 0 =>
-                _intel.AcceptItemAsync(request, cancellationToken),
+            ScanIntent.Loot when !isLootGrid => _intel.AcceptItemAsync(request, cancellationToken),
             ScanIntent.Loot => _lootScan.AcceptAsync(request, cancellationToken),
             ScanIntent.Stash => _stashScan.AcceptAsync(request, cancellationToken),
             // [f920 capture] #284: legible flea rows go to Intel > Flea. A flea capture with no

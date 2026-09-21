@@ -38,7 +38,13 @@ public sealed class WindowsIntegrationTests
         {
             using var timeout = new CancellationTokenSource();
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            await using var enumerator = new WindowsEftLogWatcher(new EftLogParser())
+            // Six minutes into the raid, with the game running. The clock is fixed because the
+            // replay now asks how old the raid is: against the real clock this fixture's raid is
+            // older than any raid lasts, and is rightly not resumed (#568).
+            await using var enumerator = new WindowsEftLogWatcher(
+                    new EftLogParser(),
+                    timeProvider: new FixedClock(SixMinutesIn),
+                    gameLocator: new RunningGameLocator())
                 .WatchAsync(root, timeout.Token)
                 .GetAsyncEnumerator(timeout.Token);
 
@@ -46,6 +52,50 @@ public sealed class WindowsIntegrationTests
             Assert.Equal(RaidLifecycleState.InRaid, enumerator.Current.SuggestedState);
             Assert.Equal("streets-of-tarkov", enumerator.Current.MapId);
             Assert.Contains("already running", enumerator.Current.Summary, StringComparison.Ordinal);
+            Assert.Equal(new DateTimeOffset(2026, 9, 11, 21, 59, 10, TimeSpan.Zero), enumerator.Current.RaidStartedUtc);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A raid nobody reported over is not resumed when there is no game to be in it (#568).
+    /// </summary>
+    /// <remarks>
+    /// The game writes no shutdown marker, so the folder of a game that died mid-raid looks exactly
+    /// like this one. What comes back names no state and no map; it only asks for the row a
+    /// previous run left open to be closed as not reported.
+    /// </remarks>
+    [Fact]
+    public async Task DoesNotResumeAnUnreportedRaidWhenTheGameIsNotRunning()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tarkov-resume-{Guid.NewGuid():N}");
+        var session = Path.Combine(root, "log_2026.09.11_21-59-06_1.1.5.0.47242");
+        Directory.CreateDirectory(session);
+        await File.WriteAllTextAsync(
+            Path.Combine(session, "application.log"),
+            "2026-09-11 21:59:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Busy, RaidMode: Online, Ip: 0.0.0.0, Port: 17009, " +
+            "Location: TarkovStreets, Sid: S, GameMode: deathmatch, shortId: I'\n",
+            CancellationToken.None);
+        try
+        {
+            using var timeout = new CancellationTokenSource();
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            await using var enumerator = new WindowsEftLogWatcher(
+                    new EftLogParser(),
+                    timeProvider: new FixedClock(SixMinutesIn),
+                    gameLocator: new StubGameWindowLocator())
+                .WatchAsync(root, timeout.Token)
+                .GetAsyncEnumerator(timeout.Token);
+
+            Assert.True(await enumerator.MoveNextAsync());
+            Assert.Null(enumerator.Current.SuggestedState);
+            Assert.Null(enumerator.Current.MapId);
+            Assert.True(enumerator.Current.EndsUnreported);
+            Assert.True(enumerator.Current.ResumesSession);
         }
         finally
         {
@@ -131,7 +181,10 @@ public sealed class WindowsIntegrationTests
         {
             using var timeout = new CancellationTokenSource();
             timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            await using var enumerator = new WindowsEftLogWatcher(new EftLogParser())
+            await using var enumerator = new WindowsEftLogWatcher(
+                    new EftLogParser(),
+                    timeProvider: new FixedClock(SixMinutesIn),
+                    gameLocator: new RunningGameLocator())
                 .WatchAsync(root, timeout.Token)
                 .GetAsyncEnumerator(timeout.Token);
 
@@ -310,6 +363,24 @@ public sealed class WindowsIntegrationTests
         public EftPathCandidates GetCandidates() => candidates;
 
         public bool DirectoryExists(string path) => existing.Contains(path);
+    }
+
+    /// <summary>Six minutes after the raid in the resume fixtures began, in a zone with no offset.</summary>
+    private static readonly DateTimeOffset SixMinutesIn = new(2026, 9, 11, 22, 5, 10, TimeSpan.Zero);
+
+    /// <summary>A clock that stands still, in UTC, so a fixture's local stamps mean one thing on any machine.</summary>
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+    }
+
+    private sealed class RunningGameLocator : IGameWindowLocator
+    {
+        public Task<WindowDescriptor?> FindAsync(bool developerMode, CancellationToken cancellationToken) =>
+            Task.FromResult<WindowDescriptor?>(new WindowDescriptor(
+                1, "EscapeFromTarkov", "EscapeFromTarkov", new PixelRect(0, 0, 1920, 1080), false, false));
     }
 
     private sealed class StubGameWindowLocator : IGameWindowLocator

@@ -71,6 +71,17 @@ internal static class Program
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
 
+        // [Issue 563] --seed-loot-cache copies a real durable loot-spawn publication.cache (the
+        // exact file HighValueLootRuntimeSource reads on startup) into the throwaway data root, so
+        // a render can show the high-value loot layer with real spawns instead of only its
+        // no-data state.
+        if (StringOption(args, "--seed-loot-cache") is { } seedLootCache)
+        {
+            var lootCacheDirectory = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Cache, "LootSpawns");
+            Directory.CreateDirectory(lootCacheDirectory);
+            File.Copy(seedLootCache, Path.Combine(lootCacheDirectory, "publication.cache"));
+        }
+
         MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
         MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
         try
@@ -1269,6 +1280,18 @@ internal static class Program
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
                         break;
+                    // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
+                    // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
+                    // own Allow/Deny row does, so putting it into this state here proves it shows
+                    // up on whatever --route is rendered, not only team/tablet.
+                    case "control-requested":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.",
+                            devices: [DemoPairedDevice("Kitchen tablet")],
+                            controlRequestMessage: "Kitchen tablet is asking to control this desktop.");
+                        break;
                     default:
                         throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
                 }
@@ -1319,6 +1342,15 @@ internal static class Program
                         $"No routed extract matches '{routeExtract}'. Routed: " +
                         string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
                 }
+            }
+
+            // [Issue 563] Press "High-value loot only" the way the gem button on the map does, so
+            // a render can show what it leaves on the map with and without loot-spawn data.
+            if (args.Contains("--loot-preset") &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel lootPresetRaid)
+            {
+                lootPresetRaid.Renderer?.HighValueLootPresetCommand.Execute(null);
+                Pump(40);
             }
 
             // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
@@ -1712,6 +1744,7 @@ internal static class Program
             [
                 new(null, null, "Geo", "Usec", 42, true, true, null, []),
                 new(null, null, "Riley", "Bear", 37, false, false, now.AddMinutes(14), []),
+                new(null, null, "Sam", "Usec", 29, true, false, null, []),
             ],
             now.AddSeconds(-40),
             TimeSpan.FromSeconds(38),
@@ -1839,10 +1872,12 @@ internal static class Program
             return new(at.X, at.Z, TimeSpan.FromSeconds(secondsAgo));
         }
 
+        // [Issue 581] Three, not two: enough to prove a squadmate's colour is their own and not
+        // shared with the nearest other teammate by coincidence.
         var group = new TarkovCompanion.Application.Services.Group.GroupSnapshot(
             true,
-            [Mate("Geo", 72, 34, 300, 6), Mate("Riley", 44, 71, 120, 25)],
-            "Sharing as Clay · 2 others here",
+            [Mate("Geo", 72, 34, 300, 6), Mate("Riley", 44, 71, 120, 25), Mate("Sam", 58, 52, 30, 12)],
+            "Sharing as Clay · 3 others here",
             now);
         return (raid, group);
     }

@@ -298,7 +298,7 @@
              search/setup/capture and the status pill at the far right. -->
         <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-            <TextBlock Classes="v2-heading-3" FontSize="20" Text="{Binding AppName}" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding AppName}" />
             <Border Classes="v2-topbar-tag" VerticalAlignment="Center">
               <TextBlock Classes="v2-label" Text="{Binding AppTag}" />
             </Border>
@@ -529,6 +529,9 @@
             </Button>
           </Grid>
         </Border>
+
+        <!-- #562: a paired tablet asking to drive this desktop, wherever the player is looking. -->
+        <prim:ControlRequestPromptView DataContext="{Binding ControlRequestPrompt}" />
 
         <!-- #453: pages that did not load at startup, named, with Retry. -->
         <prim:V2LoadFaultNotice DataContext="{Binding StartupFaultNotice}" />

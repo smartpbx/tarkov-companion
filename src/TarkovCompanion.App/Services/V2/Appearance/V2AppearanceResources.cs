@@ -26,6 +26,8 @@ public static class V2AppearanceResources
     /// </remarks>
     public static IReadOnlyList<string> ScaledTypeKeys { get; } =
     [
+        "V2.Type.Display.Size",
+        "V2.Type.Display.LineHeight",
         "V2.Type.Heading1.Size",
         "V2.Type.Heading1.LineHeight",
         "V2.Type.Heading2.Size",

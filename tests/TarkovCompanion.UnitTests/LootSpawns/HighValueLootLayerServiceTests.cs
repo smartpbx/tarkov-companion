@@ -655,22 +655,27 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
-    public void High_value_only_preset_keeps_orientation_and_user_required_context()
+    public void High_value_only_preset_keeps_orientation_labels_and_user_required_context()
     {
         var layers = new[]
         {
             new MapSceneLayer(new("labels"), "Labels", 1, true),
             new MapSceneLayer(new("extracts"), "Extracts", 2, true),
             new MapSceneLayer(new("hazards"), "Hazards", 3, true),
+            new MapSceneLayer(new("spawns"), "Spawn areas", 4, true),
             HighValueLootLayerService.Layer,
         };
 
         var states = HighValueLootLayerPreset.Create(layers, [new("hazards")]);
 
-        Assert.False(states.Single(state => state.LayerId == new MapSceneLayerId("labels")).IsVisible);
+        // [Issue 563] Place names stay on: "all the names of places disappear" was this preset
+        // hiding "labels" along with every other marker layer.
+        Assert.True(states.Single(state => state.LayerId == new MapSceneLayerId("labels")).IsVisible);
         Assert.True(states.Single(state => state.LayerId == new MapSceneLayerId("extracts")).IsVisible);
         Assert.True(states.Single(state => state.LayerId == new MapSceneLayerId("hazards")).IsVisible);
         Assert.True(states.Single(state => state.LayerId == HighValueLootLayerService.LayerId).IsVisible);
+        // Other marker layers (spawn areas, keys, quests, ...) are exactly what "loot only" means.
+        Assert.False(states.Single(state => state.LayerId == new MapSceneLayerId("spawns")).IsVisible);
     }
 
     [Fact]

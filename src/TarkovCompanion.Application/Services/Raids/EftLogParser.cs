@@ -118,7 +118,23 @@ public sealed partial class EftLogParser
             mapId,
             state,
             confidence,
-            Summarize(state, mapId));
+            Summarize(state, mapId))
+        {
+            // Only the profileStatus line carries one outside a notification. It is what tells a
+            // reconnect into the raid already open from the start of another raid (#568).
+            RaidKey = TryExtractRaidKey(line),
+        };
+    }
+
+    private static string? TryExtractRaidKey(string line)
+    {
+        if (!line.Contains("shortId", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var match = ShortIdPattern().Match(line);
+        return match.Success ? match.Groups["key"].Value : null;
     }
 
     /// <summary>
@@ -251,6 +267,9 @@ public sealed partial class EftLogParser
 
             var mapId = ResolveMapId(ReadText(payload, "location"));
             var status = ReadText(payload, "status");
+            // The game's short id for the raid. A confirmation and the end of the same raid carry
+            // the same one, which is the only way to tell "this raid ended" from "some raid ended".
+            var raidKey = ReadText(payload, "shortId") is { Length: > 0 } key ? key : null;
             var transferred = string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase);
 
             // A transfer proves the raid was a scav run, and is the only thing in these logs
@@ -292,6 +311,7 @@ public sealed partial class EftLogParser
                     // raid, which matters when the end of the previous one was never seen.
                     StartsNewRaid = true,
                     EventId = ReadText(payload, "eventId"),
+                    RaidKey = raidKey,
                 },
                 // A transfer ends the raid like any other userMatchOver.
                 //
@@ -321,6 +341,7 @@ public sealed partial class EftLogParser
                 {
                     Side = side,
                     SideBasis = sideBasis,
+                    RaidKey = raidKey,
                 },
                 "userMatchOver" => new(
                     RaidEvidenceKind.LogLine,
@@ -332,6 +353,7 @@ public sealed partial class EftLogParser
                 {
                     Side = side,
                     SideBasis = sideBasis,
+                    RaidKey = raidKey,
                 },
                 _ => null,
             };
@@ -367,6 +389,11 @@ public sealed partial class EftLogParser
         @"(?:location|map)(?:id)?['""]?\s*[:=]\s*['""]?(?<map>[a-z0-9_-]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LocationPattern();
+
+    [GeneratedRegex(
+        @"shortId:\s*(?<key>[A-Za-z0-9]+)",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex ShortIdPattern();
 
     [GeneratedRegex(
         @"SelectedProfile\s+ProfileId:\s*(?<profile>[A-Za-z0-9]+)",

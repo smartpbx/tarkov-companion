@@ -263,14 +263,34 @@
               <TextBlock Classes="v2-label" Text="{Binding ContextLabel}" TextTrimming="CharacterEllipsis" />
               <TextBlock Classes="v2-label" Text="{Binding TimingSummary}" />
             </StackPanel>
-            <Button Grid.Column="2" Classes="v2-outline" VerticalAlignment="Center"
-                    AutomationProperties.AutomationId="v2-loot-scan-again"
-                    Command="{Binding ScanAgainCommand}">
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
-                <TextBlock VerticalAlignment="Center" Text="{DynamicResource V2.String.LootScan.ScanAgain}" />
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <!-- #572: an unobtrusive "the app will move itself back to the map" indicator, on
+                   only while this page opened itself mid-raid. "Stay" pins it for the raid. -->
+              <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                          IsVisible="{Binding ShowsAutoReturnControls}"
+                          AutomationProperties.AutomationId="v2-loot-scan-auto-return"
+                          AutomationProperties.Name="{Binding StayCommandLabel}"
+                          AutomationProperties.AccessibilityView="Control">
+                <TextBlock Classes="v2-label" VerticalAlignment="Center"
+                           IsVisible="{Binding ShowsReturnCountdown}"
+                           Text="{Binding ReturnCountdownLabel}"
+                           AutomationProperties.AutomationId="v2-loot-scan-return-countdown"
+                           AutomationProperties.LiveSetting="Polite" />
+                <ToggleButton Classes="v2-outline" VerticalAlignment="Center"
+                              IsChecked="{Binding IsStaying, Mode=OneWay}"
+                              Command="{Binding ToggleStayCommand}"
+                              AutomationProperties.AutomationId="v2-loot-scan-stay"
+                              Content="{Binding StayCommandLabel}" />
               </StackPanel>
-            </Button>
+              <Button Classes="v2-outline" VerticalAlignment="Center"
+                      AutomationProperties.AutomationId="v2-loot-scan-again"
+                      Command="{Binding ScanAgainCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Refresh}" />
+                  <TextBlock VerticalAlignment="Center" Text="{DynamicResource V2.String.LootScan.ScanAgain}" />
+                </StackPanel>
+              </Button>
+            </StackPanel>
           </Grid>
         </Border>
 

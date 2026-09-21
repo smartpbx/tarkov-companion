@@ -63,6 +63,41 @@ public sealed record RaidEvidence(
     public string? EventId { get; init; }
 
     /// <summary>
+    /// The game's own short id for the raid this line belongs to (<c>shortId</c>), where the line had one.
+    /// </summary>
+    /// <remarks>
+    /// <c>userConfirmed</c>, <c>userMatchOver</c> and the <c>profileStatus</c> line all carry it, and
+    /// it is the only thing in the logs that says whether two lines describe one raid. A reconnect
+    /// after the game died writes the same id into a new log folder; the next raid writes a new one.
+    /// Measured on 2026-09-20: nine confirmations, eight ends, every id pairing except the raid the
+    /// game process died in (#568).
+    /// </remarks>
+    public string? RaidKey { get; init; }
+
+    /// <summary>The game log folder the line was read from, which is one launch of the game.</summary>
+    /// <remarks>
+    /// The fallback when a line carries no <see cref="RaidKey"/>: a raid that begins in a later
+    /// launch than the open one cannot be the open one. Folder names sort by launch time.
+    /// </remarks>
+    public string? LogSession { get; init; }
+
+    /// <summary>
+    /// Whether this ends a raid whose end the game never reported, rather than reporting one.
+    /// </summary>
+    public bool EndsUnreported { get; init; }
+
+    /// <summary>When the raid began, where the line that says so was read after the fact.</summary>
+    /// <remarks>
+    /// Only the startup replay sets it. Every other line is read as it is written, so the moment
+    /// it was observed is the moment it happened; a replayed confirmation is minutes old, and
+    /// dating the raid to the restart would restart its clock and its time bound with it.
+    /// </remarks>
+    public DateTimeOffset? RaidStartedUtc { get; init; }
+
+    /// <summary>When a raid found dead by the startup replay last wrote anything.</summary>
+    public DateTimeOffset? RaidLastSeenUtc { get; init; }
+
+    /// <summary>
     /// Whether this is the companion catching up on a raid that was already running.
     /// </summary>
     /// <remarks>
@@ -142,6 +177,19 @@ public sealed record RaidSnapshot(
 
     /// <summary>The notification that began this raid, so a repeat of it does not begin another.</summary>
     public string? StartedByEventId { get; init; }
+
+    /// <summary>The game's short id for this raid, where a line has named it. See <see cref="RaidEvidence.RaidKey"/>.</summary>
+    public string? RaidKey { get; init; }
+
+    /// <summary>The newest game log folder this raid has been seen in.</summary>
+    public string? LogSession { get; init; }
+
+    /// <summary>The last moment this raid itself showed activity, which is when an unreported end is dated.</summary>
+    /// <remarks>
+    /// Not <see cref="UpdatedUtc"/>: a game relaunched after it died writes menu lines for minutes
+    /// before the next raid begins, and those are not the dead raid doing anything (#568).
+    /// </remarks>
+    public DateTimeOffset? LastActivityUtc { get; init; }
 
     /// <summary>
     /// Every screenshot position of this raid, oldest first.

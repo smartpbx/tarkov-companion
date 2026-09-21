@@ -1443,7 +1443,7 @@ $Shots.Add([pscustomobject]@{
                 "v2-map-renderer", "v2-map-plan", "v2-map-loot-preset", "v2-map-loot-heading",
                 "v2-map-loot-legend", "v2-map-loot-state")
             expectedNamePatterns = @(
-                [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^Loot-spawn data is unavailable\.' })
+                [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^(Loot-spawn data is unavailable\.|No loot spawn data yet)' })
         }, [pscustomobject]@{
             action = "toggle"; description = "toggle the unavailable loot layer independently"
             targetAutomationId = "v2-map-layer-high-value-loot-spawns-cb6f64d2"; targetControlType = "Button"
