@@ -10,6 +10,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
+using TarkovCompanion.GroupServer.Tenancy;
 
 namespace TarkovCompanion.GroupServer;
 
@@ -176,6 +177,14 @@ public static class RelayCompanionRoutes
     public const string SinceQuery = "since";
     private const string CredentialHeader = "X-Relay-Credential";
 
+    /// <summary>The route a desktop registers itself on; <see cref="RelayAccess.IsGroupPath"/> names it too.</summary>
+    public const string RegisterDesktopPath = "/v2/companion/relay/desktops/register";
+
+    /// <summary>
+    /// The relay as it was composed before #553: one registry, one hub, one map store. They become
+    /// the legacy tenant of a directory that keeps any other desktop in memory, which is what a
+    /// test host wants; the relay itself composes a directory with a folder behind it.
+    /// </summary>
     public static void MapRelayCompanionRoutes(
         this WebApplication app,
         RelayDeviceRegistry? registry,
@@ -185,11 +194,37 @@ public static class RelayCompanionRoutes
         RelayMapSurfaceStore? mapSurfaces = null)
     {
         ArgumentNullException.ThrowIfNull(app);
-        ArgumentNullException.ThrowIfNull(claimGate);
-        // One process, one set of outstanding nonces and tickets: both are memory-only by design.
         var timeProvider = app.Services.GetService<TimeProvider>() ?? TimeProvider.System;
-        var resumeTickets = new RelayResumeTickets(timeProvider);
-        MapKeyPossessionRoutes(app, registry, resumeTickets, timeProvider);
+        RelayTenantDirectory? directory = null;
+        OwnerRecoveryProtector? ownedProtector = null;
+        if (registry is not null)
+        {
+            var protector = recovery ?? (ownedProtector = new OwnerRecoveryProtector(RandomNumberGenerator.GetBytes(32), timeProvider));
+            directory = RelayTenantDirectory.OpenAsync(timeProvider, protector, registry, hub, mapSurfaces)
+                .AsTask().GetAwaiter().GetResult();
+        }
+
+        if (ownedProtector is not null)
+        {
+            app.Lifetime.ApplicationStopped.Register(ownedProtector.Dispose);
+        }
+
+        app.MapRelayCompanionRoutes(directory, recovery, claimGate);
+    }
+
+    public static void MapRelayCompanionRoutes(
+        this WebApplication app,
+        RelayTenantDirectory? directory,
+        OwnerRecoveryProtector? recovery,
+        RelayOwnerClaimGate claimGate)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(claimGate);
+        // One process, one set of outstanding nonces: memory-only by design. Resume tickets are
+        // each desktop's own and live with its tenant.
+        var timeProvider = app.Services.GetService<TimeProvider>() ?? TimeProvider.System;
+        var registry = directory?.Legacy.Registry;
+        MapKeyPossessionRoutes(app, directory, timeProvider);
 
         // Claims the relay's owner with the admin key (ABUSE-PAIRED-OWNER-RECOVERY-EXPOSURE: this
         // route refuses outright, before the admin key is even checked, unless an operator secret
@@ -222,13 +257,12 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
             }
@@ -239,7 +273,8 @@ public static class RelayCompanionRoutes
                 return Results.BadRequest("A completed pairing, role, and surface are required.");
             }
 
-            var registered = await registry.AddPairedDeviceAsync(
+            var registered = await directory.AddPairedDeviceAsync(
+                tenant,
                 principal,
                 body.Value.Pairing.ToCompletedAttempt(),
                 body.Value.Role,
@@ -260,13 +295,12 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
             }
@@ -276,7 +310,7 @@ public static class RelayCompanionRoutes
                 return Results.BadRequest("device-not-active");
             }
 
-            var revoked = await registry.RevokeDeviceAsync(
+            var revoked = await tenant.Registry.RevokeDeviceAsync(
                 principal,
                 new CompanionDeviceId(deviceId),
                 "revoked-by-desktop",
@@ -293,15 +327,19 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || hub is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Hub is not { } hub)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var frame = await ReadCompanionBodyAsync<OpaqueRelayFrame>(request, cancellationToken).ConfigureAwait(false);
@@ -320,26 +358,30 @@ public static class RelayCompanionRoutes
             long? after,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || hub is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
             }
 
+            if (tenant.Hub is not { } hub)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
             var batch = hub.Read(principal, after.GetValueOrDefault());
             var waiting = principal.Role == DeviceAuthorizationRole.Owner
-                ? resumeTickets.Unanswered()
+                ? tenant.Tickets.Unanswered()
                     .Select(ticket => new RelayResumeRequest(ticket.TicketId, ticket.DeviceKeyId))
                     .ToArray()
                 : null;
             // [#407] And what this relay holds of the owner's map, so a desktop learns that a
             // restart emptied it (or that a picture never arrived) on its next read.
-            return Results.Ok(RelayFrameBatchResponse.From(batch, waiting, mapSurfaces?.Describe(principal)));
+            return Results.Ok(RelayFrameBatchResponse.From(batch, waiting, tenant.Maps?.Describe(principal)));
         });
 
         // [#407] The other half of `requiresReconnect`. The hub has always known how to clear a
@@ -350,15 +392,19 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || hub is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Hub is not { } hub)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var reset = hub.ResetAfterReconnect(principal);
@@ -375,15 +421,19 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || hub is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Hub is not { } hub)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var acknowledged = hub.Acknowledge(principal, deliveryId);
@@ -398,15 +448,19 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || mapSurfaces is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Maps is not { } mapSurfaces)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var body = await ReadBoundedBodyAsync(request, cancellationToken, RelayMapSurfaceStore.MaximumSurfaceBytes)
@@ -427,15 +481,19 @@ public static class RelayCompanionRoutes
             string? sha256,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || mapSurfaces is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Maps is not { } mapSurfaces)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var body = await ReadBoundedBodyAsync(request, cancellationToken, RelayMapSurfaceStore.MaximumArtworkBytes)
@@ -465,21 +523,25 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || mapSurfaces is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Maps is not { } mapSurfaces)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var entry = HoldFor(request) is var (since, wait)
                 ? await mapSurfaces.WaitAsync(principal, since, wait, cancellationToken).ConfigureAwait(false)
                 : mapSurfaces.Read(principal);
-            if (registry.OwnerLastSeenUtc() is { } seen)
+            if (tenant.Registry.OwnerLastSeenUtc() is { } seen)
             {
                 var elapsed = (app.Services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow() - seen;
                 request.HttpContext.Response.Headers[OwnerSeenHeader] =
@@ -501,15 +563,19 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null || mapSurfaces is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal))
             {
                 return Results.Unauthorized();
+            }
+
+            if (tenant.Maps is not { } mapSurfaces)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
             var entry = mapSurfaces.Read(principal);
@@ -525,10 +591,11 @@ public static class RelayCompanionRoutes
     /// </summary>
     private static void MapKeyPossessionRoutes(
         WebApplication app,
-        RelayDeviceRegistry? registry,
-        RelayResumeTickets tickets,
+        RelayTenantDirectory? directory,
         TimeProvider timeProvider)
     {
+        // The keyless owner resume an older desktop makes acts on the one registry it ever knew.
+        var registry = directory?.Legacy.Registry;
         var challenges = new RelayPossessionChallenges(timeProvider);
         // No secret is needed to reach these, so they are admitted on their own budget: wide
         // enough for a household of tablets behind one address coming back at once, and nothing
@@ -598,6 +665,65 @@ public static class RelayCompanionRoutes
                 : Results.BadRequest(resumed.Code);
         });
 
+        // [#553] A desktop registering itself, or coming back. Two things are asked of it and both
+        // are things it already has: the group key, checked exactly as every group route checks it
+        // (the header GroupKey.TryRead reads, the room GroupKey.RoomFor derives, and the operator's
+        // room list when there is one), and its own identity key, proved by the same self-pairing
+        // built around this relay's nonce that the owner resume above carries. No admin key, no
+        // claim: a desktop is the owner of its own tablets and of nothing else.
+        var roomRegistry = app.Services.GetService<GroupRoomRegistry>();
+        app.MapPost(RegisterDesktopPath, async Task<IResult> (
+            HttpRequest request,
+            CancellationToken cancellationToken) =>
+        {
+            if (directory is null)
+            {
+                return Results.StatusCode(StatusCodes.Status501NotImplemented);
+            }
+
+            if (!gate.Admit(request.HttpContext.Connection.RemoteIpAddress).Allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+            }
+
+            if (!GroupKey.TryRead(request, out var groupKey))
+            {
+                return Results.Unauthorized();
+            }
+
+            var room = GroupKey.RoomFor(groupKey);
+            if (roomRegistry is not null && !roomRegistry.Allows(room))
+            {
+                return Results.Json("room-refused", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            var claim = await ReadRelayDeviceClaimAsync(request, cancellationToken).ConfigureAwait(false);
+            if (claim is null)
+            {
+                return Results.BadRequest("claim-not-completed");
+            }
+
+            PairingAttempt attempt;
+            try
+            {
+                attempt = claim.ToCompletedAttempt();
+            }
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+            {
+                return Results.BadRequest("claim-not-completed");
+            }
+
+            if (!challenges.TryConsume(attempt.Request!.ClientNonceBase64Url))
+            {
+                return Results.BadRequest("challenge-rejected");
+            }
+
+            var registered = await directory.RegisterDesktopAsync(room, attempt, cancellationToken).ConfigureAwait(false);
+            return registered.Succeeded
+                ? Results.Ok(RelaySessionCredentialResponse.From(registered.Value!))
+                : Results.BadRequest(registered.Code);
+        });
+
         // A paired device coming back. It proves the key this relay has on record for it and is
         // given a ticket; its desktop sees the ticket on its next read and opens it a session.
         // The relay never issues a device a session by itself: only its desktop can, and the
@@ -605,9 +731,10 @@ public static class RelayCompanionRoutes
         app.MapPost("/v2/companion/relay/resume/requests", async Task<IResult> (
             HttpRequest request,
             string? deviceKeyId,
+            string? desktopKeyId,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
@@ -633,11 +760,32 @@ public static class RelayCompanionRoutes
                 return Results.BadRequest("proof-required");
             }
 
-            var device = registry.FindPairedDeviceByKey(namedKey);
-            if (device is null)
+            // [#553] Which desktop: the one the tablet names (the key it pinned when it paired),
+            // and for a page from before it said so, the desktop that heard from it last. A device
+            // somebody revoked is never preferred over one that is merely away.
+            DeviceKeyId? namedDesktop = null;
+            if (!string.IsNullOrWhiteSpace(desktopKeyId) && desktopKeyId.Length <= 64)
+            {
+                try
+                {
+                    namedDesktop = new DeviceKeyId(desktopKeyId);
+                }
+                catch (ArgumentException)
+                {
+                    return Results.BadRequest("proof-required");
+                }
+            }
+
+            var candidates = directory.FindPairedDevices(namedKey, namedDesktop);
+            if (candidates.Count == 0)
             {
                 return Results.Json("device-unknown", statusCode: StatusCodes.Status403Forbidden);
             }
+
+            var (tenant, device) = candidates
+                .OrderByDescending(found => found.Device.Status is DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired)
+                .ThenByDescending(found => found.Device.LastUsedUtc)
+                .First();
 
             if (device.Status is not (DeviceLifecycleStatus.Active or DeviceLifecycleStatus.Expired))
             {
@@ -658,13 +806,13 @@ public static class RelayCompanionRoutes
                 return Results.Json("proof-rejected", statusCode: StatusCodes.Status403Forbidden);
             }
 
-            var ticket = tickets.Open(device.DeviceKey.KeyId);
+            var ticket = tenant.Tickets.Open(device.DeviceKey.KeyId);
             return Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, null));
         });
 
         // Read by the device that was given the ticket; its id is the only thing that names it.
         app.MapGet("/v2/companion/relay/resume/requests/{ticketId:guid}", IResult (Guid ticketId) =>
-            tickets.Find(ticketId) is { } ticket
+            directory?.Tenants.Select(tenant => tenant.Tickets.Find(ticketId)).FirstOrDefault(found => found is not null) is { } ticket
                 ? Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, ticket.PairingCode))
                 : Results.NotFound());
 
@@ -674,13 +822,13 @@ public static class RelayCompanionRoutes
             HttpRequest request,
             CancellationToken cancellationToken) =>
         {
-            if (registry is null)
+            if (directory is null)
             {
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var principal = await AuthenticateAsync(request, registry, cancellationToken).ConfigureAwait(false);
-            if (principal is null || principal.Role != DeviceAuthorizationRole.Owner)
+            if (await AuthenticateAsync(request, directory, cancellationToken).ConfigureAwait(false) is not var (tenant, principal) ||
+                principal.Role != DeviceAuthorizationRole.Owner)
             {
                 return Results.Unauthorized();
             }
@@ -693,7 +841,7 @@ public static class RelayCompanionRoutes
                 return Results.BadRequest("pairing-code-required");
             }
 
-            return tickets.Answer(ticketId, code) ? Results.Ok() : Results.NotFound();
+            return tenant.Tickets.Answer(ticketId, code) ? Results.Ok() : Results.NotFound();
         });
     }
 
@@ -770,23 +918,34 @@ public static class RelayCompanionRoutes
     /// apply here the way it does to <c>RelayDeviceRegistry.ValidateAndRotateCsrfAsync</c>'s other,
     /// cookie-carried callers.
     /// </summary>
-    private static async ValueTask<RelayPrincipal?> AuthenticateAsync(
+    /// <remarks>
+    /// [#553] The session id names the tenant, and the tenant's own registry decides whether the
+    /// credential is good. What comes back is the pair, so that everything a handler then touches
+    /// — hub, map, tickets, device list — is the authenticated desktop's and no other's.
+    /// </remarks>
+    private static async ValueTask<(RelayTenant Tenant, RelayPrincipal Principal)?> AuthenticateAsync(
         HttpRequest request,
-        RelayDeviceRegistry registry,
+        RelayTenantDirectory directory,
         CancellationToken cancellationToken)
     {
         if (!request.Headers.TryGetValue(SessionHeader, out var sessionValues) || sessionValues.Count != 1 ||
-            !Guid.TryParse(sessionValues[0], out var sessionGuid) ||
+            !Guid.TryParse(sessionValues[0], out var sessionGuid) || sessionGuid == Guid.Empty ||
             !request.Headers.TryGetValue(CredentialHeader, out var credentialValues) || credentialValues.Count != 1)
         {
             return null;
         }
 
-        var result = await registry.AuthenticateAsync(
-            new DeviceSessionId(sessionGuid),
+        var sessionId = new DeviceSessionId(sessionGuid);
+        if (directory.FindBySession(sessionId) is not { } tenant)
+        {
+            return null;
+        }
+
+        var result = await tenant.Registry.AuthenticateAsync(
+            sessionId,
             credentialValues[0],
             cancellationToken).ConfigureAwait(false);
-        return result.Authenticated ? result.Principal : null;
+        return result.Authenticated ? (tenant, result.Principal!) : null;
     }
 
     private static async Task<RelayDeviceClaim?> ReadRelayDeviceClaimAsync(HttpRequest request, CancellationToken cancellationToken)
