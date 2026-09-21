@@ -1827,7 +1827,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     () => SelectObject(item.Id),
                     _styleResolver?.Invoke(item),
                     offsets[index].DeltaX,
-                    offsets[index].DeltaY))
+                    offsets[index].DeltaY,
+                    _canvasWidth,
+                    _canvasHeight))
                 .ToArray();
         }
 
@@ -1901,7 +1903,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 _presentation,
                 item.Id == _selectedObjectId,
                 () => SelectObject(item.Id),
-                _styleResolver?.Invoke(item));
+                _styleResolver?.Invoke(item),
+                canvasWidth: _canvasWidth,
+                canvasHeight: _canvasHeight);
         }
 
         return MapSceneRendererObjectViewModel.ForCluster(
@@ -1987,7 +1991,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 _presentation,
                 true,
                 () => SelectObject(item.Id),
-                _styleResolver?.Invoke(item));
+                _styleResolver?.Invoke(item),
+                canvasWidth: _canvasWidth,
+                canvasHeight: _canvasHeight);
     }
 
     private (int Column, int Row) ClusterCell(MapScenePoint point)
@@ -2848,7 +2854,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         double cameraBearingDegrees = 0,
         MapSceneObjectStyle? style = null,
         double pinOffsetX = 0,
-        double pinOffsetY = 0)
+        double pinOffsetY = 0,
+        bool isNearRightEdge = false,
+        bool isNearBottomEdge = false)
     {
         SceneObject = sceneObject;
         Key = key;
@@ -2878,6 +2886,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         Style = style;
         PinOffsetX = pinOffsetX;
         PinOffsetY = pinOffsetY;
+        IsNearRightEdge = isNearRightEdge;
+        IsNearBottomEdge = isNearBottomEdge;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
 
@@ -2985,6 +2995,17 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// place name uses; hovering (ToolTip.Tip, bound to Label) is what says it for every other one.
     /// </summary>
     public bool ShowsSelectedName => IsSelected && (IsExtractIcon || IsTransitIcon);
+
+    /// <summary>
+    /// [Issue 594] "RUAF Roadblock" read as "RU…" near the card's right edge, clipped by
+    /// PlanViewport. True within <see cref="EdgeFlipMargin"/> canvas pixels of the plan's own
+    /// right/bottom edge, so the selected name label can flip to the other side of its icon
+    /// instead of overflowing the card. Computed once, from the same projected point the icon
+    /// itself is anchored to — see MapSceneRendererObjectViewModel.ForObject.
+    /// </summary>
+    public bool IsNearRightEdge { get; }
+
+    public bool IsNearBottomEdge { get; }
 
     /// <summary>[Issue 594] Whether this is the kind of marker the Raid page's "Selected" card is for.</summary>
     public bool IsExtractOrTransit => IsExtractIcon || IsTransitIcon;
@@ -3120,6 +3141,12 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         SetProperty(ref _coneDegrees, ConeFor(HeadingDegrees, camera.BearingDegrees), nameof(ConeDegrees));
     }
 
+    /// <summary>[Issue 594] Canvas pixels from the right/bottom edge inside which the selected
+    /// name label flips to the other side of its icon rather than overflow the card. Roughly the
+    /// label's own half-width/height, so the flip happens before any part of it would reach the
+    /// edge.</summary>
+    private const double EdgeFlipMargin = 110;
+
     public static MapSceneRendererObjectViewModel ForObject(
         MapSceneObject sceneObject,
         MapSceneProjection projection,
@@ -3129,10 +3156,18 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         Action select,
         MapSceneObjectStyle? style = null,
         double pinOffsetX = 0,
-        double pinOffsetY = 0)
+        double pinOffsetY = 0,
+        double canvasWidth = double.PositiveInfinity,
+        double canvasHeight = double.PositiveInfinity)
     {
         var formatter = new MapSceneRendererSemanticText(presentation);
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
+        // [Issue 594] "RUAF Roadblock" read as "RU…" near the card's right edge: the selected
+        // name label used to always sit centred below its icon, so a marker close enough to the
+        // card's own edge had it clipped by PlanViewport's own ClipToBounds. Flips it to the
+        // other side of the icon instead, while it is still on-screen to flip away from.
+        var nearRightEdge = anchor.X > canvasWidth - EdgeFlipMargin;
+        var nearBottomEdge = anchor.Y > canvasHeight - EdgeFlipMargin;
         return new(
             sceneObject,
             sceneObject.Id.Value,
@@ -3167,7 +3202,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             camera.BearingDegrees,
             style,
             pinOffsetX,
-            pinOffsetY);
+            pinOffsetY,
+            nearRightEdge,
+            nearBottomEdge);
     }
 
     public static MapSceneRendererObjectViewModel ForCluster(

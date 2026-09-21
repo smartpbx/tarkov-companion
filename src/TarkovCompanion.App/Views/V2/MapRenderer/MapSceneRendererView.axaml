@@ -398,6 +398,23 @@
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="8,2" />
     </Style>
+    <!-- [Issue 594] The selected extract/transit's name label, centred below its icon by default;
+         flips to the other side near the card's own right/bottom edge (PlanViewport's own
+         ClipToBounds) rather than let PlanViewport's clip cut it off — see IsNearRightEdge /
+         IsNearBottomEdge on MapSceneRendererObjectViewModel. Every property either class sets is
+         one the other leaves alone, so a marker in the corner gets both flips at once. -->
+    <Style Selector="Border.v2-map-selected-name">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Bottom" />
+      <Setter Property="Margin" Value="0,0,0,-20" />
+    </Style>
+    <Style Selector="Border.v2-map-selected-name.near-right-edge">
+      <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
+    <Style Selector="Border.v2-map-selected-name.near-bottom-edge">
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,-20,0,0" />
+    </Style>
     <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
@@ -777,13 +794,24 @@
                            in, but this one has to read over a photograph or a dark drawing right
                            where a route line or the traffic heat is often thickest, at the exact
                            point it is pointing to. Hovering says it for every other one (ToolTip.Tip
-                           on the marker itself, above). -->
-                      <Border Classes="v2-map-chip" IsVisible="{Binding ShowsSelectedName}"
-                              IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                              Margin="0,0,0,-20" Padding="5,1" Opacity="0.95">
+                           on the marker itself, above).
+                           An owner report against this: "RUAF Roadblock" read as "RU…". The chip
+                           sits inside the marker's own 44px box, and a Border with no explicit
+                           Width measures within whatever space its parent offers — here, the box's
+                           44px, regardless of MaxWidth (a cap, not a floor). An explicit Width
+                           escapes that (Avalonia measures an explicit Width against itself, not
+                           the parent's offer), so the wrap below is what limits a long name, not
+                           the marker's box. Wide enough that a short name still reads on one line
+                           at its own natural (shorter) width; a long one ("Boiler Room Basement
+                           (Co-op)") wraps to two rather than truncating. PlanViewport's own clip
+                           (ClipToBounds="True") still keeps it from drawing outside the map card
+                           itself. -->
+                      <Border Classes="v2-map-chip v2-map-selected-name" IsVisible="{Binding ShowsSelectedName}"
+                              Classes.near-right-edge="{Binding IsNearRightEdge}"
+                              Classes.near-bottom-edge="{Binding IsNearBottomEdge}"
+                              IsHitTestVisible="False" Width="184" Padding="5,2" Opacity="0.95">
                         <TextBlock Classes="v2-map-place-name" Opacity="1" FontWeight="Bold"
-                                   TextAlignment="Center" TextWrapping="NoWrap"
-                                   TextTrimming="CharacterEllipsis" MaxWidth="210" Text="{Binding Label}" />
+                                   TextAlignment="Center" TextWrapping="Wrap" Text="{Binding Label}" />
                       </Border>
                     </Panel>
                     </Panel>
