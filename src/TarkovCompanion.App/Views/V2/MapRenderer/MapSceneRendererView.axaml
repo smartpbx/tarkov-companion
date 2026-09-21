@@ -159,8 +159,19 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="StrokeThickness" Value="2.5" />
     </Style>
+    <!-- [Issue 581] A squadmate's dot is their own colour — the same one their chip in the squad
+         panel already uses — not one shared "teammate" amber for everybody. See
+         MapSceneRendererObjectViewModel.ColorHintBrush; the host (RaidCockpitViewModel) is the
+         one place that decides what that colour is. -->
     <Style Selector="Ellipse.v2-map-person-dot.teammate">
-      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    </Style>
+    <!-- The initial paired with that colour, legible over any hue in the palette. -->
+    <Style Selector="TextBlock.v2-map-person-initial">
+      <Setter Property="FontSize" Value="8" />
+      <Setter Property="LineHeight" Value="9" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="Foreground" Value="White" />
     </Style>
     <Style Selector="Path.v2-map-person-cone">
       <Setter Property="Fill" Value="{DynamicResource V2.Brush.Success}" />
@@ -168,8 +179,9 @@
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="VerticalAlignment" Value="Top" />
     </Style>
+    <!-- [Issue 581] Same source as the dot: a squadmate's facing cone is their own colour too. -->
     <Style Selector="ToggleButton.v2-map-marker.team-observed Path.v2-map-person-cone">
-      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
     </Style>
     <!-- V2 rough package 22: a place name written on the plan, not a label on a control. A
          halo-free single line at a size that stays readable when the camera zooms, quieter than
@@ -179,6 +191,12 @@
       <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Opacity" Value="0.85" />
+    </Style>
+    <!-- [Issue 581] A squadmate's name label, in their own colour; a plain place name is
+         unaffected (it never carries this class — see the label's ColorHintBrush/HasColorHint). -->
+    <Style Selector="TextBlock.v2-map-place-name.teammate">
+      <Setter Property="Foreground" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererLabelViewModel}" />
+      <Setter Property="Opacity" Value="1" />
     </Style>
     <Style Selector="Path.v2-map-marker-icon">
       <Setter Property="Width" Value="18" />
@@ -476,7 +494,11 @@
               <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:MapSceneRendererLabelViewModel">
-                  <TextBlock Classes="v2-map-place-name" Width="{Binding Width}"
+                  <!-- [Issue 581] A squadmate's own name (see MapSceneRendererViewModel.LabelObjects)
+                       is written in their colour; an ordinary place name has no host opinion and
+                       keeps the themed foreground below. -->
+                  <TextBlock Classes="v2-map-place-name" Classes.teammate="{Binding HasColorHint}"
+                             Width="{Binding Width}"
                              TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                              RenderTransformOrigin="50%,50%" Text="{Binding Text}">
                     <TextBlock.RenderTransform>
@@ -556,6 +578,11 @@
                       <Ellipse Classes="v2-map-person-dot" Classes.teammate="{Binding IsTeammateIcon}"
                                Width="14" Height="14" IsHitTestVisible="False"
                                HorizontalAlignment="Center" VerticalAlignment="Center" />
+                      <!-- [Issue 581] The colour is paired with the squadmate's own initial, so a
+                           colour-vision mode still tells two teammates apart on the dot itself. -->
+                      <TextBlock Classes="v2-map-person-initial" IsVisible="{Binding IsTeammateIcon}"
+                                 Text="{Binding PersonInitial}" IsHitTestVisible="False"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Panel>
                     <!-- [Issue 508] A waypoint or a quest objective is a pin: its own head shape
                          and colour, its tip — not its centre — on the exact spot. AnchorLeft/Top

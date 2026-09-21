@@ -812,6 +812,8 @@
     Lock: "#c77b6b",
     Hazard: "#c77b6b",
     LastKnownPosition: "#22d3ee",
+    // [Issue 581] Overridden per squadmate by squadColour() below; this is only the fallback for
+    // an unnamed one.
     TeammateLastKnown: "#7fa9c7",
     Label: "#8f9ba6",
     // Potential spawns (issue 318): drawn as rings below, because a ring says "could be here"
@@ -819,6 +821,28 @@
     LootSpawn: "#e3b341",
     LootContainer: "#e3b341",
   };
+
+  // [Issue 581] The panel colours each squadmate; this page used to draw every one of them in
+  // the single TeammateLastKnown grey above. The desktop's own source of truth
+  // (GroupMemberColors.cs) is a plain function of the member's name — FNV-1a into an eight-hue
+  // palette — so it is ported here rather than added to the wire protocol: no round trip needed,
+  // and a name always lands on the same hue on both screens. What it does not reproduce is the
+  // desktop's collision step (a second member landing on an already-taken hue steps to the next
+  // free one against the live roster) — this page only ever sees one marker at a time, with no
+  // roster to check a collision against. Two names hashing to the same slot is rare at the size
+  // of a real squad, and would still be a firm, stable colour, just possibly one already used.
+  const SQUAD_PALETTE = ["E0B45C", "DF6A62", "B98BD9", "8FD14F", "F09A3E", "6FA8F5", "E06AA8", "C97B4E"];
+  function squadNameHash(name) {
+    let hash = 2166136261;
+    for (let index = 0; index < name.length; index++) {
+      hash = Math.imul(hash ^ name.charCodeAt(index), 16777619);
+    }
+    return hash >>> 0;
+  }
+  function squadColour(name) {
+    if (!name) return "#" + SQUAD_PALETTE[0];
+    return "#" + SQUAD_PALETTE[squadNameHash(name) % SQUAD_PALETTE.length];
+  }
 
   // [Issue 508] A waypoint or a quest objective is a pin: a head shape and colour of its own,
   // its tip — not its centre — on (px, py), the exact map point. The desktop draws the same two
@@ -989,7 +1013,8 @@
       // A multi-floor map's objects name the floors they belong to; one that names none is on
       // every floor. This is the desktop's own rule, not a second one.
       if (floor && item.floorIds.length > 0 && !item.floorIds.includes(floor)) continue;
-      const colour = COLOURS[item.kind] ?? "#8f9ba6";
+      // [Issue 581] A squadmate's own colour, the same one their chip has in the desktop's panel.
+      const colour = item.kind === "TeammateLastKnown" ? squadColour(item.label) : (COLOURS[item.kind] ?? "#8f9ba6");
       const points = item.points;
       if (points.length > 2) {
         context.beginPath();
