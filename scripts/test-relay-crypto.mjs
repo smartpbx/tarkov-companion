@@ -239,6 +239,25 @@ check(
     crypto.desktopOnline({ ownerSeenMs: null, publishedUtc: new Date().toISOString(), nowMs: Date.now() }) === true,
 );
 
+// --- "The relay had a problem", distinct from "the desktop is offline" (#562) -------------------
+check(
+  "a relay fault is said as its own problem, whatever connected/ownerSeenMs say",
+  crypto.desktopStatusMessage({ relayError: true, connected: false, ownerSeenMs: "1000" }) === "The relay had a problem · retrying" &&
+    crypto.desktopStatusMessage({ relayError: true, connected: true, ownerSeenMs: null }) === "The relay had a problem · retrying",
+);
+check(
+  "connected with no relay fault says nothing, so the caller's own live text applies",
+  crypto.desktopStatusMessage({ relayError: false, connected: true, ownerSeenMs: "500" }) === null,
+);
+check(
+  "disconnected with a known silence names how long",
+  crypto.desktopStatusMessage({ relayError: false, connected: false, ownerSeenMs: "42500" }) === "The desktop has not been seen for 43s.",
+);
+check(
+  "disconnected with no reported silence falls back to the plain sentence",
+  crypto.desktopStatusMessage({ relayError: false, connected: false, ownerSeenMs: null }) === "The desktop is offline.",
+);
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`);
   process.exit(1);
