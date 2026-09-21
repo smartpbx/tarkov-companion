@@ -360,12 +360,31 @@
     return Number.isFinite(age) && age < SURFACE_STALE_MS;
   }
 
+  /// [#562] What the tablet says about reaching the desktop, when it cannot: `null` while it can
+  /// (the caller's own "Live · <map>" text applies instead). Production relay 2.0.1303 answered
+  /// every map read with a bare 500 for an hour, and this page said "The desktop is offline" —
+  /// true of the link to the relay, false of the desktop, which was online the whole time and had
+  /// nobody looking at a map that would have said so. A relay fault now reads as its own problem;
+  /// only a relay that is genuinely answering but has not heard from the desktop says the desktop
+  /// itself is the one missing, and says for how long rather than a bare "offline".
+  function desktopStatusMessage({ relayError, connected, ownerSeenMs }) {
+    if (relayError) return "The relay had a problem · retrying";
+    if (connected) return null;
+    const silentFor = Number(ownerSeenMs);
+    if (ownerSeenMs !== null && ownerSeenMs !== undefined && Number.isFinite(silentFor)) {
+      return `The desktop has not been seen for ${Math.max(0, Math.round(silentFor / 1000))}s.`;
+    }
+
+    return "The desktop is offline.";
+  }
+
   return {
     PAYLOAD_KIND,
     DIRECTION,
     DEVICE_DOOR_DOMAIN,
     OWNER_SILENT_MS,
     desktopOnline,
+    desktopStatusMessage,
     ecdsaP1363ToDer,
     deviceDoorChallenge,
     RELAY_AAD_DOMAIN,

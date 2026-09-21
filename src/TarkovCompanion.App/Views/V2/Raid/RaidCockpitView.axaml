@@ -127,7 +127,7 @@
       <Setter Property="MinHeight" Value="32" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="Padding" Value="10,4" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
     </Style>
     <!-- The floating groups fade out a few seconds after the pointer leaves the map when
          "Auto-hide" is on (#388). Purely visual: they stay hit-testable and stay in the
@@ -300,7 +300,7 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
                       <ToggleButton Classes="v2-raid-viewcontrol" Padding="4,2" MinHeight="0" HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Center" FontSize="12"
+                                    HorizontalContentAlignment="Center"
                                     IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
                                     Content="{Binding Label}"
                                     AutomationProperties.AutomationId="{Binding AutomationId}" />
@@ -569,10 +569,16 @@
           <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasQuestObjectives}"
                   AutomationProperties.AutomationId="v2-raid-objectives">
             <StackPanel Spacing="8">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                 <TextBlock Classes="v2-heading-3" Text="Objectives" VerticalAlignment="Center" />
                 <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding QuestObjectiveSummary}"
                            VerticalAlignment="Center" />
+                <!-- [Issue 571] Brings a done objective back on the map and this list, dimmed with a check. -->
+                <ToggleButton Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Show completed"
+                              IsChecked="{Binding ShowCompletedObjectives, Mode=OneWay}"
+                              Command="{Binding ToggleShowCompletedObjectivesCommand}"
+                              AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
+                              ToolTip.Tip="Show objectives already marked done, dimmed with a check" />
               </Grid>
 
               <!-- [Issue 379] After "Place on map" the next right-click on bare map is this objective's
@@ -627,6 +633,10 @@
                           <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding RemoveLabel}"
                                   Command="{Binding RemoveCommand}" IsVisible="{Binding CanRemove}"
                                   AutomationProperties.AutomationId="v2-raid-objective-remove" />
+                          <!-- [Issue 571] "Done" leaves the map and this list at once; "Not done" undoes it. -->
+                          <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding DoneLabel}"
+                                  Command="{Binding ToggleDoneCommand}" IsVisible="{Binding CanToggleDone}"
+                                  AutomationProperties.AutomationId="v2-raid-objective-done" />
                         </WrapPanel>
                         <ItemsControl ItemsSource="{Binding Items}" IsVisible="{Binding HasItems}">
                           <ItemsControl.ItemTemplate>
@@ -656,22 +666,30 @@
                   </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:RaidObjectiveRowViewModel">
-                      <Button Classes="v2-raid-rowbutton" Command="{Binding SelectCommand}"
-                              AutomationProperties.AutomationId="v2-raid-objective-row"
-                              AutomationProperties.Name="{Binding Description}"
-                              ToolTip.Tip="{Binding Task}">
-                        <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}" Padding="8,5">
-                          <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="8">
-                            <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
-                                    HorizontalAlignment="Left">
-                              <TextBlock Classes="v2-label" Text="{Binding Number}" />
-                            </Border>
-                            <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Description}"
-                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
-                          </Grid>
-                        </Border>
-                      </Button>
+                      <!-- [Issue 571] "Done" sits beside the row rather than inside its button, so
+                           marking one done is its own gesture and never also selects the row. -->
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <Button Classes="v2-raid-rowbutton" Command="{Binding SelectCommand}"
+                                AutomationProperties.AutomationId="v2-raid-objective-row"
+                                AutomationProperties.Name="{Binding Description}"
+                                ToolTip.Tip="{Binding Task}">
+                          <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}" Padding="8,5">
+                            <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="8">
+                              <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
+                                      HorizontalAlignment="Left">
+                                <TextBlock Classes="v2-label" Text="{Binding Number}" />
+                              </Border>
+                              <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Description}"
+                                         TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
+                              <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                            </Grid>
+                          </Border>
+                        </Button>
+                        <Button Grid.Column="1" Classes="v2-target v2-raid-viewcontrol" Content="{Binding DoneLabel}"
+                                Command="{Binding ToggleDoneCommand}" IsVisible="{Binding CanToggleDone}"
+                                VerticalAlignment="Center"
+                                AutomationProperties.AutomationId="v2-raid-objective-row-done" />
+                      </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>

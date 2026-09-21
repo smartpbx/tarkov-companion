@@ -339,6 +339,11 @@ public static class AppComposition
         // catalog because a sync replaces the catalog and a note of theirs must outlive it.
         services.AddSingleton<IUserQuestMarkStore>(_ =>
             new JsonFileUserQuestMarkStore(Path.Combine(paths.Config, "user-quest-markers.json"), timeProvider));
+        // [Issue 571] "Done" by hand, on the map or the Objectives list: kept apart from quest
+        // progress on purpose (see HandDoneObjectives.cs), so it survives a restart the same way
+        // the marker above does.
+        services.AddSingleton<IHandDoneObjectiveStore>(_ =>
+            new JsonFileHandDoneObjectiveStore(Path.Combine(paths.Config, "hand-done-objectives.json"), timeProvider));
         // [Issue 318/563] The last verified loot-spawn import's per-map coverage plus its last
         // refresh attempt's own error (if any), for Setup > Data.
         services.AddSingleton(provider => new LootCoverageViewModel(
@@ -749,7 +754,10 @@ public static class AppComposition
             provider.GetRequiredService<IWikiLinkOpener>(),
             // [Issue 379] The player's own objective markers. Named, so another optional parameter
             // added before it cannot quietly take this one's place.
-            userMarkers: provider.GetRequiredService<IUserQuestMarkStore>()));
+            userMarkers: provider.GetRequiredService<IUserQuestMarkStore>(),
+            // [Issue 571] "Done" by hand, and whose profile it belongs to.
+            handDone: provider.GetRequiredService<IHandDoneObjectiveStore>(),
+            profiles: provider.GetRequiredService<IPlayerProfileService>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2

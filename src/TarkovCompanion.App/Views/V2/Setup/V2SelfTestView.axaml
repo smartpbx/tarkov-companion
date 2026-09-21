@@ -53,7 +53,7 @@
     <!-- The provenance under each fact. Quieter than the fact, and always present. -->
     <Style Selector="TextBlock.v2-selftest-source">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="TextBlock.v2-selftest-fact">

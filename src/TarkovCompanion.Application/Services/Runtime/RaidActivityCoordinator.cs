@@ -1,5 +1,6 @@
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Domain.Raids;
@@ -152,7 +153,7 @@ public sealed class RaidActivityCoordinator(
                     var canAdopt = current.State == RaidLifecycleState.InRaid
                         && current.RaidId is not null
                         && previous.RaidId != current.RaidId;
-                    (current, adopted) = await ResumeAsync(state, current, canAdopt, cancellationToken)
+                    (current, adopted) = await ResumeAsync(state, current, canAdopt, evidence, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -192,6 +193,7 @@ public sealed class RaidActivityCoordinator(
         IRaidStateService state,
         RaidSnapshot current,
         bool canAdopt,
+        RaidEvidence evidence,
         CancellationToken cancellationToken)
     {
         try
@@ -207,11 +209,21 @@ public sealed class RaidActivityCoordinator(
                 await RaidLengthAsync(mapId, current.Side, cancellationToken).ConfigureAwait(false));
             foreach (var abandoned in resumption.Close)
             {
+                // The startup replay found the raid itself, unreported and dead: the game is not
+                // running, or the raid began longer ago than any raid lasts. That is a better
+                // account of this row than "closed on restart", and a better end time than now:
+                // the last moment the game session wrote anything (#568).
+                var row = history.FirstOrDefault(raid => raid.Id == abandoned);
+                var lastSeen = evidence.RaidLastSeenUtc is { } seen
+                    && seen <= current.UpdatedUtc
+                    && (row?.StartedUtc is not { } rowStart || seen >= rowStart)
+                        ? seen
+                        : current.UpdatedUtc;
                 await raidHistoryService.EndAsync(
                     abandoned,
-                    current.UpdatedUtc,
-                    RaidClosure.ClosedOnRestartOutcome,
-                    RaidClosure.ClosedOnRestartNotes,
+                    evidence.EndsUnreported ? lastSeen : current.UpdatedUtc,
+                    evidence.EndsUnreported ? RaidClosure.NotReportedOutcome : RaidClosure.ClosedOnRestartOutcome,
+                    evidence.EndsUnreported ? RaidClosure.NotReportedNotes : RaidClosure.ClosedOnRestartNotes,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -502,8 +514,70 @@ public sealed class RaidActivityCoordinator(
             && previous.State == RaidLifecycleState.InRaid
             && current.State is RaidLifecycleState.Menu or RaidLifecycleState.PostRaid)
         {
-            commands.Add(RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null));
+            // An end the game never reported is dated to the raid's own last activity and says
+            // so, instead of reading like a raid that ended normally just now (#568).
+            commands.Add(evidence.EndsUnreported
+                ? NotReported(previousRaidId, previous, evidence.ObservedUtc)
+                : RaidHistoryCommand.EndRaid(previousRaidId, evidence.ObservedUtc, null, null));
         }
+        else if (previous.RaidId is { } displacedRaidId
+            && previous.State == RaidLifecycleState.InRaid
+            && current.State == RaidLifecycleState.InRaid
+            && current.RaidId != displacedRaidId)
+        {
+            // Another raid began while this one was still open, so the game never reported its
+            // end: the process died, or the machine did. Its row used to stay open until the next
+            // restart swept it up, with Debrief showing it in progress all the while.
+            commands.Add(NotReported(displacedRaidId, previous, evidence.ObservedUtc));
+        }
+    }
+
+    private static RaidHistoryCommand NotReported(Guid raidId, RaidSnapshot raid, DateTimeOffset noticedUtc) =>
+        RaidHistoryCommand.EndRaid(
+            raidId,
+            raid.LastActivityUtc is { } last && last <= noticedUtc ? last : noticedUtc,
+            RaidClosure.NotReportedOutcome,
+            RaidClosure.NotReportedNotes);
+
+    /// <summary>
+    /// Ends the open raid as not reported once it has run longer than any raid on its map can.
+    /// </summary>
+    /// <remarks>
+    /// The game writes nothing when its process dies, so without this a raid the player was
+    /// thrown out of stays "In raid" until the next one starts, which may be tomorrow (#568).
+    /// The bound is <see cref="RaidResume"/>'s own: the map's raid length where the catalog has
+    /// it, the longest raid in the game where it does not, plus the same margin.
+    /// </remarks>
+    /// <returns>Whether a raid was ended.</returns>
+    public async Task<bool> ExpireOverdueRaidAsync(CancellationToken cancellationToken)
+    {
+        var raid = raidStateService.Current;
+        if (raid.State != RaidLifecycleState.InRaid || raid.StartedUtc is not { } started)
+        {
+            return false;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        var length = await RaidLengthAsync(raid.MapId, raid.Side, cancellationToken).ConfigureAwait(false);
+        if (now - started <= (length ?? RaidResume.LongestRaid) + RaidResume.Margin)
+        {
+            return false;
+        }
+
+        await ApplyEvidenceAsync(
+            new RaidEvidence(
+                RaidEvidenceKind.LogLine,
+                now,
+                raid.MapId,
+                RaidLifecycleState.PostRaid,
+                new Confidence(0.80),
+                "This raid has run longer than any raid on its map can, so it is over. The game never reported its end.")
+            {
+                EndsUnreported = true,
+                RaidKey = raid.RaidKey,
+            },
+            cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     /// <param name="alreadyRecorded">

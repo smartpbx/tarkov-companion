@@ -12,7 +12,13 @@ public sealed class RaidObjectiveRowViewModel : BindableViewModel
 {
     private bool _isSelected;
 
-    public RaidObjectiveRowViewModel(QuestObjectiveEntry entry, Action<string> select)
+    public RaidObjectiveRowViewModel(
+        QuestObjectiveEntry entry,
+        Action<string> select,
+        // [Issue 571] Marked done, by hand or because progress the app already trusts agrees.
+        // Optional: without a toggle, Done/Not done is simply not offered on this row.
+        bool isDone = false,
+        Action<string>? toggleDone = null)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(select);
@@ -25,6 +31,9 @@ public sealed class RaidObjectiveRowViewModel : BindableViewModel
             ? entry.PlacementLabel
             : $"{entry.PlacementLabel} · {entry.FloorLabel}";
         SelectCommand = new DelegateCommand(() => select(ObjectiveId));
+        IsDone = isDone;
+        CanToggleDone = toggleDone is not null;
+        ToggleDoneCommand = new DelegateCommand(() => toggleDone?.Invoke(ObjectiveId));
     }
 
     public string ObjectiveId { get; }
@@ -50,6 +59,15 @@ public sealed class RaidObjectiveRowViewModel : BindableViewModel
     }
 
     public ICommand SelectCommand { get; }
+
+    /// <summary>[Issue 571] Marked done — hidden by default, dimmed with a check under "Show completed".</summary>
+    public bool IsDone { get; }
+
+    public bool CanToggleDone { get; }
+
+    public string DoneLabel => IsDone ? "Not done" : "Done";
+
+    public ICommand ToggleDoneCommand { get; }
 }
 
 /// <summary>What a selected quest objective is, on the card beside the plan.</summary>
@@ -71,7 +89,11 @@ public sealed class RaidObjectiveDetailViewModel
         // [Issue 379] Put the objective on the map by hand when the catalog has no place for it,
         // or take the player's own marker off again. Null where markers are not offered.
         Action<string>? place = null,
-        Action<string>? remove = null)
+        Action<string>? remove = null,
+        // [Issue 571] Marked done, by hand or because progress the app already trusts agrees.
+        // Optional: without a toggle, Done/Not done is simply not offered.
+        bool isDone = false,
+        Action<string>? toggleDone = null)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ArgumentNullException.ThrowIfNull(nameOfItem);
@@ -107,6 +129,9 @@ public sealed class RaidObjectiveDetailViewModel
         CanRemove = remove is not null && entry.Placement == QuestObjectivePlacement.UserPlaced;
         PlaceCommand = new DelegateCommand(() => place?.Invoke(ObjectiveId));
         RemoveCommand = new DelegateCommand(() => remove?.Invoke(ObjectiveId));
+        IsDone = isDone;
+        CanToggleDone = toggleDone is not null;
+        ToggleDoneCommand = new DelegateCommand(() => toggleDone?.Invoke(ObjectiveId));
     }
 
     public string ObjectiveId { get; }
@@ -178,6 +203,15 @@ public sealed class RaidObjectiveDetailViewModel
     public ICommand OpenWikiCommand { get; }
 
     public ICommand CloseCommand { get; }
+
+    /// <summary>[Issue 571] Marked done — hidden by default, dimmed with a check under "Show completed".</summary>
+    public bool IsDone { get; }
+
+    public bool CanToggleDone { get; }
+
+    public string DoneLabel => IsDone ? "Not done" : "Done";
+
+    public ICommand ToggleDoneCommand { get; }
 
     private static string StatusOf(QuestMapObjectiveReadModel objective)
     {

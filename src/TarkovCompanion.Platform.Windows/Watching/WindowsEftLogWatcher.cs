@@ -12,7 +12,11 @@ public sealed partial class WindowsEftLogWatcher(
     EftLogParser parser,
     IEftLogObserver? observer = null,
     TimeProvider? timeProvider = null,
-    ILogger<WindowsEftLogWatcher>? logger = null) : IEftLogWatcher
+    ILogger<WindowsEftLogWatcher>? logger = null,
+    // Only asked once, at startup, whether the game is running at all: a raid nobody reported
+    // over is not still going if there is no game (#568). Absent means it cannot be asked, and
+    // the other checks decide alone.
+    IGameWindowLocator? gameLocator = null) : IEftLogWatcher
 {
     /// <summary>How often file lengths are re-checked when no change notification arrives.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
@@ -88,7 +92,9 @@ public sealed partial class WindowsEftLogWatcher(
                     var observedUtc = _timeProvider.GetUtcNow();
                     if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
                     {
-                        yield return evidence;
+                        // Which launch of the game wrote it, so a raid beginning in a later
+                        // launch is not mistaken for the one still held open from an earlier one.
+                        yield return evidence with { LogSession = SessionOf(path) };
                     }
 
                     // The party and the flea arrive on the same lines as the raid but describe
@@ -137,35 +143,94 @@ public sealed partial class WindowsEftLogWatcher(
         var files = EnumerateWatched(folder)
             .OrderBy(file => file.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var recovery = new RaidStateService();
+        var replayed = new List<ReplayedRaidLine>();
         foreach (var (path, mode) in files)
         {
-            await ReplayAsync(path, mode, recovery, cancellationToken).ConfigureAwait(false);
+            await ReplayAsync(path, mode, replayed, cancellationToken).ConfigureAwait(false);
         }
 
-        var current = recovery.Current;
-        if (current.State is not (RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid))
+        // Decided from the raid's own id, the game and the clock, not from where a state machine
+        // happened to come to rest: see RaidReplayDecision for what that used to get wrong.
+        var now = _timeProvider.GetUtcNow();
+        var verdict = RaidReplayDecision.Decide(
+            replayed,
+            await GameIsRunningAsync(cancellationToken).ConfigureAwait(false),
+            now);
+        if (verdict.Start is not { } start)
         {
             return null;
         }
 
+        logger?.LogInformation("Startup replay of {Session}: {Reason}", Path.GetFileName(folder), verdict.Reason);
+        var session = SessionOf(files.Length > 0 ? files[0].Path : null);
+        if (!verdict.IsLive)
+        {
+            // Names no state and no map, so the companion starts outside a raid. What it carries
+            // is the instruction to close whatever row a previous run left open for this raid,
+            // as a raid the game never reported over, at the last moment the session wrote.
+            return new RaidEvidence(
+                RaidEvidenceKind.LogLine,
+                now,
+                null,
+                null,
+                start.Confidence,
+                verdict.Reason)
+            {
+                ResumesSession = true,
+                EndsUnreported = true,
+                RaidLastSeenUtc = verdict.LastSeenUtc,
+                LogSession = session,
+            };
+        }
+
         return new RaidEvidence(
             RaidEvidenceKind.LogLine,
-            _timeProvider.GetUtcNow(),
-            current.MapId,
-            current.State,
-            current.Confidence,
-            current.MapId is null
+            now,
+            start.MapId,
+            RaidLifecycleState.InRaid,
+            start.Confidence,
+            start.MapId is null
                 ? "A raid was already running when the companion started."
-                : $"A raid on {current.MapId} was already running when the companion started.")
+                : $"A raid on {start.MapId} was already running when the companion started.")
         {
-            Side = current.Side,
-            SideBasis = current.SideBasis,
+            Side = start.Side,
+            SideBasis = start.SideBasis,
+            RaidKey = start.RaidKey,
+            EventId = start.EventId,
+            LogSession = session,
+            RaidStartedUtc = verdict.StartedUtc,
             // Says that this raid may already have a row. Every other piece of evidence
             // arrives from a line written while this process was watching, so this is the only
             // one where the previous run of the companion could have been recording it.
             ResumesSession = true,
         };
+    }
+
+    /// <summary>Whether the game is running at all, asked through the same seam capture uses.</summary>
+    private async Task<bool> GameIsRunningAsync(CancellationToken cancellationToken)
+    {
+        if (gameLocator is null)
+        {
+            return true;
+        }
+
+        try
+        {
+            return await gameLocator.FindAsync(developerMode: false, cancellationToken).ConfigureAwait(false) is not null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Not being able to look is not evidence that the game is gone.
+            logger?.LogWarning(exception, "Could not tell whether the game is running; assuming it is.");
+            return true;
+        }
+    }
+
+    /// <summary>The game launch a log file belongs to: the name of its session folder.</summary>
+    private static string? SessionOf(string? path)
+    {
+        var folder = path is null ? null : Path.GetFileName(Path.GetDirectoryName(path));
+        return SessionStart(folder) is null ? null : folder;
     }
 
     /// <summary>
@@ -242,7 +307,7 @@ public sealed partial class WindowsEftLogWatcher(
     private async Task ReplayAsync(
         string path,
         LogReadMode mode,
-        RaidStateService recovery,
+        List<ReplayedRaidLine> replayed,
         CancellationToken cancellationToken)
     {
         try
@@ -277,7 +342,12 @@ public sealed partial class WindowsEftLogWatcher(
                 // private state machine works out what the player is in the middle of.
                 if (mode == LogReadMode.Full && parser.ParseLine(line, observedUtc) is { } evidence)
                 {
-                    recovery.Apply(evidence);
+                    // Kept with the time the game wrote it, because the files are replayed one
+                    // after another and are not in time order with each other.
+                    replayed.Add(new(
+                        evidence,
+                        RaidReplayDecision.WrittenUtc(line, _timeProvider.LocalTimeZone),
+                        replayed.Count));
                 }
 
                 Notify(line, observedUtc, mode);

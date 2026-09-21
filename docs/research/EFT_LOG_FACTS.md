@@ -32,8 +32,8 @@ Inside the game's own install directory, not LocalLow and not Documents:
 C:\Battlestate Games\Escape from Tarkov\Logs\log_<stamp>_<version>\<stamp>_<version> <prefix>_000.log
 ```
 
-One folder per game launch. Resolve the newest by last-write time when watching starts, and
-re-resolve when a new folder appears.
+One folder per game launch. The newest is resolved from the folder's own name, which carries the
+launch time, not from last-write time: file times drift when the clock steps, the name cannot.
 
 Eleven file prefixes exist. In a typical folder: `output`, `backend`, `application`,
 `errors`, `network-messages`, `push-notifications`, `network-connection`, `spatial-audio`,
@@ -87,6 +87,33 @@ Map tokens are **not** consistently cased: `bigmap` and `factory4_day` are lower
 `TarkovStreets`, `Woods`, `Interchange`, `Shoreline`, `Sandbox`, `Sandbox_high`, `Lighthouse`
 and `RezervBase` are capitalized. Comparison is case-insensitive, and the token-to-map pairing
 is read from json.tarkov.dev's `nameId` rather than hand-maintained.
+
+## Which raid a line belongs to: `shortId`
+
+Measured on 2026-09-20 over one player's day: 13 game launches (13 log folders), 9 `userConfirmed`,
+8 `userMatchOver`. Deduplicated on `eventId`, as above.
+
+- `userConfirmed`, `userMatchOver` and the `profileStatus` line all carry the game's own short id
+  for the raid (`"shortId":"CX0FLS"` in the notification JSON, `shortId: CX0FLS` on the
+  `profileStatus` line). **Every confirmation paired with an end of the same id, except one**:
+  `CX0FLS`, a Streets raid whose game process died about 110 seconds in. No `userMatchOver` for
+  it exists anywhere. Exit statuses of the eight ends: `Free` x7 and `Transfer` x1. The transfer
+  was a scav raid on Lighthouse, and it did end the raid.
+- **A raid outlives the log folder it started in.** Three of the nine raids were reconnected
+  into after the game or the machine died, and their `userMatchOver` was written one, one and
+  three launches after their `userConfirmed`, under the same id. A reconnect folder holds
+  `LocationLoaded`, `profileStatus` and `GameStarted` and no `userConfirmed` at all. So a newer
+  log folder does **not** by itself mean the raid in the older one is over; a different
+  `shortId` does. The id on a reconnect's `profileStatus` line was redacted in the sample this
+  was measured from, so "the reconnect line repeats the id" is inferred from the end pairing up,
+  not read directly.
+- **There is no shutdown marker.** All 13 folders simply stop, the clean exits included. A log
+  that stops says nothing about whether the game crashed, and nothing may be decided from it.
+
+What may be trusted about a raid nobody reported over: its id has a start and no end; another
+id began after it; the game is not running; it began longer ago than any raid lasts. The
+companion decides on exactly those (`RaidIdentity`, `RaidReplayDecision`, #568) and records such
+a raid with the outcome "Unknown (not reported)", ended at the last moment it showed activity.
 
 ## What is absent, and must not be faked
 

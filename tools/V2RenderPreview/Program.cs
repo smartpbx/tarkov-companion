@@ -911,6 +911,36 @@ internal static class Program
                     }
                 }
 
+                // [Issue 571] Marks an objective done by hand for the render — the same "Done" the
+                // Objectives list offers — so a before/after render can show it leaving the map and
+                // the list without driving a live app through the gesture.
+                if (StringOption(args, "--mark-objective-done") is { } markObjectiveDone)
+                {
+                    var doneRow = raid.QuestObjectives.FirstOrDefault(item => item.Number == markObjectiveDone);
+                    if (doneRow is null)
+                    {
+                        Console.Error.WriteLine($"No objective is numbered '{markObjectiveDone}'.");
+                    }
+                    else if (!doneRow.CanToggleDone)
+                    {
+                        Console.Error.WriteLine("Done is not offered on this row (no hand-done store wired up).");
+                    }
+                    else
+                    {
+                        doneRow.ToggleDoneCommand.Execute(null);
+                        Pump(80);
+                        Console.WriteLine($"Marked done: objective {markObjectiveDone}");
+                    }
+                }
+
+                // [Issue 571] Brings every done objective back, dimmed with a check, the same as
+                // pressing "Show completed" on the Objectives card.
+                if (args.Contains("--show-completed-objectives"))
+                {
+                    raid.ShowCompletedObjectives = true;
+                    Pump(40);
+                }
+
                 // [Issue 508] Waypoints (and a ping) on the raid map, so a render can show pins
                 // next to quest objectives. --seed-marks N drops N waypoints spread across the
                 // plan and one ping; --seed-marks-collide additionally drops two more waypoints
@@ -1249,6 +1279,18 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
+                        break;
+                    // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
+                    // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
+                    // own Allow/Deny row does, so putting it into this state here proves it shows
+                    // up on whatever --route is rendered, not only team/tablet.
+                    case "control-requested":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.",
+                            devices: [DemoPairedDevice("Kitchen tablet")],
+                            controlRequestMessage: "Kitchen tablet is asking to control this desktop.");
                         break;
                     default:
                         throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");

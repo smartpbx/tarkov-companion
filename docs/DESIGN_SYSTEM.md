@@ -86,7 +86,7 @@ view; `V2Icons.axaml` holds the outline icon geometry those pages draw.
 | Colour | canvas, surface, surfaceRaised, textPrimary, textSecondary, border, action, focus, success, warning, danger, info, unknown |
 | Chart | series1–series4, each also identified by an outline pattern (solid, dashed, dotted, dash-dot) |
 | Map | historical, modelled, manual, unavailable, each with a wording key and a pattern |
-| Type | heading1 28/36, heading2 22/28, heading3 18/24, body 16/24, label 14/20 DIP; nothing below 14 |
+| Type | display 32/40, heading1 24/32, heading2 20/26, heading3 16/22, body 14/20, label 12/18 DIP; nothing below 12 at 100% (#574 took the ramp one step down for a 1080p second screen) |
 | Space | xs 4, sm 8, md 12, lg 16, xl 24 DIP, each as a gap (double) and an inset (Thickness) |
 | Shape | control 6, card 10 DIP radius, each as a `CornerRadius` for a Border and a double for a Rectangle |
 | Elevation | flat, raised, dialog shadows; empty in high contrast, and never a substitute for a border |

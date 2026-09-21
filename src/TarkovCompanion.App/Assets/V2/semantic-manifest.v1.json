@@ -10,7 +10,7 @@
     "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
     "chart": ["series1", "series2", "series3", "series4"],
     "map": ["historical", "modelled", "manual", "unavailable"],
-    "type": ["heading1", "heading2", "heading3", "body", "label"],
+    "type": ["display", "heading1", "heading2", "heading3", "body", "label"],
     "space": ["xs", "sm", "md", "lg", "xl"],
     "shape": ["control", "card"],
     "elevation": ["flat", "raised", "dialog"],
