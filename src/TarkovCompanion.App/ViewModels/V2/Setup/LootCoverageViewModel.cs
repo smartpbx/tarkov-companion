@@ -1,6 +1,7 @@
 using System.Globalization;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
@@ -18,14 +19,21 @@ public sealed class LootCoverageViewModel : BindableViewModel
 {
     private readonly ILootSpawnSourcePublicationStore _store;
     private readonly Func<IReadOnlyList<MapLocation>> _locations;
+    // [Issue 563] Optional: only the runtime source (not the durable store) knows about a refresh
+    // attempt that quarantined and published nothing. Null in call sites that predate it.
+    private readonly IHighValueLootRuntimeSource? _runtimeSource;
     private IReadOnlyList<LootCoverageRowViewModel> _rows = [];
     private string _status = "Not measured yet.";
     private int _generation;
 
-    public LootCoverageViewModel(ILootSpawnSourcePublicationStore store, Func<IReadOnlyList<MapLocation>> locations)
+    public LootCoverageViewModel(
+        ILootSpawnSourcePublicationStore store,
+        Func<IReadOnlyList<MapLocation>> locations,
+        IHighValueLootRuntimeSource? runtimeSource = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _locations = locations ?? throw new ArgumentNullException(nameof(locations));
+        _runtimeSource = runtimeSource;
     }
 
     public string Title => "Loot spawns on the map";
@@ -59,7 +67,10 @@ public sealed class LootCoverageViewModel : BindableViewModel
             var bundle = await _store.ReadLastKnownGoodAsync(cancellationToken).ConfigureAwait(true);
             if (bundle is null)
             {
-                Publish(generation, "No loot-spawn data imported yet. It arrives with the next data sync.", []);
+                Publish(
+                    generation,
+                    "No loot-spawn data imported yet. It arrives with the next data sync." + LastErrorNote(),
+                    []);
                 return;
             }
 
@@ -76,7 +87,9 @@ public sealed class LootCoverageViewModel : BindableViewModel
                 generation,
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{positioned:N0} of {published:N0} published spawn records have a position · data through {bundle.Identity.DataThroughUtc:yyyy-MM-dd}."),
+                    $"{positioned:N0} of {published:N0} published spawn records have a position · " +
+                    $"data through {LocalTime.Date(bundle.Identity.DataThroughUtc)} · " +
+                    $"imported {LocalTime.Date(bundle.Identity.ImportedUtc)}.") + LastErrorNote(),
                 rows);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -94,6 +107,27 @@ public sealed class LootCoverageViewModel : BindableViewModel
 
         Status = status;
         Rows = rows;
+    }
+
+    /// <summary>
+    /// " Last import attempt failed (&lt;when&gt;): &lt;reason&gt;." when the most recent refresh did not
+    /// publish, else empty. [Issue 563] A quarantined refresh used to leave no trace here at all;
+    /// this is the "last error" Setup > Data now shows beside the migration/backup card.
+    /// </summary>
+    private string LastErrorNote()
+    {
+        if (_runtimeSource?.LastRefreshOutcome is not { } outcome ||
+            outcome.Disposition is LootSpawnSourceImportDisposition.Published or LootSpawnSourceImportDisposition.PublishedPartial)
+        {
+            return string.Empty;
+        }
+
+        var reason = outcome.Diagnostics.Count > 0
+            ? outcome.Diagnostics[0].Detail
+            : "the refresh did not publish a usable snapshot.";
+        return string.Create(
+            CultureInfo.CurrentCulture,
+            $" Last import attempt failed ({LocalTime.Moment(outcome.AttemptedUtc)}): {reason}");
     }
 
     /// <summary>"812 of 900 positioned · 610 on a known floor · 88 map-only · 41 left out", leaving out what is zero.</summary>

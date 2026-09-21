@@ -735,6 +735,8 @@ public sealed class ApplicationStartupCoordinatorTests
     {
         public LootSpawnSourceBundle? LastKnownGood => null;
 
+        public LootSpawnSourceRefreshOutcome? LastRefreshOutcome => null;
+
         public bool NeedsRefreshResult { get; init; }
 
         public int InitializeCalls { get; private set; }

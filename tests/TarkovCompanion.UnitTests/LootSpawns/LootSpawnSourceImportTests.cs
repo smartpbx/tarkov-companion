@@ -89,6 +89,63 @@ public sealed class LootSpawnSourceImportTests
         Assert.Contains("No loot-spawn data imported yet", without.Status, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Setup_names_the_last_refresh_error_when_nothing_was_ever_published()
+    {
+        // [Issue 563] A quarantined refresh used to leave no trace in Setup > Data: the section
+        // read only the durable store, which a quarantine never touches. It now also reads the
+        // runtime source's own last-attempt outcome.
+        var runtimeSource = new FakeRuntimeSource(new(
+            new(2026, 9, 21, 3, 0, 0, TimeSpan.Zero),
+            LootSpawnSourceImportDisposition.QuarantinedRetainedLastKnownGood,
+            [new("source.refresh-failed", "The production source refresh failed.")]));
+        var coverage = new TarkovCompanion.App.ViewModels.V2.Setup.LootCoverageViewModel(
+            new FakeStore(null),
+            () => [],
+            runtimeSource);
+
+        await coverage.RefreshAsync();
+
+        Assert.Contains("No loot-spawn data imported yet", coverage.Status, StringComparison.Ordinal);
+        Assert.Contains("Last import attempt failed", coverage.Status, StringComparison.Ordinal);
+        Assert.Contains("The production source refresh failed.", coverage.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Setup_says_nothing_extra_about_the_last_attempt_when_it_published()
+    {
+        var bundle = await ReadAsync(Documents());
+        var runtimeSource = new FakeRuntimeSource(new(
+            new(2026, 9, 21, 3, 0, 0, TimeSpan.Zero),
+            LootSpawnSourceImportDisposition.Published,
+            []));
+        var coverage = new TarkovCompanion.App.ViewModels.V2.Setup.LootCoverageViewModel(
+            new FakeStore(bundle),
+            () => [],
+            runtimeSource);
+
+        await coverage.RefreshAsync();
+
+        Assert.DoesNotContain("Last import attempt failed", coverage.Status, StringComparison.Ordinal);
+    }
+
+    private sealed class FakeRuntimeSource(LootSpawnSourceRefreshOutcome outcome) : IHighValueLootRuntimeSource
+    {
+        public LootSpawnSourceBundle? LastKnownGood => null;
+
+        public LootSpawnSourceRefreshOutcome? LastRefreshOutcome => outcome;
+
+        public bool NeedsRefresh(DateTimeOffset evaluatedUtc, TimeSpan freshFor) => false;
+
+        public ValueTask InitializeAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public ValueTask RefreshAsync(bool force, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+        public HighValueLootLayerResult Build(
+            HighValueLootRuntimeLayerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     private sealed class FakeStore(LootSpawnSourceBundle? bundle) : ILootSpawnSourcePublicationStore
     {
         public ValueTask<LootSpawnSourceBundle?> ReadLastKnownGoodAsync(CancellationToken cancellationToken) => ValueTask.FromResult(bundle);

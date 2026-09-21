@@ -339,10 +339,12 @@ public static class AppComposition
         // catalog because a sync replaces the catalog and a note of theirs must outlive it.
         services.AddSingleton<IUserQuestMarkStore>(_ =>
             new JsonFileUserQuestMarkStore(Path.Combine(paths.Config, "user-quest-markers.json"), timeProvider));
-        // [Issue 318] The last verified loot-spawn import's per-map coverage, for Setup > Data.
+        // [Issue 318/563] The last verified loot-spawn import's per-map coverage plus its last
+        // refresh attempt's own error (if any), for Setup > Data.
         services.AddSingleton(provider => new LootCoverageViewModel(
             provider.GetRequiredService<ILootSpawnSourcePublicationStore>(),
-            () => provider.GetRequiredService<MapViewModel>().Locations));
+            () => provider.GetRequiredService<MapViewModel>().Locations,
+            provider.GetRequiredService<IHighValueLootRuntimeSource>()));
         services.AddSingleton(provider => new QuestCoverageViewModel(
             provider.GetRequiredService<IQuestCatalog>(),
             provider.GetRequiredService<IUserQuestMarkStore>(),
