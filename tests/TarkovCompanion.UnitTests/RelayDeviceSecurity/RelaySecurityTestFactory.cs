@@ -93,9 +93,12 @@ internal static class RelaySecurityTestFactory
         CompanionDeviceId? deviceId = null,
         DeviceSessionId? sessionId = null,
         RelayChannelId? channelId = null,
-        long keyEpoch = 1)
+        long keyEpoch = 1,
+        IDesktopIdentitySigner? desktop = null)
     {
-        using var signer = new TestSigner();
+        // [#553] A registered desktop's registry takes only a pairing its own key signed.
+        using var standIn = new TestSigner();
+        var signer = desktop ?? standIn;
         using var desktopEphemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         using var tabletEphemeral = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         var attemptId = new PairingAttemptId(Guid.NewGuid());

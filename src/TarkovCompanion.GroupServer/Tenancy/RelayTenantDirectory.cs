@@ -360,6 +360,17 @@ public sealed class RelayTenantDirectory
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            // A tablet pins the identity key that signed its pairing, so a pairing belongs to the
+            // desktop whose key that is. The legacy registry predates the check and an older
+            // desktop's tests register pairings signed by a stand-in; a registered desktop's
+            // registry takes only what that desktop signed.
+            if (!tenant.IsLegacy &&
+                (tenant.Registry.RecordedOwner() is not { } desktop ||
+                 !PairingCryptography.IsSameKey(desktop.DeviceKey, completedPairing.Offer.DesktopIdentityKey)))
+            {
+                return RelayMutationResult<RelaySessionCredential>.Reject("pairing-not-this-desktop");
+            }
+
             if (completedPairing.Establishment is { } establishment &&
                 _tenants.Any(other => other != tenant && other.Registry.HoldsIdentityOf(establishment)))
             {
