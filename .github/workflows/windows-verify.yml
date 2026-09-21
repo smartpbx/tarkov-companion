@@ -581,6 +581,99 @@ jobs:
           }
           exit $Process.ExitCode
 
+      # An update, really applied. #599: four builds in a row were downloaded on the owner's PC
+      # and none replaced the one running, and nothing here could have noticed, because this
+      # workflow installed a build and never updated one. So: pack the same binaries again as
+      # the next version, put that in a local feed, and have the installed application update
+      # itself to it through the same gateway and hand-over as the button on Setup.
+      #
+      # Started standing in current\, which is where both shortcuts start it, and the probe
+      # leaves a child running that inherits its working directory. A process standing in
+      # current\ is what made the folder immovable, so this passes only if the application
+      # left the install folder before it started anything.
+      - name: Update the installed application to the next version
+        id: update-applies
+        continue-on-error: true
+        timeout-minutes: 8
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Parts = $env:TARKOV_BUILD_VERSION.Split(".")
+          $Parts[-1] = [string]([int]$Parts[-1] + 1)
+          $Next = $Parts -join "."
+          "Packing $Next from the binaries that were installed as $env:TARKOV_BUILD_VERSION."
+
+          # Under the runner's temporary folder, not dist/: nothing of this may be published.
+          $NextDir = Join-Path $env:RUNNER_TEMP "win-x64-next"
+          $NextPack = Join-Path $env:RUNNER_TEMP "velopack-next"
+          Copy-Item -LiteralPath "artifacts/win-x64" -Destination $NextDir -Recurse
+          $BuildInfo = Join-Path $NextDir "BUILD_INFO.txt"
+          # Written without a byte-order mark, which Set-Content -Encoding utf8 would add here.
+          $Lines = @((Get-Content -LiteralPath $BuildInfo) -replace '^version=.+$', "version=$Next")
+          [System.IO.File]::WriteAllLines($BuildInfo, [string[]]$Lines, (New-Object System.Text.UTF8Encoding $false))
+          & $env:VPK_PATH pack --packId TarkovCompanionDesktop --packVersion $Next --packDir $NextDir `
+            --mainExe TarkovCompanion.exe --packTitle "Tarkov Companion" --packAuthors "Clayton Mannerow" `
+            --icon (Join-Path $NextDir "Assets/TarkovCompanion.ico") --outputDir $NextPack
+          if ($LASTEXITCODE -ne 0) { throw "Packing the next version failed." }
+          $Feed = Join-Path $env:RUNNER_TEMP "rough-channel-next"
+          python scripts/release/rough_channel.py stage --velopack $NextPack --output $Feed --expect-version $Next
+          if ($LASTEXITCODE -ne 0) { throw "Staging the next version's feed failed." }
+
+          $Current = Split-Path -Parent $env:TC_INSTALLED
+          $Report = Join-Path $env:GITHUB_WORKSPACE "verification/update-applies.json"
+          $env:TARKOV_UPDATE_FEED = $Feed
+          # Not -Wait: that waits for every descendant, and the updater and the reopened
+          # application are descendants. The probe ends itself with TerminateProcess, so its exit
+          # code is not a verdict either; the folder is.
+          $Probe = Start-Process -FilePath $env:TC_INSTALLED -WorkingDirectory $Current -PassThru `
+            -ArgumentList @("--apply-update-and-exit", "--output", $Report)
+          if (-not $Probe.WaitForExit(120000)) {
+            Stop-Process -Id $Probe.Id -Force -ErrorAction SilentlyContinue
+            throw "The application was still running two minutes after it was asked to update."
+          }
+          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report }
+
+          function Get-InstalledVersion {
+            $Path = Join-Path $Current "BUILD_INFO.txt"
+            if (-not (Test-Path -LiteralPath $Path)) { return $null }
+            foreach ($Line in Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue) {
+              if ($Line -match '^version=(?<value>.+)$') { return $Matches.value }
+            }
+            return $null
+          }
+
+          # The updater gives up after ten one-second retries, so ninety seconds covers
+          # extracting the package and either verdict.
+          $Deadline = (Get-Date).AddSeconds(90)
+          $Reopened = $null
+          while ((Get-Date) -lt $Deadline) {
+            $Reopened = Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
+              Select-Object -First 1
+            if ($Reopened) { break }
+            Start-Sleep -Seconds 2
+          }
+          $Applied = Get-InstalledVersion
+
+          # Tidy up before the verdict, so a failure does not leave a window and a ping behind
+          # for the steps that follow.
+          Get-Process -Name "TarkovCompanion" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($Current, [StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          if (Test-Path -LiteralPath $Report) {
+            $Bystander = (Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json).bystanderPid
+            if ($Bystander) { Stop-Process -Id $Bystander -Force -ErrorAction SilentlyContinue }
+          }
+
+          if ($Applied -cne $Next) {
+            $Log = Join-Path $env:LOCALAPPDATA "velopack/velopack_TarkovCompanionDesktop.log"
+            if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 40 }
+            throw "The update did not apply: current\BUILD_INFO.txt says '$Applied', and '$Next' was downloaded and handed to the updater."
+          }
+          if (-not $Reopened) { throw "The update applied but the application did not reopen from current\ within ninety seconds." }
+          if (-not (Test-Path -LiteralPath $env:TC_MARKER)) { throw "Updating destroyed the existing application data marker." }
+          "Updated $env:TARKOV_BUILD_VERSION to $Next, the application reopened from current\, and the data marker is intact."
+
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
         continue-on-error: true
@@ -631,6 +724,7 @@ jobs:
             "self-test-warm" = "${{ steps.self-test-warm.outcome }}"
             "install" = "${{ steps.install.outcome }}"
             "self-test-installed" = "${{ steps.self-test-installed.outcome }}"
+            "update-applies" = "${{ steps.update-applies.outcome }}"
             "developer-smoke" = "${{ steps.developer-smoke.outcome }}"
           }
 

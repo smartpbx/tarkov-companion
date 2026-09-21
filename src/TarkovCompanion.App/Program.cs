@@ -100,6 +100,11 @@ internal static class Program
                 Console.Error.WriteLine($"Ignoring '{unknown}': this build does not have that option.");
             }
 
+            if (options.ApplyUpdateAndExit)
+            {
+                return UpdateApplyProbe.Run(options);
+            }
+
             if (options.SelfTest)
             {
                 if (string.IsNullOrWhiteSpace(options.OutputPath))
@@ -211,6 +216,7 @@ internal static class Program
     /// <summary>Whether this is a player starting the companion, rather than a tool running it.</summary>
     private static bool IsOrdinaryLaunch(AppCommandLine options) =>
         !options.SelfTest
+        && !options.ApplyUpdateAndExit
         && !options.Headless
         && !options.Demo
         && !options.DeveloperMode
