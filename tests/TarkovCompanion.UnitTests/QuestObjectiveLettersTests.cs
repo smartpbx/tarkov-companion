@@ -89,3 +89,87 @@ public sealed class QuestObjectiveLettersTests
     public void Anything_that_is_not_one_of_its_own_letters_counts_as_nothing_that_came_before(string? notALetter) =>
         Assert.Equal(0, QuestObjectiveLetters.IndexFor(notALetter));
 }
+
+/// <summary>
+/// Issue 571: a raid's objective letters are decided once and kept, so removing the middle one —
+/// by hand, or because the game reported its quest done — never turns C into B while the player
+/// is looking at the map.
+/// </summary>
+public sealed class QuestObjectiveLetterAssignmentTests
+{
+    [Fact]
+    public void The_same_objective_asked_twice_keeps_its_first_letter()
+    {
+        var letters = new QuestObjectiveLetterAssignment();
+
+        var first = letters.LetterFor("objective-a");
+        var second = letters.LetterFor("objective-a");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void Removing_the_middle_one_does_not_relabel_the_ones_still_on_the_map()
+    {
+        var letters = new QuestObjectiveLetterAssignment();
+        var a = letters.LetterFor("objective-a");
+        var b = letters.LetterFor("objective-b");
+        var c = letters.LetterFor("objective-c");
+
+        // "objective-b" leaves the map (done, or its quest no longer active) and is never asked
+        // for again this raid — the survivors are asked for again, as a rebuild would ask them.
+        var aAgain = letters.LetterFor("objective-a");
+        var cAgain = letters.LetterFor("objective-c");
+
+        Assert.Equal(a, aAgain);
+        Assert.Equal(c, cAgain);
+        Assert.Equal("A", a);
+        Assert.Equal("B", b);
+        Assert.Equal("C", c);
+    }
+
+    [Fact]
+    public void A_new_objective_gets_the_next_free_letter_not_a_removed_ones()
+    {
+        var letters = new QuestObjectiveLetterAssignment();
+        letters.LetterFor("objective-a");
+        letters.LetterFor("objective-b");
+        letters.LetterFor("objective-c");
+
+        // "objective-b" is gone; a genuinely new objective (a fourth quest picked up mid-raid)
+        // must never be handed its now-unused letter, or two different objectives would have
+        // been called "B" during the same raid.
+        var added = letters.LetterFor("objective-d");
+
+        Assert.Equal("D", added);
+    }
+
+    [Fact]
+    public void More_than_twenty_six_objectives_roll_over_to_two_letters_like_the_scheme_itself()
+    {
+        var letters = new QuestObjectiveLetterAssignment();
+        var assigned = Enumerable.Range(0, 30)
+            .Select(index => letters.LetterFor($"objective-{index}"))
+            .ToArray();
+
+        Assert.Equal("Z", assigned[25]);
+        Assert.Equal("AA", assigned[26]);
+        Assert.Equal("AD", assigned[29]);
+        Assert.Equal(assigned.Length, assigned.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public void Reset_starts_a_new_raids_alphabet_over()
+    {
+        var letters = new QuestObjectiveLetterAssignment();
+        letters.LetterFor("objective-a");
+        letters.LetterFor("objective-b");
+
+        letters.Reset();
+
+        // A different raid could easily place a wholly different objective first; what matters is
+        // that the alphabet starts at "A" again rather than continuing from where the last raid
+        // left off.
+        Assert.Equal("A", letters.LetterFor("objective-z"));
+    }
+}
