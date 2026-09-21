@@ -71,6 +71,17 @@ internal static class Program
             File.Copy(seedDatabase, Path.Combine(databaseDirectory, "tarkov-companion.db"));
         }
 
+        // [Issue 563] --seed-loot-cache copies a real durable loot-spawn publication.cache (the
+        // exact file HighValueLootRuntimeSource reads on startup) into the throwaway data root, so
+        // a render can show the high-value loot layer with real spawns instead of only its
+        // no-data state.
+        if (StringOption(args, "--seed-loot-cache") is { } seedLootCache)
+        {
+            var lootCacheDirectory = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Cache, "LootSpawns");
+            Directory.CreateDirectory(lootCacheDirectory);
+            File.Copy(seedLootCache, Path.Combine(lootCacheDirectory, "publication.cache"));
+        }
+
         MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
         MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
         try
@@ -1319,6 +1330,15 @@ internal static class Program
                         $"No routed extract matches '{routeExtract}'. Routed: " +
                         string.Join(", ", routedRaid.MapExtracts.Where(row => row.HasEstimate).Select(row => row.Name)));
                 }
+            }
+
+            // [Issue 563] Press "High-value loot only" the way the gem button on the map does, so
+            // a render can show what it leaves on the map with and without loot-spawn data.
+            if (args.Contains("--loot-preset") &&
+                shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel lootPresetRaid)
+            {
+                lootPresetRaid.Renderer?.HighValueLootPresetCommand.Execute(null);
+                Pump(40);
             }
 
             // #286: the Corrections card as a player leaves it: a side and a time left set by hand,

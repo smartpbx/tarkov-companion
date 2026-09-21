@@ -704,13 +704,15 @@ public sealed class MapSceneRendererViewModelTests
     [Fact]
     public void High_value_preset_keeps_a_visible_host_selected_context_layer()
     {
+        // [Issue 563] A present-but-empty result (not Unavailable): the preset's job here is
+        // dispatch mechanics (preserved layers), which only run when there is data to switch to.
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
             "customs",
             "transform-1",
             HighValueLootFilter.Default,
-            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
-            "Potential spawns · Data unavailable",
+            new(ResultCompleteness.Complete, FreshnessState.Current),
+            "Potential spawns · Ready",
             null,
             null,
             [],
@@ -753,13 +755,15 @@ public sealed class MapSceneRendererViewModelTests
     [Fact]
     public void High_value_preset_stops_after_an_owner_republishes_the_rejected_revision()
     {
+        // [Issue 563] Present-but-empty, not Unavailable: this exercises the conflict/rejection
+        // dispatch path, which only runs once there is data for the preset to switch to.
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
             "customs",
             "transform-1",
             HighValueLootFilter.Default,
-            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
-            "Potential spawns · Data unavailable",
+            new(ResultCompleteness.Complete, FreshnessState.Current),
+            "Potential spawns · Ready",
             null,
             null,
             [],
@@ -788,13 +792,15 @@ public sealed class MapSceneRendererViewModelTests
     [Fact]
     public void High_value_preset_keeps_earlier_steps_when_a_later_step_is_rejected()
     {
+        // [Issue 563] Present-but-empty, not Unavailable: this exercises the multi-step rejection
+        // dispatch path, which only runs once there is data for the preset to switch to.
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
             "customs",
             "transform-1",
             HighValueLootFilter.Default,
-            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
-            "Potential spawns · Data unavailable",
+            new(ResultCompleteness.Complete, FreshnessState.Current),
+            "Potential spawns · Ready",
             null,
             null,
             [],
@@ -825,6 +831,47 @@ public sealed class MapSceneRendererViewModelTests
         Assert.True(IsVisible(renderer, new("hazards")));
         Assert.Contains("Earlier layer changes remain applied", renderer.RendererNotice,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void High_value_preset_with_no_snapshot_hides_nothing_and_names_the_reason()
+    {
+        // [Issue 563] "i click the high value loot only button ... all the names of places
+        // dissappear from the map, no loot shows up tho either": with no last-known-good
+        // snapshot the preset used to hide every other marker layer anyway, leaving a map with
+        // nothing on it. It must now leave every layer exactly as it was and say why instead.
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
+            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "snapshot.missing"),
+            "Potential spawns · Data unavailable",
+            null,
+            null,
+            [],
+            [],
+            [new(
+                HighValueLootDiagnosticKind.SnapshotUnavailable,
+                "snapshot.missing",
+                "No last-known-good loot-spawn snapshot is available.")]);
+        var scene = Scene(includeHighValueLoot: true);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            highValueLoot: result);
+        var dispatched = new List<MapSceneViewChange>();
+        renderer.ViewChangeRequested += dispatched.Add;
+
+        renderer.HighValueLootPresetCommand.Execute(null);
+
+        Assert.Empty(dispatched);
+        Assert.True(IsVisible(renderer, new("extracts")));
+        Assert.True(IsVisible(renderer, new("hazards")));
+        Assert.True(IsVisible(renderer, new("estimates")));
+        Assert.False(IsVisible(renderer, HighValueLootLayerService.LayerId));
+        Assert.Contains("No loot spawn data yet", renderer.RendererNotice, StringComparison.Ordinal);
+        Assert.Contains("No last-known-good loot-spawn snapshot is available.", renderer.RendererNotice, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -969,8 +1016,12 @@ public sealed class MapSceneRendererViewModelTests
 
         Assert.Empty(loot.AllEntries);
         Assert.True(loot.ShowsEmpty);
+        Assert.True(loot.IsUnavailable);
         Assert.Contains("Offline", loot.Legend, StringComparison.Ordinal);
-        Assert.Contains("unavailable", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
+        // [Issue 563] "No loot spawn data yet" plus the source's own reason, not a bare
+        // "unavailable" with nothing the player can act on.
+        Assert.Contains("No loot spawn data yet", loot.StateMessage, StringComparison.Ordinal);
+        Assert.Contains("offline", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(renderer.Layers, layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
     }
 

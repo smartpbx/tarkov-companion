@@ -25,6 +25,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     private readonly MapSceneRendererPresentation _presentation;
     private readonly Action<HighValueLootLayerFilterState> _requestFilter;
     private readonly Action<HighValueLootEntry> _select;
+    private readonly Action _requestRefresh;
     private HighValueLootLayerResult _result;
     private HighValueLootLayerFilterState _filterState;
     private IReadOnlyList<string> _availableCategories;
@@ -42,13 +43,16 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         bool isLayerVisible,
         MapSceneRendererPresentation presentation,
         Action<HighValueLootLayerFilterState> requestFilter,
-        Action<HighValueLootEntry> select)
+        Action<HighValueLootEntry> select,
+        Action? requestRefresh = null)
     {
         _result = result ?? throw new ArgumentNullException(nameof(result));
         _filterState = filterState ?? throw new ArgumentNullException(nameof(filterState));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         _requestFilter = requestFilter ?? throw new ArgumentNullException(nameof(requestFilter));
         _select = select ?? throw new ArgumentNullException(nameof(select));
+        _requestRefresh = requestRefresh ?? (() => { });
+        RefreshCommand = new DelegateCommand(() => _requestRefresh());
         (_availableCategories, _categoryOptionsTruncated) = NormalizeOptions(
             availableCategories ?? CategoriesFrom(result),
             ActiveSingleCategory(filterState));
@@ -72,6 +76,29 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public bool HasEntries => Rows.Count > 0;
     public bool ShowsEmpty => _isLayerVisible && !HasEntries;
     public string EmptyMessage => Text("Map.Loot.Empty");
+    /// <summary>
+    /// True when there is no last-known-good loot-spawn snapshot to draw at all (as opposed to
+    /// one that is present but filtered to nothing). [Issue 563] "High-value loot only" checks
+    /// this before hiding anything else, and the Raid page uses it to surface a Refresh action.
+    /// </summary>
+    public bool IsUnavailable => _result.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable;
+    /// <summary>
+    /// "No loot spawn data yet · &lt;reason&gt;", independent of whether the layer switch itself
+    /// is on. [Issue 563] The preset turns this layer on as one of its steps, so a notice fired
+    /// from the preset button before that step lands must not say "off" when the real reason is
+    /// that there is nothing published to switch on.
+    /// </summary>
+    public string NoDataMessage
+    {
+        get
+        {
+            var reason = _result.Diagnostics.Count > 0
+                ? _result.Diagnostics[0].Explanation
+                : Text("Map.Loot.NoDataReasonUnknown");
+            return Format("Map.Loot.NoDataYet", reason);
+        }
+    }
+    public ICommand RefreshCommand { get; }
     public string ValueBasisLabel => Text("Map.Loot.ValueBasis");
     public string MinimumTierLabel => Text("Map.Loot.MinimumTier");
     public string ProfileRelevanceLabel => Text("Map.Loot.ProfileRelevance");
@@ -309,9 +336,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
             return Text("Map.Loot.LayerOff");
         }
 
-        if (_result.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable)
+        if (IsUnavailable)
         {
-            return Text("Map.Loot.Unavailable");
+            return NoDataMessage;
         }
 
         if (_result.Entries.Count == 0)
@@ -444,7 +471,7 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                      nameof(CategoryChoices), nameof(FloorChoices), nameof(HasCategoryOptionsNotice),
                      nameof(HasFloorOptionsNotice), nameof(CategoryOptionsNotice), nameof(FloorOptionsNotice),
                      nameof(HasMultipleCategoryFilter), nameof(MultipleCategoryFilterMessage),
-                     nameof(Rows), nameof(HasEntries),
+                     nameof(Rows), nameof(HasEntries), nameof(IsUnavailable), nameof(NoDataMessage),
                      nameof(ShowsEmpty), nameof(FilteredCount), nameof(PageCount), nameof(PageNumber),
                      nameof(PageLabel), nameof(CanGoToPreviousPage), nameof(CanGoToNextPage),
                  })

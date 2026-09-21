@@ -1104,7 +1104,10 @@
           <Panel DataContext="{Binding Renderer}">
           <Border x:DataType="mapVm:MapSceneRendererViewModel" Classes="v2-card v2-raid-section" Padding="4"
                   IsVisible="{Binding HasHighValueLoot}">
-          <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch" IsExpanded="False">
+          <!-- [Issue 563] Opens on its own with no data, so "no loot shows up" has a visible
+               reason and a Refresh action instead of staying collapsed behind "loot filters". -->
+          <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch"
+                    IsExpanded="{Binding HighValueLoot.IsUnavailable, Mode=OneWay}">
             <Expander.Header>
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <Viewbox Width="20" Height="20">
@@ -1117,7 +1120,16 @@
               <ContentControl.ContentTemplate>
                 <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
                   <StackPanel Classes="v2-stack">
-                    <TextBlock Classes="v2-label" Text="{Binding StateMessage}" TextWrapping="Wrap" />
+                    <!-- [Issue 563] Independent of whether the layer switch itself is on: the
+                         card opens on IsUnavailable, so its own first line must always match. -->
+                    <TextBlock Classes="v2-label" Text="{Binding NoDataMessage}" TextWrapping="Wrap"
+                               IsVisible="{Binding IsUnavailable}" />
+                    <TextBlock Classes="v2-label" Text="{Binding StateMessage}" TextWrapping="Wrap"
+                               IsVisible="{Binding !IsUnavailable}" />
+                    <Button Classes="v2-target" Content="Refresh" Command="{Binding RefreshCommand}"
+                            IsVisible="{Binding IsUnavailable}"
+                            AutomationProperties.AutomationId="v2-raid-loot-refresh"
+                            AutomationProperties.Name="Refresh loot spawn data" />
                     <!-- [Issue 318] What this map's loot data covers, and how old it is. The label was
                          computed and bound only in the renderer's own side panel, which this page hides,
                          so a player on the Raid page never saw it. -->

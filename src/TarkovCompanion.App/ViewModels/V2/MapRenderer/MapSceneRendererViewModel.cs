@@ -197,7 +197,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 IsLayerVisible(highValueLoot.Layer.Id),
                 presentation,
                 RequestHighValueLootFilter,
-                SelectHighValueLootEntry);
+                SelectHighValueLootEntry,
+                RequestHighValueLootRefresh);
             HighValueLoot.ProjectionChanged += HighValueLootProjectionChanged;
         }
         RebuildAll();
@@ -208,6 +209,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     /// <summary>The owner rebuilds the typed layer and canonical scene for this request.</summary>
     public event Action<HighValueLootFilterRequest>? HighValueLootFilterRequested;
+
+    /// <summary>
+    /// [Issue 563] The player asked to refresh loot-spawn data from the "no data yet" state,
+    /// either from the preset button or the loot panel's own Refresh action. The owner (the Raid
+    /// workspace) runs the actual import and rebuilds the scene; this view model owns no I/O.
+    /// </summary>
+    public event Action? HighValueLootRefreshRequested;
 
     /// <summary>False when a host (the Raid workspace) already shows search/layers/selection/loot
     /// filters in its own context panel, so this renderer's own details column would just repeat
@@ -1442,6 +1450,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
+        // [Issue 563] "i click the high value loot only button ... all the names of places
+        // dissappear ... no loot shows up tho either": with no last-known-good snapshot at all,
+        // the old preset still hid every other marker layer, leaving nothing to look at. There is
+        // nothing to switch to here, so nothing is hidden; the one line says why and offers
+        // Refresh instead.
+        if (HighValueLoot.IsUnavailable)
+        {
+            SetRendererNotice(HighValueLoot.NoDataMessage);
+            return;
+        }
+
         var preserve = _lootPresetPreservedLayers
             .Where(id => _scene.Layers.Any(layer => layer.Id == id) && IsLayerVisible(id))
             .Concat(_scene.Layers
@@ -1506,6 +1525,19 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             _scene.LocationId,
             _scene.TransformVersion,
             state));
+    }
+
+    /// <summary>[Issue 563] Bridges the loot panel's Refresh action to the owner, the same way
+    /// filter changes are bridged above. This view model has no network or store access.</summary>
+    private void RequestHighValueLootRefresh()
+    {
+        if (HighValueLootRefreshRequested is null)
+        {
+            SetRendererNotice(Text("Map.Loot.FilterUnavailable"));
+            return;
+        }
+
+        HighValueLootRefreshRequested.Invoke();
     }
 
     private static IReadOnlySet<MapSceneLayerId> CreateLootPresetPreserveSet(
