@@ -109,6 +109,26 @@ public sealed class RaidCockpitMarksLayerTests
     }
 
     [Fact]
+    public void APingsExpiryCarriesThroughToItsSceneObjectAndAWaypointsStaysNull()
+    {
+        // Issue 584: BuildMarksLayer is the one seam between the store (which now stamps a
+        // ping's ExpiresUtc) and the map (which needs it to know when to stop drawing one).
+        var expires = NowUtc.AddSeconds(30);
+        var pingId = Guid.NewGuid();
+        var waypointId = Guid.NewGuid();
+        var marks = new[]
+        {
+            new RaidMark(pingId, RaidMarkKind.Ping, new("factory", null, 1, 1, null, expires), NowUtc),
+            new RaidMark(waypointId, RaidMarkKind.Waypoint, new("factory", null, 2, 2, null, null), NowUtc),
+        };
+
+        var (_, objects) = RaidCockpitViewModel.BuildMarksLayer(marks, "factory", NowUtc);
+
+        Assert.Equal(expires, Assert.Single(objects, item => item.Id.Value == $"mark:{pingId}").ExpiresUtc);
+        Assert.Null(Assert.Single(objects, item => item.Id.Value == $"mark:{waypointId}").ExpiresUtc);
+    }
+
+    [Fact]
     public void RightClickingAPingsSceneObjectResolvesBackToThatPingsId()
     {
         var pingId = Guid.NewGuid();

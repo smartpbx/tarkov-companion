@@ -350,7 +350,11 @@ public sealed record MapSceneObject
         // Issue 508: a quest objective still on the map once its own step is done is drawn
         // dimmed with a check, not identically to one still outstanding. Never set for any other
         // kind — a completed extract or a completed hazard is not a concept this scene has.
-        bool isCompleted = false)
+        bool isCompleted = false,
+        // Issue 584: a ping's own fixed disappearance time, stamped once at creation and never
+        // touched again — never set for anything but a ping. A waypoint has none, which is what
+        // "stays until removed" means.
+        DateTimeOffset? expiresUtc = null)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -398,6 +402,11 @@ public sealed record MapSceneObject
             throw new ArgumentOutOfRangeException(nameof(headingDegrees), "A scene heading is a plan bearing in [0, 360).");
         }
 
+        if (expiresUtc is { } expires && expires.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("A scene object's expiry is UTC.", nameof(expiresUtc));
+        }
+
         Id = id;
         LayerId = layerId;
         Kind = kind;
@@ -415,6 +424,7 @@ public sealed record MapSceneObject
         OfferState = offerState;
         HeadingDegrees = headingDegrees;
         IsCompleted = isCompleted;
+        ExpiresUtc = expiresUtc;
     }
 
     public MapSceneObjectId Id { get; }
@@ -446,6 +456,9 @@ public sealed record MapSceneObject
 
     /// <summary>Whether this is a quest objective whose own step is already done.</summary>
     public bool IsCompleted { get; }
+
+    /// <summary>Issue 584: when a ping stops meaning "now"; null for everything that is not one.</summary>
+    public DateTimeOffset? ExpiresUtc { get; }
 
     public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 

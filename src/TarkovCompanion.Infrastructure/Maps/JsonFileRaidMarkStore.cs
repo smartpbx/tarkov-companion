@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Infrastructure.Settings;
 
 namespace TarkovCompanion.Infrastructure.Maps;
@@ -9,8 +10,17 @@ namespace TarkovCompanion.Infrastructure.Maps;
 /// <remarks>
 /// An unreadable file falls back to an empty board rather than to nothing loading at all: see
 /// <see cref="JsonFileEftPathOverrideStore"/> for the same reasoning applied to game folders.
+///
+/// Issue 584: a ping never got an expiry stamped on it here, so it sat forever exactly like a
+/// waypoint — placed from the desktop's own right-click or from a paired tablet through
+/// <c>RelayMarksBridge</c>, both reach <see cref="AddAsync"/>. A ping now carries
+/// <c>MapMarkState.ExpiresUtc</c>, the store never hands one back once that has passed
+/// (<see cref="Marks"/>, and <see cref="LoadAsync"/> cleans a stale file on the spot), and a timer
+/// kept pointed at the next one due drops it — and tells <see cref="Changed"/>'s subscribers, which
+/// is what moves it off the map and the tablet's — the moment it happens, not whenever something
+/// else next touches the store.
 /// </remarks>
-public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timeProvider = null) : IRaidMarkStore
+public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
 {
     private const int MaximumMarks = 500;
     private const long MaximumFileBytes = 512 * 1024;
@@ -20,18 +30,48 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         WriteIndented = true,
     };
 
-    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly string _storePath;
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeSpan _pingLifetime;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private List<RaidMark> _marks = [];
     private bool _loaded;
+    private ITimer? _expiryTimer;
+    private bool _disposed;
 
-    public IReadOnlyList<RaidMark> Marks => _marks;
+    public JsonFileRaidMarkStore(string storePath, TimeProvider? timeProvider = null, TimeSpan? pingLifetime = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(storePath);
+        _storePath = storePath;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        // Test-only seam: production always takes MapMarkPolicy.PingLifetime. A shorter one lets a
+        // test prove the self-scheduled timer actually fires on its own, in real (if tiny) time,
+        // rather than only proving the read-time filter below works against a frozen clock.
+        _pingLifetime = pingLifetime ?? MapMarkPolicy.PingLifetime;
+    }
+
+    /// <summary>
+    /// Never includes an expired ping. Filters rather than mutates <c>_marks</c>: reading this is
+    /// not itself allowed to touch the file, and the timer below (or the next add/move/rename/
+    /// remove/load) is what actually drops one and rewrites it.
+    /// </summary>
+    public IReadOnlyList<RaidMark> Marks
+    {
+        get
+        {
+            var now = _timeProvider.GetUtcNow();
+            return _marks.Exists(mark => IsExpired(mark, now))
+                ? [.. _marks.Where(mark => !IsExpired(mark, now))]
+                : _marks;
+        }
+    }
 
     public event Action? Changed;
 
     public async Task LoadAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var pruned = false;
         try
         {
             if (_loaded)
@@ -42,6 +82,16 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
             var document = await ReadOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             _marks = document is null ? [] : [.. document.Marks.Select(ToMark).OfType<RaidMark>()];
             _loaded = true;
+            // An old file full of stale pings (from before this fix, or from a desktop that was
+            // off for an hour) cleans itself the first time anything loads it, rather than
+            // carrying dead pings forward until some other mutation happens to rewrite the file.
+            pruned = PruneExpired();
+            if (pruned)
+            {
+                await WriteAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            ScheduleNextExpiry();
         }
         finally
         {
@@ -60,11 +110,15 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         string? label,
         CancellationToken cancellationToken = default)
     {
+        var now = _timeProvider.GetUtcNow();
+        // A waypoint is a plan and stays until removed; a ping is "look here, now" and this is the
+        // one place that decides how long "now" lasts (issue 584).
+        var expiresUtc = kind == RaidMarkKind.Ping ? now + _pingLifetime : (DateTimeOffset?)null;
         var mark = new RaidMark(
             Guid.NewGuid(),
             kind,
-            new MapMarkState(mapId, floorId, x, y, label, null),
-            _timeProvider.GetUtcNow());
+            new MapMarkState(mapId, floorId, x, y, label, expiresUtc),
+            now);
         await MutateAsync(marks => marks.Add(mark), cancellationToken).ConfigureAwait(false);
         return mark;
     }
@@ -134,6 +188,7 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         try
         {
             mutate(_marks);
+            PruneExpired();
             if (_marks.Count > MaximumMarks)
             {
                 // Oldest first: a mark placed minutes ago is more likely to still matter than
@@ -141,10 +196,8 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
                 _marks = [.. _marks.OrderByDescending(mark => mark.CreatedUtc).Take(MaximumMarks)];
             }
 
-            await AtomicJsonFile.WriteAsync(
-                storePath,
-                JsonSerializer.Serialize(new MarkDocument([.. _marks.Select(ToRow)]), JsonOptions),
-                cancellationToken).ConfigureAwait(false);
+            await WriteAsync(cancellationToken).ConfigureAwait(false);
+            ScheduleNextExpiry();
         }
         finally
         {
@@ -154,17 +207,128 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Runs when the timer <see cref="ScheduleNextExpiry"/> set reaches the earliest ping still
+    /// due to expire. Drops it (and anything else that has since caught up to it), rewrites the
+    /// file, and reschedules for whatever is next — the mechanism that moves a stale ping off the
+    /// map without a person doing anything else, or a poll checking whether it is time yet.
+    /// </summary>
+    private async void OnExpiryDue(object? state)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        bool pruned;
+        try
+        {
+            await _gate.WaitAsync().ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            pruned = PruneExpired();
+            if (pruned)
+            {
+                await WriteAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            ScheduleNextExpiry();
+        }
+        catch (IOException)
+        {
+            // A missed write here is not fatal: Marks already filters expired entries on every
+            // read, and the next add/move/rename/remove/load rewrites the file anyway.
+            pruned = false;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (pruned)
+        {
+            Changed?.Invoke();
+        }
+    }
+
+    /// <summary>Points the one live timer at whichever unexpired ping is due to expire soonest,
+    /// replacing whatever it was previously waiting for. Called with <see cref="_gate"/> held.</summary>
+    private void ScheduleNextExpiry()
+    {
+        _expiryTimer?.Dispose();
+        _expiryTimer = null;
+        if (_disposed)
+        {
+            return;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        DateTimeOffset? next = null;
+        foreach (var mark in _marks)
+        {
+            if (mark.State.ExpiresUtc is not { } expires || expires <= now)
+            {
+                continue;
+            }
+
+            if (next is null || expires < next)
+            {
+                next = expires;
+            }
+        }
+
+        if (next is not { } dueAt)
+        {
+            return;
+        }
+
+        var delay = dueAt - now;
+        if (delay < TimeSpan.Zero)
+        {
+            delay = TimeSpan.Zero;
+        }
+
+        _expiryTimer = _timeProvider.CreateTimer(OnExpiryDue, null, delay, Timeout.InfiniteTimeSpan);
+    }
+
+    /// <summary>Removes every mark whose time has passed. Called with <see cref="_gate"/> held.</summary>
+    private bool PruneExpired()
+    {
+        var now = _timeProvider.GetUtcNow();
+        return _marks.RemoveAll(mark => IsExpired(mark, now)) > 0;
+    }
+
+    private static bool IsExpired(RaidMark mark, DateTimeOffset now) =>
+        mark.State.ExpiresUtc is { } expiresUtc && now >= expiresUtc;
+
+    private Task WriteAsync(CancellationToken cancellationToken) =>
+        AtomicJsonFile.WriteAsync(
+            _storePath,
+            JsonSerializer.Serialize(new MarkDocument([.. _marks.Select(ToRow)]), JsonOptions),
+            cancellationToken);
+
     private async Task<MarkDocument?> ReadOrDefaultAsync(CancellationToken cancellationToken)
     {
         try
         {
-            var info = new FileInfo(storePath);
+            var info = new FileInfo(_storePath);
             if (!info.Exists || info.Length > MaximumFileBytes)
             {
                 return null;
             }
 
-            var text = await File.ReadAllTextAsync(storePath, cancellationToken).ConfigureAwait(false);
+            var text = await File.ReadAllTextAsync(_storePath, cancellationToken).ConfigureAwait(false);
             return JsonSerializer.Deserialize<MarkDocument>(text, JsonOptions);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -182,7 +346,7 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
             return new RaidMark(
                 row.Id,
                 row.Kind,
-                new MapMarkState(row.MapId, row.FloorId, row.X, row.Y, row.Label, null),
+                new MapMarkState(row.MapId, row.FloorId, row.X, row.Y, row.Label, row.ExpiresUtc),
                 row.CreatedUtc);
         }
         catch (ArgumentException)
@@ -199,7 +363,20 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         mark.State.X,
         mark.State.Y,
         mark.State.Label,
-        mark.CreatedUtc);
+        mark.CreatedUtc,
+        mark.State.ExpiresUtc);
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _expiryTimer?.Dispose();
+        _gate.Dispose();
+    }
 
     private sealed record MarkDocument(IReadOnlyList<MarkRow> Marks);
 
@@ -211,5 +388,8 @@ public sealed class JsonFileRaidMarkStore(string storePath, TimeProvider? timePr
         double X,
         double Y,
         string? Label,
-        DateTimeOffset CreatedUtc);
+        DateTimeOffset CreatedUtc,
+        // Issue 584: absent (null) for every row written before this fix, and for a waypoint
+        // forever — ToMark's MapMarkState validation is what keeps a garbled value from loading.
+        DateTimeOffset? ExpiresUtc = null);
 }

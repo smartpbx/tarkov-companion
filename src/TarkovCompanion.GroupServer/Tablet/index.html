@@ -918,24 +918,74 @@
   }
 
   // A ping: a transient pulse at the exact spot, never a pin, and its own colour so it is never
-  // read as either one even before the ring shape registers.
-  function drawPing(px, py, scale) {
+  // read as either one even before the ring shape registers. [Issue 584] `fraction` is how much
+  // of its lifetime is left (1 = just placed, 0 = about to go), so it visibly fades rather than
+  // holding at full strength until it snaps away.
+  function drawPing(px, py, scale, fraction = 1) {
     context.strokeStyle = COLOURS.Ping;
-    context.globalAlpha = 0.32;
+    context.globalAlpha = 0.32 * fraction;
     context.lineWidth = 1.5 * scale;
     context.beginPath();
     context.arc(px, py, 13 * scale, 0, Math.PI * 2);
     context.stroke();
-    context.globalAlpha = 0.7;
+    context.globalAlpha = 0.7 * fraction;
     context.lineWidth = 2 * scale;
     context.beginPath();
     context.arc(px, py, 7 * scale, 0, Math.PI * 2);
     context.stroke();
-    context.globalAlpha = 1;
+    context.globalAlpha = fraction;
     context.fillStyle = COLOURS.Ping;
     context.beginPath();
     context.arc(px, py, 3 * scale, 0, Math.PI * 2);
     context.fill();
+  }
+
+  // [Issue 584] Mirrors MapMarkPolicy.PingLifetime: a ping's own total lifetime, needed here only
+  // to turn "how long is left" into a fade fraction, never to decide when it disappears — that is
+  // `item.expiresUtc` alone, an absolute instant the desktop already resolved.
+  const PING_LIFETIME_MS = 45_000;
+
+  /// 1 for a ping with no expiry info (nothing to fade against — draw it plainly), clamped to
+  /// [0, 1] otherwise: a ping this tablet only just learned about, already partway through its
+  /// life, starts partway faded rather than jumping to full strength first.
+  function pingFraction(item) {
+    if (!item.expiresUtc) return 1;
+    const remainingMs = Date.parse(item.expiresUtc) - Date.now();
+    if (!Number.isFinite(remainingMs)) return 1;
+    return Math.max(0, Math.min(1, remainingMs / PING_LIFETIME_MS));
+  }
+
+  /// True once a ping's own absolute expiry has passed — checked locally on every draw, so a
+  // tablet drops one it already knows about even if the surface it is holding is a few seconds
+  // stale (the held read can lag up to HOLD_SECONDS behind a desktop that has gone quiet).
+  function pingExpired(item) {
+    return item.kind === "Ping" && !!item.expiresUtc && Date.parse(item.expiresUtc) <= Date.now();
+  }
+
+  // [Issue 584] "Drop... without waiting for another change": a timer kept pointed at whichever
+  // ping (if any) is due to expire soonest, not a recurring check. Rescheduled every time a fresh
+  // surface arrives (renderSurface), since that is the only thing that can add, remove or replace
+  // which ping is soonest.
+  let pingExpiryTimer = null;
+
+  function scheduleNextPingExpiry() {
+    clearTimeout(pingExpiryTimer);
+    pingExpiryTimer = null;
+    let nextAt = null;
+    for (const item of live?.surface?.objects ?? []) {
+      if (item.kind !== "Ping" || !item.expiresUtc) continue;
+      const at = Date.parse(item.expiresUtc);
+      if (!Number.isFinite(at)) continue;
+      if (nextAt === null || at < nextAt) nextAt = at;
+    }
+
+    if (nextAt === null) return;
+    // A beat past the instant itself, so the redraw this triggers finds it provably expired
+    // rather than racing Date.now() landing a tick before it.
+    pingExpiryTimer = setTimeout(() => {
+      drawMap();
+      scheduleNextPingExpiry();
+    }, Math.max(0, nextAt - Date.now()) + 20);
   }
 
   const plan = () => live?.surface?.plan ?? null;
@@ -1034,7 +1084,8 @@
       if (px < -40 || py < -40 || px > width + 40 || py > height + 40) continue;
 
       if (item.kind === "Ping") {
-        drawPing(px, py, scale);
+        if (pingExpired(item)) continue;
+        drawPing(px, py, scale, pingFraction(item));
         continue;
       }
 
@@ -1147,6 +1198,7 @@
     renderLayers(surface);
     renderResults(surface);
     drawMap();
+    scheduleNextPingExpiry();
   }
 
   function renderFloors(surface) {
@@ -2719,10 +2771,20 @@
   // Test-only introspection: nothing above ever calls this, and no behaviour depends on it. The
   // camera/mode state it reads is otherwise unreachable from outside the closure without an
   // expensive screenshot pixel comparison — see scripts/test-tablet-touch-gestures.cjs, which
-  // TabletTouchGestureTests drives against a real relay and a real touch-emulated browser.
+  // TabletTouchGestureTests drives against a real relay and a real touch-emulated browser, and
+  // scripts/test-tablet-ping-expiry.cjs (PingExpiryBrowserTests), which reads pingIds to prove a
+  // ping the surface named is actually gone from what this page is drawing, not merely filtered
+  // out of a list the test itself is trusting blindly.
   window.__tabletTestState = () => ({
     mode,
     camera: camera ? { x: camera.x, y: camera.y, zoom: camera.zoom } : null,
+    pingIds: (live?.surface?.objects ?? [])
+      .filter((item) => item.kind === "Ping" && !pingExpired(item))
+      .map((item) => item.id),
+    hasLive: !!live,
+    hasSurface: !!live?.surface,
+    objectsCount: (live?.surface?.objects ?? []).length,
+    objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
   });
 
   setStage("pairingIdle");
