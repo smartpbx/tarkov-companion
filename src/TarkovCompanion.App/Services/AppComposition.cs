@@ -1077,7 +1077,9 @@ public static class AppComposition
         services.AddSingleton(provider => new CompanionPairingAvailability(
             provider.GetRequiredService<DesktopPairingCoordinator>(),
             origin,
-            provider.GetRequiredService<IDesktopIdentitySigner>()));
+            provider.GetRequiredService<IDesktopIdentitySigner>(),
+            // [#553] The group key registers this desktop on the relay; read when it is needed.
+            async token => (await provider.GetRequiredService<IGroupSettingsStore>().GetAsync(token).ConfigureAwait(false)).Key));
     }
 
     /// <summary>

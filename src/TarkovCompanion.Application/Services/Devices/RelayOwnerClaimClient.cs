@@ -25,6 +25,9 @@ public enum RelayClaimOutcome
     /// another desktop, or a relay too old to ask. Only the admin key can claim it.
     /// </summary>
     KeyNotRecognised,
+
+    /// <summary>[#553] The relay refused the group key: not a room it serves.</summary>
+    GroupKeyRefused,
 }
 
 /// <param name="Code">The relay's own refusal code, when it gave one.</param>
@@ -46,17 +49,24 @@ public sealed class RelayOwnerClaimClient
     private readonly IDesktopIdentitySigner _signer;
     private readonly DesktopCompanionAuthority _authority;
     private readonly RelayMarksBridge? _bridge;
+    private readonly Func<CancellationToken, Task<string?>>? _groupKey;
 
+    /// <param name="groupKey">
+    /// [#553] Reads the group key the player has set, or null. With one, this desktop registers
+    /// itself on the relay; without one it can only resume a claim an older build made.
+    /// </param>
     public RelayOwnerClaimClient(
         HttpClient relay,
         IDesktopIdentitySigner signer,
         DesktopCompanionAuthority authority,
-        RelayMarksBridge? bridge)
+        RelayMarksBridge? bridge,
+        Func<CancellationToken, Task<string?>>? groupKey = null)
     {
         _relay = relay ?? throw new ArgumentNullException(nameof(relay));
         _signer = signer ?? throw new ArgumentNullException(nameof(signer));
         _authority = authority ?? throw new ArgumentNullException(nameof(authority));
         _bridge = bridge;
+        _groupKey = groupKey;
     }
 
     /// <summary>
@@ -100,6 +110,41 @@ public sealed class RelayOwnerClaimClient
                 _authority.Snapshot.CanonicalState.DesktopDeviceId,
                 nowUtc,
                 nonce);
+            // [#553] Registering is what a desktop does now: its group key says it belongs on
+            // this relay and the signature says which desktop it is. Nobody claims anything, and
+            // the same call made again (a restart, the next morning) is the same desktop coming
+            // back to its own tablets.
+            var groupKey = _groupKey is null ? null : await _groupKey(cancellationToken).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(groupKey))
+            {
+                using var register = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/desktops/register")
+                {
+                    Content = new ByteArrayContent(material.ToJsonBody()),
+                };
+                register.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                register.Headers.Add("X-Group-Key", groupKey.Trim());
+                using var registered = await _relay.SendAsync(register, cancellationToken).ConfigureAwait(false);
+                if (registered.IsSuccessStatusCode)
+                {
+                    await AdoptAsync(registered, cancellationToken).ConfigureAwait(false);
+                    return new RelayClaimResult(RelayClaimOutcome.Claimed);
+                }
+
+                // A relay from before #553 has no such route and never saw the nonce, so the same
+                // body is still good for the owner resume below.
+                if (registered.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed))
+                {
+                    var refusal = (await registered.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
+                    return registered.StatusCode switch
+                    {
+                        HttpStatusCode.TooManyRequests => new RelayClaimResult(RelayClaimOutcome.RateLimited),
+                        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden =>
+                            new RelayClaimResult(RelayClaimOutcome.GroupKeyRefused),
+                        _ => new RelayClaimResult(RelayClaimOutcome.Refused, refusal.Length is > 0 and <= 64 ? refusal : null),
+                    };
+                }
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Post, "v2/companion/relay/owner/resume")
             {
                 Content = new ByteArrayContent(material.ToJsonBody()),
@@ -113,9 +158,13 @@ public sealed class RelayOwnerClaimClient
             }
 
             var code = (await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false)).Trim().Trim('"');
-            return response.StatusCode == HttpStatusCode.TooManyRequests
-                ? new RelayClaimResult(RelayClaimOutcome.RateLimited)
-                : new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, code.Length is > 0 and <= 64 ? code : null);
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                return new RelayClaimResult(RelayClaimOutcome.RateLimited);
+            }
+
+            // With no group key set this is all a desktop can try, and the caller says so.
+            return new RelayClaimResult(RelayClaimOutcome.KeyNotRecognised, code.Length is > 0 and <= 64 ? code : null);
         }
         catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
         {

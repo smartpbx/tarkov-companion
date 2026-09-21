@@ -24,6 +24,7 @@ using TarkovCompanion.GroupServer;
 using TarkovCompanion.GroupServer.Security;
 using TarkovCompanion.GroupServer.StateSync;
 using TarkovCompanion.GroupServer.Storage;
+using TarkovCompanion.GroupServer.Tenancy;
 using TarkovCompanion.Infrastructure.Devices;
 using TarkovCompanion.UnitTests.RelayDeviceSecurity;
 
@@ -49,6 +50,10 @@ internal sealed class LinkRelay : IAsyncDisposable
     private readonly OwnerRecoveryProtector _recovery;
     private readonly string? _previousAdminKey;
     private readonly X509Certificate2? _certificate;
+    // [#553] Where this relay keeps the desktops that registered themselves, as production does
+    // (relay-desktops/): on disk, so a restart reads them back rather than being handed them.
+    private readonly string _desktopsFolder = Path.Combine(Path.GetTempPath(), "link-relay-desktops-" + Guid.NewGuid().ToString("N"));
+    private string[] _servedGroupKeys = [];
     private WebApplication _app;
 
     private LinkRelay(
@@ -72,7 +77,7 @@ internal sealed class LinkRelay : IAsyncDisposable
     }
 
     /// <summary>Plain HTTP on loopback — what every existing test's own HTTP calls (and the desktop's) use.</summary>
-    public Uri Origin { get; }
+    public Uri Origin { get; private set; }
 
     /// <summary>
     /// HTTPS on a real browser-usable DNS name (<c>localhost</c>), present only when
@@ -82,7 +87,7 @@ internal sealed class LinkRelay : IAsyncDisposable
     /// page's own WebCrypto refuse anything that is not an exact HTTPS DNS origin — the same
     /// refusal production makes, not a test artifact.
     /// </summary>
-    public Uri? BrowserOrigin { get; }
+    public Uri? BrowserOrigin { get; private set; }
 
     public RelayDeviceRegistry Registry { get; }
 
@@ -94,27 +99,37 @@ internal sealed class LinkRelay : IAsyncDisposable
     /// callers, plus <c>https://localhost:0</c> (with <paramref name="certificate"/>) for a real
     /// browser, so both sides talk to the exact same process and state.
     /// </summary>
-    public static async Task<LinkRelay> StartAsync(RelayTestClock clock, string[] urls, X509Certificate2? certificate)
+    /// <param name="servedGroupKeys">
+    /// [#553] The group keys of the rooms this relay's operator registered. With any, the relay is
+    /// closed and serves only those rooms; with none it is open, as every older test expects.
+    /// </param>
+    public static async Task<LinkRelay> StartAsync(
+        RelayTestClock clock,
+        string[] urls,
+        X509Certificate2? certificate,
+        params string[] servedGroupKeys)
     {
         var previous = Environment.GetEnvironmentVariable(RelayAdmin.Variable);
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, AdminKey);
         var recovery = new OwnerRecoveryProtector(Enumerable.Repeat((byte)0x41, 32).ToArray(), clock);
         var registry = await RelayDeviceRegistry.OpenAsync(clock, recovery);
-        var app = await HostAsync(clock, registry, recovery, urls, certificate);
+        var relay = new LinkRelay(null!, clock, recovery, null!, null, registry, previous, certificate)
+        {
+            _servedGroupKeys = servedGroupKeys,
+        };
+        var app = await relay.HostAsync(urls);
         var addresses = app.Services.GetRequiredService<IServer>().Features
             .Get<IServerAddressesFeature>()!.Addresses;
         var origin = new Uri(addresses.First(address => address.StartsWith("http://", StringComparison.Ordinal)));
         var browserAddress = addresses.FirstOrDefault(address => address.StartsWith("https://", StringComparison.Ordinal));
-        return new LinkRelay(
-            app,
-            clock,
-            recovery,
-            origin,
-            browserAddress is null ? null : new Uri(browserAddress),
-            registry,
-            previous,
-            certificate);
+        relay._app = app;
+        relay.Origin = origin;
+        relay.BrowserOrigin = browserAddress is null ? null : new Uri(browserAddress);
+        return relay;
     }
+
+    /// <summary>[#553] Every desktop this relay is serving, as of its last start.</summary>
+    public RelayTenantDirectory Desktops { get; private set; } = null!;
 
     /// <summary>
     /// The relay process going down and coming back on the same address. The device registry is
@@ -130,20 +145,30 @@ internal sealed class LinkRelay : IAsyncDisposable
             : new[] { Origin.GetLeftPart(UriPartial.Authority) };
         await _app.StopAsync();
         await _app.DisposeAsync();
-        _app = await HostAsync(_clock, Registry, _recovery, urls, _certificate);
+        _app = await HostAsync(urls);
     }
 
-    private static async Task<WebApplication> HostAsync(
-        RelayTestClock clock,
-        RelayDeviceRegistry registry,
-        OwnerRecoveryProtector recovery,
-        string[] urls,
-        X509Certificate2? certificate = null)
+    private async Task<WebApplication> HostAsync(string[] urls)
     {
+        var clock = _clock;
+        var registry = Registry;
+        var recovery = _recovery;
+        var certificate = _certificate;
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.Services.AddSingleton<TimeProvider>(clock);
         builder.Services.AddSingleton<CompanionPairingMailbox>();
+        if (_servedGroupKeys.Length > 0)
+        {
+            var rooms = new GroupRoomRegistry(clock);
+            foreach (var key in _servedGroupKeys)
+            {
+                Assert.NotNull(rooms.Add("Room " + GroupKey.RoomFor(key)[..6], key));
+            }
+
+            builder.Services.AddSingleton(rooms);
+        }
+
         if (certificate is not null)
         {
             // The slim builder trims HTTPS support by default; only a real browser test needs it
@@ -168,12 +193,17 @@ internal sealed class LinkRelay : IAsyncDisposable
         app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
         app.MapGet("/tablet/relay-crypto.js", () => Results.Content(Tablet.RelayCryptoScript, "text/javascript; charset=utf-8"));
         app.MapGet("/tablet/command-acknowledgement.js", () => Results.Content(Tablet.CommandAcknowledgementScript, "text/javascript; charset=utf-8"));
-        app.MapRelayCompanionRoutes(
+        // The legacy registry is the one object a restart hands back (it stands for
+        // relay-devices.json); its hub and map are memory and are new each time, and so are those
+        // of every registered desktop, which are read back from their files.
+        Desktops = await RelayTenantDirectory.OpenAsync(
+            clock,
+            recovery,
             registry,
             new OpaqueRelayFrameHub(registry, clock),
-            recovery,
-            new RelayOwnerClaimGate(clock),
-            new RelayMapSurfaceStore(registry, clock));
+            new RelayMapSurfaceStore(registry, clock),
+            _desktopsFolder);
+        app.MapRelayCompanionRoutes(Desktops, recovery, new RelayOwnerClaimGate(clock));
         app.MapCompanionPairingMailboxRoutes();
         await app.StartAsync();
         return app;
@@ -185,6 +215,10 @@ internal sealed class LinkRelay : IAsyncDisposable
         await _app.DisposeAsync();
         _recovery.Dispose();
         Environment.SetEnvironmentVariable(RelayAdmin.Variable, _previousAdminKey);
+        if (Directory.Exists(_desktopsFolder))
+        {
+            Directory.Delete(_desktopsFolder, recursive: true);
+        }
     }
 }
 
@@ -224,14 +258,15 @@ internal sealed class DesktopRun : IAsyncDisposable
         RelayMarksBridge bridge,
         CompanionPairingViewModel panel,
         DesktopDisk disk,
-        Uri relayOrigin)
+        Uri relayOrigin,
+        string? groupKey)
     {
         Authority = authority;
         Coordinator = coordinator;
         Bridge = bridge;
         Panel = panel;
         _claimHttp = new HttpClient { BaseAddress = new Uri(relayOrigin.AbsoluteUri.TrimEnd('/') + "/") };
-        ClaimClient = new RelayOwnerClaimClient(_claimHttp, disk.Signer, authority, bridge);
+        ClaimClient = new RelayOwnerClaimClient(_claimHttp, disk.Signer, authority, bridge, _ => Task.FromResult(groupKey));
     }
 
     /// <summary>The claim calls the panel makes, for a test that needs one made on its own.</summary>
@@ -258,7 +293,8 @@ internal sealed class DesktopRun : IAsyncDisposable
         RelayTestClock clock,
         bool protectedStorage = true,
         string relyingPartyId = RelyingPartyId,
-        string tabletOrigin = TabletOrigin)
+        string tabletOrigin = TabletOrigin,
+        string? groupKey = null)
     {
         var authority = await DesktopCompanionAuthority.OpenAsync(disk.AuthorityStore, LinkState.Initial(disk.DesktopDeviceId));
         var coordinator = new DesktopPairingCoordinator(
@@ -272,14 +308,16 @@ internal sealed class DesktopRun : IAsyncDisposable
             protectedStorage ? new RelayLinkVault(disk.Secrets) : null);
         var panel = new CompanionPairingViewModel(
             authority,
-            new CompanionPairingAvailability(coordinator, relayOrigin, disk.Signer),
+            // [#553] With a group key the desktop registers itself at startup, as the app does;
+            // without one it is the older build that claims with the admin key.
+            new CompanionPairingAvailability(coordinator, relayOrigin, disk.Signer, _ => Task.FromResult(groupKey)),
             clock,
             bridge)
         {
             MailboxPollInterval = TimeSpan.FromMilliseconds(20),
         };
         await panel.RelayLinkRestored;
-        return new DesktopRun(authority, coordinator, bridge, panel, disk, relayOrigin);
+        return new DesktopRun(authority, coordinator, bridge, panel, disk, relayOrigin, groupKey);
     }
 
     /// <summary>Types the admin key and presses Claim.</summary>

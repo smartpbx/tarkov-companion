@@ -21,10 +21,15 @@ namespace TarkovCompanion.App.ViewModels.V2.Tablet;
 /// DPAPI-protected) and a group relay with an HTTPS DNS origin is configured, because that origin
 /// is what the production <c>IDeviceKeyProofVerifier</c> pins a device-key proof to.
 /// </remarks>
+/// <param name="GroupKey">
+/// [#553] Reads the group key set in Team &gt; Group. It is what lets this desktop register itself
+/// on the relay; nothing here ever asks for the relay's admin key.
+/// </param>
 public sealed record CompanionPairingAvailability(
     DesktopPairingCoordinator? Coordinator,
     Uri? RelayOrigin,
-    IDesktopIdentitySigner? IdentitySigner = null)
+    IDesktopIdentitySigner? IdentitySigner = null,
+    Func<CancellationToken, Task<string?>>? GroupKey = null)
 {
     public static CompanionPairingAvailability Unavailable { get; } = new(null, null);
 }
@@ -146,6 +151,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private readonly RelayMarksBridge? _relayMarksBridge;
     private readonly HttpClient? _relay;
     private readonly RelayOwnerClaimClient? _claimClient;
+    private readonly Func<CancellationToken, Task<string?>>? _groupKey;
     private readonly PairedDeviceResumeService? _resume;
     private Uri? _relayOrigin;
     private readonly TimeProvider _timeProvider;
@@ -189,13 +195,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         _relayMarksBridge = relayMarksBridge;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _relayOrigin = availability.RelayOrigin;
+        _groupKey = availability.GroupKey;
         if (availability.Coordinator is not null && availability.RelayOrigin is { } origin)
         {
             _relay = new HttpClient { BaseAddress = new Uri(origin.AbsoluteUri.TrimEnd('/') + "/") };
             _relayMarksBridge?.Configure(origin);
             if (availability.IdentitySigner is { } signer)
             {
-                _claimClient = new RelayOwnerClaimClient(_relay, signer, authority, _relayMarksBridge);
+                _claimClient = new RelayOwnerClaimClient(_relay, signer, authority, _relayMarksBridge, availability.GroupKey);
                 if (_relayMarksBridge is not null)
                 {
                     // [#289] The relay ends an owner session after twelve hours, or two idle. The
@@ -282,6 +289,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         "makes this desktop the relay's owner, which is what lets it pair devices at all. The key " +
         "is used once and never stored; the claim itself is kept.";
 
+    /// <summary>[#553] What a desktop with no group key is told: that is all registering needs.</summary>
+    public const string GroupKeyNeededMessage = "Set a group key in Team > Group first.";
+
     /// <summary>The message for a relay whose operator has not configured claiming at all.</summary>
     public const string NotConfiguredForClaimingMessage =
         "This relay is not configured for claiming. Its operator must set " +
@@ -294,23 +304,14 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     /// (<c>RelayMarksBridge.RestoreAsync</c>), so this reads true after a restart without the admin
     /// key being typed again — until the relay itself ends that session, or "Forget this relay".
     /// </remarks>
-    public bool CanStartPairing => CanPair && RelayClaimState == RelayOwnerClaimState.ClaimedByThisDesktop;
+    /// <remarks>
+    /// [#553] Nothing has to be claimed first. A desktop that is not registered on the relay yet
+    /// registers when the button is pressed, with the group key it already has.
+    /// </remarks>
+    public bool CanStartPairing => CanPair;
 
     /// <summary>Why "Start pairing" is unavailable, or null when it is.</summary>
-    public string? StartPairingBlockedReason => CanStartPairing
-        ? null
-        : !CanPair
-            ? UnavailableReason
-            : RelayClaimState switch
-            {
-                // Short here on purpose: the claim card directly above is already showing the
-                // whole message, and saying it twice reads as two different problems.
-                RelayOwnerClaimState.NotConfiguredForClaiming =>
-                    "This relay cannot be claimed yet — see above.",
-                RelayOwnerClaimState.ClaimedByAnotherDesktop =>
-                    "Another desktop owns this relay, so it cannot pair devices for this one.",
-                _ => "Claim this relay first: enter its admin key above and press Claim.",
-            };
+    public string? StartPairingBlockedReason => CanStartPairing ? null : UnavailableReason;
 
     /// <summary>Puts this view model into one named state so a render can photograph it.</summary>
     /// <remarks>
@@ -795,7 +796,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         RelayOwnerClaimState current) => result.Outcome switch
     {
         RelayClaimOutcome.Claimed =>
-            (RelayOwnerClaimState.ClaimedByThisDesktop, "Claimed. This desktop is now the relay's owner."),
+            (RelayOwnerClaimState.ClaimedByThisDesktop, "Connected to the relay."),
+        RelayClaimOutcome.GroupKeyRefused =>
+            (RelayOwnerClaimState.NotClaimed, "This relay did not accept your group key."),
         RelayClaimOutcome.AlreadyClaimedByThisDesktop =>
             (RelayOwnerClaimState.ClaimedByThisDesktop, "This relay is already claimed by this desktop."),
         RelayClaimOutcome.ClaimedByAnotherDesktop =>
@@ -852,15 +855,47 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     {
         try
         {
-            await _relayMarksBridge!.RestoreAsync(_lifetime.Token).ConfigureAwait(true);
+            var kept = await _relayMarksBridge!.RestoreAsync(_lifetime.Token).ConfigureAwait(true);
             // Said here as well as through the event: this continuation is already where the
             // panel lives, so the first answer does not wait on a dispatcher pass.
             ApplyOwnerLink(_relayMarksBridge.OwnerLink);
+            if (!kept)
+            {
+                // [#553] Nothing kept from an earlier run: a first run, or a relay that was
+                // forgotten. Registering needs nothing from the player, so it is not left for
+                // them to ask for.
+                await RegisterWithRelayAsync().ConfigureAwait(true);
+            }
         }
         catch (OperationCanceledException)
         {
             // Closing during startup; nothing was half-applied.
         }
+    }
+
+    /// <summary>
+    /// [#553] Registers this desktop on the relay with its group key and identity key, or comes
+    /// back to the registration it already has. True when the relay issued it a session.
+    /// </summary>
+    private async Task<bool> RegisterWithRelayAsync()
+    {
+        if (_claimClient is null)
+        {
+            return false;
+        }
+
+        var result = await _claimClient.ClaimByKeyAsync(Now(), _lifetime.Token).ConfigureAwait(true);
+        if (result.Outcome == RelayClaimOutcome.KeyNotRecognised &&
+            string.IsNullOrWhiteSpace(_groupKey is null ? null : await _groupKey(_lifetime.Token).ConfigureAwait(true)))
+        {
+            // Without a group key there was nothing to register with; only a claim made by an
+            // older build could have answered, and this relay holds none for this desktop.
+            (RelayClaimState, RelayClaimMessage) = (RelayOwnerClaimState.NotClaimed, GroupKeyNeededMessage);
+            return false;
+        }
+
+        (RelayClaimState, RelayClaimMessage) = DescribeClaim(result, RelayClaimState);
+        return result.Outcome == RelayClaimOutcome.Claimed;
     }
 
     private void OnDeviceResumed(PairedDevice device)
@@ -960,21 +995,12 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         // paired to a relay this desktop does not own can never live-sync (RelayMarksBridge has no
         // owner credential to route its frames with), so starting the ceremony here would produce
         // a tablet that pairs and then does nothing.
-        if (RelayClaimState == RelayOwnerClaimState.NotConfiguredForClaiming)
+        // [#553] It used to stop here and ask for the relay's admin key. A desktop registers
+        // itself now, so the press that starts a pairing is also what registers it when startup
+        // has not already (no group key then, or the relay was away).
+        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop && !await RegisterWithRelayAsync().ConfigureAwait(true))
         {
-            StatusMessage = NotConfiguredForClaimingMessage;
-            return;
-        }
-
-        if (RelayClaimState == RelayOwnerClaimState.ClaimedByAnotherDesktop)
-        {
-            StatusMessage = "Another desktop owns this relay, so it cannot pair devices for this one.";
-            return;
-        }
-
-        if (RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop)
-        {
-            StatusMessage = "Claim this relay first: enter its admin key above and press Claim.";
+            StatusMessage = RelayClaimMessage;
             return;
         }
 

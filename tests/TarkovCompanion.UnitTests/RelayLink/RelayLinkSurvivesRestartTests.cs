@@ -31,9 +31,11 @@ public sealed class RelayLinkSurvivesRestartTests
 
         await using (var firstRun = await DesktopRun.StartAsync(disk, relay.Origin, clock))
         {
-            // Nothing has been claimed yet, so the panel asks for the admin key.
+            // [#553] Nothing has been claimed yet. This harness desktop has no group key and
+            // speaks the older claim protocol below; what no longer holds is that pairing is
+            // blocked until somebody claims: the button registers the desktop when pressed.
             Assert.True(firstRun.Panel.NeedsClaim);
-            Assert.False(firstRun.Panel.CanStartPairing);
+            Assert.True(firstRun.Panel.CanStartPairing);
             await firstRun.ClaimAsync();
             Assert.True(firstRun.Panel.IsClaimedByThisDesktop, firstRun.Panel.RelayClaimMessage);
             Assert.Equal(RelayOwnerLinkState.Verified, firstRun.Bridge.OwnerLink);
@@ -96,9 +98,10 @@ public sealed class RelayLinkSurvivesRestartTests
         }
 
         await using var secondRun = await DesktopRun.StartAsync(disk, relay.Origin, clock, protectedStorage: false);
-        Assert.False(secondRun.Panel.IsClaimedByThisDesktop);
-        Assert.True(secondRun.Panel.NeedsClaim);
-        Assert.Equal(RelayOwnerLinkState.None, secondRun.Bridge.OwnerLink);
+        // [#553] Nothing was kept, and nothing needed to be: the desktop comes back on its
+        // identity key at startup with nothing typed. This used to end at the admin-key prompt.
+        Assert.True(secondRun.Panel.IsClaimedByThisDesktop, secondRun.Panel.RelayClaimMessage);
+        Assert.False(secondRun.Panel.NeedsClaim);
         Assert.Equal(0, disk.Secrets.Count);
     }
 
@@ -183,14 +186,13 @@ public sealed class RelayLinkSurvivesRestartTests
 
         clock.Advance(TimeSpan.FromMinutes(5));
         await using var secondRun = await DesktopRun.StartAsync(disk, relay.Origin, clock);
-        // Forgotten means forgotten: nothing is claimed behind the player's back at startup.
-        Assert.True(secondRun.Panel.NeedsClaim);
-        await secondRun.Bridge.PollOnceAsync(CancellationToken.None);
-        Assert.Equal(RelayOwnerLinkState.None, secondRun.Bridge.OwnerLink);
-
-        // Claim, with nothing typed, five minutes after forgetting.
-        await secondRun.ClaimAsync(adminKey: string.Empty);
+        // [#553] Forgetting drops the kept session and nothing else. There is no claim for the
+        // next run to wait to be asked for: it is back on its key at startup, five minutes after
+        // forgetting, with nothing typed.
         Assert.True(secondRun.Panel.IsClaimedByThisDesktop, secondRun.Panel.RelayClaimMessage);
+        Assert.False(secondRun.Panel.NeedsClaim);
+        await secondRun.Bridge.PollOnceAsync(CancellationToken.None);
+        Assert.Equal(RelayOwnerLinkState.Verified, secondRun.Bridge.OwnerLink);
 
         // And the tablet paired before the forget was not swept away by claiming again.
         using var still = await tablet.ReadFramesRawAsync();
