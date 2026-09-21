@@ -264,6 +264,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly IWorkspaceLayoutStore? _layout;
     private double _contextPanelWidth = DefaultContextPanelWidth;
     private bool _contextPanelHidden;
+    // [Issue 573] Hidden / Dim (default) / Normal, remembered the same way the panel's own width is.
+    private CoOpExtractVisibility _coOpExtractVisibility = CoOpExtractVisibility.Dim;
     private readonly MapSceneRendererPresentation _presentation;
     private readonly IWikiLinkOpener? _wikiOpener;
 
@@ -414,6 +416,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         ClearObjectiveCommand = new DelegateCommand(ClearObjectiveSelection);
         // [Issue 571] Brings a done objective back on the map and the list, dimmed with a check.
         ToggleShowCompletedObjectivesCommand = new DelegateCommand(() => ShowCompletedObjectives = !ShowCompletedObjectives);
+        // [Issue 573] Hidden -> Dim -> Normal -> Hidden, one press at a time.
+        ToggleCoOpExtractVisibilityCommand = new DelegateCommand(CycleCoOpExtractVisibility);
         UseFloorVariantCommand = new DelegateCommand(() => _ = _map.UseFloorVariantAsync());
         // [V2 rough package 46] One press puts the Raid plan column away and gives the map its width.
         ToggleContextPanelCommand = new DelegateCommand(ToggleContextPanel);
@@ -525,7 +529,33 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             _layout?.Get(WorkspaceLayoutKeys.RaidPanelHidden),
             "true",
             StringComparison.Ordinal);
+        _coOpExtractVisibility = CoOpExtracts.ParseVisibility(_layout?.Get(WorkspaceLayoutKeys.CoOpExtractVisibility));
     }
+
+    /// <summary>[Issue 573] Hidden / Dim (default) / Normal, cycled from the map's View/Layers menu.</summary>
+    public CoOpExtractVisibility CoOpExtractVisibility
+    {
+        get => _coOpExtractVisibility;
+        private set
+        {
+            if (SetProperty(ref _coOpExtractVisibility, value))
+            {
+                OnPropertyChanged(nameof(CoOpExtractVisibilityLabel));
+                _layout?.Set(WorkspaceLayoutKeys.CoOpExtractVisibility, value.ToString());
+                _rebuildRequest.Request();
+            }
+        }
+    }
+
+    /// <summary>"Co-op extracts: Dim" — what the menu button says today, and what pressing it does next.</summary>
+    public string CoOpExtractVisibilityLabel => $"Co-op extracts: {_coOpExtractVisibility}";
+
+    public void CycleCoOpExtractVisibility() => CoOpExtractVisibility = _coOpExtractVisibility switch
+    {
+        CoOpExtractVisibility.Hidden => CoOpExtractVisibility.Dim,
+        CoOpExtractVisibility.Dim => CoOpExtractVisibility.Normal,
+        _ => CoOpExtractVisibility.Hidden,
+    };
 
     /// <summary>
     /// Shown over the map when a floor's drawing could not be rasterised, with Retry (#452).
@@ -763,6 +793,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     }
 
     public ICommand ToggleShowCompletedObjectivesCommand { get; }
+
+    /// <summary>[Issue 573] Cycles Co-op extract visibility: Hidden -> Dim -> Normal -> Hidden.</summary>
+    public ICommand ToggleCoOpExtractVisibilityCommand { get; }
 
     /// <summary>"3 on the plan · 2 with no location".</summary>
     public string QuestObjectiveSummary
@@ -2128,13 +2161,20 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // and objectives. The assembler has always adapted all five; the cockpit asked for two of
         // them, which is why V2 had no street names and why its own "Spawn areas" card was always
         // empty. Each one is still a scene layer with its own switch in the bottom strip.
+        // [Issue 573] A co-op extract: hidden entirely, or drawn but never the one the game's own
+        // "offered" flag highlights, unless the player asked to see co-op extracts normally.
+        var coOpVisibility = _coOpExtractVisibility;
         var legacyElements = model.OverlayElements
             .Where(element => element.Layer is MapOverlayKind.Extracts or MapOverlayKind.QuestObjectives
                 or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys)
+            .Where(element => element.Layer != MapOverlayKind.Extracts ||
+                coOpVisibility != CoOpExtractVisibility.Hidden || !CoOpExtracts.IsCoOp(element.Label))
             .Select(element => new MapSceneLegacyElement(
                 element,
                 new DataProvenance("map-catalog", nowUtc),
-                element.Layer == MapOverlayKind.Extracts && MapViewModel.IsOfferedMarker(element.Label, raidSnapshot.ActiveExtracts)
+                element.Layer == MapOverlayKind.Extracts &&
+                    CoOpExtracts.IsOffered(element.Label, coOpVisibility) &&
+                    MapViewModel.IsOfferedMarker(element.Label, raidSnapshot.ActiveExtracts)
                     ? MapSceneOfferState.Offered
                     : MapSceneOfferState.Unknown))
             .ToArray();
@@ -2593,8 +2633,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     private void RefreshSceneLists(MapSceneSnapshot scene)
     {
+        // [Issue 573] A co-op extract is not offered as a choice here unless the player asked for
+        // Normal — "co-op extracts shouldnt highlight as options on the map".
+        var extractObjects = _coOpExtractVisibility == CoOpExtractVisibility.Normal
+            ? scene.Objects
+            : scene.Objects.Where(item => item.Kind != MapSceneObjectKind.Extract || !CoOpExtracts.IsCoOp(item.Label)).ToArray();
         // The corrections card lists every exit by name; the rows then take their routes' estimates.
-        var extractRows = BuildExtractRows(scene.Objects);
+        var extractRows = BuildExtractRows(extractObjects);
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
             [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
@@ -2679,7 +2724,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>How this cockpit wants one object drawn; see <see cref="MapSceneObjectStyle"/>.</summary>
     private MapSceneObjectStyle? StyleFor(MapSceneObject item) =>
         _objectStyles.TryGetValue(item.Id, out var style) ? style
-        : _routeStyles.TryGetValue(item.Id, out var route) ? route : null;
+        : _routeStyles.TryGetValue(item.Id, out var route) ? route
+        // [Issue 573] A co-op extract at "Dim" is drawn faded, so it never competes for attention
+        // with one the player can use alone.
+        : item.Kind == MapSceneObjectKind.Extract && _coOpExtractVisibility == CoOpExtractVisibility.Dim &&
+            CoOpExtracts.IsCoOp(item.Label)
+            ? new MapSceneObjectStyle(Opacity: 0.45)
+            : null;
 
     /// <summary>V1's remembered quarter turn for this map, as a scene camera bearing.</summary>
     private double Bearing() => (_map.RotationDegrees % 360 + 360) % 360;

@@ -459,6 +459,12 @@
                           Command="{Binding FrameAreaCommand}"
                           AutomationProperties.AutomationId="v2-raid-frame-area"
                           ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
+                  <!-- [Issue 573] Hidden / Dim (default) / Normal, one press cycles to the next. -->
+                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                          Content="{Binding CoOpExtractVisibilityLabel}"
+                          Command="{Binding ToggleCoOpExtractVisibilityCommand}"
+                          AutomationProperties.AutomationId="v2-raid-coop-extract-visibility"
+                          ToolTip.Tip="How a co-op extract is drawn and offered: hidden, dim (fewer players use one), or normal" />
                   <!-- The one place artwork is chosen: every reviewed piece of artwork this map
                        publishes, remembered per map by V1's selection service (package 39). -->
                   <TextBlock Classes="v2-label" Text="Artwork" IsVisible="{Binding HasArtworkVariants}" />

@@ -83,9 +83,12 @@ public sealed partial class RaidCockpitViewModel
         }
 
         var scav = string.Equals(raid.Side, "scav", StringComparison.OrdinalIgnoreCase);
+        // [Issue 573] A co-op extract is not a suggested-route target either, unless the player
+        // asked to see co-op extracts normally.
         var extracts = model.OverlayElements
             .Where(element => element.Layer == MapOverlayKind.Extracts && !element.Label.EndsWith('→') &&
-                element.Faction != (scav ? MapFeatureFaction.Pmc : MapFeatureFaction.Scav))
+                element.Faction != (scav ? MapFeatureFaction.Pmc : MapFeatureFaction.Scav) &&
+                CoOpExtracts.IsOffered(element.Label, _coOpExtractVisibility))
             .GroupBy(element => element.Label, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.First())
             .ToArray();

@@ -1809,10 +1809,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     }
 
     /// <summary>
-    /// The (dx, dy) each of <paramref name="points"/> should be drawn with, in the same order,
-    /// so a waypoint, quest objective or ping landing on another one is still legible. Zero for
-    /// every point that is not one of those three kinds, or that has nothing else near it.
+    /// The (dx, dy) each of <paramref name="points"/> should be drawn with, in the same order, so
+    /// a waypoint, quest objective, ping, extract or transit point landing on another one is still
+    /// legible. Zero for every point that is not one of those kinds, or that has nothing else near
+    /// it.
     /// </summary>
+    /// <remarks>
+    /// Issue 573: extracts joined this list alongside 508's original three. Several extracts and
+    /// objectives stacked on one small building (the Resort on Shoreline) were reported reading as
+    /// a single blob even after the objective's own letter and the extract's own border told them
+    /// apart; fanning them the same ring a waypoint or objective already gets keeps the building's
+    /// own name legible underneath.
+    /// </remarks>
     private IReadOnlyList<(double DeltaX, double DeltaY)> ResolvePinOverlap(IReadOnlyList<MapSceneObject> points)
     {
         var result = new (double DeltaX, double DeltaY)[points.Count];
@@ -1821,7 +1829,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         for (var index = 0; index < points.Count; index++)
         {
             var icon = MapSceneRendererObjectViewModel.IconFor(points[index]);
-            if (icon is not (MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Objective or MapSceneMarkerIcon.Ping))
+            if (icon is not (MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Objective or MapSceneMarkerIcon.Ping
+                or MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit))
             {
                 continue;
             }
@@ -2912,6 +2921,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public string? ColorHint => Style?.Color;
 
     public bool HasColorHint => ColorHint is not null;
+
+    /// <summary>[Issue 573] A host-dimmed mark (a co-op extract at "Dim") draws faded; everything else is opaque.</summary>
+    public double MarkerOpacity => Style?.Opacity ?? 1.0;
     public string MarkerGlyph { get; }
 
     /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
@@ -2987,8 +2999,34 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// another one. See <see cref="TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry"/> for
     /// why this keeps the pin's tip on the anchor at every zoom and bearing.
     /// </summary>
-    public double PinLeft => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent).Left + PinOffsetX;
-    public double PinTop => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent).Top + PinOffsetY;
+    public double PinLeft => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent, PinWidth, PinHeight).Left + PinOffsetX;
+    public double PinTop => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.TopLeftFor(MapSceneRendererViewModel.MarkerExtent, PinWidth, PinHeight).Top + PinOffsetY;
+
+    /// <summary>
+    /// [Issue 573] A quest objective's shield draws at <see cref="QuestPinShrink"/> of today's
+    /// size by default — six of them used to bury a whole building at fit zoom — and back at full
+    /// size once selected, so the one the player is looking at is still easy to find and to hit. A
+    /// waypoint's round pin is unaffected: the report was about quest markers specifically.
+    /// </summary>
+    public double PinWidth => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.Width * PinScale;
+    public double PinHeight => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.Height * PinScale;
+
+    private double PinScale => IsObjectiveMark && !IsSelected ? QuestPinShrink : 1.0;
+
+    /// <summary>Two-thirds, the amount issue 573 asked a quest pin (and an extract badge) to shrink to.</summary>
+    internal const double QuestPinShrink = 2.0 / 3.0;
+
+    /// <summary>Where the letter sits inside the shield, scaled with <see cref="PinScale"/> so it stays centred at either size.</summary>
+    public Thickness PinLabelMargin => new(0, 7 * PinScale, 0, 0);
+
+    /// <summary>Where the completed check sits inside the shield, scaled the same way.</summary>
+    public Thickness PinCheckMargin => new(0, 8 * PinScale, 0, 0);
+
+    /// <summary>
+    /// The letter's own size: kept a size above a strict two-thirds scale-down (which would make
+    /// it 8pt) so the letter a shrunk shield carries is still legible at 1920x1080.
+    /// </summary>
+    public double PinLabelFontSize => PinScale < 1.0 ? 10 : 12;
 
     /// <summary>
     /// The overlap nudge <see cref="MapMarkerOverlapLayout"/> gave this marker, in the same box
