@@ -128,7 +128,7 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
     </Style>
     <Style Selector="TextBlock.v2-intel-tag">
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -137,7 +137,7 @@
       <Setter Property="Margin" Value="4,0" />
     </Style>
     <Style Selector="TextBlock.v2-intel-price">
-      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading1.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
@@ -145,7 +145,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.v2-intel-name">
-      <Setter Property="FontSize" Value="34" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Display.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
       <Setter Property="TextWrapping" Value="Wrap" />
@@ -187,7 +187,7 @@
       <Setter Property="TextAlignment" Value="Right" />
     </Style>
     <Style Selector="TextBlock.v2-intel-head">
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
       <Setter Property="VerticalAlignment" Value="Center" />
@@ -249,7 +249,7 @@
       <Setter Property="MinHeight" Value="0" />
     </Style>
     <Style Selector="TextBlock.v2-intel-trade-profit">
-      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>

@@ -674,11 +674,13 @@ public sealed class V2DesignSystemContractTests
             .ToDictionary(element => Key(element)!, element => element.Value.Trim(), StringComparer.Ordinal);
         var floors = new Dictionary<string, (string Size, string LineHeight)>(StringComparer.Ordinal)
         {
-            ["Heading1"] = ("28", "36"),
-            ["Heading2"] = ("22", "28"),
-            ["Heading3"] = ("18", "24"),
-            ["Body"] = ("16", "24"),
-            ["Label"] = ("14", "20"),
+            // [#574] One step smaller than the first ramp (28/22/18/16/14), with a 12 DIP floor.
+            ["Display"] = ("32", "40"),
+            ["Heading1"] = ("24", "32"),
+            ["Heading2"] = ("20", "26"),
+            ["Heading3"] = ("16", "22"),
+            ["Body"] = ("14", "20"),
+            ["Label"] = ("12", "18"),
         };
         foreach (var (role, (size, lineHeight)) in floors)
         {
@@ -687,7 +689,7 @@ public sealed class V2DesignSystemContractTests
         }
 
         var sizes = tokens.Where(pair => pair.Key.StartsWith("V2.Type.", StringComparison.Ordinal) && pair.Key.EndsWith(".Size", StringComparison.Ordinal)).ToArray();
-        Assert.All(sizes, pair => Assert.InRange(double.Parse(pair.Value, CultureInfo.InvariantCulture), 14d, 72d));
+        Assert.All(sizes, pair => Assert.InRange(double.Parse(pair.Value, CultureInfo.InvariantCulture), 12d, 72d));
         Assert.Equal("44", tokens["V2.Target.Desktop"]);
         Assert.Equal("48", tokens["V2.Target.Touch"]);
 

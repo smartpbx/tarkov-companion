@@ -13,7 +13,7 @@
       <Setter Property="Padding" Value="22,18" />
     </Style>
     <Style Selector="TextBlock.v2-home-card-title">
-      <Setter Property="FontSize" Value="22" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading2.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
@@ -107,7 +107,7 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="MinHeight" Value="56" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -134,7 +134,7 @@
     <Style Selector="Button.v2-home-outline.v2-home-quiet">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
-      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
       <Setter Property="MinHeight" Value="56" />
     </Style>
     <Style Selector="Button.v2-home-outline:pointerover /template/ ContentPresenter#PART_ContentPresenter">

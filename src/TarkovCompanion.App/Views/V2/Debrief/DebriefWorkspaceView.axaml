@@ -43,7 +43,7 @@
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.v2-debrief-kind TextBlock">
-      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
     <Style Selector="TextBlock.v2-debrief-strong">
@@ -349,7 +349,7 @@
             <Border Classes="v2-debrief-section v2-debrief-accent">
               <StackPanel Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                  <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="22" />
+                  <TextBlock Classes="v2-debrief-strong" Text="{Binding SelectedMapLabel}" FontSize="{DynamicResource V2.Type.Heading2.Size}" />
                   <Border Classes="v2-debrief-kind" IsVisible="{Binding HasSelectedMapKind}">
                     <TextBlock Text="{Binding SelectedMapKindLabel}" />
                   </Border>

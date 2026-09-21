@@ -55,7 +55,7 @@ public sealed class V2ThemeResourceTests
         Assert.True(resources.TryGetResource("V2.Brush.Canvas", ThemeVariant.Dark, out var canvas));
         Assert.IsAssignableFrom<ISolidColorBrush>(canvas);
         Assert.True(resources.TryGetResource("V2.Type.Body.Size", ThemeVariant.Dark, out var body));
-        Assert.Equal(16d, Assert.IsType<double>(body));
+        Assert.Equal(14d, Assert.IsType<double>(body));
         Assert.True(resources.TryGetResource("V2.String.Gallery.Title", ThemeVariant.Dark, out var title));
         Assert.Equal("Primitive gallery", Assert.IsType<string>(title));
     }
