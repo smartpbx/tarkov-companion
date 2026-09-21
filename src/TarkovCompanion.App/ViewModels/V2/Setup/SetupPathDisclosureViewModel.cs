@@ -12,7 +12,11 @@ namespace TarkovCompanion.App.ViewModels.V2.Setup;
 public sealed class SetupPathDisclosureViewModel : BindableViewModel
 {
     private readonly string? _userProfile;
-    private bool _isRevealed;
+    // Shown in full from the start. They were masked behind a "Show file paths" switch that sat above
+    // every Setup section and pushed the overview off one screen; the owner's verdict was "just show
+    // the file paths, who cares". This is his own PC. What leaves the machine (the problem report)
+    // is still masked, by SetupPathMask, regardless of this.
+    private bool _isRevealed = true;
 
     public SetupPathDisclosureViewModel(string? userProfile = null)
     {

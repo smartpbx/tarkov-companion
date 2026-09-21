@@ -403,7 +403,8 @@ internal static class Program
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {
-                if (args.Contains("--show-paths"))
+                // Paths are shown in full by default now; the flag only makes sure of it.
+                if (args.Contains("--show-paths") && !setupPage.Paths.IsRevealed)
                 {
                     setupPage.Paths.ToggleCommand.Execute(null);
                 }
