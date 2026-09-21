@@ -104,6 +104,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.Changed += OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested += OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated += OnLootScanEvaluated;
+        _lootScanHandoff.LootScanStarted += OnLootScanStarted;
         _intelHandoff.ItemIdentified += OnItemIdentified;
         _shell.ManualImageRequested += OnManualImageRequested;
         _shell.CaptureCandidateChosen += OnCaptureCandidateChosen;
@@ -445,6 +446,9 @@ public sealed class V2ShellCaptureBridge : IDisposable
         Push();
     }
 
+    /// <summary>#572: the Loot page must show something long before the full result is ready.</summary>
+    private void OnLootScanStarted(object? sender, EventArgs eventArgs) => _shell.ShowLootScanStarting();
+
     private void OnLootScanEvaluated(object? sender, LootScanResult result)
     {
         // The same frame decided again, after a pin or a change of raid phase, keeps the player
@@ -542,6 +546,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _captureSessions.Changed -= OnCaptureSessionsChanged;
         _captureSessions.ReviewRequested -= OnReviewRequested;
         _lootScanHandoff.LootScanEvaluated -= OnLootScanEvaluated;
+        _lootScanHandoff.LootScanStarted -= OnLootScanStarted;
         _intelHandoff.ItemIdentified -= OnItemIdentified;
         if (_fleaHandoff is not null)
         {

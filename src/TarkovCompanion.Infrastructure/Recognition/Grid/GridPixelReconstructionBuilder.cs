@@ -166,29 +166,50 @@ public sealed class GridPixelReconstructionBuilder(
 
         var references = await _references.GetAsync(cancellationToken).ConfigureAwait(false);
 
-        var observations = new List<GridCellObservation>(footprints.Count);
+        // #572: the OCR-quantity budget is a shared counter across the whole grid, so it is
+        // decided up front, in footprint order, before any cell's own (independent) match work
+        // starts. Everything after this loop reads only per-footprint state and the read-only
+        // reference snapshot (whose own descriptor cache is a ConcurrentDictionary), so cells run
+        // across cores instead of one after another - a container with two dozen cells used to
+        // pay each cell's decode-and-correlate cost in sequence even though no cell's answer
+        // depends on another's.
+        var attemptsQuantityOcr = new bool[footprints.Count];
         var quantityOcrCalls = 0;
-        foreach (var footprint in footprints)
+        for (var index = 0; index < footprints.Count; index++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var bounds = FootprintBounds(lattice, footprint);
-            var attemptQuantityOcr = quantityOcrCalls < options.MaximumQuantityOcrCalls;
-            if (attemptQuantityOcr)
+            if (quantityOcrCalls >= options.MaximumQuantityOcrCalls)
             {
-                quantityOcrCalls++;
+                break;
             }
 
-            observations.Add(await BuildObservationAsync(
-                    image,
-                    footprint,
-                    bounds,
-                    references,
-                    options,
-                    observedUtc,
-                    attemptQuantityOcr,
-                    cancellationToken)
-                .ConfigureAwait(false));
+            attemptsQuantityOcr[index] = true;
+            quantityOcrCalls++;
         }
+
+        var observations = new GridCellObservation[footprints.Count];
+        await Parallel.ForEachAsync(
+                Enumerable.Range(0, footprints.Count),
+                new ParallelOptions
+                {
+                    CancellationToken = cancellationToken,
+                    MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount),
+                },
+                async (index, cellCancellationToken) =>
+                {
+                    var footprint = footprints[index];
+                    var bounds = FootprintBounds(lattice, footprint);
+                    observations[index] = await BuildObservationAsync(
+                            image,
+                            footprint,
+                            bounds,
+                            references,
+                            options,
+                            observedUtc,
+                            attemptsQuantityOcr[index],
+                            cellCancellationToken)
+                        .ConfigureAwait(false);
+                })
+            .ConfigureAwait(false);
 
         return new(surface, lattice, observations);
     }
