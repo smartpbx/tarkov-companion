@@ -107,6 +107,20 @@ public sealed class RelayMapSurfaceStore
         _timeProvider = timeProvider;
     }
 
+    /// <summary>The clock, cut to whole milliseconds, which is what relay authorization accepts.</summary>
+    /// <remarks>
+    /// <see cref="RelayAuthorization.Decide"/> refuses a timestamp with sub-millisecond ticks. This
+    /// store handed it the raw clock, and every test drove it with a manual clock set to whole
+    /// milliseconds, so the suite was green while on the real relay every map publish and every
+    /// map read threw and answered 500: a paired tablet said "the desktop is offline" and never
+    /// drew a map (2026-09-20, the first night anybody paired one for real).
+    /// </remarks>
+    private DateTimeOffset Now()
+    {
+        var utc = _timeProvider.GetUtcNow().ToUniversalTime();
+        return new DateTimeOffset(utc.Ticks - (utc.Ticks % TimeSpan.TicksPerMillisecond), TimeSpan.Zero);
+    }
+
     /// <summary>The desktop replaces what its tablets are drawing. Owner only.</summary>
     public RelayMapSurfaceResult Publish(RelayPrincipal principal, ReadOnlySpan<byte> surfaceJson)
     {
@@ -135,7 +149,7 @@ public sealed class RelayMapSurfaceStore
                 keepArtwork ? previous!.ArtworkMediaType : null,
                 keepArtwork ? previous!.ArtworkSha256 : null,
                 keepArtwork ? previous!.Artwork : null,
-                _timeProvider.GetUtcNow(),
+                Now(),
                 ++_revision);
             woken = Swap();
         }
@@ -241,7 +255,7 @@ public sealed class RelayMapSurfaceStore
     }
 
     private bool CanRead(RelayPrincipal principal) =>
-        RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames, _timeProvider.GetUtcNow()).Allowed &&
+        RelayAuthorization.Decide(principal, RelayPermission.ReceiveOpaqueFrames, Now()).Allowed &&
         _registry.IsCurrent(principal);
 
     /// <summary>
@@ -350,6 +364,6 @@ public sealed class RelayMapSurfaceStore
 
     private bool CanPublish(RelayPrincipal principal) =>
         principal.Role == DeviceAuthorizationRole.Owner &&
-        RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames, _timeProvider.GetUtcNow()).Allowed &&
+        RelayAuthorization.Decide(principal, RelayPermission.PublishOpaqueFrames, Now()).Allowed &&
         _registry.IsCurrent(principal);
 }

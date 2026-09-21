@@ -19,6 +19,39 @@ namespace TarkovCompanion.UnitTests.RelayDeviceSecurity;
 /// </remarks>
 public sealed class RelayMapSurfaceTests
 {
+    /// <summary>
+    /// The store works on a clock that has ticks below a millisecond, which is every real clock.
+    /// </summary>
+    /// <remarks>
+    /// Relay authorization refuses such a timestamp, this store used to hand it the raw clock, and
+    /// every other test here runs on a manual clock set to whole milliseconds. So the suite was
+    /// green while the deployed relay answered 500 to every map publish and every map read, and
+    /// a paired tablet said the desktop was offline.
+    /// </remarks>
+    [Fact]
+    public async Task AClockWithTicksBelowAMillisecondDoesNotBreakTheStore()
+    {
+        var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var store = new RelayMapSurfaceStore(context.Registry, new OffTheMillisecond(context.Clock));
+
+        var held = store.Describe(owner);
+
+        // The owner, with nothing published yet: described, and holding nothing. It used to throw.
+        Assert.NotNull(held);
+        Assert.False(held.Held);
+    }
+
+    private sealed class OffTheMillisecond(TimeProvider inner) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => inner.GetUtcNow().AddTicks(1234);
+
+        public override long GetTimestamp() => inner.GetTimestamp();
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            inner.CreateTimer(callback, state, dueTime, period);
+    }
+
     [Fact]
     public async Task OnlyTheOwnerPublishesAndOnlyAPairedSessionReads()
     {
