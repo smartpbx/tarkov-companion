@@ -2979,6 +2979,15 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool ShowsMarkerIcon => !HasMarkerNumber;
     public bool IsExtractIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Extract;
     public bool IsTransitIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Transit;
+    /// <summary>
+    /// [Issue 594] "Clicking an extract or transit doesn't tell me what one it is." The selected
+    /// one keeps its name beside the icon, readable without hovering, in the same label style a
+    /// place name uses; hovering (ToolTip.Tip, bound to Label) is what says it for every other one.
+    /// </summary>
+    public bool ShowsSelectedName => IsSelected && (IsExtractIcon || IsTransitIcon);
+
+    /// <summary>[Issue 594] Whether this is the kind of marker the Raid page's "Selected" card is for.</summary>
+    public bool IsExtractOrTransit => IsExtractIcon || IsTransitIcon;
     public bool IsObjectiveIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Objective;
     public bool IsWaypointIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Waypoint;
     public bool IsPingIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Ping;
@@ -3094,6 +3103,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         if (SetProperty(ref _isSelected, selected, nameof(IsSelected)))
         {
             OnPropertyChanged(nameof(ZOrder));
+            OnPropertyChanged(nameof(ShowsSelectedName));
         }
     }
 

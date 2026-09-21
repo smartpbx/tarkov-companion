@@ -806,7 +806,10 @@
     // [Issue 508] A quest objective's amber is its own — not the ping's — so the two pins this
     // page draws (see drawPin below) are never the same colour as well as never the same shape.
     QuestObjective: "#e8b84a",
-    Ping: "#5eb3f0",
+    // [Issue 598] Matches the desktop's V2.Brush.Danger (dark theme): a ping is an alert, not
+    // neutral information, and the pulsing rings are what still say "ping" rather than "extract"
+    // at a glance.
+    Ping: "#ff9b8e",
     Waypoint: "#22d3ee",
     SpawnArea: "#9b8fc7",
     Lock: "#c77b6b",
@@ -922,6 +925,14 @@
   // of its lifetime is left (1 = just placed, 0 = about to go), so it visibly fades rather than
   // holding at full strength until it snaps away.
   function drawPing(px, py, scale, fraction = 1) {
+    // [Issue 598] A dark halo just behind the outer ring: red on the traffic heat's own red end
+    // (this map's Resort, with the layer on) would otherwise wash the ring out entirely.
+    context.strokeStyle = "#0b1016";
+    context.globalAlpha = 0.5 * fraction;
+    context.lineWidth = 3.5 * scale;
+    context.beginPath();
+    context.arc(px, py, 13 * scale, 0, Math.PI * 2);
+    context.stroke();
     context.strokeStyle = COLOURS.Ping;
     context.globalAlpha = 0.32 * fraction;
     context.lineWidth = 1.5 * scale;
