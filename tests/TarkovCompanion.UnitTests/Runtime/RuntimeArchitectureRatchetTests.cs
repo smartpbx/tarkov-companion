@@ -196,8 +196,15 @@ public sealed partial class RuntimeArchitectureRatchetTests
     public void RecordsCrossingTheOutboxStillMatchTheirReviewedCodecs()
     {
         AssertShape<RaidHistoryEntry>("EndedUtc", "Id", "MapId", "Mode", "Notes", "Outcome", "ProfileId", "StartedUtc");
+        // EndsUnreported, LogSession, RaidKey, RaidLastSeenUtc and RaidStartedUtc (#568) are on the
+        // record and deliberately NOT in the codec. They steer the raid state in memory, before
+        // anything is queued: which raid a line belongs to, and when a raid nobody reported over
+        // began and was last seen. What they decide does cross, on the commands that carry it (a
+        // new raid's start, an end with its outcome and notes). A stored state event therefore has
+        // no short id; if something comes to need it there, it goes into the codec first.
         AssertShape<RaidEvidence>(
-            "Confidence", "EventId", "Kind", "LoadSeconds", "MapId", "ObservedUtc", "ResumesSession", "Side", "SideBasis",
+            "Confidence", "EndsUnreported", "EventId", "Kind", "LoadSeconds", "LogSession", "MapId", "ObservedUtc",
+            "RaidKey", "RaidLastSeenUtc", "RaidStartedUtc", "ResumesSession", "Side", "SideBasis",
             "StartsNewRaid", "SuggestedState", "Summary");
         AssertShape<ActiveExtract>("Confidence", "ExtractId", "Name", "Source");
         AssertShape<ScanExecutionResult>(

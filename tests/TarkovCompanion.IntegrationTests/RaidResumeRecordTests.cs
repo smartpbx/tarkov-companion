@@ -99,12 +99,17 @@ public sealed class RaidResumeRecordTests
     public async Task The_raid_that_was_adopted_is_not_closed_along_with_the_rest()
     {
         await using var harness = await Harness.CreateAsync();
-        var open = await harness.StartRaidAsync("customs", Started);
-        await harness.StartRaidAsync("woods", Started.AddMinutes(1));
+        // The older raid comes first. Since #568 a raid that starts ends the one before it, so two
+        // raids are never open together with the adopted one the older of the two; this used to
+        // start customs and then woods, which now (correctly) closes customs the moment woods begins.
+        var older = await harness.StartRaidAsync("woods", Started);
+        var open = await harness.StartRaidAsync("customs", Started.AddMinutes(1));
 
         await harness.RestartAsync("customs", Started.AddMinutes(11));
 
-        Assert.Null((await harness.RaidsAsync()).Single(raid => raid.Id == open).EndedUtc);
+        var raids = await harness.RaidsAsync();
+        Assert.Null(raids.Single(raid => raid.Id == open).EndedUtc);
+        Assert.NotNull(raids.Single(raid => raid.Id == older).EndedUtc);
     }
 
     [Fact]
