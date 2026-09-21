@@ -97,8 +97,8 @@ Measured on 2026-09-20 over one player's day: 13 game launches (13 log folders),
   for the raid (`"shortId":"CX0FLS"` in the notification JSON, `shortId: CX0FLS` on the
   `profileStatus` line). **Every confirmation paired with an end of the same id, except one**:
   `CX0FLS`, a Streets raid whose game process died about 110 seconds in. No `userMatchOver` for
-  it exists anywhere. Exit statuses of the eight ends: `Free` x6, `Transfer` x1 (a scav raid on
-  Lighthouse, and it did end the raid), and one `Free` that arrived three launches late, below.
+  it exists anywhere. Exit statuses of the eight ends: `Free` x7 and `Transfer` x1. The transfer
+  was a scav raid on Lighthouse, and it did end the raid.
 - **A raid outlives the log folder it started in.** Three of the nine raids were reconnected
   into after the game or the machine died, and their `userMatchOver` was written one, one and
   three launches after their `userConfirmed`, under the same id. A reconnect folder holds
