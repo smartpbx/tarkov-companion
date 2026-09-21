@@ -50,6 +50,10 @@ and has neither a step that could publish nor a token that could.
 9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker
    to survive and the installed `BUILD_INFO.txt` to match the run, and self-tests the installed
    application.
+   Then it updates that installation for real (#599): the same binaries packed as the next
+   version, a local feed in `TARKOV_UPDATE_FEED`, `--apply-update-and-exit` started standing in
+   `current\` with a child left running, and `current\BUILD_INFO.txt` must name the next version
+   with the application reopened from it.
 10. Runs `scripts/windows-smoke.ps1`, the developer diagnostic surface, beside the simulator. It
    reads the demo database read-only through the package's own `e_sqlite3.dll`, because Windows
    PowerShell 5.1 cannot load the net10.0 `Microsoft.Data.Sqlite` assembly. It waits for a

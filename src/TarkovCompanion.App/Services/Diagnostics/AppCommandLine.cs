@@ -116,6 +116,12 @@ public sealed record AppCommandLine(
     /// </remarks>
     public IReadOnlyList<string> UnknownOptions { get; init; } = [];
 
+    /// <summary>
+    /// [#599] Check the feed, fetch what it offers, apply it and leave: the whole update with no
+    /// window, for the Windows verification step that installs build N and requires N+1 after.
+    /// </summary>
+    public bool ApplyUpdateAndExit { get; init; }
+
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -142,6 +148,7 @@ public sealed record AppCommandLine(
             MapRendererGallery = HasFlag(args, "--map-renderer-gallery"),
             MapRendererLargeText = HasFlag(args, "--map-renderer-large-text"),
             MapRendererLootOffline = HasFlag(args, "--map-renderer-loot-offline"),
+            ApplyUpdateAndExit = HasFlag(args, "--apply-update-and-exit"),
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
@@ -155,6 +162,7 @@ public sealed record AppCommandLine(
     private static readonly string[] Known =
     [
         "--self-test",
+        "--apply-update-and-exit",
         "--demo",
         "--headless",
         "--developer-mode",
