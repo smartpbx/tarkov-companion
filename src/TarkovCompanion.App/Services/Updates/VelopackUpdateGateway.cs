@@ -54,7 +54,7 @@ public sealed class VelopackUpdateGateway
     private readonly ILogger? _logger;
     private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
-    private UpdateInfo? _verified;
+    private VelopackAsset? _verified;
 
     public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null)
         : this(UpdateChannel.FromEnvironment(), source: null, locator: null, logger)
@@ -137,7 +137,50 @@ public sealed class VelopackUpdateGateway
     public UpdateChannel Channel { get; }
 
     /// <summary>Whether this copy was installed, as opposed to run out of a folder.</summary>
-    public bool IsInstalled => _manager.Value?.IsInstalled == true;
+    public bool IsInstalled => RenderPending is not null || _manager.Value?.IsInstalled == true;
+
+    /// <summary>
+    /// For the render tool only: a build that did not apply, so Setup > Updates can be looked at
+    /// in that state on a machine with no installation and no updater.
+    /// </summary>
+    internal static PendingUpdate? RenderPending { get; set; }
+
+    /// <summary>
+    /// A newer build already downloaded when this one started, which means it was tried and did
+    /// not apply. Null when there is none. Makes that build the one <see cref="ApplyAndRestart"/> applies.
+    /// </summary>
+    /// <remarks>
+    /// The package got into <c>packages\</c> through <see cref="DownloadAsync"/> in an earlier
+    /// run, which does not keep a file that did not match the feed, and the updater would apply
+    /// it by itself at the next start in any case.
+    /// </remarks>
+    /// <param name="readApplyError">Reads the updater's log for an application id; the real one when null.</param>
+    public PendingUpdate? PendingFromLastAttempt(Func<string, string?>? readApplyError = null)
+    {
+        if (RenderPending is { } demo)
+        {
+            return demo;
+        }
+
+        try
+        {
+            if (_manager.Value is not { IsInstalled: true } manager || manager.UpdatePendingRestart is not { } waiting)
+            {
+                return null;
+            }
+
+            _verified = waiting;
+            readApplyError ??= appId => VelopackApplyLog.ReadLastApplyError(VelopackApplyLog.PathFor(appId));
+            var pending = new PendingUpdate(waiting.Version.ToString(), readApplyError(manager.AppId ?? "TarkovCompanionDesktop"));
+            _logger?.LogWarning("{Status}", pending.Status);
+            return pending;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _logger?.LogInformation(exception, "Could not tell whether a downloaded build is waiting");
+            return null;
+        }
+    }
 
     /// <summary>The running version, and whether an installer put it there.</summary>
     /// <remarks>
@@ -203,7 +246,7 @@ public sealed class VelopackUpdateGateway
             _verified = null;
             await manager.DownloadUpdatesAsync(update, progress, cancellationToken).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
-            _verified = update;
+            _verified = update.TargetFullRelease;
             return new($"{available} is ready · it installs when this restarts", CanApply: true, Available: available);
         }
         catch (UpdateHashMismatchException exception)
@@ -239,7 +282,7 @@ public sealed class VelopackUpdateGateway
             return;
         }
 
-        _logger?.LogInformation("Applying version {Version} and restarting.", update.TargetFullRelease.Version);
+        _logger?.LogInformation("Applying version {Version} and restarting.", update.Version);
         if (HandOver is not { } handOver)
         {
             manager.ApplyUpdatesAndRestart(update);
@@ -249,8 +292,8 @@ public sealed class VelopackUpdateGateway
         // #599. The updater is started last and this process is ended outright, instead of the
         // library starting it first and then calling Environment.Exit in the middle of everything.
         handOver.Run(
-            update.TargetFullRelease.Version.ToString(),
-            () => manager.WaitExitThenApplyUpdates(update.TargetFullRelease, silent: false, restart: true));
+            update.Version.ToString(),
+            () => manager.WaitExitThenApplyUpdates(update, silent: false, restart: true));
     }
 
     /// <summary>

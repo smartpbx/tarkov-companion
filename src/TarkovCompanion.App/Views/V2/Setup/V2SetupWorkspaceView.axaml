@@ -4,6 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
              xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup"
+             xmlns:updates="using:TarkovCompanion.App.Services.Updates"
              xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
   <UserControl.Styles>
     <!-- A settings section reads as a readable column, not a full-width slab. -->
@@ -292,16 +293,30 @@
           <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-check-update"
                   IsEnabled="{Binding Settings.CanCheckForUpdate}"
                   Content="{Binding CheckUpdateButtonLabel}" Command="{Binding Settings.CheckForUpdateCommand}" />
-          <Button Classes="v2-target primary" IsVisible="{Binding Settings.CanUpdateNow}"
+          <Button Classes="v2-target primary" IsVisible="{Binding Settings.ShowsUpdateNow}"
                   IsEnabled="{Binding Settings.IsUpdateIdle}"
                   AutomationProperties.AutomationId="v2-setup-update-now"
                   Content="{Binding UpdateNowLabel}" Command="{Binding Settings.UpdateNowCommand}" />
+          <!-- #599: a downloaded build that was tried and did not apply. Offered again, by name,
+               with the installer beside it as the way out that does not depend on the updater. -->
+          <Button Classes="v2-target primary" IsVisible="{Binding Settings.UpdateDidNotApply}"
+                  IsEnabled="{Binding Settings.IsUpdateIdle}"
+                  AutomationProperties.AutomationId="v2-setup-apply-now"
+                  Content="{x:Static updates:PendingUpdateText.ApplyNow}" Command="{Binding Settings.UpdateNowCommand}" />
+          <Button Classes="v2-target" IsVisible="{Binding Settings.UpdateDidNotApply}"
+                  AutomationProperties.AutomationId="v2-setup-run-installer"
+                  Content="{x:Static updates:PendingUpdateText.RunInstaller}" Click="OnGetInstaller" />
           <Button Classes="v2-target primary" IsVisible="{Binding Settings.IsRunFromFolder}"
                   AutomationProperties.AutomationId="v2-setup-get-installer"
                   Content="{Binding GetInstallerLabel}" Click="OnGetInstaller" />
         </WrapPanel>
         <SelectableTextBlock Classes="v2-label" IsVisible="{Binding Settings.IsRunFromFolder}"
                              Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
+        <StackPanel Classes="v2-field" IsVisible="{Binding Settings.UpdateDidNotApply}">
+          <TextBlock Classes="v2-body" Text="{x:Static updates:PendingUpdateText.Advice}" TextWrapping="Wrap"
+                     AutomationProperties.AutomationId="v2-setup-update-advice" />
+          <SelectableTextBlock Classes="v2-label" Text="{Binding Settings.InstallerAddress}" TextWrapping="Wrap" />
+        </StackPanel>
         <TextBlock Classes="v2-label" Text="{Binding UpdateDataFolder.Text}" TextWrapping="Wrap"
                    AutomationProperties.AutomationId="v2-setup-update-data-folder" />
         <!-- [#292] What is in the waiting build, and how to go back to an earlier one. -->

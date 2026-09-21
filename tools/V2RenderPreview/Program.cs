@@ -110,6 +110,16 @@ internal static class Program
                 CrashBreadcrumbs.Detach();
             }
 
+            // [#599] Setup > Updates beside a build that was downloaded and did not apply. There is
+            // no installation and no updater here, so the state is handed to the gateway directly;
+            // that the gateway reports it from a real packages folder is PendingUpdateTests' job.
+            if (args.Contains("--update-did-not-apply"))
+            {
+                TarkovCompanion.App.Services.Updates.VelopackUpdateGateway.RenderPending = new(
+                    "2.0.1337",
+                    "Unable to start the update, because one or more running processes prevented it.");
+            }
+
             var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
 
             AppBuilder.Configure(() => new AppClass(services))
