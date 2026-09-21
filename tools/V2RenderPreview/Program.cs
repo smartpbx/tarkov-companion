@@ -1280,6 +1280,18 @@ internal static class Program
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
                         break;
+                    // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
+                    // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
+                    // own Allow/Deny row does, so putting it into this state here proves it shows
+                    // up on whatever --route is rendered, not only team/tablet.
+                    case "control-requested":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            claimMessage: "Claimed. This desktop is now the relay's owner.",
+                            devices: [DemoPairedDevice("Kitchen tablet")],
+                            controlRequestMessage: "Kitchen tablet is asking to control this desktop.");
+                        break;
                     default:
                         throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
                 }

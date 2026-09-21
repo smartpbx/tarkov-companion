@@ -335,9 +335,16 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         string? statusMessage = null,
         string? claimMessage = null,
         IReadOnlyList<PairedDeviceRowViewModel>? devices = null,
-        DateTimeOffset? codeExpiresUtc = null)
+        DateTimeOffset? codeExpiresUtc = null,
+        // #562: so tools/V2RenderPreview can put a pending Control request in front of the render
+        // pipeline without a relay or a tablet — the same seam every other field above already is.
+        string? controlRequestMessage = null)
     {
         _previewAvailability = true;
+        if (controlRequestMessage is not null)
+        {
+            ControlRequestMessage = controlRequestMessage;
+        }
         _relayOrigin ??= new Uri("https://relay.example");
         OnPropertyChanged(nameof(ClaimedSummary));
         OnPropertyChanged(nameof(CanPair));

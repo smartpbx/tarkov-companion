@@ -530,6 +530,9 @@
           </Grid>
         </Border>
 
+        <!-- #562: a paired tablet asking to drive this desktop, wherever the player is looking. -->
+        <prim:ControlRequestPromptView DataContext="{Binding ControlRequestPrompt}" />
+
         <!-- #453: pages that did not load at startup, named, with Retry. -->
         <prim:V2LoadFaultNotice DataContext="{Binding StartupFaultNotice}" />
 
