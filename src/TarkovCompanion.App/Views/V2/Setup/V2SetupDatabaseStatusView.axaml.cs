@@ -14,20 +14,14 @@ public sealed partial class V2SetupDatabaseStatusView : UserControl
     /// own "Get the installer" already opens an address: the window's own launcher, never a
     /// process this application starts itself.
     /// </summary>
-    private async void OnOpenBackupFolder(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private void OnOpenBackupFolder(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (DataContext is SetupDatabaseStatusViewModel { BackupFolderPath: { } folder }
-            && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+        if (DataContext is SetupDatabaseStatusViewModel { BackupFolderPath: { } folder })
         {
-            try
-            {
-                await launcher.LaunchDirectoryInfoAsync(new System.IO.DirectoryInfo(folder)).ConfigureAwait(true);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or UnauthorizedAccessException)
-            {
-                // The folder path is on the page as text (inside the backup line), so a file
-                // manager that will not open is not the end of the road and not worth a dialog.
-            }
+            // The folder path is on the page as text (inside the backup line), so a file manager
+            // that will not open is not the end of the road and not worth a dialog. Through
+            // ShellLauncher so the file manager does not inherit the install folder (#599).
+            TarkovCompanion.App.Services.ShellLauncher.TryOpenFolder(folder);
         }
     }
 }

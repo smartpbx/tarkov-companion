@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using TarkovCompanion.Application.Services.Wiki;
+using TarkovCompanion.Infrastructure.Processes;
 
 namespace TarkovCompanion.Infrastructure.Wiki;
 
@@ -15,7 +16,8 @@ public sealed class SystemBrowserWikiLinkOpener : IWikiLinkOpener
 
         try
         {
-            using var process = Process.Start(new ProcessStartInfo(wikiUrl!) { UseShellExecute = true });
+            // #599: never with the install folder as the browser's working directory.
+            using var process = Process.Start(OutsideInstallFolder.ShellOpen(wikiUrl!));
             return process is not null;
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)

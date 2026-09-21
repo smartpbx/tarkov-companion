@@ -231,6 +231,52 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     }
 
     /// <summary>
+    /// Cancels everything that is held open, without waiting for any of it. For the update hand-over.
+    /// </summary>
+    /// <remarks>
+    /// #599. The watchdog goes first for the same reason it does in <see cref="StopAsync"/>: the
+    /// UI thread is about to stop answering on purpose. Cancelling is all this may do; it runs on
+    /// the UI thread, in front of a process that has about a second left.
+    /// </remarks>
+    public void StopAcceptingWork()
+    {
+        _hangWatchdog?.Dispose();
+        _hangWatchdog = null;
+        try
+        {
+            _stopping.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Already stopping the ordinary way.
+        }
+    }
+
+    /// <summary>
+    /// Takes the windows and the tray icon off the screen. UI thread only; for the update hand-over.
+    /// </summary>
+    /// <remarks>
+    /// Hidden rather than closed. Closing runs the close-to-tray decision and the desktop
+    /// lifetime's own shutdown, and neither has time to matter: the process is ended outright a
+    /// moment later. The tray icon is removed here because Windows keeps the icon of a killed
+    /// process on the taskbar until the pointer passes over it.
+    /// </remarks>
+    public void CloseInterface()
+    {
+        _closesToTray = false;
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            foreach (var window in desktop.Windows.ToArray())
+            {
+                window.Hide();
+            }
+        }
+
+        _tray?.Dispose();
+        _tray = null;
+    }
+
+    /// <summary>
     /// Cancels startup work and unwinds the interface, every step under its own deadline.
     /// </summary>
     /// <remarks>

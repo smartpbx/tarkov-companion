@@ -93,6 +93,8 @@ internal static class OutOfProcessSvgRasterizer
             CreateNoWindow = true,
             RedirectStandardError = true,
             RedirectStandardOutput = true,
+            // #599: a child standing in the install folder is a child the updater cannot move it past.
+            WorkingDirectory = Processes.OutsideInstallFolder.WorkingDirectory,
         };
         foreach (var argument in host.LeadingArguments)
         {
@@ -127,6 +129,7 @@ internal static class OutOfProcessSvgRasterizer
         }
 
         using (process)
+        using (MapRasterizerChildren.Track(process))
         {
             // Read while waiting. A child that filled a redirected pipe and was never drained
             // would block on its own write and then be killed by the deadline below, which reads

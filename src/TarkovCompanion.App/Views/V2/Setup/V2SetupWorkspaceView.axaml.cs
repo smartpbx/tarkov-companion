@@ -27,20 +27,14 @@ public sealed partial class V2SetupWorkspaceView : UserControl
     /// belongs to a window. The browser does the download, so the player sees what they are
     /// fetching and from where; this application never runs an installer it fetched itself.
     /// </remarks>
-    private async void OnGetInstaller(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    private void OnGetInstaller(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (DataContext is V2SetupWorkspaceViewModel { Settings.InstallerLocation: { } installer }
-            && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+        if (DataContext is V2SetupWorkspaceViewModel { Settings.InstallerLocation: { } installer })
         {
-            try
-            {
-                await launcher.LaunchUriAsync(installer).ConfigureAwait(true);
-            }
-            catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException)
-            {
-                // The address is on the page as text, so a browser that will not open is not the
-                // end of the road and is not worth a dialog.
-            }
+            // The address is on the page as text, so a browser that will not open is not the end
+            // of the road and is not worth a dialog. Through ShellLauncher rather than the
+            // window's launcher so the browser does not inherit the install folder (#599).
+            TarkovCompanion.App.Services.ShellLauncher.TryOpen(installer);
         }
     }
 
