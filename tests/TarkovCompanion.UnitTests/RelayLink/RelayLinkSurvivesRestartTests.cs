@@ -179,8 +179,9 @@ public sealed class RelayLinkSurvivesRestartTests
         {
             await firstRun.ClaimAsync();
             await firstRun.PairAsync(tablet, "Raid tablet");
-            await ((AsyncDelegateCommand)firstRun.Panel.ForgetRelayCommand).ExecuteAsync();
-            Assert.False(firstRun.Panel.IsClaimedByThisDesktop);
+            // [#553] There is no "Forget this relay" button now that there is no claim to drop;
+            // the kept session is dropped where the button used to drop it.
+            await firstRun.Bridge.ForgetOwnerAsync();
             Assert.DoesNotContain(IntegrationSecretKind.RelayOwnerSession, disk.Secrets.Kinds);
         }
 

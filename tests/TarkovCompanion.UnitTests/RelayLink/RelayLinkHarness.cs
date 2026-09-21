@@ -251,6 +251,7 @@ internal sealed class DesktopRun : IAsyncDisposable
     public const string TabletOrigin = "https://tablet.companion.example";
 
     private readonly HttpClient _claimHttp;
+    private readonly RelayTestClock _clock;
 
     private DesktopRun(
         DesktopCompanionAuthority authority,
@@ -259,8 +260,10 @@ internal sealed class DesktopRun : IAsyncDisposable
         CompanionPairingViewModel panel,
         DesktopDisk disk,
         Uri relayOrigin,
-        string? groupKey)
+        string? groupKey,
+        RelayTestClock clock)
     {
+        _clock = clock;
         Authority = authority;
         Coordinator = coordinator;
         Bridge = bridge;
@@ -317,15 +320,25 @@ internal sealed class DesktopRun : IAsyncDisposable
             MailboxPollInterval = TimeSpan.FromMilliseconds(20),
         };
         await panel.RelayLinkRestored;
-        return new DesktopRun(authority, coordinator, bridge, panel, disk, relayOrigin, groupKey);
+        return new DesktopRun(authority, coordinator, bridge, panel, disk, relayOrigin, groupKey, clock);
     }
 
-    /// <summary>Types the admin key and presses Claim.</summary>
+    /// <summary>
+    /// What a desktop from before #553 did when its player typed the admin key and pressed Claim:
+    /// the claim protocol, which a relay still serves for such a desktop. The panel has no claim
+    /// card any more, so this makes the same calls that card made and tells the panel what the
+    /// bridge now holds; with nothing typed it is the keyless claim, as it was.
+    /// </summary>
     public async Task ClaimAsync(string adminKey = LinkRelay.AdminKey)
     {
-        Panel.AdminKeyInput = adminKey;
-        await ((AsyncDelegateCommand)Panel.ClaimRelayCommand).ExecuteAsync();
+        LastClaim = string.IsNullOrWhiteSpace(adminKey)
+            ? await ClaimClient.ClaimByKeyAsync(_clock.UtcNow, CancellationToken.None)
+            : await ClaimClient.ClaimAsync(adminKey, _clock.UtcNow, CancellationToken.None);
+        Panel.ApplyOwnerLink(Bridge.OwnerLink);
     }
+
+    /// <summary>How the last <see cref="ClaimAsync"/> ended.</summary>
+    public RelayClaimResult? LastClaim { get; private set; }
 
     /// <summary>
     /// Presses Start pairing, lets the tablet run its half, compares the two codes the way the

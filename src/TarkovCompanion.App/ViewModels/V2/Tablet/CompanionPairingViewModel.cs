@@ -120,7 +120,12 @@ public enum CompanionPairingStage
 /// <see cref="DesktopPairingCoordinator"/>'s, unchanged from its own tests. This view model adds
 /// nothing to that trust boundary; it only calls it and shows the result.
 /// </remarks>
-/// <summary>Whether this relay is claimed, and by whom, as last checked from this desktop.</summary>
+/// <summary>Whether this desktop is on the relay, as last checked from here.</summary>
+/// <remarks>
+/// [#553] Named for the claim a relay used to need. <see cref="ClaimedByThisDesktop"/> now means
+/// this desktop has registered itself and holds a session; the two states about somebody else's
+/// claim are reported only by a relay from before desktops registered themselves.
+/// </remarks>
 public enum RelayOwnerClaimState
 {
     Unknown = 1,
@@ -176,10 +181,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private string? _verificationCode;
     private string? _statusMessage;
     private bool _isBusy;
-    private string _adminKeyInput = string.Empty;
     private RelayOwnerClaimState _relayClaimState = RelayOwnerClaimState.Unknown;
     private string? _relayClaimMessage;
-    private bool _isClaimingRelay;
 
     public CompanionPairingViewModel(
         DesktopCompanionAuthority authority,
@@ -207,7 +210,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 {
                     // [#289] The relay ends an owner session after twelve hours, or two idle. The
                     // bridge asks to be let back in on this desktop's key before it gives the
-                    // claim up, so the admin key is typed once on this machine, not once a day.
+                    // session up. Since #553 that is a registration carrying the group key.
                     var claimClient = _claimClient;
                     _relayMarksBridge.OwnerReclaim = token => claimClient.ClaimByKeyAsync(Now(), token);
                 }
@@ -225,12 +228,10 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
         DenyCommand = new AsyncDelegateCommand(DenyAsync);
-        ClaimRelayCommand = new AsyncDelegateCommand(ClaimRelayAsync);
         // [V2 rough package 24] Control of this desktop, from the concept's own three modes.
         AllowControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: true));
         DenyControlCommand = new AsyncDelegateCommand(() => ResolveControlAsync(approved: false));
         TakeBackControlCommand = new AsyncDelegateCommand(TakeBackControlAsync);
-        ForgetRelayCommand = new AsyncDelegateCommand(ForgetRelayAsync);
         if (_relayMarksBridge is not null)
         {
             _relayMarksBridge.CanonicalStateChanged += OnCanonicalStateChanged;
@@ -274,29 +275,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public bool HasControlRequest => !string.IsNullOrEmpty(ControlRequestMessage);
 
-    /// <summary>
-    /// What an admin key is, where it comes from, and what claiming does — said where it is asked
-    /// for.
-    /// </summary>
-    /// <remarks>
-    /// [V2 rough package 48] The box used to say only "Type the relay's admin key to make this
-    /// desktop its owner", which assumes the reader already knows there is such a thing and that
-    /// they are the person who set it. One line, naming the variable, because the answer to "what
-    /// is the admin key" is a variable name on a server.
-    /// </remarks>
-    public static string AdminKeyHelp =>
-        "The admin key is the secret the relay's operator set as TARKOV_RELAY_ADMIN_KEY. Claiming " +
-        "makes this desktop the relay's owner, which is what lets it pair devices at all. The key " +
-        "is used once and never stored; the claim itself is kept.";
-
     /// <summary>[#553] What a desktop with no group key is told: that is all registering needs.</summary>
     public const string GroupKeyNeededMessage = "Set a group key in Team > Group first.";
-
-    /// <summary>The message for a relay whose operator has not configured claiming at all.</summary>
-    public const string NotConfiguredForClaimingMessage =
-        "This relay is not configured for claiming. Its operator must set " +
-        "TARKOV_RELAY_OWNER_RECOVERY_SECRET and restart it; until then no desktop can become its " +
-        "owner and no device can be paired.";
 
     /// <summary>Whether starting a pairing ceremony can succeed, as last known from this desktop.</summary>
     /// <remarks>
@@ -668,25 +648,16 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public ICommand DenyCommand { get; }
 
-    public ICommand ClaimRelayCommand { get; }
-
     public bool CanClaimRelay => _previewAvailability || (_identitySigner is not null && _relay is not null);
 
-    /// <summary>
-    /// Whether the claim card still has anything to ask for.
-    /// </summary>
+    /// <summary>Whether this desktop could be on the relay and is not yet.</summary>
     /// <remarks>
-    /// [V2 rough package 48] An empty admin-key box sitting above a working pairing flow is noise,
-    /// and worse than noise: it suggests there is something still to type when there is not.
+    /// [#553] The name is from when a relay had to be claimed with its operator's admin key, and
+    /// this decided whether a card asking for it was shown. Nothing is asked for now: a desktop
+    /// registers itself, and this is true only while that has not happened (no group key set, a
+    /// key the relay refused, a relay that is away), with <see cref="RelayClaimMessage"/> saying which.
     /// </remarks>
     public bool NeedsClaim => CanClaimRelay && RelayClaimState != RelayOwnerClaimState.ClaimedByThisDesktop;
-
-    /// <summary>Typed once to claim the relay; never persisted, and cleared as soon as the attempt finishes.</summary>
-    public string AdminKeyInput
-    {
-        get => _adminKeyInput;
-        set => SetProperty(ref _adminKeyInput, value);
-    }
 
     public RelayOwnerClaimState RelayClaimState
     {
@@ -697,6 +668,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             {
                 OnPropertyChanged(nameof(IsClaimedByThisDesktop));
                 OnPropertyChanged(nameof(NeedsClaim));
+                OnPropertyChanged(nameof(ShowsRelayProblem));
                 OnPropertyChanged(nameof(CanStartPairing));
                 OnPropertyChanged(nameof(StartPairingBlockedReason));
             }
@@ -711,8 +683,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     /// a restart — where nothing was attempted — showed as an empty row.
     /// </remarks>
     public string ClaimedSummary => _relayOrigin is { } origin
-        ? $"This desktop owns the relay at {origin.Host}."
-        : "This desktop owns the relay.";
+        ? $"Connected to the relay at {origin.Host}."
+        : "Connected to the relay.";
 
     /// <summary>
     /// The relay's tablet page, as an absolute URL with no fragment. Shown as plain text so it can
@@ -740,55 +712,15 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             if (SetProperty(ref _relayClaimMessage, value))
             {
                 OnPropertyChanged(nameof(HasRelayClaimMessage));
+                OnPropertyChanged(nameof(ShowsRelayProblem));
             }
         }
     }
 
     public bool HasRelayClaimMessage => !string.IsNullOrEmpty(RelayClaimMessage);
 
-    public bool IsClaimingRelay
-    {
-        get => _isClaimingRelay;
-        private set => SetProperty(ref _isClaimingRelay, value);
-    }
-
-    /// <summary>
-    /// Claims this relay's owner with the admin key typed into <see cref="AdminKeyInput"/> (v2r-relay-owner,
-    /// #278). Checks <c>/admin/relay/owner</c> first so a relay already claimed by another desktop is
-    /// reported without spending this desktop's own claim-route rate-limit budget on an attempt that
-    /// can only fail.
-    /// </summary>
-    private async Task ClaimRelayAsync()
-    {
-        if (_claimClient is null)
-        {
-            return;
-        }
-
-        var adminKey = AdminKeyInput;
-        AdminKeyInput = string.Empty;
-        IsClaimingRelay = true;
-        try
-        {
-            if (string.IsNullOrWhiteSpace(adminKey))
-            {
-                // [#289] Nothing typed is still worth one try: a desktop that claimed this relay
-                // before (and pressed "Forget this relay", say) is let back in on its key alone.
-                var byKey = await _claimClient.ClaimByKeyAsync(Now(), _lifetime.Token).ConfigureAwait(true);
-                (RelayClaimState, RelayClaimMessage) = byKey.Outcome == RelayClaimOutcome.KeyNotRecognised
-                    ? (RelayClaimState, "Enter the relay's admin key first.")
-                    : DescribeClaim(byKey, RelayClaimState);
-                return;
-            }
-
-            var result = await _claimClient.ClaimAsync(adminKey, Now(), _lifetime.Token).ConfigureAwait(true);
-            (RelayClaimState, RelayClaimMessage) = DescribeClaim(result, RelayClaimState);
-        }
-        finally
-        {
-            IsClaimingRelay = false;
-        }
-    }
+    /// <summary>[#553] Something stands between this desktop and the relay, and there are words for it.</summary>
+    public bool ShowsRelayProblem => NeedsClaim && HasRelayClaimMessage;
 
     /// <summary>What one claim attempt means for the panel: the state it leaves, and what to say.</summary>
     internal static (RelayOwnerClaimState State, string Message) DescribeClaim(
@@ -799,38 +731,17 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             (RelayOwnerClaimState.ClaimedByThisDesktop, "Connected to the relay."),
         RelayClaimOutcome.GroupKeyRefused =>
             (RelayOwnerClaimState.NotClaimed, "This relay did not accept your group key."),
-        RelayClaimOutcome.AlreadyClaimedByThisDesktop =>
-            (RelayOwnerClaimState.ClaimedByThisDesktop, "This relay is already claimed by this desktop."),
-        RelayClaimOutcome.ClaimedByAnotherDesktop =>
-            (RelayOwnerClaimState.ClaimedByAnotherDesktop, "This relay is already claimed by another desktop."),
-        RelayClaimOutcome.NotConfiguredForClaiming =>
-            (RelayOwnerClaimState.NotConfiguredForClaiming, NotConfiguredForClaimingMessage),
-        RelayClaimOutcome.AdminKeyRefused => (current, "That admin key was not accepted."),
-        RelayClaimOutcome.KeyNotRecognised => (current, "This relay does not know this desktop. Enter its admin key."),
-        RelayClaimOutcome.RateLimited => (current, "Too many claim attempts. Try again in a minute."),
+        // [#553] Only a relay from before desktops registered themselves leaves a desktop that
+        // has a group key unrecognised: it has no such route, and nobody claimed it from here.
+        RelayClaimOutcome.KeyNotRecognised => (current, "This relay must be updated before it can pair tablets."),
+        RelayClaimOutcome.RateLimited => (current, "Too many attempts. Try again in a minute."),
         RelayClaimOutcome.Unreachable => (current, "Could not reach the group relay."),
-        // The relay will not replace an owner it has heard from recently, this desktop included.
-        _ when result.Code == "owner-already-live" =>
-            (current, "The relay still holds an earlier claim. It can be claimed again once that one has been idle for two hours."),
+        _ when result.Code == "room-full" => (current, "This group already has as many desktops as the relay allows."),
+        _ when result.Code == "relay-full" => (current, "This relay has no room for another desktop."),
         _ => (current, result.Code is { Length: > 0 } code
-            ? $"The relay refused the claim: {code}."
-            : "The relay refused the claim."),
+            ? $"The relay refused this desktop: {code}."
+            : "The relay refused this desktop."),
     };
-
-    /// <summary>"Forget this relay": drops the kept claim, here and in protected storage.</summary>
-    public ICommand ForgetRelayCommand { get; }
-
-    private async Task ForgetRelayAsync()
-    {
-        if (_relayMarksBridge is null)
-        {
-            return;
-        }
-
-        await _relayMarksBridge.ForgetOwnerAsync(_lifetime.Token).ConfigureAwait(true);
-        RelayClaimState = RelayOwnerClaimState.NotClaimed;
-        RelayClaimMessage = "Forgotten. Press Claim to claim this relay again.";
-    }
 
     /// <summary>Completes once the kept claim has been looked for; a test waits on it.</summary>
     internal Task RelayLinkRestored { get; } = Task.CompletedTask;
@@ -947,7 +858,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
                 break;
             case RelayOwnerLinkState.Rejected:
                 RelayClaimState = RelayOwnerClaimState.NotClaimed;
-                RelayClaimMessage = "Another desktop has claimed this relay since. Enter the admin key to claim it back.";
+                // [#553] Reached only after registering again was refused too, and that refusal's
+                // own words are already showing; this is what is said when there were none.
+                RelayClaimMessage ??= "The relay refused this desktop. Check the group key in Team > Group.";
                 break;
         }
     }

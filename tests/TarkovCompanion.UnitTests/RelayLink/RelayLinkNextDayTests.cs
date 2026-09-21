@@ -123,15 +123,16 @@ public sealed class RelayLinkNextDayTests
         Assert.Equal(RelayClaimOutcome.KeyNotRecognised, byKey.Outcome);
         Assert.Equal("owner-key-mismatch", byKey.Code);
 
-        // Pressing Claim with nothing typed says what is needed rather than claiming anything.
+        // Claiming with nothing typed claims nothing. [#553] The panel no longer has a claim card
+        // to say so on, so what the older desktop's claim calls came to is read from the calls.
         await stranger.ClaimAsync(adminKey: string.Empty);
         Assert.False(stranger.Panel.IsClaimedByThisDesktop);
-        Assert.Contains("admin key", stranger.Panel.RelayClaimMessage, StringComparison.Ordinal);
+        Assert.Equal(RelayClaimOutcome.KeyNotRecognised, stranger.LastClaim!.Outcome);
 
         // With the admin key it is where it always was: a live owner is not displaced.
         await stranger.ClaimAsync();
         Assert.False(stranger.Panel.IsClaimedByThisDesktop);
-        Assert.Equal(RelayOwnerClaimState.ClaimedByAnotherDesktop, stranger.Panel.RelayClaimState);
+        Assert.Equal(RelayClaimOutcome.ClaimedByAnotherDesktop, stranger.LastClaim!.Outcome);
 
         // Three days on the owner is long expired, and the admin key takes the relay, as before.
         clock.Advance(ThreeDays);

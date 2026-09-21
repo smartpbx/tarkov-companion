@@ -1232,21 +1232,25 @@ internal static class Program
                 switch (pairingState)
                 {
                     case "unclaimed":
+                        // [#553] Nothing is claimed any more; these are a desktop with no group key...
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.NotClaimed,
-                            CompanionPairingStage.Idle);
+                            CompanionPairingStage.Idle,
+                            claimMessage: CompanionPairingViewModel.GroupKeyNeededMessage);
                         break;
                     case "unclaimable":
+                        // ...one whose group key the relay refused...
                         pairing.PresentForPreview(
-                            RelayOwnerClaimState.NotConfiguredForClaiming,
+                            RelayOwnerClaimState.NotClaimed,
                             CompanionPairingStage.Idle,
-                            claimMessage: CompanionPairingViewModel.NotConfiguredForClaimingMessage);
+                            claimMessage: "This relay did not accept your group key.");
                         break;
                     case "claimed":
+                        // ...and one that has just registered itself.
                         pairing.PresentForPreview(
                             RelayOwnerClaimState.ClaimedByThisDesktop,
                             CompanionPairingStage.Idle,
-                            claimMessage: "Claimed. This desktop is now the relay's owner.");
+                            claimMessage: "Connected to the relay.");
                         break;
                     case "restored":
                         // [#289] Claimed on an earlier run and picked back up at startup: nothing

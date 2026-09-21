@@ -16,26 +16,13 @@ namespace TarkovCompanion.UnitTests.Team;
 public sealed class PairingInPlaceTests
 {
     [Fact]
-    public void TheAdminKeyHelpSaysWhatItIsAndWhoSetsIt()
+    public void ADesktopWithNoGroupKeyIsToldWhereToSetOneAndIsNeverAskedForAnAdminKey()
     {
-        // The answer to "what is the admin key" is a variable name on a server, so the line says
-        // the variable name and who sets it, and what claiming buys.
-        Assert.Contains("TARKOV_RELAY_ADMIN_KEY", CompanionPairingViewModel.AdminKeyHelp, StringComparison.Ordinal);
-        Assert.Contains("operator", CompanionPairingViewModel.AdminKeyHelp, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("owner", CompanionPairingViewModel.AdminKeyHelp, StringComparison.OrdinalIgnoreCase);
-        Assert.True(CompanionPairingViewModel.AdminKeyHelp.Length < 260, "one line, not a lecture");
-    }
-
-    [Fact]
-    public void ARelayThatCannotBeClaimedNamesWhatTheOperatorMustSet()
-    {
-        // The state that produced the complaint: /admin/relay/claim answers 501 before it reads the
-        // admin key, so no desktop can ever own this relay. Retyping and retrying cannot fix it.
-        Assert.Contains(
-            "TARKOV_RELAY_OWNER_RECOVERY_SECRET",
-            CompanionPairingViewModel.NotConfiguredForClaimingMessage,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("Try again", CompanionPairingViewModel.NotConfiguredForClaimingMessage, StringComparison.OrdinalIgnoreCase);
+        // [#553] This file used to pin the wording of the admin-key box and of a relay that could
+        // not be claimed. There is no claim and no box: the group key is all a desktop needs.
+        Assert.Contains("group key", CompanionPairingViewModel.GroupKeyNeededMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Team > Group", CompanionPairingViewModel.GroupKeyNeededMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("admin", CompanionPairingViewModel.GroupKeyNeededMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
