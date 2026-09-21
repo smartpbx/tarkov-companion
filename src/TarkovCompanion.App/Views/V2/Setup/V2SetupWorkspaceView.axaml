@@ -52,11 +52,6 @@
       <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Paths.Note}" />
     </StackPanel>
 
-    <!-- #292 task 2: reset/export/import, on every section rather than inside one. -->
-    <Panel IsVisible="{Binding HasSettingsAdmin}">
-      <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
-    </Panel>
-
     <Panel IsVisible="{Binding IsOverviewSelected}">
       <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
     </Panel>
@@ -428,6 +423,15 @@
         <TextBlock Classes="v2-label" Text="{Binding ScaleScope}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
+
+    <!-- #292: reset, export and import live with the preferences they act on, under Accessibility.
+         They were at the head of every section for an afternoon, which put a settings-file box
+         above "Ready when you are" on the page Setup opens on. -->
+    <Panel IsVisible="{Binding IsAccessibilitySelected}">
+      <Panel IsVisible="{Binding HasSettingsAdmin}">
+        <setup:V2SetupSettingsAdminView DataContext="{Binding SettingsAdmin}" />
+      </Panel>
+    </Panel>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDisplaysSelected}">
       <StackPanel Classes="v2-stack">
