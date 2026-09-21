@@ -1970,6 +1970,14 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
                 _updateStatus = "Only an installed build updates itself. Run the installer once and this keeps itself current.";
                 _availableBuild = "Not checked · a folder build does not update";
             }
+            else if (_updates.PendingFromLastAttempt() is { } didNotApply)
+            {
+                // #599: a build that was downloaded, tried, and is still not the one running.
+                _updateStatus = didNotApply.Status;
+                _availableBuild = didNotApply.Version;
+                _canRestartForUpdate = true;
+                _updateDidNotApply = true;
+            }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
         // reads very differently from an unsupported architecture - but until now only the
@@ -2297,6 +2305,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             if (SetProperty(ref _canDownloadUpdate, value))
             {
                 OnPropertyChanged(nameof(CanUpdateNow));
+                OnPropertyChanged(nameof(ShowsUpdateNow));
                 UpdateWaitingChanged?.Invoke(this, value || CanRestartForUpdate);
             }
         }
@@ -2311,6 +2320,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             if (SetProperty(ref _canRestartForUpdate, value))
             {
                 OnPropertyChanged(nameof(CanUpdateNow));
+                OnPropertyChanged(nameof(ShowsUpdateNow));
                 UpdateWaitingChanged?.Invoke(this, value || CanDownloadUpdate);
             }
         }
@@ -2318,6 +2328,24 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
 
     /// <summary>Whether a newer build is waiting, fetched or not, for the one-press update.</summary>
     public bool CanUpdateNow => CanDownloadUpdate || CanRestartForUpdate;
+
+    /// <summary>[#599] A downloaded build was tried and did not apply; the page says so and offers it again.</summary>
+    public bool UpdateDidNotApply
+    {
+        get => _updateDidNotApply;
+        private set
+        {
+            if (SetProperty(ref _updateDidNotApply, value))
+            {
+                OnPropertyChanged(nameof(ShowsUpdateNow));
+            }
+        }
+    }
+
+    private bool _updateDidNotApply;
+
+    /// <summary>[#599] The ordinary one-press update, which "Apply now" stands in for after a failed apply.</summary>
+    public bool ShowsUpdateNow => CanUpdateNow && !UpdateDidNotApply;
 
     /// <summary>[#294] The same fact, under the name the V2 shell asks for it by.</summary>
     bool IUpdateWaitingSource.IsUpdateWaiting => CanUpdateNow;
@@ -2471,6 +2499,7 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private void Apply(UpdateProgress progress)
     {
         // [#292] What is new in the waiting build, and whether the last check could not reach the feed.
+        UpdateDidNotApply = false;
         UpdateNotes = TarkovCompanion.App.Services.V2.Setup.SetupUpdateNotes.Plain(progress.Notes);
         LastUpdateCheckFailed = progress.Failed;
         UpdateStatus = progress.Status;
