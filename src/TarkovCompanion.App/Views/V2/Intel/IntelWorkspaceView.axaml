@@ -22,7 +22,7 @@
                the same neutral glyph rather than the short name clipped to fit a 56px tag
                ("Band…", "CPU f…" on the render that found this). -->
           <Border Grid.Column="0" Classes="v2-intel-thumb">
-            <Path Classes="v2-icon v2-icon-muted" Width="24" Height="24" Data="{DynamicResource V2.Icon.Box}" />
+            <Path Classes="v2-icon v2-icon-lg v2-icon-muted" Data="{DynamicResource V2.Icon.Box}" />
           </Border>
           <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
             <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />

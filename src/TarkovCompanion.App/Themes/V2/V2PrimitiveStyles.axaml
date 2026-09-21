@@ -251,21 +251,46 @@
     <Setter Property="ItemSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
     <Setter Property="LineSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
   </Style>
+  <!-- [#574] The base of the one button family: height, side padding, radius and type size come
+       from tokens, so a button, a toggle and a menu button on any page are the same control. A
+       view-local class may still recolour one; it should not resize it. -->
   <Style Selector="Button.v2-target">
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
-    <Setter Property="Padding" Value="12,8" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ToggleButton.v2-target">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
   <Style Selector="Button.v2-touch-target">
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
     <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
   </Style>
+  <!-- An icon and its label inside any button, tab, chip or menu row: one gap, both centred on
+       the row. A view wraps the pair in this instead of choosing its own Spacing and margins. -->
+  <Style Selector="StackPanel.v2-icon-label">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Control.Gap}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="StackPanel.v2-icon-label > TextBlock">
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
   <!-- A small floating icon-only control: map zoom/fit, the loot preset toggle, Raid's
        Ping/Waypoint/Cancel. No card behind the group itself; each button carries its own bounds. -->
   <Style Selector="Button.v2-icon-btn, ToggleButton.v2-icon-btn">
-    <Setter Property="Width" Value="{DynamicResource V2.Target.Touch}" />
-    <Setter Property="Height" Value="{DynamicResource V2.Target.Touch}" />
+    <Setter Property="Width" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Height" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="Padding" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -276,16 +301,47 @@
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
   </Style>
 
-  <!-- A stroked outline icon from V2Icons.axaml on its 24x24 grid. Decorative only. -->
+  <!-- A stroked outline icon from V2Icons.axaml, drawn on a 24 grid. Decorative only.
+       [#574] Three sizes, one stroke (see V2.IconSize in the tokens). The Path keeps Stretch=None,
+       so the grid's own margins survive and a chevron is not blown up to the size of a gear; the
+       size is a box plus the scale that fits the grid into it, from the box's top-left corner.
+       Always centred on its row, so a label beside it needs no margin to line up. -->
   <Style Selector="Path.v2-icon">
-    <Setter Property="Width" Value="24" />
-    <Setter Property="Height" Value="24" />
+    <Setter Property="Width" Value="{DynamicResource V2.IconSize.Default}" />
+    <Setter Property="Height" Value="{DynamicResource V2.IconSize.Default}" />
     <Setter Property="Stretch" Value="None" />
+    <Setter Property="RenderTransformOrigin" Value="0,0" />
+    <Setter Property="RenderTransform" Value="{DynamicResource V2.IconSize.Default.Scale}" />
     <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextPrimary}" />
-    <Setter Property="StrokeThickness" Value="1.6" />
+    <Setter Property="StrokeThickness" Value="{DynamicResource V2.IconSize.Default.Stroke}" />
     <Setter Property="StrokeLineCap" Value="Round" />
     <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="VerticalAlignment" Value="Center" />
     <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <Style Selector="Path.v2-icon.v2-icon-sm">
+    <Setter Property="Width" Value="{DynamicResource V2.IconSize.Small}" />
+    <Setter Property="Height" Value="{DynamicResource V2.IconSize.Small}" />
+    <Setter Property="RenderTransform" Value="{DynamicResource V2.IconSize.Small.Scale}" />
+    <Setter Property="StrokeThickness" Value="{DynamicResource V2.IconSize.Small.Stroke}" />
+  </Style>
+  <!-- Large by context as well as by class: an icon that is the whole of its button, and the
+       navigation rail, where the icon is what is left when the rail is collapsed. -->
+  <Style Selector="Path.v2-icon.v2-icon-lg, Button.v2-icon-btn Path.v2-icon, ToggleButton.v2-icon-btn Path.v2-icon, Button.v2-rail-item Path.v2-icon, Button.v2-rail-gear Path.v2-icon, Button.v2-rail-collapse Path.v2-icon">
+    <Setter Property="Width" Value="{DynamicResource V2.IconSize.Large}" />
+    <Setter Property="Height" Value="{DynamicResource V2.IconSize.Large}" />
+    <Setter Property="RenderTransform" Value="{DynamicResource V2.IconSize.Large.Scale}" />
+    <Setter Property="StrokeThickness" Value="{DynamicResource V2.IconSize.Large.Stroke}" />
+  </Style>
+  <!-- An icon inside a Viewbox, or one a view stretches itself, is fitted by that: it keeps the
+       whole grid and must not be scaled a second time. Last, so it wins over the sizes above. -->
+  <Style Selector="Viewbox Path.v2-icon, Path.v2-icon[Stretch=Uniform]">
+    <Setter Property="RenderTransform" Value="{x:Null}" />
+    <Setter Property="StrokeThickness" Value="{DynamicResource V2.IconSize.Grid.Stroke}" />
+  </Style>
+  <Style Selector="Viewbox Path.v2-icon">
+    <Setter Property="Width" Value="{DynamicResource V2.IconSize.Grid}" />
+    <Setter Property="Height" Value="{DynamicResource V2.IconSize.Grid}" />
   </Style>
   <Style Selector="Path.v2-icon.v2-icon-muted">
     <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextSecondary}" />

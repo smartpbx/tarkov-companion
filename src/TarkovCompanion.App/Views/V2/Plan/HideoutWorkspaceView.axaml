@@ -48,7 +48,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="3,1,1,1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="16,12" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="Path.v2-icon.v2-hideout-done">
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />

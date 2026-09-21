@@ -91,7 +91,9 @@ view; `V2Icons.axaml` holds the outline icon geometry those pages draw.
 | Shape | control 6, card 10 DIP radius, each as a `CornerRadius` for a Border and a double for a Rectangle |
 | Elevation | flat, raised, dialog shadows; empty in high contrast, and never a substitute for a border |
 | Density | compact, standard, comfortable gaps and insets; type size and targets never change |
-| Target | desktop 44, touch 48 DIP minimum |
+| Target | desktop 32, touch 48 DIP minimum (#574: desktop was 44, a touch figure, on a mouse-driven second screen) |
+| Control | one button family: small 24, ordinary = desktop target 32, large 40 DIP high, each with its inset; icon-to-label gap 8. Quiet, primary, outline, plain, chip, segment, icon-only, toggle and menu row share them; checked is raised surface + action outline + action text |
+| Icon size | small 14, default 16, large 20 DIP boxes for the 24-grid icons, each with the scale that fits the grid and the stroke that comes out at 1.5 DIP |
 | Focus | indicator thickness 3 DIP |
 | Motion | full 160 ms, reduced 0 ms; reduced motion drops the transition, never the state change |
 

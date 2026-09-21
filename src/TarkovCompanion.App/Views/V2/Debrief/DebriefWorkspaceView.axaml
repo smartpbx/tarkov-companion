@@ -24,7 +24,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-      <Setter Property="Padding" Value="18,14" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="Border.v2-debrief-section.v2-debrief-accent">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -78,7 +78,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Large.Height}" />
       <Setter Property="HorizontalAlignment" Value="Stretch" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -120,7 +120,7 @@
           <Button Classes="v2-target v2-debrief-plain" AutomationProperties.AutomationId="v2-debrief-refresh"
                   AutomationProperties.Name="Refresh" Command="{Binding RefreshCommand}">
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" Width="18" Height="18" Stretch="Uniform" />
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
               <TextBlock Text="Refresh" VerticalAlignment="Center" />
             </StackPanel>
           </Button>
