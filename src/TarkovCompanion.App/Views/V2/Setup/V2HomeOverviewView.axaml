@@ -64,6 +64,9 @@
     <Style Selector="Border.v2-home-marker TextBlock">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
       <Setter Property="FontWeight" Value="Bold" />
+      <!-- The design system's own label size, the same token TextBlock.v2-label reads, so the
+           "!" marker scales with the text-size preference instead of being fixed regardless. -->
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
@@ -157,9 +160,11 @@
         Margin="0,4,0,16">
 
     <StackPanel Grid.Row="0" Grid.Column="0" Spacing="6" VerticalAlignment="Center" Margin="12,0,0,0">
-      <TextBlock Text="{Binding HeroTitle}" FontSize="44" FontWeight="Bold" TextWrapping="Wrap"
-                 Foreground="{DynamicResource V2.Brush.TextPrimary}" AutomationProperties.HeadingLevel="2" />
-      <TextBlock Classes="v2-home-muted" Text="{Binding HeroSubtitle}" FontSize="19" TextWrapping="Wrap" />
+      <!-- v2-heading-2, matching HeadingLevel="2": a heading class stays named for its level so
+           the visual size cannot drift from the level assistive tech navigates by. -->
+      <TextBlock Classes="v2-heading-2" Text="{Binding HeroTitle}" FontWeight="Bold"
+                 AutomationProperties.HeadingLevel="2" />
+      <TextBlock Classes="v2-home-muted v2-body" Text="{Binding HeroSubtitle}" />
     </StackPanel>
 
     <Border Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" Classes="v2-home-card" MinHeight="156" ClipToBounds="True">
@@ -169,9 +174,9 @@
               Width="190" Height="120" Stretch="Uniform" StrokeThickness="0.8" Opacity="0.22"
               HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,230,0" />
         <StackPanel Grid.Column="0" Spacing="4" VerticalAlignment="Center">
-          <TextBlock Classes="v2-home-muted" Text="{Binding MapEyebrow}" FontSize="13" FontWeight="SemiBold" LetterSpacing="1.2" />
-          <TextBlock Classes="v2-home-strong" Text="{Binding MapTitle}" FontSize="28" />
-          <TextBlock Classes="v2-home-muted" Text="{Binding MapDetail}" FontSize="16" TextWrapping="Wrap" />
+          <TextBlock Classes="v2-home-muted v2-label" Text="{Binding MapEyebrow}" FontWeight="SemiBold" LetterSpacing="1.2" />
+          <TextBlock Classes="v2-heading-1" Text="{Binding MapTitle}" />
+          <TextBlock Classes="v2-home-muted v2-body" Text="{Binding MapDetail}" />
         </StackPanel>
         <Button Grid.Column="1" Classes="v2-home-outline" VerticalAlignment="Bottom"
                 AutomationProperties.AutomationId="v2-home-explore-map"
@@ -188,9 +193,9 @@
     <!-- Get ready: the readiness checks as steps. -->
     <Border Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Classes="v2-home-card" Padding="22,20">
       <Grid RowDefinitions="Auto,Auto,*,Auto">
-        <TextBlock Grid.Row="0" Classes="v2-home-card-title" FontSize="26" Text="{Binding StepsHeading}"
+        <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="{Binding StepsHeading}"
                    AutomationProperties.HeadingLevel="2" />
-        <TextBlock Grid.Row="1" Classes="v2-home-muted" Margin="0,10,0,14" FontSize="16" Text="{Binding StepsSummary}"
+        <TextBlock Grid.Row="1" Classes="v2-home-muted v2-body" Margin="0,10,0,14" Text="{Binding StepsSummary}"
                    AutomationProperties.AutomationId="v2-shell-readiness-summary"
                    AutomationProperties.Name="{Binding StepsSummary}" />
         <ItemsControl Grid.Row="2" ItemsSource="{Binding Steps}">
@@ -203,11 +208,11 @@
                         Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}">
                   <Panel>
                     <Path IsVisible="{Binding IsDone}" Data="M6,13 L10.5,17.5 L18.5,8.5" Width="14" Height="12" Stretch="Uniform" />
-                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" FontSize="14" />
+                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" />
                   </Panel>
                 </Border>
                 <StackPanel Grid.Column="1" Spacing="3" Margin="10,6,12,14">
-                  <TextBlock Classes="v2-home-strong" Text="{Binding Label}" FontSize="18" />
+                  <TextBlock Classes="v2-heading-3" Text="{Binding Label}" />
                   <TextBlock Classes="v2-home-muted" Text="{Binding Detail}" TextWrapping="Wrap" />
                 </StackPanel>
                 <Button Grid.Column="2" Classes="v2-home-pill" Margin="0,4,0,0" VerticalAlignment="Top"
@@ -250,7 +255,7 @@
                   Stretch="Uniform" StrokeThickness="1.2" Opacity="0.8" HorizontalAlignment="Center" VerticalAlignment="Center" />
           </Border>
           <StackPanel Grid.Column="1" Spacing="6">
-            <TextBlock Classes="v2-home-strong" Text="{Binding PlanTitle}" FontSize="18" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding PlanTitle}" />
             <TextBlock Classes="v2-home-muted" Text="{Binding PlanScope}" Margin="0,0,0,6" />
             <ItemsControl ItemsSource="{Binding PlanObjectives}">
               <ItemsControl.ItemTemplate>
@@ -282,9 +287,9 @@
           <Path Classes="v2-icon v2-home-action" Data="M3,4 L21,4 L21,16 L3,16 Z M8,20 L16,20 M12,16 L12,20"
                 Width="56" Height="50" Stretch="Uniform" StrokeThickness="1.6" VerticalAlignment="Center" />
           <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-            <TextBlock Text="{Binding HealthReadyLabel}" FontSize="26" FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Action}" />
-            <TextBlock Classes="v2-home-muted" Classes.v2-home-attention="{Binding HealthNeedsAttention}"
-                       Text="{Binding HealthAttentionLabel}" FontSize="17" />
+            <TextBlock Classes="v2-heading-1" Text="{Binding HealthReadyLabel}" Foreground="{DynamicResource V2.Brush.Action}" />
+            <TextBlock Classes="v2-home-muted v2-body" Classes.v2-home-attention="{Binding HealthNeedsAttention}"
+                       Text="{Binding HealthAttentionLabel}" />
           </StackPanel>
         </Grid>
         <Border Classes="v2-home-rule" />
@@ -296,7 +301,7 @@
                         Classes.v2-home-done="{Binding IsDone}" Classes.v2-home-attention="{Binding IsAttention}">
                   <Panel>
                     <Path IsVisible="{Binding IsDone}" Data="M6,13 L10.5,17.5 L18.5,8.5" Width="11" Height="9" Stretch="Uniform" />
-                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" FontSize="12" />
+                    <TextBlock IsVisible="{Binding IsAttention}" Text="!" />
                   </Panel>
                 </Border>
                 <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
@@ -320,7 +325,7 @@
           <TextBlock Grid.Column="1" Classes="v2-home-strong" Text="{Binding DataFreshness}" VerticalAlignment="Center" />
         </Grid>
         <StackPanel Grid.Row="2" Spacing="4">
-          <TextBlock Classes="v2-home-muted" Text="{Binding RecentRaidsLabel}" FontSize="13" FontWeight="SemiBold" />
+          <TextBlock Classes="v2-home-muted v2-label" Text="{Binding RecentRaidsLabel}" FontWeight="SemiBold" />
           <TextBlock Classes="v2-home-muted" IsVisible="{Binding HasNoRecentRaids}" Text="{Binding RecentEmpty}" />
           <ItemsControl ItemsSource="{Binding RecentRaids}" IsVisible="{Binding HasRecentRaids}">
             <ItemsControl.ItemTemplate>
@@ -352,7 +357,7 @@
             <Path Classes="v2-icon v2-home-action" Data="M12,3 L20,6 L20,12 C20,16.5 16.5,20 12,21.5 C7.5,20 4,16.5 4,12 L4,6 Z"
                   Width="30" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Classes="v2-home-strong" Text="{Binding CleanupTitle}" FontSize="17" />
+              <TextBlock Classes="v2-heading-3" Text="{Binding CleanupTitle}" />
               <TextBlock Classes="v2-home-muted" Text="{Binding CleanupDetail}" TextWrapping="Wrap" />
             </StackPanel>
           </Grid>
@@ -361,7 +366,7 @@
             <Path Classes="v2-icon v2-home-action" Data="{DynamicResource V2.Icon.Document}"
                   Width="30" Height="32" Stretch="Uniform" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Spacing="2">
-              <TextBlock Classes="v2-home-strong" Text="{Binding TelemetryTitle}" FontSize="17" />
+              <TextBlock Classes="v2-heading-3" Text="{Binding TelemetryTitle}" />
               <TextBlock Classes="v2-home-muted" Text="{Binding TelemetryDetail}" TextWrapping="Wrap" />
             </StackPanel>
           </Grid>
