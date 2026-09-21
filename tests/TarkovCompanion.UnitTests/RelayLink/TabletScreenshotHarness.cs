@@ -196,7 +196,12 @@ public sealed class TabletScreenshotHarness
             }
 
             await Task.WhenAny(browserProcess.WaitForExitAsync(), Task.Delay(TimeSpan.FromSeconds(60)));
-            var stderr = await stderrTask;
+            // A bounded read, not a bare await: a grandchild process inheriting the pipe (or, as
+            // measured here, Node's own event loop staying alive on a resumed-but-never-paused
+            // stdin — see capture-tablet-states.cjs) can leave the pipe's write end open long
+            // after every line this test cares about already arrived.
+            var stderr = await stderrTask.WaitAsync(TimeSpan.FromSeconds(10))
+                .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : "<stderr read timed out>", TaskScheduler.Default);
             string stdout;
             lock (stdoutGate)
             {

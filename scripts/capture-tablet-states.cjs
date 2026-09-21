@@ -94,23 +94,28 @@ async function main() {
     await page.waitForTimeout(150);
     await page.screenshot({ path: path.join(outDir, "03b-paired-follow-fullpage--phone-390x844.png"), fullPage: true });
 
+    // Independent, and its "Show this view on desktop" bonus (#290: ShowOnDesktopCommand had no
+    // caller before), come before Control below on purpose: ShowOnDesktopCommand replaces the
+    // *whole* canonical workspace projection, this synthetic surface's own mapId included, so
+    // doing it after the map switch would silently undo the one thing TabletScreenshotHarness
+    // asserts afterward. Independent needs no desktop approval, so it costs nothing to do first.
+    await page.click('#deviceModes button[data-mode="Independent"]');
+    await page.locator('#deviceModes button[data-mode="Independent"][aria-pressed="true"]').waitFor({ timeout: 10000 });
+    await page.waitForTimeout(250);
+    await shootAll(page, outDir, "05-independent");
+
+    await page.click("#showOnDesktop");
+    await page.waitForTimeout(400);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: path.join(outDir, "05b-show-on-desktop--tablet-landscape-1280x800.png") });
+
     // Control: the desktop grants it the moment it sees the request (TabletScreenshotHarness).
     // The Control button's own aria-pressed goes true the instant it is clicked — ControlPending
     // sets it too, optimistically — so it is not what to wait on; the mode note's wording is the
     // only visible difference between "asked for it" and "the desktop said yes".
     await page.click('#deviceModes button[data-mode="Control"]');
-    try {
-      await page.locator("#modeNote").filter({ hasText: "You are driving" }).waitFor({ timeout: 20000 });
-    } catch (error) {
-      const noteText = await page.locator("#modeNote").textContent().catch(() => "<unreadable>");
-      const liveText = await page.locator("#liveStatus").textContent().catch(() => "<unreadable>");
-      const noticeText = await page.locator("#commandNotice").textContent().catch(() => "<unreadable>");
-      const noticeHidden = await page.locator("#commandNotice").getAttribute("hidden").catch(() => "<unreadable>");
-      console.error(`DEBUG modeNote="${noteText}" liveStatus="${liveText}" notice="${noticeText}" noticeHidden=${noticeHidden}`);
-      console.error(`DEBUG console=${JSON.stringify(consoleLog.slice(-20))}`);
-      throw error;
-    }
-
+    await page.locator("#modeNote").filter({ hasText: "You are driving" }).waitFor({ timeout: 20000 });
     await page.waitForTimeout(250);
     await shootAll(page, outDir, "04-control");
 
@@ -123,23 +128,13 @@ async function main() {
     await page.waitForTimeout(150);
     await page.screenshot({ path: path.join(outDir, "04b-control-rejected-notice--phone-390x844.png") });
 
-    // #407: switch the desktop to a different map from here. TabletScreenshotHarness asserts the
-    // canonical desktop workspace afterward.
+    // #407: switch the desktop to a different map from here — the last thing in this script that
+    // touches the canonical workspace, so nothing after it can undo what TabletScreenshotHarness
+    // is about to assert. A tap dismisses the stale rejection notice above first, matching what a
+    // person would actually do rather than leaving it to expire.
+    await page.click("#commandNotice");
     await page.selectOption("#mapSwitch", "woods");
-    await page.waitForTimeout(1200);
-
-    // Independent
-    await page.click('#deviceModes button[data-mode="Independent"]');
-    await page.locator('#deviceModes button[data-mode="Independent"][aria-pressed="true"]').waitFor({ timeout: 10000 });
-    await page.waitForTimeout(250);
-    await shootAll(page, outDir, "05-independent");
-
-    // #290 bonus: "Show this view on desktop" (ShowOnDesktopCommand, which had no caller before).
-    await page.click("#showOnDesktop");
-    await page.waitForTimeout(400);
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.waitForTimeout(150);
-    await page.screenshot({ path: path.join(outDir, "05b-show-on-desktop--tablet-landscape-1280x800.png") });
+    await page.waitForTimeout(2000);
 
     // "Desktop offline": handed to the C# side, which fast-forwards its fake clock past the
     // 15-second silence threshold and stops answering, then tells this to reload and look again.
@@ -148,6 +143,11 @@ async function main() {
       process.stdin.resume();
       process.stdin.once("data", () => resolve());
     });
+    // A resumed stdin is a live handle: Node's event loop does not consider itself empty while
+    // one is open, so without this the process outlives its own last line of work (measured: the
+    // .NET side saw the exact right stdout, including this script's own final "DONE", and still
+    // waited a full minute for an exit that was never coming).
+    process.stdin.pause();
     await page.reload({ waitUntil: "load" });
     await page.locator("#liveStatus").filter({ hasText: /offline/i }).waitFor({ timeout: 15000 });
     await shootAll(page, outDir, "06-offline");
