@@ -1778,7 +1778,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     item.Geometry.Kind == MapSceneGeometryKind.Point &&
                     _scene.Bounds.Contains(item.Geometry.Points[0]))
                 .Take(MaximumPlaceNames)
-                .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera))
+                .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera, _styleResolver?.Invoke(item)))
                 .ToArray()
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
@@ -2944,6 +2944,16 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public string? ColorHint => Style?.Color;
 
     public bool HasColorHint => ColorHint is not null;
+
+    /// <summary>
+    /// [Issue 581] A squadmate's own colour, as a brush their dot and facing cone can be filled
+    /// with — everything else on the map keeps its themed colour from the styles below, so this
+    /// is null wherever the host gave no opinion.
+    /// </summary>
+    public IBrush? ColorHintBrush => ColorHint is { } hex && Color.TryParse(hex, out var color)
+        ? new SolidColorBrush(color)
+        : null;
+
     public string MarkerGlyph { get; }
 
     /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
@@ -2968,6 +2978,14 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool IsRiskIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Risk;
     public bool IsPlayerIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Player;
     public bool IsTeammateIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Teammate;
+
+    /// <summary>
+    /// [Issue 581] A squadmate's own colour pairs with their initial on the dot itself, so which
+    /// teammate is which never depends on colour alone (colour-vision modes).
+    /// </summary>
+    public string PersonInitial => IsTeammateIcon && SceneObject?.Label is { Length: > 0 } label
+        ? label[..1].ToUpperInvariant()
+        : string.Empty;
     public bool IsGenericIcon => ShowsMarkerIcon && Icon == MapSceneMarkerIcon.Generic;
     /// <summary>A person marker is a dot with a facing cone, not one of the drawn glyphs.</summary>
     public bool IsPersonIcon => IsPlayerIcon || IsTeammateIcon;
@@ -3303,11 +3321,15 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     public MapSceneRendererLabelViewModel(
         MapSceneObject sceneObject,
         MapSceneProjection projection,
-        MapSceneCamera camera)
+        MapSceneCamera camera,
+        // [Issue 581] A squadmate's own name is written in their colour, the same as their marker
+        // and trail; an ordinary place name gets no opinion and keeps its themed foreground.
+        MapSceneObjectStyle? style = null)
     {
         ArgumentNullException.ThrowIfNull(sceneObject);
         ArgumentNullException.ThrowIfNull(projection);
         SceneObject = sceneObject;
+        Style = style;
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
         AnchorLeft = anchor.X - HalfWidth;
         AnchorTop = anchor.Y - HalfHeight;
@@ -3316,6 +3338,15 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     }
 
     public MapSceneObject SceneObject { get; }
+
+    private MapSceneObjectStyle? Style { get; }
+
+    /// <summary>See <see cref="MapSceneRendererObjectViewModel.ColorHintBrush"/>: null keeps the label's themed foreground.</summary>
+    public IBrush? ColorHintBrush => Style?.Color is { } hex && Color.TryParse(hex, out var color)
+        ? new SolidColorBrush(color)
+        : null;
+
+    public bool HasColorHint => ColorHintBrush is not null;
 
     public string Text => SceneObject.Label;
 

@@ -1744,6 +1744,7 @@ internal static class Program
             [
                 new(null, null, "Geo", "Usec", 42, true, true, null, []),
                 new(null, null, "Riley", "Bear", 37, false, false, now.AddMinutes(14), []),
+                new(null, null, "Sam", "Usec", 29, true, false, null, []),
             ],
             now.AddSeconds(-40),
             TimeSpan.FromSeconds(38),
@@ -1871,10 +1872,12 @@ internal static class Program
             return new(at.X, at.Z, TimeSpan.FromSeconds(secondsAgo));
         }
 
+        // [Issue 581] Three, not two: enough to prove a squadmate's colour is their own and not
+        // shared with the nearest other teammate by coincidence.
         var group = new TarkovCompanion.Application.Services.Group.GroupSnapshot(
             true,
-            [Mate("Geo", 72, 34, 300, 6), Mate("Riley", 44, 71, 120, 25)],
-            "Sharing as Clay · 2 others here",
+            [Mate("Geo", 72, 34, 300, 6), Mate("Riley", 44, 71, 120, 25), Mate("Sam", 58, 52, 30, 12)],
+            "Sharing as Clay · 3 others here",
             now);
         return (raid, group);
     }

@@ -2901,6 +2901,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 continue;
             }
 
+            // [Issue 581] inputs.ColorFor (MapViewModel.GroupColorFor) hands back an already
+            // "#AARRGGBB"-formatted colour, the same source the squad panel's own chip reads.
             var color = inputs.ColorFor(member.Name);
             if (member.Position is { } memberPosition && TryPlan(model, memberPosition, out var at))
             {
