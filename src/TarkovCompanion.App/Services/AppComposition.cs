@@ -344,10 +344,12 @@ public static class AppComposition
         // the marker above does.
         services.AddSingleton<IHandDoneObjectiveStore>(_ =>
             new JsonFileHandDoneObjectiveStore(Path.Combine(paths.Config, "hand-done-objectives.json"), timeProvider));
-        // [Issue 318] The last verified loot-spawn import's per-map coverage, for Setup > Data.
+        // [Issue 318/563] The last verified loot-spawn import's per-map coverage plus its last
+        // refresh attempt's own error (if any), for Setup > Data.
         services.AddSingleton(provider => new LootCoverageViewModel(
             provider.GetRequiredService<ILootSpawnSourcePublicationStore>(),
-            () => provider.GetRequiredService<MapViewModel>().Locations));
+            () => provider.GetRequiredService<MapViewModel>().Locations,
+            provider.GetRequiredService<IHighValueLootRuntimeSource>()));
         services.AddSingleton(provider => new QuestCoverageViewModel(
             provider.GetRequiredService<IQuestCatalog>(),
             provider.GetRequiredService<IUserQuestMarkStore>(),

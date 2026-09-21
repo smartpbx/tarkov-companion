@@ -52,6 +52,29 @@ public sealed class HighValueLootRuntimeSourceTests
     }
 
     [Fact]
+    public async Task A_quarantined_refresh_still_records_its_own_outcome_for_setup_to_read()
+    {
+        // [Issue 563] LastKnownGood alone cannot say a refresh was ever attempted, let alone why
+        // it failed: a quarantine never touches it. Setup > Data reads LastRefreshOutcome instead.
+        var refresh = new StubRefresh
+        {
+            Result = new(
+                LootSpawnSourceImportDisposition.QuarantinedRetainedLastKnownGood,
+                null,
+                null,
+                [new("source.refresh-failed", "Fixture refresh failed.")]),
+        };
+        var source = Source(new MemoryStore(null), refresh);
+        Assert.Null(source.LastRefreshOutcome);
+
+        await source.RefreshAsync(force: true, CancellationToken.None);
+
+        Assert.NotNull(source.LastRefreshOutcome);
+        Assert.Equal(LootSpawnSourceImportDisposition.QuarantinedRetainedLastKnownGood, source.LastRefreshOutcome.Disposition);
+        Assert.Equal("source.refresh-failed", Assert.Single(source.LastRefreshOutcome.Diagnostics).Code);
+    }
+
+    [Fact]
     public async Task Published_refresh_atomically_advances_the_runtime_head()
     {
         var first = Bundle(Now, "generation-one");
