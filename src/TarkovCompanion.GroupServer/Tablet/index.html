@@ -764,13 +764,24 @@
   const HOLD_SECONDS = 20;
 
   function renderLiveStatus() {
-    $("liveDot").classList.toggle("on", !!(live?.connected && live?.surface));
+    $("liveDot").classList.toggle("on", !!(live?.connected && live?.surface) && !live?.relayError);
+    // [#562] "The relay had a problem" and "the desktop has not been seen for Ns" are two
+    // different faults with two different fixes; RelayFrameCrypto.desktopStatusMessage is the one
+    // place that tells them apart (and the one Node actually tests — see
+    // TabletRelayCryptoScriptTests).
+    const status = live && live.credential
+      ? RelayFrameCrypto.desktopStatusMessage({
+          relayError: !!live.relayError,
+          connected: live.connected,
+          ownerSeenMs: live.ownerSeenMs,
+        })
+      : null;
     $("liveStatus").textContent = !live
       ? "Not paired."
       : !live.credential
         ? "Waiting for the desktop to finish registering this tablet…"
-        : !live.connected
-          ? "The desktop is offline."
+        : status
+          ? status
           : !live.surface
             ? "Paired. Waiting for the desktop's map…"
             : `Live · ${live.surface.mapName}`;
@@ -1078,8 +1089,13 @@
     const message = $("mapMessage");
     if (!surface) {
       message.style.display = "";
-      message.textContent = live?.connected === false
-        ? "The desktop is offline. This tablet only ever shows your own desktop's map."
+      const status = live ? RelayFrameCrypto.desktopStatusMessage({
+        relayError: !!live.relayError,
+        connected: live.connected,
+        ownerSeenMs: live.ownerSeenMs,
+      }) : null;
+      message.textContent = status
+        ? `${status} This tablet only ever shows your own desktop's map.`
         : "Waiting for the desktop's map…";
       $("attribution").textContent = "";
       drawMap();
@@ -1324,6 +1340,8 @@
       if (response.status === 404) {
         live.surface = null;
         live.mapRevision = null;
+        live.relayError = false;
+        live.ownerSeenMs = ownerSeen === null ? null : Number(ownerSeen);
         // No map is not the same as no desktop: it may simply not have one open yet.
         live.desktopOnline = RelayFrameCrypto.desktopOnline({ ownerSeenMs: ownerSeen, publishedUtc: null, nowMs: Date.now() });
         live.connected = live.desktopOnline;
@@ -1332,9 +1350,20 @@
         return false;
       }
 
-      if (!response.ok) return false;
+      // [#562] A 5xx here is the relay itself failing, not the desktop being away — the night
+      // every map publish and read answered 500 for an hour, this page said "the desktop is
+      // offline" over a link the desktop never left. Anything else the relay answers (however
+      // unexpected) clears the flag: the relay did answer, whatever it said.
+      if (!response.ok) {
+        live.relayError = response.status >= 500;
+        renderLiveStatus();
+        return false;
+      }
+
       const revision = response.headers.get("X-Relay-Map-Revision");
       const surface = await response.json();
+      live.relayError = false;
+      live.ownerSeenMs = ownerSeen === null ? null : Number(ownerSeen);
       // [#407] Not the age of the map: a desktop sitting still on one map publishes nothing, and
       // twenty seconds into that this said "The desktop is offline" over a live link.
       live.desktopOnline = RelayFrameCrypto.desktopOnline({
@@ -1362,6 +1391,9 @@
       live.mapRevision = Number(revision);
       return true;
     } catch {
+      // A network failure never reached the relay to answer at all, which is the same kind of
+      // problem as a 5xx: the fault is between here and the relay, not the desktop.
+      live.relayError = true;
       live.connected = false;
       renderLiveStatus();
       return false;
@@ -1421,6 +1453,12 @@
       surface: null,
       mapRevision: null,
       connected: false,
+      // [#562] Set on a 5xx or a network failure talking to the relay itself, cleared the moment
+      // it answers again (even 404) — distinct from `connected`, which says whether the *desktop*
+      // has been heard from through a relay that is working.
+      relayError: false,
+      // The relay's X-Relay-Owner-Seen-Ms header, parsed, for "not been seen for Ns" wording.
+      ownerSeenMs: null,
     };
     renderLiveStatus();
     renderMarks();
@@ -1981,17 +2019,27 @@
     }
   }
 
-  function showNotice(text, tone, sticky = false) {
+  // [#570] A notice can carry a one-tap action (Follow's "switch to Independent"), not only a
+  // dismissal: the same tap that reads it is the one that acts on it, so there is nowhere else to
+  // ask "did you mean this".
+  function showNotice(text, tone, sticky = false, onTap = null) {
     const box = $("commandNotice");
     box.textContent = text;
     box.className = `notice ${tone}`;
     box.hidden = false;
+    noticeTap = onTap;
     clearTimeout(noticeTimer);
-    if (!sticky) noticeTimer = setTimeout(() => { box.hidden = true; }, 10_000);
+    if (!sticky) noticeTimer = setTimeout(() => { box.hidden = true; noticeTap = null; }, 10_000);
   }
 
   let noticeTimer = null;
-  $("commandNotice").addEventListener("click", () => { $("commandNotice").hidden = true; });
+  let noticeTap = null;
+  $("commandNotice").addEventListener("click", () => {
+    $("commandNotice").hidden = true;
+    const tap = noticeTap;
+    noticeTap = null;
+    if (tap) tap();
+  });
 
   function revertOptimisticMode() {
     mode = confirmedMode;
@@ -2229,8 +2277,29 @@
   const TAP_MS = 350;
   const HOLD_MS = 500;
 
+  // [#570] Follow mirrors the desktop by design, so local zoom/pan has nowhere to go there — but
+  // silently doing nothing is what "pinch zoom nor the zoom button is working" actually was:
+  // Clayton was in Follow (the mode a fresh pairing starts in) the whole time. Every gesture and
+  // button below goes through this, so one place says why and offers the one-tap way out.
+  let followNoticeShownAt = 0;
+  function explainFollowLocked() {
+    const now = performance.now();
+    // Debounced: a finger sitting on the map in Follow asks pointermove this many times a second.
+    if (now - followNoticeShownAt < 1000) return;
+    followNoticeShownAt = now;
+    showNotice(
+      "Following the desktop · switch to Independent to move the map yourself",
+      "",
+      true,
+      () => requestMode("Independent"));
+  }
+
   const localCamera = () => {
-    if (mode === "Follow") return null;
+    if (mode === "Follow") {
+      explainFollowLocked();
+      return null;
+    }
+
     camera = camera ?? fitCamera();
     return camera;
   };
@@ -2299,9 +2368,24 @@
     const project = projection();
     if (!project) return;
     if (pointers.size === 2 && gesture) {
+      // [#570] Pinch about the midpoint of the two fingers: the map point under it stays under
+      // it, rather than the zoom always centring on the canvas. Recomputed every move (not just
+      // once when the second finger went down) so a pinch that also drifts sideways still anchors
+      // on the current midpoint, not the one it started at.
       const [first, second] = [...pointers.values()];
       const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      const box = canvas.getBoundingClientRect();
+      const ratio = Math.min(2, window.devicePixelRatio || 1);
+      const midPx = ((first.x + second.x) / 2 - box.left) * ratio;
+      const midPy = ((first.y + second.y) / 2 - box.top) * ratio;
+      const [beforeX, beforeY] = project.toPlan(midPx, midPy);
       view.zoom = Math.min(64, Math.max(0.2, gesture.zoom * (distance / Math.max(1, gesture.distance))));
+      const rezoomed = projection();
+      if (rezoomed) {
+        const [afterX, afterY] = rezoomed.toPlan(midPx, midPy);
+        view.x += beforeX - afterX;
+        view.y += beforeY - afterY;
+      }
     } else {
       const ratio = Math.min(2, window.devicePixelRatio || 1);
       view.x -= (dx * ratio) / project.scale;
@@ -2326,7 +2410,7 @@
     }
 
     if (quick) {
-      handleTap(wasPress);
+      maybeHandleTap(wasPress);
     } else if (event.type !== "pointercancel") {
       sendNavigate();
     }
@@ -2360,6 +2444,53 @@
     addMark(target.x, target.y, "Ping");
     flash(target.px, target.py, COLOURS.Ping);
     $("modeNote").textContent = "Pinged.";
+  }
+
+  // [#570] A second tap close in time and place to the first is a double-tap: zoom in about
+  // where the finger landed rather than pinging twice. The first tap's own ping/select is held
+  // back until this window closes — a tablet has no wheel, so this and the pinch are its only
+  // zoom gestures, and a double-tap that also pings would be a worse trade than a beat of delay.
+  let pendingTap = null;
+  const DOUBLE_TAP_MS = 300;
+  const DOUBLE_TAP_SLOP_PX = 40;
+
+  function maybeHandleTap(at) {
+    if (pendingTap) {
+      const isDouble = Math.hypot(at.clientX - pendingTap.at.clientX, at.clientY - pendingTap.at.clientY) <= DOUBLE_TAP_SLOP_PX;
+      clearTimeout(pendingTap.timer);
+      pendingTap = null;
+      if (isDouble) {
+        handleDoubleTap(at);
+        return;
+      }
+    }
+
+    pendingTap = {
+      at,
+      timer: setTimeout(() => {
+        pendingTap = null;
+        handleTap(at);
+      }, DOUBLE_TAP_MS),
+    };
+  }
+
+  // Zooms in about the tap, exactly like the pinch above; in Follow it explains itself instead,
+  // the same as every other local zoom/pan gesture.
+  function handleDoubleTap(at) {
+    if (mode === "Follow") {
+      explainFollowLocked();
+      return;
+    }
+
+    const target = pressTarget(at);
+    const view = localCamera();
+    if (!target || !view) return;
+    view.x = target.x;
+    view.y = target.y;
+    view.zoom = Math.min(64, view.zoom * 1.8);
+    drawMap();
+    sendNavigate();
+    $("modeNote").textContent = "Zoomed in.";
   }
 
   // A long press: a mark under the finger is removed, bare map gets a numbered waypoint.
@@ -2501,7 +2632,11 @@
   $("zoomIn").addEventListener("click", () => zoomBy(1.3));
   $("zoomOut").addEventListener("click", () => zoomBy(1 / 1.3));
   $("fit").addEventListener("click", () => {
-    if (mode === "Follow") return;
+    if (mode === "Follow") {
+      explainFollowLocked();
+      return;
+    }
+
     camera = fitCamera();
     drawMap();
     sendNavigate();
@@ -2555,6 +2690,15 @@
 
   $("unpairHeader").addEventListener("click", () =>
     sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
+
+  // Test-only introspection: nothing above ever calls this, and no behaviour depends on it. The
+  // camera/mode state it reads is otherwise unreachable from outside the closure without an
+  // expensive screenshot pixel comparison — see scripts/test-tablet-touch-gestures.cjs, which
+  // TabletTouchGestureTests drives against a real relay and a real touch-emulated browser.
+  window.__tabletTestState = () => ({
+    mode,
+    camera: camera ? { x: camera.x, y: camera.y, zoom: camera.zoom } : null,
+  });
 
   setStage("pairingIdle");
   renderMode();
