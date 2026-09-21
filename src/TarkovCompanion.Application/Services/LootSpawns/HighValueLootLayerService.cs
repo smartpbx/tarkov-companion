@@ -1255,6 +1255,10 @@ public static class HighValueLootLayerPreset
         "routes",
         "pings",
         "waypoints",
+        // [Issue 563] Place names are orientation, not a marker layer. Hiding them left the
+        // preset's own map artwork unreadable: "all the names of places disappear ... no loot
+        // shows up tho either" was every place name gone and an empty loot layer, both at once.
+        "labels",
     };
 
     public static IReadOnlyList<MapSceneLayerState> Create(
