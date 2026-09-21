@@ -157,12 +157,23 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         // another change") rather than only proving Marks filters correctly on a read the test
         // itself triggers. A millisecond lifetime is the test-only seam pingLifetime exists for.
         var store = new JsonFileRaidMarkStore(StorePath, TimeProvider.System, pingLifetime: TimeSpan.FromMilliseconds(30));
+        // Subscribed BEFORE the ping is added. It used to subscribe afterwards, and with a 30 ms
+        // lifetime a loaded runner could fire the expiry before the handler existed: the test then
+        // waited five seconds for an event that had already happened and failed (it failed #595's
+        // gate that way). Adding the ping raises Changed too, so the signal is "changed AND empty":
+        // only the store's own timer can produce that, since nothing else mutates it here.
+        var emptied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.Changed += () =>
+        {
+            if (store.Marks.Count == 0)
+            {
+                emptied.TrySetResult();
+            }
+        };
+
         await store.AddAsync(RaidMarkKind.Ping, "factory", null, 1, 1, label: null);
 
-        var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        store.Changed += () => fired.TrySetResult();
-
-        await fired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await emptied.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Read via the field the test can see directly (not Marks, which would filter on its own
         // read and could mask a timer that never actually ran).
