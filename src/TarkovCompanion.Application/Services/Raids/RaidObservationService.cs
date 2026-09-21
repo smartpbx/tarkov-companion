@@ -383,9 +383,17 @@ public sealed class RaidObservationService : IAsyncDisposable
             await DelayAsync(SquadPublishInterval, cancellationToken).ConfigureAwait(false);
             // The same slow tick ends a raid that has outlived any raid. The game writes no end
             // when its process dies, so nothing else ever would (#568).
-            if (await _coordinator.ExpireOverdueRaidAsync(cancellationToken).ConfigureAwait(false))
+            try
             {
-                _logger.LogInformation("The open raid outlived the longest raid on its map and was ended as not reported.");
+                if (await _coordinator.ExpireOverdueRaidAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    _logger.LogInformation("The open raid outlived the longest raid on its map and was ended as not reported.");
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The party and the sale list below must keep publishing whatever this does.
+                _logger.LogWarning(exception, "Could not check whether the open raid is overdue.");
             }
 
             var squad = _squad.Current;

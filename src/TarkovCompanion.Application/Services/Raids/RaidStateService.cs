@@ -175,7 +175,9 @@ public sealed class RaidStateService(bool developerMode = false) : IStagedRaidSt
                         : Current.LastActivityUtc,
             State = targetState,
             MapId = mapId,
-            StartedUtc = enteringRaid ? observedUtc : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
+            StartedUtc = enteringRaid
+                ? evidence.RaidStartedUtc ?? observedUtc
+                : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
             // Shown to the player as how recently the raid was seen, so it never runs
             // backwards even when the clock behind it does.
             UpdatedUtc = Later(observedUtc),

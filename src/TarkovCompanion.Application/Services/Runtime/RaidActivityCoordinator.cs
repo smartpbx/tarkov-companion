@@ -153,7 +153,7 @@ public sealed class RaidActivityCoordinator(
                     var canAdopt = current.State == RaidLifecycleState.InRaid
                         && current.RaidId is not null
                         && previous.RaidId != current.RaidId;
-                    (current, adopted) = await ResumeAsync(state, current, canAdopt, cancellationToken)
+                    (current, adopted) = await ResumeAsync(state, current, canAdopt, evidence, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -193,6 +193,7 @@ public sealed class RaidActivityCoordinator(
         IRaidStateService state,
         RaidSnapshot current,
         bool canAdopt,
+        RaidEvidence evidence,
         CancellationToken cancellationToken)
     {
         try
@@ -208,11 +209,21 @@ public sealed class RaidActivityCoordinator(
                 await RaidLengthAsync(mapId, current.Side, cancellationToken).ConfigureAwait(false));
             foreach (var abandoned in resumption.Close)
             {
+                // The startup replay found the raid itself, unreported and dead: the game is not
+                // running, or the raid began longer ago than any raid lasts. That is a better
+                // account of this row than "closed on restart", and a better end time than now:
+                // the last moment the game session wrote anything (#568).
+                var row = history.FirstOrDefault(raid => raid.Id == abandoned);
+                var lastSeen = evidence.RaidLastSeenUtc is { } seen
+                    && seen <= current.UpdatedUtc
+                    && (row?.StartedUtc is not { } rowStart || seen >= rowStart)
+                        ? seen
+                        : current.UpdatedUtc;
                 await raidHistoryService.EndAsync(
                     abandoned,
-                    current.UpdatedUtc,
-                    RaidClosure.ClosedOnRestartOutcome,
-                    RaidClosure.ClosedOnRestartNotes,
+                    evidence.EndsUnreported ? lastSeen : current.UpdatedUtc,
+                    evidence.EndsUnreported ? RaidClosure.NotReportedOutcome : RaidClosure.ClosedOnRestartOutcome,
+                    evidence.EndsUnreported ? RaidClosure.NotReportedNotes : RaidClosure.ClosedOnRestartNotes,
                     cancellationToken).ConfigureAwait(false);
             }
 

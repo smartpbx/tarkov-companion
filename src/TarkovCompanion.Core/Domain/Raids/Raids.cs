@@ -86,6 +86,17 @@ public sealed record RaidEvidence(
     /// </summary>
     public bool EndsUnreported { get; init; }
 
+    /// <summary>When the raid began, where the line that says so was read after the fact.</summary>
+    /// <remarks>
+    /// Only the startup replay sets it. Every other line is read as it is written, so the moment
+    /// it was observed is the moment it happened; a replayed confirmation is minutes old, and
+    /// dating the raid to the restart would restart its clock and its time bound with it.
+    /// </remarks>
+    public DateTimeOffset? RaidStartedUtc { get; init; }
+
+    /// <summary>When a raid found dead by the startup replay last wrote anything.</summary>
+    public DateTimeOffset? RaidLastSeenUtc { get; init; }
+
     /// <summary>
     /// Whether this is the companion catching up on a raid that was already running.
     /// </summary>
