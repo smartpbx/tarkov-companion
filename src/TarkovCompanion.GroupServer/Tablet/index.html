@@ -1621,7 +1621,10 @@
       if (!asked.ok) return asked.status === 429 ? "waiting" : "refused"; // an older relay has no such route
       const issued = await asked.json();
       const knocked = await postJson(
-        `/v2/companion/relay/resume/requests?deviceKeyId=${encodeURIComponent(device.keyId)}`,
+        // [#553] A relay serves several desktops. This tablet is one desktop's, and the key it
+        // pinned when it paired says which; an older relay ignores the extra parameter.
+        `/v2/companion/relay/resume/requests?deviceKeyId=${encodeURIComponent(device.keyId)}` +
+          `&desktopKeyId=${encodeURIComponent(paired.desktopKeyId)}`,
         {
           challengeId: { value: issued.challengeId },
           assertion: await signAssertion(device, await RelayFrameCrypto.deviceDoorChallenge(issued.nonceBase64Url)),
@@ -2783,6 +2786,7 @@
       .map((item) => item.id),
     hasLive: !!live,
     hasSurface: !!live?.surface,
+    mapId: live?.surface?.mapId ?? null,
     objectsCount: (live?.surface?.objects ?? []).length,
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
   });
