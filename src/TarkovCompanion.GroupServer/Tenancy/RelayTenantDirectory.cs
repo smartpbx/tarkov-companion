@@ -58,6 +58,14 @@ public sealed class RelayTenant
 
     /// <summary>The desktop this tenant belongs to, or null for a legacy registry nobody claimed.</summary>
     public DeviceKeyId? DesktopKeyId => Registry.RecordedOwner()?.DeviceKey.KeyId;
+
+    /// <summary>
+    /// Whether <paramref name="named"/> is this desktop, in either of the two ids its one key has:
+    /// the device key id the relay records, or the identity key id a tablet pinned when it paired.
+    /// </summary>
+    public bool IsDesktop(DeviceKeyId named) =>
+        Registry.RecordedOwner() is { } owner &&
+        (owner.DeviceKey.KeyId == named || PairingCryptography.DesktopIdentityKeyIdOf(owner.DeviceKey) == named);
 }
 
 /// <summary>
@@ -224,7 +232,7 @@ public sealed class RelayTenantDirectory
         var found = new List<(RelayTenant, RelayDeviceRecord)>();
         foreach (var tenant in _tenants)
         {
-            if (desktopKeyId is { } wanted && tenant.DesktopKeyId != wanted)
+            if (desktopKeyId is { } wanted && !tenant.IsDesktop(wanted))
             {
                 continue;
             }

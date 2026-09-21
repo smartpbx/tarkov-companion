@@ -99,6 +99,48 @@ public sealed class RelayLinkTwoDesktopsTests
     }
 
     [Fact]
+    public async Task ThreeDaysLaterEachTabletComesBackToItsOwnDesktopWithNothingTyped()
+    {
+        var clock = new RelayTestClock(RelaySecurityTestFactory.Now);
+        await using var relay = await LinkRelay.StartAsync(clock, Loopback, certificate: null, GroupKeyOfTheSquad);
+        using var aliceDisk = new DesktopDisk();
+        using var bobDisk = new DesktopDisk { DesktopDeviceId = Guid.Parse("10000000-0000-4000-8000-0000000000bb") };
+        using var aliceTablet = new TabletSimulator(relay.Origin, clock);
+        using var bobTablet = new TabletSimulator(relay.Origin, clock);
+        await using var alice = await DesktopRun.StartAsync(aliceDisk, relay.Origin, clock, groupKey: GroupKeyOfTheSquad);
+        await using var bob = await DesktopRun.StartAsync(bobDisk, relay.Origin, clock, groupKey: GroupKeyOfTheSquad);
+        await alice.PairAsync(aliceTablet, "Alice's tablet");
+        await bob.PairAsync(bobTablet, "Bob's tablet");
+        var alicesDeviceBefore = Assert.Single(alice.Authority.Snapshot.Devices).DeviceId;
+
+        // Every session on the relay is long dead. Each desktop is refused, and registers again.
+        clock.Advance(TimeSpan.FromDays(3));
+        await relay.RestartAsync();
+        foreach (var desktop in new[] { alice, bob })
+        {
+            await desktop.Bridge.PollOnceAsync(CancellationToken.None);
+            await desktop.Bridge.PollOnceAsync(CancellationToken.None);
+            Assert.Equal(RelayOwnerLinkState.Verified, desktop.Bridge.OwnerLink);
+        }
+
+        // Bob's tablet knocks, naming the desktop it pinned. Both desktops are reading their
+        // queues; only Bob's is shown the knock, and only Bob's answers it.
+        var resumed = await bobTablet.ResumeAsync("Bob's tablet", async () =>
+        {
+            await alice.Bridge.PollOnceAsync(CancellationToken.None);
+            await bob.Bridge.PollOnceAsync(CancellationToken.None);
+        });
+        Assert.Equal((HttpStatusCode.OK, "resumed"), resumed);
+        await alice.Panel.ResumesSettled;
+        await bob.Panel.ResumesSettled;
+        Assert.Equal(alicesDeviceBefore, Assert.Single(alice.Authority.Snapshot.Devices).DeviceId);
+        Assert.Equal("Bob's tablet", Assert.Single(bob.Authority.Snapshot.Devices, device => device.Status == DeviceLifecycleStatus.Active).DisplayName);
+        Assert.Equal(3, relay.Desktops.Tenants.Length);
+        using var frames = await bobTablet.ReadFramesRawAsync();
+        Assert.Equal(HttpStatusCode.OK, frames.StatusCode);
+    }
+
+    [Fact]
     public async Task ADesktopWithAWrongGroupKeyIsRefusedAndOneWithNoneIsToldToSetOne()
     {
         var clock = new RelayTestClock(RelaySecurityTestFactory.Now);

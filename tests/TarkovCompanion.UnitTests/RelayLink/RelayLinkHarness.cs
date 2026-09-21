@@ -505,7 +505,9 @@ internal sealed class TabletSimulator : IDisposable
         using var content = new ByteArrayContent(CompanionProtocolJson.Serialize(proof));
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         using var door = await _relay.PostAsync(
-            "v2/companion/relay/resume/requests?deviceKeyId=" + Uri.EscapeDataString(PublicDeviceKey().KeyId.Value),
+            // [#553] As the page does: the desktop this tablet pinned says which desktop is meant.
+            "v2/companion/relay/resume/requests?deviceKeyId=" + Uri.EscapeDataString(PublicDeviceKey().KeyId.Value) +
+                (_pinnedDesktopKeyId.Value is { } pinned ? "&desktopKeyId=" + Uri.EscapeDataString(pinned) : string.Empty),
             content);
         if (!door.IsSuccessStatusCode)
         {

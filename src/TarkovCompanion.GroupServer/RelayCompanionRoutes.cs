@@ -777,6 +777,15 @@ public static class RelayCompanionRoutes
             }
 
             var candidates = directory.FindPairedDevices(namedKey, namedDesktop);
+            if (candidates.Count == 0 && namedDesktop is not null)
+            {
+                // A desktop name this relay cannot place narrows nothing. It is a hint about which
+                // of this tablet's records is meant, never a reason to call a known tablet unknown:
+                // the page forgets its pairing when told that. What lets a tablet back in is still
+                // the proof below and the desktop's own handshake after it.
+                candidates = directory.FindPairedDevices(namedKey);
+            }
+
             if (candidates.Count == 0)
             {
                 return Results.Json("device-unknown", statusCode: StatusCodes.Status403Forbidden);
