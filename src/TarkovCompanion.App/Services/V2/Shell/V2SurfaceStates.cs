@@ -57,6 +57,16 @@ public sealed record V2SurfaceState(
     IReadOnlyList<V2RecoveryAction> Recovery)
 {
     public V2SurfaceStateKind Kind => Policy.Kind;
+
+    /// <summary>What makes this the same problem when it is said again; the sentence unless one is given.</summary>
+    /// <remarks>
+    /// Two of these sentences carry an age ("synced 12 min ago"), which changes every minute while
+    /// the problem does not. Remembering a dismissed banner by its sentence brought it back each
+    /// time the age ticked over.
+    /// </remarks>
+    public string Identity { get; init; } = string.Empty;
+
+    public string StableIdentity => string.Concat(Kind.ToString(), "\u001f", Identity.Length > 0 ? Identity : Detail);
 }
 
 public static class V2SurfaceStatePolicies
@@ -156,7 +166,7 @@ public static class V2SurfaceStateResolver
                 V2SurfaceStateKind.Offline,
                 V2ShellText.Format("V2.Shell.Detail.OfflineCached", culture, data.ItemCount, Age(data, nowUtc, culture)),
                 "V2.Shell.Remainder.Cached",
-                setup),
+                setup) with { Identity = "V2.Shell.Detail.OfflineCached" },
             _ when data.UpdatedUtc is null => State(
                 V2SurfaceStateKind.Partial,
                 V2ShellText.Format("V2.Shell.Detail.UndatedData", culture, data.ItemCount),
@@ -166,7 +176,7 @@ public static class V2SurfaceStateResolver
                 V2SurfaceStateKind.Stale,
                 V2ShellText.Format("V2.Shell.Detail.StaleData", culture, Age(data, nowUtc, culture)),
                 "V2.Shell.Remainder.Cached",
-                sync),
+                sync) with { Identity = "V2.Shell.Detail.StaleData" },
             _ => Ready(),
         };
     }
