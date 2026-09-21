@@ -191,7 +191,7 @@
     </Border>
 
     <!-- Get ready: the readiness checks as steps. -->
-    <Border Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Classes="v2-home-card" Padding="22,20">
+    <Border Grid.Row="1" Grid.RowSpan="2" Grid.Column="0" Classes="v2-home-card">
       <Grid RowDefinitions="Auto,Auto,*,Auto">
         <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="{Binding StepsHeading}"
                    AutomationProperties.HeadingLevel="2" />
