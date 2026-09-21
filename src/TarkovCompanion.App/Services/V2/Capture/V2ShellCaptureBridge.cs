@@ -49,6 +49,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly ShellCaptureContextSource? _contextSource;
     private readonly ManualImageIntake? _manualIntake;
     private readonly FleaCaptureHandoff? _fleaHandoff;
+    private readonly CompositeCaptureResultHandoff? _captureRouting;
     private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
@@ -70,12 +71,21 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ILootScanWorkspaceControls? lootScanControls = null,
         ShellCaptureContextSource? contextSource = null,
         ManualImageIntake? manualIntake = null,
-        FleaCaptureHandoff? fleaHandoff = null)
+        FleaCaptureHandoff? fleaHandoff = null,
+        CompositeCaptureResultHandoff? captureRouting = null)
     {
         _fleaHandoff = fleaHandoff;
         if (fleaHandoff is not null)
         {
             fleaHandoff.ListingsRead += OnFleaListingsRead;
+        }
+
+        // #572: a capture read as something other than a loot container is the shell's cue that
+        // the player moved on from Loot - see V2ShellViewModel.ReportNonLootScreenshot.
+        _captureRouting = captureRouting;
+        if (captureRouting is not null)
+        {
+            captureRouting.NonLootIntentHandled += OnNonLootIntentHandled;
         }
 
         _manualIntake = manualIntake;
@@ -472,6 +482,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
     private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs) => Push();
 
+    /// <summary>#572: told apart from a loot container, whatever the shell was showing because it
+    /// opened Loot for itself mid-raid returns to the map now instead of waiting for the countdown.</summary>
+    private void OnNonLootIntentHandled(object? sender, ScanIntent intent) => _shell.ReportNonLootScreenshot();
+
     private void Push()
     {
         if (Volatile.Read(ref _disposed))
@@ -532,6 +546,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
         if (_fleaHandoff is not null)
         {
             _fleaHandoff.ListingsRead -= OnFleaListingsRead;
+        }
+
+        if (_captureRouting is not null)
+        {
+            _captureRouting.NonLootIntentHandled -= OnNonLootIntentHandled;
         }
 
         _shell.ManualImageRequested -= OnManualImageRequested;

@@ -465,6 +465,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             if (!_disposed)
             {
+                // #572: the header tick is already once a second; it doubles as the Loot page's
+                // own clock rather than a second timer.
+                TickLootAutoReturn();
                 Refresh(announceBackgroundChange: true);
             }
         });
@@ -485,6 +488,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         WireLegacyContext();
         WireRaidClock();
+        WireLootAutoReturn();
         WireProfileChip();
         Restore(requestedAddress);
         RebuildSectionItems();
@@ -1428,7 +1432,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
             result.ScanAgainRequested += LootScanAgainRequested;
             Volatile.Write(ref _lootScanResult, result);
-            GoTo(V2Routes.Loot);
+            // #572: this is the one path a capture result reaches the Loot page by itself; it
+            // marks the entry as automatic before it marks the route, in
+            // <see cref="EnterLootAutomatically"/>.
+            EnterLootAutomatically(result);
         }
 
         if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
@@ -3316,6 +3323,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _headerTimer = null;
         _runtime.Changed -= RuntimeChanged;
         UnwireRaidClock();
+        UnwireLootAutoReturn();
         Router.Navigated -= RouterNavigated;
         if (_stashScan is not null)
         {

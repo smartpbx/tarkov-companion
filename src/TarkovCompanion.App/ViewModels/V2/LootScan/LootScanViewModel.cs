@@ -71,6 +71,7 @@ public sealed class LootScanViewModel : BindableViewModel
         PreviousPageCommand = new DelegateCommand(PreviousPage);
         NextPageCommand = new DelegateCommand(NextPage);
         ScanAgainCommand = new DelegateCommand(() => ScanAgainRequested?.Invoke(this, EventArgs.Empty));
+        ToggleStayCommand = new DelegateCommand(() => StayToggled?.Invoke(this, !IsStaying));
         Filters =
         [
             new LootScanFilterViewModel(null, _text.FilterAll, Decisions.Count, SetFilter) { IsSelected = true },
@@ -270,6 +271,80 @@ public sealed class LootScanViewModel : BindableViewModel
     public event EventHandler? ScanAgainRequested;
 
     public ICommand ScanAgainCommand { get; }
+
+    /// <summary>
+    /// #572: the shell pushes what <see cref="Application.Services.CaptureSessions.LootAutoReturnPolicy"/>
+    /// decided here once a second, so the page can show its own small countdown without owning any
+    /// navigation or clock logic itself.
+    /// </summary>
+    private bool _showsAutoReturnControls;
+    private bool _showsReturnCountdown;
+    private bool _isStaying;
+    private TimeSpan? _returnRemaining;
+
+    /// <summary>Raised when the player toggles "Stay"; true pins the page for the rest of the raid.</summary>
+    public event EventHandler<bool>? StayToggled;
+
+    public ICommand ToggleStayCommand { get; }
+
+    /// <summary>
+    /// Whether the app opened this page by itself, mid-raid: worth offering "Stay" at all, whether
+    /// or not a countdown happens to be running right now (pinned and switched-off both hide the
+    /// countdown text but must not hide the toggle that explains why it is hidden).
+    /// </summary>
+    public bool ShowsAutoReturnControls
+    {
+        get => _showsAutoReturnControls;
+        private set => SetProperty(ref _showsAutoReturnControls, value);
+    }
+
+    /// <summary>Whether the numeric countdown itself is on screen: eligible, unpinned, not switched off.</summary>
+    public bool ShowsReturnCountdown
+    {
+        get => _showsReturnCountdown;
+        private set
+        {
+            if (SetProperty(ref _showsReturnCountdown, value))
+            {
+                OnPropertyChanged(nameof(ReturnCountdownLabel));
+            }
+        }
+    }
+
+    public bool IsStaying
+    {
+        get => _isStaying;
+        private set
+        {
+            if (SetProperty(ref _isStaying, value))
+            {
+                OnPropertyChanged(nameof(StayCommandLabel));
+            }
+        }
+    }
+
+    public string StayCommandLabel => IsStaying ? _text.StayingLabel : _text.StayLabel;
+
+    public string ReturnCountdownLabel
+    {
+        get
+        {
+            var seconds = _returnRemaining is { } remaining ? (int)Math.Ceiling(remaining.TotalSeconds) : 0;
+            return seconds > 0
+                ? Format(_text.ReturnCountdownTemplate, ("seconds", seconds.ToString(_culture)))
+                : _text.ReturnCountdownLessThanOne;
+        }
+    }
+
+    /// <summary>Called by the shell, about once a second, with what the auto-return policy decided.</summary>
+    public void UpdateAutoReturn(bool isEligible, bool showsCountdown, bool isPinned, TimeSpan? remaining)
+    {
+        _returnRemaining = remaining;
+        ShowsAutoReturnControls = isEligible;
+        ShowsReturnCountdown = showsCountdown;
+        IsStaying = isPinned;
+        OnPropertyChanged(nameof(ReturnCountdownLabel));
+    }
 
     /// <summary>Verdict chips above the decision list; "All" is first and selected by default.</summary>
     public IReadOnlyList<LootScanFilterViewModel> Filters { get; }
@@ -1439,6 +1514,12 @@ public sealed record LootScanPresentationText
     public string ReasonSwapFits { get; init; } = "Fits after a swap";
     public string ReasonNoRoom { get; init; } = "No room for it";
     public string ReasonSwapCosts { get; init; } = "A swap would cost more than it gains";
+
+    /// <summary>#572: the small countdown that says the page is about to return to the map.</summary>
+    public string ReturnCountdownTemplate { get; init; } = "Map in {seconds}s";
+    public string ReturnCountdownLessThanOne { get; init; } = "Map in <1s";
+    public string StayLabel { get; init; } = "Stay";
+    public string StayingLabel { get; init; } = "Staying";
 
     public static LootScanPresentationText Default { get; } = new();
 }
