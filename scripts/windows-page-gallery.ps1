@@ -1361,9 +1361,11 @@ $Shots.Add([pscustomobject]@{
                     "v2-map-zoom-in", "v2-map-object-cluster-3-2-1176be92",
                     "v2-map-loot-preset", "v2-map-loot-heading", "v2-map-loot-legend", "v2-map-loot-state")
                 expectedBounds = @(
-                    [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 },
-                    [pscustomobject]@{ automationId = "v2-map-loot-preset"; minimumWidth = 44; minimumHeight = 44 },
-                    [pscustomobject]@{ automationId = "v2-map-object-cluster-3-2-1176be92"; minimumWidth = 44; minimumHeight = 44 })
+                    # 32, the desktop control size since #574. 44 is a touch guideline and still holds on the tablet page;
+                    # this is a mouse-driven window on a 1080p monitor, and its owner asked for smaller controls.
+                    [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 32; minimumHeight = 32 },
+                    [pscustomobject]@{ automationId = "v2-map-loot-preset"; minimumWidth = 32; minimumHeight = 32 },
+                    [pscustomobject]@{ automationId = "v2-map-object-cluster-3-2-1176be92"; minimumWidth = 32; minimumHeight = 32 })
                 expectedNamePatterns = @(
                     [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^Some spawn knowledge is incomplete or list-only\.' })
             },
@@ -1463,7 +1465,7 @@ $Shots.Add([pscustomobject]@{
             expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in", "v2-map-loot-preset")
             expectedOutsideViewportAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
             expectedBounds = @(
-                [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 })
+                [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 32; minimumHeight = 32 })
         })
     }
 })
