@@ -77,6 +77,48 @@ public sealed partial class V2ShellViewModel
     }
 
     /// <summary>
+    /// #572: navigates to Loot the moment a capture is accepted, long before grid reconstruction,
+    /// profile lookup and recommendation finish - which measured 350 ms to well over a second.
+    /// Whatever was on screen (a previous result, or the empty "no scan yet" state) stays up until
+    /// <see cref="ShowLootScanResult"/> replaces it; nothing here clears it, so the page is never
+    /// blanked while the new one computes. A no-op once already on Loot, auto-entered: a second
+    /// loot screenshot's own EnterLoot call (from ShowLootScanResult) is what restarts the wait,
+    /// and duplicating that here would double-count it.
+    /// </summary>
+    public void ShowLootScanStarting()
+    {
+        void Apply()
+        {
+            if (Router.Current.Location.Route == V2Routes.Loot)
+            {
+                return;
+            }
+
+            _lootAutoReturnNavigationInFlight = true;
+            try
+            {
+                GoTo(V2Routes.Loot);
+            }
+            finally
+            {
+                _lootAutoReturnNavigationInFlight = false;
+            }
+
+            _lootAutoReturn.EnterLoot(handEntered: false, inRaid: IsInRaid);
+            PushLootAutoReturnState();
+        }
+
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
+        {
+            Apply();
+        }
+        else
+        {
+            _dispatcherContext.Post(_ => Apply(), null);
+        }
+    }
+
+    /// <summary>
     /// The one path a capture result reaches the Loot page by itself
     /// (<see cref="ShowLootScanResult"/>). Runs whether or not the route actually changes: a
     /// second loot screenshot re-decides the same page in place, and that has to restart the wait

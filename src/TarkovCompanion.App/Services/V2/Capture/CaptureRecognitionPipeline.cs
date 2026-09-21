@@ -41,7 +41,12 @@ public sealed class CaptureRecognitionPipeline(
     OcrTextNormalizer? normalizer = null,
     // [f920 capture] #284: the flea row parser V1 already had. Optional and last: where OCR is
     // not composed (every platform but Windows) there is nothing to parse rows from.
-    TarkovCompanion.Core.Abstractions.IFleaRecognitionService? flea = null) : ICaptureSessionPipeline
+    TarkovCompanion.Core.Abstractions.IFleaRecognitionService? flea = null,
+    // #572: correlated by CaptureAnalysisRequest.CorrelationId, not threaded through
+    // CaptureAnalysis - see ICaptureStageTimeline's own remarks for why. Optional: every existing
+    // composition and test predates it, and a host that never registers one gets no timing lines
+    // rather than a missing-service failure.
+    Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null) : ICaptureSessionPipeline
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
@@ -57,7 +62,9 @@ public sealed class CaptureRecognitionPipeline(
         // that produced it.
         var contentHash = Convert.ToHexStringLower(SHA256.HashData(request.Image.Pixels.Span));
 
+        var ocrStopwatch = System.Diagnostics.Stopwatch.StartNew();
         var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
+        stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
         var detection = coordinated.Detection;
         var isAmbiguous = detection.Context == ScanContext.Unknown;
         var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);
@@ -66,9 +73,14 @@ public sealed class CaptureRecognitionPipeline(
         GridReconstructionRequest? grid = null;
         if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
         {
+            var gridStopwatch = System.Diagnostics.Stopwatch.StartNew();
             grid = await _gridBuilder
                 .BuildAsync(request.Image, surface, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
+            // Region detection and per-cell icon matching against the catalog both happen inside
+            // BuildAsync; splitting them would mean Infrastructure taking a dependency on this
+            // Application-layer timeline, so they are reported together here as one stage.
+            stageTimeline?.Mark(request.CorrelationId, "grid_and_icon_matching", gridStopwatch.Elapsed);
         }
 
         // A measured lattice is a usable reading whether or not any text was read. Availability
