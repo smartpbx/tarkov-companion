@@ -1703,6 +1703,23 @@ internal static class Program
                 Pump(20);
             }
 
+            if (shell is not null && StringOption(args, "--stash-real-burst") is { } stashRealBurst)
+            {
+                var stashScan = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                var guided = services.GetRequiredService<TarkovCompanion.Application.Services.StashScan.GuidedStashScanService>();
+                DrainUntilComplete(stashScan.LoadAsync());
+                stashScan.StartSelectedScanCommand.Execute(null);
+                Pump(10);
+                DrainUntilComplete(StashScanDemo.AddRealBurstAsync(
+                    guided,
+                    services.GetRequiredService<TarkovCompanion.Core.Abstractions.IScreenshotImageLoader>(),
+                    services.GetRequiredService<TarkovCompanion.Infrastructure.Recognition.Grid.GridPixelReconstructionBuilder>(),
+                    services.GetRequiredService<TarkovCompanion.Infrastructure.Recognition.Grid.InventoryGridReconstructor>(),
+                    stashRealBurst));
+                stashScan.FinishScanCommand.Execute(null);
+                Pump(50);
+            }
+
             // [V2 rough package 41] Setup's self-test, run before the frame. --selftest-demo
             // substitutes fixtures at the readings seam so all three verdicts are on screen;
             // --selftest-live runs the composed readings, which on a machine with no game

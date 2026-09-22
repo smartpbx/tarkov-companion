@@ -13,6 +13,8 @@ owns screenshot pixels and never controls the game.
    batch input and is absent from the recognition result, export, and database.
 5. `StashScanAssembler` places confirmed/reviewed origins, then stitches only a unique overlap
    supported by at least two resolved anchors.
+   When a page-sized scroll leaves no shared row, a readable scrollbar orders that page after the
+   nearest placed page; overlap matching still runs first and refines later bridging pages.
 6. The workflow saves a typed, pixel-free `StashRecognition` through the existing observed
    inventory tables. The session report carries targeted retry guidance.
 

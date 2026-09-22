@@ -56,6 +56,43 @@ internal static class StashScanDemo
         }
     }
 
+    public static async Task AddRealBurstAsync(
+        GuidedStashScanService scan,
+        IScreenshotImageLoader loader,
+        GridPixelReconstructionBuilder builder,
+        InventoryGridReconstructor reconstructor,
+        string folder)
+    {
+        var paths = Directory.EnumerateFiles(folder, "*.png")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .Take(7)
+            .ToArray();
+        if (paths.Length != 7)
+        {
+            throw new InvalidOperationException("The real stash burst requires seven PNG frames.");
+        }
+
+        for (var index = 0; index < paths.Length; index++)
+        {
+            var image = await loader.LoadAsync(paths[index], CancellationToken.None)
+                ?? throw new InvalidOperationException($"The real stash frame {index} could not be decoded.");
+            var request = await builder.BuildAsync(
+                image,
+                InventoryGridSurface.Stash,
+                image.CapturedUtc,
+                cancellationToken: CancellationToken.None);
+            await scan.AddScreenshotAsync(
+                $"real-stash-{index:D2}",
+                CaptureCorrelationId.New(),
+                new CaptureContextMetadata(null, null, null, null, null, null, "desktop"),
+                Convert.ToHexStringLower(SHA256.HashData(image.Pixels.Span)),
+                image.CapturedUtc,
+                0,
+                reconstructor.Reconstruct(request, CancellationToken.None),
+                CancellationToken.None);
+        }
+    }
+
     private static ulong InGameFingerprint(SyntheticStashItem item, SyntheticStashFrameOptions options)
     {
         var image = SyntheticStashPainter.RenderFrame(SyntheticStashLayout.Of(8, new SyntheticStashPlacement(item, 1, 1)), 0, options);
