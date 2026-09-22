@@ -404,6 +404,33 @@
                             Command="{Binding TogglePopupCommand}" />
             </Grid>
           </Border>
+          <!-- #314: quiet hours hold the pop-up back overnight; the tray still counts. -->
+          <Border Classes="v2-card" Padding="12,10">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding QuietHoursTitle}" />
+                <TextBlock Classes="v2-label" Text="{Binding QuietHoursDescription}" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock Grid.Column="1" Classes="v2-label" Text="From" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="2" Width="96" VerticalAlignment="Center"
+                        ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietFromHour}"
+                        IsEnabled="{Binding QuietHours}"
+                        AutomationProperties.AutomationId="v2-setup-notification-quiet-from"
+                        AutomationProperties.Name="Quiet from" />
+              <TextBlock Grid.Column="3" Classes="v2-label" Text="to" VerticalAlignment="Center" />
+              <ComboBox Grid.Column="4" Width="96" VerticalAlignment="Center"
+                        ItemsSource="{Binding HourChoices}" SelectedIndex="{Binding QuietToHour}"
+                        IsEnabled="{Binding QuietHours}"
+                        AutomationProperties.AutomationId="v2-setup-notification-quiet-to"
+                        AutomationProperties.Name="Quiet until" />
+              <ToggleSwitch Grid.Column="5" VerticalAlignment="Center"
+                            IsChecked="{Binding QuietHours, Mode=OneWay}"
+                            OnContent="On" OffContent="Off"
+                            AutomationProperties.AutomationId="v2-setup-notification-quiet"
+                            AutomationProperties.Name="{Binding QuietHoursTitle}"
+                            Command="{Binding ToggleQuietHoursCommand}" />
+            </Grid>
+          </Border>
         </StackPanel>
         </Panel>
       </StackPanel>

@@ -210,7 +210,9 @@ public sealed partial class RuntimeArchitectureRatchetTests
         AssertShape<ScanExecutionResult>(
             "CanonicalItemId", "Confidence", "Detail", "IsAvailable", "ItemName", "ObservedUtc", "Recommendation",
             "Source", "Succeeded", "ValuePerSlotRoubles", "ValueRoubles");
-        AssertShape<FleaSaleObservation>("Count", "HandbookItemId", "ObservedUtc", "OfferId");
+        // WrittenUtc (#314) is on the record and deliberately NOT in the codec: it only tells the
+        // flea-sold notification a replayed sale from a new one, in memory, before anything is queued.
+        AssertShape<FleaSaleObservation>("Count", "HandbookItemId", "ObservedUtc", "OfferId", "WrittenUtc");
         AssertShape<QuestStatusObservation>("EventId", "ObservedUtc", "State", "TaskId");
         AssertShape<ScreenshotPosition>(
             "DuplicateIndex", "Filename", "HeadingDegrees", "InGameTime", "Orientation", "Position", "Timestamp");
