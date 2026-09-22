@@ -1171,7 +1171,12 @@ internal static class Program
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {
                     MapSwitchProbe.FirstPicturePath = StringOption(args, "--then-map-first");
-                    MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
+                    MapSwitchProbe.Run(
+                        window,
+                        viewModel,
+                        raid,
+                        thenMaps,
+                        measureMemory: args.Contains("--map-switch-memory"));
                 }
 
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
