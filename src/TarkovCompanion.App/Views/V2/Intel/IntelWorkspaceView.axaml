@@ -3,7 +3,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell"
-             xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel">
+             xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
@@ -184,11 +185,44 @@
         <Border Grid.Column="1" Classes="v2-intel-pane"
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.AutomationId="v2-intel-detail">
-          <Grid>
-            <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
+          <Grid RowDefinitions="Auto,*">
+            <!-- #287: the compare tray. It outlives the open item, so it sits above the detail. -->
+            <Border Grid.Row="0" Classes="v2-intel-compare-tray" IsVisible="{Binding IntelCompare.HasEntries}"
+                    AutomationProperties.AutomationId="v2-intel-compare-tray">
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding IntelCompare.TrayLabel}" />
+                <ItemsControl Grid.Column="1" ItemsSource="{Binding IntelCompare.Entries}" VerticalAlignment="Center">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="intelVm:IntelCompareEntryViewModel">
+                      <Button Classes="v2-target v2-intel-chip v2-intel-chip-small" Margin="0,2,8,2"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding RemoveLabel}" ToolTip.Tip="{Binding RemoveLabel}"
+                              Command="{Binding RemoveCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                          <TextBlock VerticalAlignment="Center" MaxWidth="260" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                          <Path Classes="v2-icon v2-icon-muted" Width="14" Height="14" VerticalAlignment="Center"
+                                Data="{DynamicResource V2.Icon.Close}" />
+                        </StackPanel>
+                      </Button>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Grid.Column="2" Classes="v2-target v2-intel-plain" VerticalAlignment="Center"
+                        AutomationProperties.AutomationId="v2-intel-compare-clear"
+                        Command="{Binding IntelCompare.ClearCommand}" Content="{Binding IntelCompare.ClearLabel}" />
+                <Button Grid.Column="3" Classes="v2-target v2-intel-secondary" VerticalAlignment="Center"
+                        IsEnabled="{Binding IntelCompare.CanOpen}"
+                        AutomationProperties.AutomationId="v2-intel-compare-open"
+                        Command="{Binding IntelCompare.OpenCommand}" Content="{Binding IntelCompare.OpenLabel}" />
+              </Grid>
+            </Border>
+            <TextBlock Grid.Row="1" Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Margin="24"
                        IsVisible="{Binding ShowsIntelNoSelection}" Text="{Binding IntelNoSelectionLabel}" />
-            <StackPanel Margin="24,20" Spacing="8" IsVisible="{Binding ShowsIntelDetailStatus}">
+            <StackPanel Grid.Row="1" Margin="24,20" Spacing="8" IsVisible="{Binding ShowsIntelDetailStatus}">
               <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Classes="v2-heading-2" Focusable="True"
                            AutomationProperties.AutomationId="v2-shell-intel-heading"
@@ -203,7 +237,7 @@
               <TextBlock Classes="v2-label" Text="{Binding IntelStatusLabel}" />
             </StackPanel>
 
-            <ScrollViewer IsVisible="{Binding IntelHasResult}" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsIntelDetail}" HorizontalScrollBarVisibility="Disabled">
               <!-- Fills the pane up to a readable width, then stays left-aligned on an ultrawide screen. -->
               <Grid>
                 <Grid.ColumnDefinitions>
@@ -211,7 +245,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
               <StackPanel Margin="24,18,24,24" Spacing="14">
-                <Grid ColumnDefinitions="*,Auto">
+                <Grid ColumnDefinitions="*,Auto,Auto">
                   <StackPanel Grid.Column="0" Spacing="4">
                     <TextBlock Classes="v2-intel-name" Focusable="True"
                                AutomationProperties.AutomationId="v2-shell-intel-heading"
@@ -226,7 +260,21 @@
                     <TextBlock Classes="v2-label" Margin="0,4,0,0"
                                IsVisible="{Binding HasQuietIntelEventState}" Text="{Binding IntelEventStateLabel}" />
                   </StackPanel>
-                  <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Top"
+                  <!-- #287: adds the open item to the compare tray, or takes it back out. -->
+                  <Button Grid.Column="1" Classes="v2-target v2-intel-secondary" VerticalAlignment="Top" Margin="0,0,8,0"
+                          AutomationProperties.AutomationId="v2-intel-compare-toggle"
+                          ToolTip.Tip="{Binding IntelCompare.ToggleCurrentTip}"
+                          IsEnabled="{Binding IntelCompare.CanToggleCurrent}"
+                          Command="{Binding IntelCompare.ToggleCurrentCommand}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Classes="v2-icon" Width="16" Height="16" VerticalAlignment="Center"
+                            IsVisible="{Binding IntelCompare.CurrentIsInTray}" Data="{DynamicResource V2.Icon.Check}" />
+                      <Path Classes="v2-icon" Width="16" Height="16" VerticalAlignment="Center"
+                            IsVisible="{Binding !IntelCompare.CurrentIsInTray}" Data="{DynamicResource V2.Icon.Plus}" />
+                      <TextBlock VerticalAlignment="Center" Text="{Binding IntelCompare.ToggleCurrentLabel}" />
+                    </StackPanel>
+                  </Button>
+                  <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Top"
                           AutomationProperties.AutomationId="v2-shell-intel-close"
                           AutomationProperties.Name="{Binding IntelCloseLabel}" ToolTip.Tip="{Binding IntelCloseLabel}"
                           Command="{Binding CloseTransientCommand}">
@@ -315,6 +363,10 @@
               </StackPanel>
               </Grid>
             </ScrollViewer>
+
+            <Panel Grid.Row="1" IsVisible="{Binding IntelCompare.IsOpen}">
+              <intel:IntelCompareView DataContext="{Binding IntelCompare}" />
+            </Panel>
           </Grid>
         </Border>
       </Grid>

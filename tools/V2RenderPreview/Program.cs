@@ -710,6 +710,27 @@ internal static class Program
                 Pump(80);
             }
 
+            // #287 (side-by-side comparison): --intel-compare "M855;M856;M855A1" searches each
+            // query, opens its first hit and adds it to the compare tray, then opens the table.
+            // --intel-compare-tray stops at the tray, with the last item's detail still showing.
+            if (shell is not null && StringOption(args, "--intel-compare") is { } compareQueries)
+            {
+                foreach (var query in compareQueries.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    shell.SearchText = query;
+                    DrainUntilComplete(shell.SearchAsync());
+                    Pump(60);
+                    shell.IntelCompare.ToggleCurrentCommand.Execute(null);
+                    Pump(10);
+                }
+
+                if (!args.Contains("--intel-compare-tray"))
+                {
+                    DrainUntilComplete(shell.IntelCompare.OpenAsync());
+                    Pump(20);
+                }
+            }
+
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
             // pick a map here the same way the map picker's own SelectCommand does, once the
