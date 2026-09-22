@@ -398,6 +398,25 @@ public sealed partial class V2ShellViewModel
         ? Roubles(fee)
         : V2ShellText.Get("V2.Shell.Intel.FeeUnknown");
 
+    public bool IntelHasSellingComparison => _intelResult?.Prices?.Selling is not null;
+    public string IntelSellingComparison => _intelResult?.Prices?.Selling is { } selling
+        ? selling.TraderRoubles is { } trader && selling.TraderName is { } traderName
+            ? V2ShellText.Format(
+                "V2.Shell.Intel.SellingWithTrader",
+                CultureInfo.CurrentCulture,
+                selling.HeldCount,
+                Roubles(selling.AskingRoubles),
+                Roubles(selling.NetRoubles),
+                traderName,
+                Roubles(trader))
+            : V2ShellText.Format(
+                "V2.Shell.Intel.SellingWithoutTrader",
+                CultureInfo.CurrentCulture,
+                selling.HeldCount,
+                Roubles(selling.AskingRoubles),
+                Roubles(selling.NetRoubles))
+        : string.Empty;
+
     // Package 33 (#287): "should I keep it," named rather than counted — which quests and which
     // hideout levels, not just how many.
     public string IntelKeepHeading => V2ShellText.Get("V2.Shell.Intel.Keep.Heading");
@@ -585,6 +604,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
             nameof(IntelHasSevenDayHistory), nameof(IntelSevenDayLabel), nameof(IntelSevenDayRange),
             nameof(HasIntelPerSlotValue), nameof(IntelPerSlotValueLabel), nameof(IntelFeeLabel),
+            nameof(IntelHasSellingComparison), nameof(IntelSellingComparison),
             nameof(IntelKeepQuestLines), nameof(IntelKeepHideoutLines), nameof(HasIntelKeepDetail), nameof(ShowsIntelKeepEmpty),
             nameof(IntelIsKey), nameof(IntelIsAmmo), nameof(IntelKeyMapLabel), nameof(IntelKeyLocks),
             nameof(IntelHasAmmoFacts), nameof(IntelHasNoAmmoFacts), nameof(IntelAmmoDamage), nameof(IntelAmmoPenetration),

@@ -59,6 +59,15 @@ public sealed record V2IntelAmmoFacts(
 /// <summary>One trader's buy-back price, as the catalog names the trader.</summary>
 public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
 
+/// <summary>A held item's per-unit flea return beside its best certain trader sale.</summary>
+public sealed record V2IntelSellingFacts(
+    int HeldCount,
+    long AskingRoubles,
+    long FeeRoubles,
+    long NetRoubles,
+    string? TraderName,
+    long? TraderRoubles);
+
 /// <summary>
 /// Every price the local catalog holds for the item, for the Intel workspace's price panel
 /// (V2 rough package 17). Nothing here is a history: the 24-hour figures are the catalog's own
@@ -77,7 +86,8 @@ public sealed record V2IntelPriceFacts(
     IReadOnlyList<V2IntelTraderPrice> Traders,
     DateTimeOffset UpdatedUtc,
     long? FeeRoubles = null,
-    PriceHistorySummary? SevenDayHistory = null);
+    PriceHistorySummary? SevenDayHistory = null,
+    V2IntelSellingFacts? Selling = null);
 
 /// <summary>One active quest that still wants this item, by name.</summary>
 public sealed record V2IntelQuestNeedRow(string TaskName, int? Remaining, bool FoundInRaidRequired);
@@ -249,6 +259,19 @@ public sealed class ItemIntelService(
             return null;
         }
 
+        var fee = await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false);
+        var held = await HeldCountAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var bestTrader = price.TraderOffers.OrderByDescending(offer => offer.ValueRoubles).FirstOrDefault();
+        var selling = held is > 0 && price.FleaPriceRoubles is > 0 and var asking && fee is { } listingFee
+            ? new V2IntelSellingFacts(
+                held.Value,
+                asking,
+                listingFee,
+                asking - listingFee,
+                bestTrader?.TraderName,
+                bestTrader?.ValueRoubles)
+            : null;
+
         return new(
             price.FleaPriceRoubles,
             price.Average24HourRoubles,
@@ -259,8 +282,31 @@ public sealed class ItemIntelService(
                 .Select(offer => new V2IntelTraderPrice(offer.TraderName, offer.ValueRoubles))
                 .ToArray(),
             price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc,
-            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false),
-            await HistoryAsync(itemId, cancellationToken).ConfigureAwait(false));
+            fee,
+            await HistoryAsync(itemId, cancellationToken).ConfigureAwait(false),
+            selling);
+    }
+
+    /// <summary>
+    /// The active profile's recorded holding. Zero and unknown deliberately draw no selling call:
+    /// this is advice about an item the player has, never an invitation to acquire one.
+    /// </summary>
+    private async Task<int?> HeldCountAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (profileService is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var profile = await profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+            return profile.OwnedItemCounts.TryGetValue(itemId, out var held) && held >= 0 ? held : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     private async Task<PriceHistorySummary?> HistoryAsync(string itemId, CancellationToken cancellationToken)

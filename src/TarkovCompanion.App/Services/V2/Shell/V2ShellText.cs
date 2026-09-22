@@ -694,6 +694,8 @@ public static class V2ShellText
         // Package 33 (#287): item detail's worth/keep facts.
         ["V2.Shell.Intel.Fee"] = "Flea listing fee",
         ["V2.Shell.Intel.FeeUnknown"] = "Unknown: no live flea rate cached",
+        ["V2.Shell.Intel.SellingWithTrader"] = "You hold {0:N0} · Sell on flea at {1} nets {2} after fee vs {3} {4}",
+        ["V2.Shell.Intel.SellingWithoutTrader"] = "You hold {0:N0} · Sell on flea at {1} nets {2} after fee · no trader offer",
         ["V2.Shell.Intel.Keep.Heading"] = "Should I keep it",
         ["V2.Shell.Intel.Keep.None"] = "Nothing currently needs it",
         ["V2.Shell.Intel.Keep.Quest"] = "{0} · {1} needed",
