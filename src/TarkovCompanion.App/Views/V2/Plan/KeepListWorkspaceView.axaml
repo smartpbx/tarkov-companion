@@ -37,7 +37,7 @@
     <Grid RowDefinitions="Auto,*">
       <StackPanel Grid.Row="0" Spacing="2" Margin="16,12,8,8">
         <Grid ColumnDefinitions="*,Auto">
-          <TextBlock Classes="v2-heading-1" Text="Keep list" AutomationProperties.HeadingLevel="1"
+          <TextBlock Classes="v2-heading-2" Text="Keep list" AutomationProperties.HeadingLevel="2"
                      VerticalAlignment="Center" />
           <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Background="Transparent" BorderThickness="0"
                   VerticalAlignment="Center"
