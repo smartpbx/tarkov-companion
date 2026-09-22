@@ -127,7 +127,7 @@
 
           <!-- A definition names items by id and nobody knows them by id, so they are chosen from the catalog. -->
           <StackPanel Grid.Row="5" Spacing="6" IsVisible="{Binding CanEdit}">
-            <Border Classes="v2-intel-search" MinHeight="42">
+            <Border Classes="v2-intel-search">
               <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                 <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
                          PlaceholderText="Find an item to add"
