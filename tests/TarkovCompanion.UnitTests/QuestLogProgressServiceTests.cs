@@ -80,6 +80,20 @@ public sealed class QuestLogProgressServiceTests
         Assert.Equal(RecordedTaskState.Completed, commands.Calls[^1].State);
     }
 
+    [Fact]
+    public async Task AQuestSyncedActiveStillAcceptsALaterGameLogCompletion()
+    {
+        var commands = new RecordingCommands();
+        var service = Service(commands);
+        var scope = new QuestProfileScope(Guid.Empty, GameMode.Regular, "legacy");
+        await commands.SetTaskStateAsync(scope, "task-1", RecordedTaskState.Active, CancellationToken.None);
+
+        await service.ApplyAsync(Observed("game-finished", "task-1", RecordedTaskState.Completed), CancellationToken.None);
+
+        Assert.Equal(RecordedTaskState.Completed, commands.Calls[^1].State);
+        Assert.Equal(2, commands.Calls.Count);
+    }
+
     /// <summary>One unrecordable quest is one quest, not the end of reading the logs.</summary>
     [Fact]
     public async Task AFailedWriteDoesNotThrow()

@@ -426,6 +426,15 @@ internal static class Program
                 Pump(20);
             }
 
+            // #667: fixture OCR output through the real matcher and history inference, so the
+            // Setup preview can be judged without invoking a Windows-only OCR provider on dev.
+            if (shell?.SetupWorkspace?.QuestSync is { } questSync && args.Contains("--quest-sync-demo"))
+            {
+                DrainUntilComplete(questSync.LoadFixtureAsync(
+                    ["Flint", "Gunsmith Part", "CHARACTER TASKS"]));
+                Pump(20);
+            }
+
             // [#269] Profiles made through the real management service, so Setup > Game & Profile
             // renders the list a player would have: the first profile, a PvE one made active, and an
             // archived one behind "Show archived".

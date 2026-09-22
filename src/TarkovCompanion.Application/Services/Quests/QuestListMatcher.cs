@@ -49,7 +49,7 @@ public sealed record QuestListMatchResult(IReadOnlyList<QuestListLineMatch> Line
 public sealed class QuestListMatcher
 {
     private const double MatchThreshold = 0.78;
-    private const double CandidateThreshold = 0.35;
+    private const double CandidateThreshold = 0.50;
     private const double AmbiguityMargin = 0.06;
     private const int CandidateLimit = 5;
 

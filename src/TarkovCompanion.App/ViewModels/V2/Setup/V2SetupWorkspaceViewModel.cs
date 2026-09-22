@@ -123,6 +123,7 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
         SelfTest = selfTest;
         Notifications = notifications;
         OpenTeamCommand = new DelegateCommand(() => _navigate(V2Routes.Team));
+        OpenQuestSyncCommand = new DelegateCommand(() => Select(V2SetupSection.Progress));
         DecreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(-1));
         IncreaseScaleCommand = new DelegateCommand(() => Legacy?.StepInterfaceScale(1));
         ResetScaleCommand = new DelegateCommand(() => Legacy?.ResetInterfaceScale());
@@ -181,6 +182,28 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public SetupNotificationsViewModel? Notifications { get; private set; }
 
     public bool HasNotifications => Notifications is not null;
+
+    /// <summary>Screenshot onboarding in Progress, or null in a shell without runtime services.</summary>
+    public QuestScreenshotSyncViewModel? QuestSync { get; private set; }
+
+    public bool HasQuestSync => QuestSync is not null;
+
+    public bool ShowsQuestSyncOffer => QuestSync?.ShowEmptyOffer == true;
+
+    public void AttachQuestSync(QuestScreenshotSyncViewModel questSync)
+    {
+        QuestSync = questSync ?? throw new ArgumentNullException(nameof(questSync));
+        OnPropertyChanged(nameof(QuestSync));
+        OnPropertyChanged(nameof(HasQuestSync));
+        QuestSync.PropertyChanged += (_, eventArgs) =>
+        {
+            if (eventArgs.PropertyName == nameof(QuestScreenshotSyncViewModel.ShowEmptyOffer))
+            {
+                OnPropertyChanged(nameof(ShowsQuestSyncOffer));
+            }
+        };
+        QuestSync.RefreshOfferAsync().Observe("setup", "check empty quest progress");
+    }
 
     public void AttachNotifications(SetupNotificationsViewModel notifications)
     {
@@ -353,6 +376,8 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public V2HomeOverviewViewModel Overview { get; }
 
     public ICommand OpenTeamCommand { get; }
+
+    public ICommand OpenQuestSyncCommand { get; }
 
     public ICommand DecreaseScaleCommand { get; }
 
