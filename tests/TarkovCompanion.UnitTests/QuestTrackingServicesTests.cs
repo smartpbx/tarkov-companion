@@ -319,6 +319,37 @@ public sealed class QuestReadServiceTests
             CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(RecordedTaskState.Completed)]
+    [InlineData(RecordedTaskState.Failed)]
+    public async Task APinnedQuestTheGameReportedFinishedLeavesTheMap(RecordedTaskState finished)
+    {
+        // [Issue 571] A pin kept a handed-in quest's objectives on the map after the game had
+        // said it was done.
+        var profile = Profile();
+        var objective = Objective("pinned-finished-objective", 1, false, []) with
+        {
+            MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-one")],
+        };
+        var task = TaskDefinition("pinned-finished-task", [objective]);
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var progress = new QuestProgressSnapshot(
+            scope,
+            5,
+            new Dictionary<string, RecordedTaskProgress>
+            {
+                [task.Id] = new(task.Id, finished, "GameLog", 1, RecordedUtc),
+            },
+            new Dictionary<string, RecordedObjectiveProgress>(),
+            [],
+            [new(QuestPinTargetKind.Task, task.Id, 1, null, "Manual", 2, RecordedUtc)]);
+
+        var result = await Service(profile, Catalog(task), progress)
+            .GetActiveMapObjectivesAsync(scope, ["map-one"], CancellationToken.None);
+
+        Assert.Empty(result.Objectives);
+    }
+
     internal static PlayerProfile Profile() => new(
         Guid.Parse("46bc28fe-1554-4b16-884f-fe725285877b"),
         "Quest profile",

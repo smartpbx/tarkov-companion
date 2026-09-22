@@ -543,7 +543,17 @@ public static class AppComposition
         // The game announces every quest starting, failing and being handed in, and until now
         // nobody was listening: the page showed five hundred quests all reading Unknown while
         // the answer sat in the same files the flea sales come from.
-        services.AddSingleton<QuestLogProgressService>();
+        // [Issue 571] Attached where the service is made, so a failed or restarted quest clears the
+        // player's hand Done marks whatever page happens to be open.
+        services.AddSingleton<QuestLogProgressService>(provider =>
+        {
+            var questLog = ActivatorUtilities.CreateInstance<QuestLogProgressService>(provider);
+            QuestLogHandDoneReconciler.Attach(
+                questLog,
+                provider.GetRequiredService<IHandDoneObjectiveStore>(),
+                provider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(QuestLogHandDoneReconciler)));
+            return questLog;
+        });
         services.AddSingleton<IEftLogObserver, EftLogObservers>();
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
