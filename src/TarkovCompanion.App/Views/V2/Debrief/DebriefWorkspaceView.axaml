@@ -30,6 +30,18 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="BorderThickness" Value="3,1,1,1" />
     </Style>
+    <!-- The app-wide Button padding (12,7) reaches the date picker's own flyout button and pushed
+         "month / day / year" to the top edge of the field. The picker takes no inset of its own and
+         centres its three parts, so it lines up with the filter chips beside it. -->
+    <Style Selector="DatePicker">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="DatePicker /template/ Button#PART_FlyoutButton">
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="DatePicker /template/ TextBlock#PART_MonthTextBlock, DatePicker /template/ TextBlock#PART_DayTextBlock, DatePicker /template/ TextBlock#PART_YearTextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
     <Style Selector="TextBlock.v2-debrief-muted">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
     </Style>
