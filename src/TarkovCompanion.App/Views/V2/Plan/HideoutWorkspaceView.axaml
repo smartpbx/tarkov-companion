@@ -54,6 +54,16 @@
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
       <Setter Property="StrokeThickness" Value="2.4" />
     </Style>
+    <!-- Fluent replaces disabled button chrome with a filled grey surface. Keep both steppers in
+         the same outline family and communicate that one cannot be pressed through opacity. -->
+    <Style Selector="Button.v2-hideout-stepper:disabled">
+      <Setter Property="Opacity" Value="0.45" />
+    </Style>
+    <Style Selector="Button.v2-hideout-stepper:disabled /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
   </UserControl.Styles>
 
   <!-- V2 rough package 17: the Plan route's Hideout tab in the Plan workspace's visual language
@@ -130,13 +140,13 @@
                  the requirements below are always for the level after this one. -->
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
               <TextBlock Classes="v2-label" Text="Built level" VerticalAlignment="Center" />
-              <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanLowerLevel}"
+              <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanLowerLevel}"
                       Command="{Binding LowerLevelCommand}"
                       AutomationProperties.AutomationId="v2-hideout-level-down"
                       AutomationProperties.Name="Lower the built level" ToolTip.Tip="Lower the built level">
                 <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
               </Button>
-              <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanRaiseLevel}"
+              <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanRaiseLevel}"
                       Command="{Binding RaiseLevelCommand}"
                       AutomationProperties.AutomationId="v2-hideout-level-up"
                       AutomationProperties.Name="Raise the built level" ToolTip.Tip="Raise the built level">
@@ -191,13 +201,13 @@
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                   <TextBlock Classes="v2-label" Text="Target" VerticalAlignment="Center" />
-                  <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanLowerTarget}"
+                  <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanLowerTarget}"
                           Command="{Binding LowerTargetCommand}"
                           AutomationProperties.AutomationId="v2-hideout-target-down"
                           AutomationProperties.Name="Lower the target level" ToolTip.Tip="Lower the target level">
                     <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Minus}" />
                   </Button>
-                  <Button Classes="v2-target v2-icon-btn v2-outline" IsEnabled="{Binding CanRaiseTarget}"
+                  <Button Classes="v2-target v2-icon-btn v2-outline v2-hideout-stepper" IsEnabled="{Binding CanRaiseTarget}"
                           Command="{Binding RaiseTargetCommand}"
                           AutomationProperties.AutomationId="v2-hideout-target-up"
                           AutomationProperties.Name="Raise the target level" ToolTip.Tip="Raise the target level">
