@@ -240,6 +240,75 @@ public sealed class QuestLogToProgressTests
     /// profile and the storage behind them are stood in for, because what is being pinned is the
     /// handover between the reading and the recording.
     /// </remarks>
+    /// <summary>
+    /// [Issue 571] A quest the game reports failed clears the player's hand Done marks on it,
+    /// read from a real session folder by the real watcher, parser and progress service.
+    /// </summary>
+    [Fact]
+    public async Task AQuestTheGameReportsFailedClearsItsHandDoneMarks()
+    {
+        using var session = new QuestLogSessionFixture();
+        session.Write("backend", QuestLogSessionFixture.BackendQuest(11, HandedIn, "msg-fail"));
+        var chain = new Chain();
+        var marks = new HandDoneMarks(
+            new HandDoneObjective(Guid.Empty, HandedIn, "objective-a", DateTimeOffset.UnixEpoch),
+            new HandDoneObjective(Guid.Empty, "5936d90786f7742b1420ffff", "objective-b", DateTimeOffset.UnixEpoch));
+        QuestLogHandDoneReconciler.Attach(chain.Quests, marks, NullLogger.Instance);
+
+        await chain.ReadAsync(session.Root);
+
+        Assert.Equal(RecordedTaskState.Failed, Assert.Single(chain.Commands.Calls).State);
+        Assert.Equal([HandedIn], marks.ClearedTasks);
+        Assert.Equal("objective-b", Assert.Single(marks.Entries).ObjectiveId);
+    }
+
+    /// <summary>
+    /// A hand-in leaves the marks alone: its objectives leave the map because the quest is no
+    /// longer active, and "Show completed" still shows them done.
+    /// </summary>
+    [Fact]
+    public async Task AQuestTheGameReportsHandedInKeepsItsHandDoneMarks()
+    {
+        using var session = new QuestLogSessionFixture();
+        session.Write("backend", QuestLogSessionFixture.BackendQuest(12, HandedIn, "msg-done"));
+        var chain = new Chain();
+        var marks = new HandDoneMarks(new HandDoneObjective(Guid.Empty, HandedIn, "objective-a", DateTimeOffset.UnixEpoch));
+        QuestLogHandDoneReconciler.Attach(chain.Quests, marks, NullLogger.Instance);
+
+        await chain.ReadAsync(session.Root);
+
+        Assert.Equal(RecordedTaskState.Completed, Assert.Single(chain.Commands.Calls).State);
+        Assert.Empty(marks.ClearedTasks);
+        Assert.Single(marks.Entries);
+    }
+
+    private sealed class HandDoneMarks(params HandDoneObjective[] marks) : IHandDoneObjectiveStore
+    {
+        private readonly List<HandDoneObjective> _marks = [.. marks];
+
+        public List<string> ClearedTasks { get; } = [];
+
+        public IReadOnlyList<HandDoneObjective> Entries => _marks;
+
+        public event Action? Changed;
+
+        public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task MarkDoneAsync(Guid profileId, string taskId, string objectiveId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task MarkNotDoneAsync(Guid profileId, string objectiveId, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task ClearForTaskAsync(Guid profileId, string taskId, CancellationToken cancellationToken = default)
+        {
+            ClearedTasks.Add(taskId);
+            _marks.RemoveAll(mark => mark.ProfileId == profileId && mark.TaskId == taskId);
+            Changed?.Invoke();
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed class Chain
     {
         public Chain(RecordingCommands? commands = null)

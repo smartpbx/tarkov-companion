@@ -26,6 +26,9 @@ public sealed record QuestLogProgressReading(
     public bool HeardAnything => Observed > 0;
 }
 
+/// <summary>One quest whose recorded state the game's log just changed.</summary>
+public sealed record QuestLogTaskRecorded(Guid ProfileId, string TaskId, RecordedTaskState State);
+
 /// <summary>
 /// Records what the game says about the player's quests.
 /// </summary>
@@ -69,6 +72,12 @@ public sealed class QuestLogProgressService(
     /// </remarks>
     public event EventHandler<QuestLogProgressReading>? Changed;
 
+    /// <summary>
+    /// [Issue 571] Which quest moved, to which state, for which profile: <see cref="Changed"/>
+    /// only says that something did. Raised with it, outside the gate.
+    /// </summary>
+    public event EventHandler<QuestLogTaskRecorded>? TaskRecorded;
+
     /// <summary>How many quests this session has recorded, for the page to report.</summary>
     public int Recorded { get; private set; }
 
@@ -80,6 +89,7 @@ public sealed class QuestLogProgressService(
         ArgumentNullException.ThrowIfNull(observation);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var changed = false;
+        QuestLogTaskRecorded? recorded = null;
         try
         {
             // Counted before anything can reject it. "The game told me about eleven quests and
@@ -122,6 +132,7 @@ public sealed class QuestLogProgressService(
                 LastRecordedUtc = Later(Reading.LastRecordedUtc, observation.ObservedUtc),
             };
             changed = true;
+            recorded = new(profile.Id, observation.TaskId, observation.State);
             logger.LogInformation(
                 "The game reported quest {Task} as {State}.",
                 observation.TaskId,
@@ -156,6 +167,10 @@ public sealed class QuestLogProgressService(
             // Outside the gate: a handler that refreshes a board must not be holding the lock
             // the next line off the log needs.
             Changed?.Invoke(this, Reading);
+            if (recorded is not null)
+            {
+                TaskRecorded?.Invoke(this, recorded);
+            }
         }
     }
 

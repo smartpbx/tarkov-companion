@@ -668,6 +668,14 @@ public sealed class QuestReadService(
         foreach (var task in context.Catalog.Tasks)
         {
             var taskProgress = context.Progress.Tasks.GetValueOrDefault(task.Id);
+            if (taskProgress?.State is RecordedTaskState.Completed or RecordedTaskState.Failed)
+            {
+                // [Issue 571] A quest the game reported handed in or failed leaves the map and
+                // its list whole, pinned or not: a pin kept its objectives drawn after the game
+                // itself had said there was nothing left to do there.
+                continue;
+            }
+
             var taskPinned = taskPins.GetValueOrDefault(task.Id);
             foreach (var objective in task.Objectives)
             {
