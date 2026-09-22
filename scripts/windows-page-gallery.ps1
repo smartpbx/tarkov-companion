@@ -414,6 +414,9 @@ function Invoke-ShellInteraction {
         $ControlTypeName = [string](Get-InteractionProperty -Object $Step -Name "targetControlType" -Default "")
         $ControlType = Get-AutomationControlType -Name $ControlTypeName
         $IncludeOffscreen = [bool](Get-InteractionProperty -Object $Step -Name "includeOffscreen" -Default $false)
+        # [#606] A step that waits on data (the raid map's extracts arrive with the tarkov.dev
+        # catalog, which a clean runner downloads first) may wait longer than the usual 15s.
+        $StepTimeout = [int](Get-InteractionProperty -Object $Step -Name "timeoutSeconds" -Default 15)
 
         if ($Action -eq "resize") {
             Set-WindowSize `
@@ -427,7 +430,8 @@ function Invoke-ShellInteraction {
                 -AutomationId $TargetId `
                 -Name $TargetName `
                 -ControlType $ControlType `
-                -IncludeOffscreen $IncludeOffscreen
+                -IncludeOffscreen $IncludeOffscreen `
+                -TimeoutSeconds $StepTimeout
             if ($null -eq $Target) { throw "Interaction target '$Description' was not in the packaged app's automation tree." }
             switch ($Action) {
                 "invoke" { Invoke-AutomationElement -Element $Target -Description $Description }
@@ -444,10 +448,13 @@ function Invoke-ShellInteraction {
         }
 
         foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedAutomationIds" -Default @())) {
-            if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -AutomationId $ExpectedId)) {
+            if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -AutomationId $ExpectedId -TimeoutSeconds $StepTimeout)) {
                 throw "'$Description' did not expose expected element '$ExpectedId'."
             }
         }
+        # [#606] Time for a pan, zoom or selection to be drawn before the next step or the capture.
+        $Settle = [int](Get-InteractionProperty -Object $Step -Name "settleMilliseconds" -Default 0)
+        if ($Settle -gt 0) { Start-Sleep -Milliseconds $Settle }
         foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOutsideViewportAutomationIds" -Default @())) {
             if ($null -eq (Wait-AutomationOutsideViewportElement `
                 -WindowHandle $WindowHandle `
@@ -1347,6 +1354,36 @@ foreach ($Route in $V2AcceptanceRoutes) {
 
         $Shots.Add([pscustomobject]$Shot)
     }
+}
+# [#606] The raid map's extract and transit markers, on a real map, photographed on Windows.
+# Headless renders (tools/V2RenderPreview) showed the redone markers as correct twice while the
+# owner's Windows screen showed a glyph spilling out of its disc and a dark disc behind an extract,
+# and the Raid capture above is taken before the catalog has loaded, so no extract was ever on a
+# Windows picture. Shoreline has PMC, Scav, co-op extracts and a transit. Pressing the first row of
+# Extract options selects that extract on the map (the selected state); the zoomed shot is the
+# scale a player looks at mid-raid. Uploaded with the other v2-a-* captures (v2-route-gallery).
+foreach ($Zoom in @(0, 3)) {
+    $ExtractSteps = [System.Collections.Generic.List[object]]::new()
+    $ExtractSteps.Add([pscustomobject]@{
+        action = "invoke"; description = "select the first extract from Extract options"
+        targetAutomationId = "v2-raid-extract-row"; targetControlType = "Button"
+        includeOffscreen = $true; timeoutSeconds = 120; settleMilliseconds = 1500
+    })
+    for ($Index = 0; $Index -lt $Zoom; $Index++) {
+        $ExtractSteps.Add([pscustomobject]@{
+            action = "invoke"; description = "zoom the raid map in ($($Index + 1))"
+            targetAutomationId = "v2-map-zoom-in"; targetControlType = "Button"; settleMilliseconds = 700
+        })
+    }
+    $ExtractShotName = "v2-a-raid-extracts-1920"
+    if ($Zoom -gt 0) { $ExtractShotName = "v2-a-raid-extracts-zoom-1920" }
+    $Shots.Add([pscustomobject]@{
+        name = $ExtractShotName
+        args = @("--ui-shell", "v2-a", "--map", "shoreline")
+        shellMode = "v2-a"; width = 1920; height = 1080
+        seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+        interaction = [pscustomobject]@{ steps = $ExtractSteps.ToArray() }
+    })
 }
 $Shots.Add([pscustomobject]@{
     name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
