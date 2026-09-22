@@ -244,6 +244,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (admin is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachAdmin(admin);
+            AttachLootScanSettings(admin.LootScan);
         }
 
         if (settingsAdmin is not null && SetupWorkspace is not null)

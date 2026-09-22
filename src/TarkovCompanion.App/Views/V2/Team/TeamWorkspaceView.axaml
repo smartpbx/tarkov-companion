@@ -124,6 +124,10 @@
     <Style Selector="Path.v2-icon.v2-team-warning">
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <Style Selector="TextBlock.v2-team-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
     <!-- Buttons: one filled primary action per view, cyan outline for secondary ones, and plain
          text for the rest, instead of a wall of bordered buttons. -->
     <Style Selector="Button.v2-team-primary">
@@ -538,6 +542,22 @@
                   </Grid>
                 </Border>
 
+                <!-- #290: the desk's half of the tablet's "Show on desktop". -->
+                <Border Classes="v2-team-row" IsVisible="{Binding !HasNoDevices}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-body" Text="Show the Raid map's current view on your tablets." TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-team-send-to-tablet-status"
+                                 IsVisible="{Binding Pairing.HasSendMapToTabletMessage}" Text="{Binding Pairing.SendMapToTabletMessage}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="v2-team-outline" Content="Send to tablet"
+                            AutomationProperties.AutomationId="v2-team-send-to-tablet"
+                            IsEnabled="{Binding Pairing.CanSendMapToTablet}"
+                            Command="{Binding Pairing.SendMapToTabletCommand}" />
+                  </Grid>
+                </Border>
+
                 <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
@@ -553,6 +573,10 @@
                               <TextBlock Classes="v2-label" Text="{Binding Role}" />
                               <TextBlock Classes="v2-label" Text="·" />
                               <TextBlock Classes="v2-label" Text="{Binding Status}" />
+                              <TextBlock Classes="v2-label" Text="·" IsVisible="{Binding IsPairingOutOfDate}" />
+                              <TextBlock Classes="v2-label v2-team-warning-text" IsVisible="{Binding IsPairingOutOfDate}"
+                                         Text="{Binding PairingOutOfDateLabel}"
+                                         AutomationProperties.AutomationId="v2-team-device-out-of-date" />
                             </StackPanel>
                             <TextBlock Classes="v2-label" TextWrapping="Wrap"
                                        AutomationProperties.LiveSetting="Assertive"

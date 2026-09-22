@@ -50,7 +50,13 @@ public sealed class GroupRooms(TimeProvider timeProvider)
     private sealed record Entry(GroupMemberState State, DateTimeOffset PublishedUtc);
 
     /// <summary>Records what one member says about themselves, replacing what they said before.</summary>
-    public void Publish(string room, string memberKey, GroupMemberState state)
+    /// <returns>
+    /// Whether the room now reads differently to the others in it. [#453] A member republishing
+    /// what it already said is not a change: counting it as one woke every held exchange in the
+    /// room, each woken member published again, and with four members sharing every desktop
+    /// exchanged at its 300 ms rate bound all raid (Clayton's 2.0.1353 froze on the Raid page).
+    /// </returns>
+    public bool Publish(string room, string memberKey, GroupMemberState state)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(room);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberKey);
@@ -61,7 +67,7 @@ public sealed class GroupRooms(TimeProvider timeProvider)
             // add an entry per attempt. An existing room is never refused.
             if (_rooms.Count >= MaximumRooms)
             {
-                return;
+                return false;
             }
 
             members = _rooms.GetOrAdd(room, _ => new(StringComparer.Ordinal));
@@ -71,7 +77,7 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         // a full room keeps working for the people already in it.
         if (members.Count >= MaximumMembersPerRoom && !members.ContainsKey(memberKey))
         {
-            return;
+            return false;
         }
 
         // Observations are pruned on the way in as well as on the way out. A five-man filled
@@ -80,8 +86,20 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         // receives it; it does not make sending it allowed. SAFETY.md says other players' log
         // data is never transmitted and records no exception for the room, so the field itself
         // is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
-        members[memberKey] = new(PruneObserved(state, members.Keys, memberKey), timeProvider.GetUtcNow());
+        var pruned = PruneObserved(state, members.Keys, memberKey);
+        var changed = !members.TryGetValue(memberKey, out var previous) || !SaysTheSame(previous.State, pruned);
+        members[memberKey] = new(pruned, timeProvider.GetUtcNow());
+        return changed;
     }
+
+    /// <summary>
+    /// Whether two states from one member say the same thing, leaving out how old the position is:
+    /// that grows on every publish while the member stands still, and readers are told it anyway.
+    /// </summary>
+    /// <remarks>Compared as JSON because the record's lists compare by reference.</remarks>
+    internal static bool SaysTheSame(GroupMemberState before, GroupMemberState after) =>
+        System.Text.Json.JsonSerializer.Serialize(before with { PositionAgeSeconds = null }) ==
+        System.Text.Json.JsonSerializer.Serialize(after with { PositionAgeSeconds = null });
 
     /// <summary>
     /// Keeps only the observations that describe somebody in this room.

@@ -106,6 +106,8 @@ immediate reply you always got. Nothing else about the request or the reply chan
 
 The reply carries `revision`, which counts changes made by everybody but you — your own publish
 cannot be what ends your own hold, or every wait would finish on the request that started it.
+A publish that says nothing new (the same state, only an older position) is not a change and
+wakes nobody; counting it kept every member of a four-person room exchanging three times a second (#453).
 Send the last one you saw back as `since`. A reply with no `revision` is a relay that does not
 hold; keep to your own tick against it.
 
@@ -448,8 +450,12 @@ session `/admin/relay/claim` returned:
 and from then on both sides exchange `OpaqueRelayFrame`s the same way:
 
     POST /v2/companion/relay/frames        (publish one frame)
-    GET  /v2/companion/relay/frames?after=<deliveryId>
+    GET  /v2/companion/relay/frames?after=<deliveryId>[&wait=<seconds>]
     POST /v2/companion/relay/frames/{deliveryId}/ack
+
+A frame read that names `wait` (#604) is held until a frame is queued (at most 20 s, 256 held
+reads), acknowledges everything through its own `after`, and is answered with
+`X-Relay-Frames-Held: 1`; a reader that names no `wait` is answered and acknowledges as before.
 
 Bearer headers rather than a cookie, because the caller is always a native `HttpClient` the
 desktop or tablet code sets explicitly, never a browser attaching an ambient credential — so CSRF,

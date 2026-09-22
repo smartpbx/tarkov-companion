@@ -109,7 +109,11 @@ public sealed record TabletMapSurface(
     TabletMapView View,
     TabletSearch? Search,
     string? Message,
-    DateTimeOffset PublishedUtc);
+    DateTimeOffset PublishedUtc,
+    // "Send to tablet": when the desktop last asked its tablets to take this view. A tablet in
+    // Independent jumps its own view to View when this changes; it is a stamp, not a counter, so
+    // a desktop restart cannot repeat one a tablet has already seen.
+    DateTimeOffset? SentToTabletUtc = null);
 
 /// <summary>
 /// Builds the tablet's surface from the desktop's assembled scene, so the two are the same scene
@@ -130,7 +134,8 @@ public static class TabletMapSurfaceBuilder
         WorkspaceProjection? workspace,
         TabletSearch? search,
         string? message,
-        DateTimeOffset publishedUtc)
+        DateTimeOffset publishedUtc,
+        DateTimeOffset? sentToTabletUtc = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
@@ -208,7 +213,8 @@ public static class TabletMapSurfaceBuilder
             view,
             search,
             reviewed ? message : message ?? "This map has no reviewed 2D plan yet.",
-            publishedUtc);
+            publishedUtc,
+            sentToTabletUtc);
     }
 
     /// <summary>The kinds a map can hold thousands of, which are the ones to trim first.</summary>

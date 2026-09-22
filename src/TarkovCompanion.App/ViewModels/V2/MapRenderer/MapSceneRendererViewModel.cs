@@ -234,7 +234,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public MapSceneRendererFloorViewModel? SelectedFloor => Floors.FirstOrDefault(floor => floor.IsSelected);
     public IReadOnlyList<MapSceneRendererLayerViewModel> Layers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
-    public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers { get; private set; } = [];
+    /// <summary>[#453] One list for the life of the renderer, changed entry by entry: see <see cref="ReconciledList{T}"/>.</summary>
+    public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers => _pointMarkers;
+
+    private readonly ReconciledList<MapSceneRendererObjectViewModel> _pointMarkers = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> ClusterMarkers { get; private set; } = [];
 
     /// <summary>
@@ -263,7 +266,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// button would make "Dorms" clickable furniture, and on Streets the hundred of them would
     /// exhaust <see cref="MaximumPointMarkers"/> and cluster the extracts away behind them.
     /// </remarks>
-    public IReadOnlyList<MapSceneRendererLabelViewModel> LabelObjects { get; private set; } = [];
+    public IReadOnlyList<MapSceneRendererLabelViewModel> LabelObjects => _labelObjects;
+
+    private readonly ReconciledList<MapSceneRendererLabelViewModel> _labelObjects = [];
 
     public bool HasLabelObjects => LabelObjects.Count > 0;
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
@@ -1361,6 +1366,25 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             Camera: Clamp(new(point.X, point.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
     }
 
+    /// <summary>
+    /// [#604] Puts the camera exactly here, zooming out as well as in. What a paired tablet in
+    /// Control drives: <see cref="FocusOn"/> only ever zooms in, so a tablet's zoom-out never
+    /// reached the desk.
+    /// </summary>
+    public void ShowCamera(MapScenePoint point, double zoom)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || !double.IsFinite(zoom) || zoom <= 0)
+        {
+            return;
+        }
+
+        var camera = _scene.View.Camera;
+        _isFitted = false;
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: Clamp(new(point.X, point.Y, Math.Clamp(zoom, MinimumZoom, MaximumZoom), camera.BearingDegrees, camera.PitchDegrees))));
+    }
+
     /// <summary>[V2 rough package 22] Turns the whole plan, V1's "270°" control.</summary>
     public void SetBearing(double degrees)
     {
@@ -1801,7 +1825,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .Select(item => new MapSceneRendererGeometryViewModel(item, _projection, _styleResolver?.Invoke(item)))
                 .ToArray()
             : [];
-        LabelObjects = _projection.IsUsable
+        MapSceneRendererLabelViewModel[] labels = _projection.IsUsable
             ? visibleObjects
                 .Where(item => item.Kind == MapSceneObjectKind.Label &&
                     item.Geometry.Kind == MapSceneGeometryKind.Point &&
@@ -1810,8 +1834,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .Select(item => new MapSceneRendererLabelViewModel(item, _projection, _scene.View.Camera, _styleResolver?.Invoke(item)))
                 .ToArray()
             : [];
-        SpatialObjects = BuildPointMarkers(visibleObjects);
-        PointMarkers = SpatialObjects.Where(item => !item.IsCluster && !item.IsRankedLoot).ToArray();
+        // [#453] What is drawn the same keeps its instance, so the view keeps its control.
+        _labelObjects.Reconcile(ReconciledList<MapSceneRendererLabelViewModel>.Reuse(
+            _labelObjects,
+            labels,
+            static label => label.SceneObject.Id.Value,
+            static (old, fresh) => old.DrawsSameAs(fresh)));
+        SpatialObjects = ReconciledList<MapSceneRendererObjectViewModel>.Reuse(
+            SpatialObjects,
+            BuildPointMarkers(visibleObjects),
+            static marker => marker.Key,
+            static (old, fresh) => old.DrawsSameAs(fresh));
+        _pointMarkers.Reconcile([.. SpatialObjects.Where(item => !item.IsCluster && !item.IsRankedLoot)]);
         LootMarkers = SpatialObjects.Where(item => item.IsRankedLoot).ToArray();
         LootBadges = BuildLootBadges(LootMarkers);
         StackMarkers = BuildStackMarkers(PointMarkers);
@@ -2000,6 +2034,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private IReadOnlyList<MapSceneRendererObjectViewModel> BuildStackMarkers(IReadOnlyList<MapSceneRendererObjectViewModel> markers)
     {
+        // A reused marker (#453) may have been in a stack the last time; every one starts out of one.
+        foreach (var marker in markers)
+        {
+            marker.JoinStack(0);
+        }
+
         var eligible = markers
             .Where(marker => marker.SceneObject is not null &&
                 marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective)
@@ -3060,6 +3100,28 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// therefore has to be turned by the bearing here, or the cone points where the player was
     /// looking before the map was rotated.
     /// </remarks>
+    /// <summary>
+    /// [#453] Whether <paramref name="other"/> would draw exactly what this does, so this instance
+    /// (and the control the view made for it) can stand in for it. Every constructor input counts.
+    /// </summary>
+    internal bool DrawsSameAs(MapSceneRendererObjectViewModel other) =>
+        !IsCluster && !other.IsCluster &&
+        SceneObject is { } mine && mine.HasSameDisplayAs(other.SceneObject) &&
+        Key == other.Key && Label == other.Label && AutomationName == other.AutomationName &&
+        Detail == other.Detail && KindLabel == other.KindLabel && TruthLabel == other.TruthLabel &&
+        FactionLabel == other.FactionLabel && OfferedLabel == other.OfferedLabel &&
+        HasOfferStatus == other.HasOfferStatus && EvidenceLabel == other.EvidenceLabel &&
+        EstimateLabel == other.EstimateLabel && IsSelected == other.IsSelected &&
+        AnchorLeft.Equals(other.AnchorLeft) && AnchorTop.Equals(other.AnchorTop) &&
+        _markerInverseZoom.Equals(other._markerInverseZoom) && _markerUprightDegrees.Equals(other._markerUprightDegrees) &&
+        MarkerGlyph == other.MarkerGlyph && Icon == other.Icon && TruthGlyph == other.TruthGlyph &&
+        FactionGlyph == other.FactionGlyph && OfferGlyph == other.OfferGlyph &&
+        Nullable.Equals(HeadingDegrees, other.HeadingDegrees) && _coneDegrees.Equals(other._coneDegrees) &&
+        Nullable.Equals(Style, other.Style) && PinOffsetX.Equals(other.PinOffsetX) && PinOffsetY.Equals(other.PinOffsetY) &&
+        IsNearRightEdge == other.IsNearRightEdge && IsNearBottomEdge == other.IsNearBottomEdge &&
+        IsRankedLoot == other.IsRankedLoot && LootRevealZoom.Equals(other.LootRevealZoom) &&
+        IsLootExceptional == other.IsLootExceptional && IsLootHigh == other.IsLootHigh;
+
     internal static double ConeFor(double? headingDegrees, double cameraBearingDegrees) =>
         headingDegrees is { } heading && double.IsFinite(heading)
             ? ((heading - cameraBearingDegrees) % 360 + 360) % 360
@@ -3702,6 +3764,12 @@ public sealed class MapSceneRendererLabelViewModel : BindableViewModel
     public double InverseZoom => _inverseZoom;
 
     public double UprightDegrees => _uprightDegrees;
+
+    /// <summary>[#453] Whether <paramref name="other"/> would draw exactly what this does.</summary>
+    internal bool DrawsSameAs(MapSceneRendererLabelViewModel other) =>
+        SceneObject.HasSameDisplayAs(other.SceneObject) && Nullable.Equals(Style, other.Style) &&
+        AnchorLeft.Equals(other.AnchorLeft) && AnchorTop.Equals(other.AnchorTop) &&
+        _inverseZoom.Equals(other._inverseZoom) && _uprightDegrees.Equals(other._uprightDegrees);
 
     public void UpdateCamera(MapSceneCamera camera)
     {

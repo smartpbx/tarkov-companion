@@ -247,6 +247,29 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         }
     }
 
+    /// <summary>[#453] Whether two lists of rows would show the same thing, row for row.</summary>
+    /// <remarks>The commands are not compared: each one acts on the row's own id, name and place.</remarks>
+    internal static bool ReadSame(IReadOnlyList<RaidExtractRowViewModel> shown, IReadOnlyList<RaidExtractRowViewModel> next)
+    {
+        if (shown.Count != next.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < shown.Count; index++)
+        {
+            var (a, b) = (shown[index], next[index]);
+            if (a.Id != b.Id || a.Position != b.Position || a.Name != b.Name || a.Detail != b.Detail ||
+                a._offerState != b._offerState || a.Estimate != b.Estimate || a.IsRouted != b.IsRouted ||
+                (a.RouteCommand is null) != (b.RouteCommand is null))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     internal RaidExtractRowViewModel WithRoute(string estimate, bool isRouted, ICommand command) =>
         new(Id, Position, Name, Detail, _offerState, SelectCommand) { Estimate = estimate, IsRouted = isRouted, RouteCommand = command };
 }
@@ -362,7 +385,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private string? _floorArtworkVariantKey;
     /// <summary>Why the floors could not be stacked, when the reason is actionable.</summary>
     private string _stackRefusal = string.Empty;
-    private readonly DeferredDispatch _rebuildRequest;
+    private readonly PacedDispatch _rebuildRequest;
     private bool _disposed;
 
     // What the last rebuild was built from. The runtime store publishes for every slice it holds
@@ -436,10 +459,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _timeProvider = timeProvider ?? TimeProvider.System;
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
-        _rebuildRequest = new(
-            synchronizationContext?.GetType().Namespace?.StartsWith("Avalonia", StringComparison.Ordinal) == true
-                ? synchronizationContext
-                : null,
+        // [#453] Paced and behind input: see PacedDispatch.
+        _rebuildRequest = PacedDispatch.ForInterfaceThread(
+            synchronizationContext,
             () =>
             {
                 if (!_disposed)
@@ -2080,6 +2102,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     private async Task RebuildCoreAsync(CancellationToken cancellationToken)
     {
+        // [#453] Each stage names itself, so a hang record says which one held the interface.
+        UiActivity.Step("raid:rebuild");
         RefreshMarkRows();
         RefreshTraffic();
         // Read once, before anything is built from it: a publication that lands while this runs
@@ -2281,6 +2305,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var boundsChanged = previousBounds != planBounds;
 
         var floorIds = model.Floors.Select(floor => floor.Id).ToArray();
+        UiActivity.Step("raid:legacy");
         var lootLayer = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
             transformVersion,
@@ -2289,10 +2314,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             _lootFilter.Filter,
             floorIds));
 
+        UiActivity.Step("raid:loot");
         var (marksLayer, markObjects) = BuildMarksLayer(_marks.Marks, model.Location.Id, nowUtc);
         // [V2 rough package 22] You, your trail, the squad and where you have been before.
         var live = BuildLiveLayers(model, nowUtc);
         _objectStyles = live.Styles;
+        UiActivity.Step("raid:live");
         _questScene = UserQuestMarkerScene.Apply(
             BuildQuestScene(_map.QuestSceneProjection, model, nowUtc, _questLetters),
             _userMarkers?.Markers ?? [],
@@ -2312,8 +2339,11 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // merged in here rather than attached only through the constructor/Present overload.
         // [Issue 286] The modelled-traffic layer: its hotspots here, its picture handed to the
         // renderer once there is one (ApplyTrafficToRenderer).
+        UiActivity.Step("raid:quests");
         var traffic = BuildTrafficLayers(model, planBounds, transformVersion, lootLayer, floorIds, nowUtc);
+        UiActivity.Step("raid:traffic");
         var routes = BuildRouteLayers(model, transformVersion, raidSnapshot);
+        UiActivity.Step("raid:routes");
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers).ToArray();
@@ -2374,7 +2404,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             additionalLayers,
             additionalObjects,
             floorAssets.Count == 0 ? [asset] : [asset, .. floorAssets]);
+        UiActivity.Step("raid:floors");
         var result = _assembler.Build(request);
+        UiActivity.Step("raid:assembled");
         cancellationToken.ThrowIfCancellationRequested();
         if (result.Scene is not { } scene)
         {
@@ -2425,6 +2457,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             Renderer.Present(scene, lootLayer, _lootFilter, availableCategories: null);
         }
 
+        UiActivity.Step("raid:presented");
         OnPropertyChanged(nameof(HasRenderer));
         ApplyTrafficToRenderer();
         // [V2 rough package 46] A renderer that was just built, or just re-presented, has to be
@@ -2446,6 +2479,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         RefreshSceneLists(scene);
         RefreshObjectives();
         SceneRebuilt?.Invoke(this, EventArgs.Empty);
+        UiActivity.Step("raid:done");
     }
 
     /// <summary>
@@ -2766,21 +2800,43 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
             [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
-        MapExtracts = WithRouteEstimates(extractRows);
+        // [#453] Kept when every row reads the same: a new list makes the panel build every row's
+        // controls again, and a squadmate moving rebuilt the scene three times a second.
+        var rows = WithRouteEstimates(extractRows);
+        var extractsChanged = !RaidExtractRowViewModel.ReadSame(MapExtracts, rows);
+        if (extractsChanged)
+        {
+            MapExtracts = rows;
+        }
+
         // [Issue 594] Every rebuild replaces the rows with fresh instances (WithRouteEstimates
         // included), which would otherwise silently drop the highlight on whichever one the
         // player had selected before the last screenshot came in.
         SyncExtractSelection();
-        SpawnAreas = scene.Objects
+        var spawnAreas = scene.Objects
             .Where(item => item.Kind == MapSceneObjectKind.SpawnArea)
             .Select(item => item.Label)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(label => label, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
-        OnPropertyChanged(nameof(MapExtracts));
-        OnPropertyChanged(nameof(HasMapExtracts));
-        OnPropertyChanged(nameof(SpawnAreas));
-        OnPropertyChanged(nameof(HasSpawnAreas));
+        var spawnAreasChanged = !SpawnAreas.SequenceEqual(spawnAreas, StringComparer.Ordinal);
+        if (spawnAreasChanged)
+        {
+            SpawnAreas = spawnAreas;
+        }
+
+        if (extractsChanged)
+        {
+            OnPropertyChanged(nameof(MapExtracts));
+            OnPropertyChanged(nameof(HasMapExtracts));
+        }
+
+        if (spawnAreasChanged)
+        {
+            OnPropertyChanged(nameof(SpawnAreas));
+            OnPropertyChanged(nameof(HasSpawnAreas));
+        }
+
         OnPropertyChanged(nameof(MapTitle));
         OnPropertyChanged(nameof(MapSummary));
         // [V2 rough package 39] The stack's own readout belongs to the renderer, which has just

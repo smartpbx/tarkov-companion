@@ -79,6 +79,30 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
       <Setter Property="Padding" Value="8,1" />
+      <!-- A chip beside the taller Wiki link was stretched to the row and read as a tall box
+           with its word stuck to the top. -->
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <!-- Fluent's Expander header is a black 48-high slab; here it sits under the trader picker
+         and is drawn as the same kind of field. -->
+    <Style Selector="Border.v2-plan-disclosure">
+      <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineStrongBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="3" />
+    </Style>
+    <Style Selector="Border.v2-plan-disclosure Expander">
+      <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <!-- The level and loyalty numbers: text centred in the field, one row height for all of them. -->
+    <Style Selector="Border.v2-plan-disclosure NumericUpDown">
+      <Setter Property="Height" Value="32" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-plan-disclosure Expander /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Padding" Value="12,0" />
     </Style>
     <!-- The primary action, the one filled cyan control on the page, like the concept's "Open in Raid". -->
     <Style Selector="Button.v2-plan-primary">
@@ -206,11 +230,22 @@
             </ComboBox>
             <!-- The level is typed here because the game never writes its own player's down, and
                  every level-gated quest is measured against it. Loyalty is set once a wipe. -->
+            <Border Classes="v2-plan-disclosure">
             <Expander Classes="v2-why" Header="Level and trader loyalty">
+              <Expander.Resources>
+                <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderHeaderBackgroundPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderHeaderBackgroundPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderHeaderBorderBrushPressed" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderContentBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="ExpanderContentBorderBrush" Color="Transparent" />
+              </Expander.Resources>
               <StackPanel Spacing="8" Margin="0,4,0,0">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                   <TextBlock Classes="v2-body" Text="Your level" VerticalAlignment="Center" />
-                  <NumericUpDown Grid.Column="1" Width="112" FormatString="0" Increment="1" Minimum="1" Maximum="79"
+                  <NumericUpDown Grid.Column="1" Width="104" FormatString="0" Increment="1" Minimum="1" Maximum="79"
                                  Value="{Binding PlayerLevel, Mode=OneWay}" ValueChanged="LevelChanged"
                                  AutomationProperties.AutomationId="v2-plan-level"
                                  AutomationProperties.Name="Your level" />
@@ -230,6 +265,7 @@
                 </ItemsControl>
               </StackPanel>
             </Expander>
+            </Border>
 
             <Rectangle Height="1" Fill="{DynamicResource V2.Brush.SurfaceRaised}" Margin="0,4" />
             <TextBlock Classes="v2-heading-3" Text="By map" AutomationProperties.HeadingLevel="2"

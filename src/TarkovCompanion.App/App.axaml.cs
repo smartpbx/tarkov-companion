@@ -13,6 +13,7 @@ using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views;
 using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Personalization;
@@ -67,7 +68,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     services.GetRequiredService<V2ShellCaptureBridge>();
                     // [V2 rough package 24] Same reason: resolved so the paired tablets' map
                     // starts following this shell's own raid map for the life of the process.
-                    services.GetRequiredService<TabletMapSurfacePublisher>();
+                    var tabletPublisher = services.GetRequiredService<TabletMapSurfacePublisher>();
+                    // #290: Team > Tablet's "Send to tablet" publishes through the same publisher.
+                    services.GetRequiredService<CompanionPairingViewModel>().SendMapToTablet =
+                        tabletPublisher.SendToTabletAsync;
                     // One-time, best-effort: gives #269's profile context something real to
                     // report without a v1/v2 profile migration UI. See the bootstrap's own remarks.
                     _ = services.GetRequiredService<LegacyProfileContextBootstrap>()

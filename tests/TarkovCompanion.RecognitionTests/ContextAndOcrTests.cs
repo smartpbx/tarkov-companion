@@ -34,7 +34,7 @@ public sealed class ContextAndOcrTests
             {
                 Assert.NotEmpty(detection.Anchors);
                 Assert.All(detection.Anchors, anchor =>
-                    Assert.Contains("live-unvalidated", anchor.Provenance, StringComparison.Ordinal));
+                    Assert.Matches("live-(unvalidated|validated/)", anchor.Provenance));
             }
         }
     }

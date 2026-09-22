@@ -14,6 +14,19 @@ public sealed record CaptureStageSummary(
     double TotalMilliseconds);
 
 /// <summary>
+/// One step of a scan in flight, as the Loot page's progress line reads it (#572).
+/// </summary>
+/// <param name="LastStage">The stage that just finished, or null when the scan only began.</param>
+/// <param name="Summary">The whole timeline once <see cref="ICaptureStageTimeline.Complete"/> ran; null before.</param>
+public sealed record CaptureStageStep(
+    CaptureCorrelationId CorrelationId,
+    string? LastStage,
+    CaptureStageSummary? Summary)
+{
+    public bool IsComplete => Summary is not null;
+}
+
+/// <summary>
 /// Times one scan end to end (#572), correlated by its <see cref="CaptureCorrelationId"/> rather
 /// than threaded as a parameter through every stage's own record type.
 /// </summary>
@@ -53,6 +66,12 @@ public interface ICaptureStageTimeline
 
     /// <summary>The most recently completed scan's timeline - Setup &gt; Diagnostics' last-scan detail.</summary>
     CaptureStageSummary? LastCompleted { get; }
+
+    /// <summary>
+    /// Raised after every begin, mark and complete, outside the lock, on whichever thread
+    /// recorded it: the Loot page's per-stage progress line. A handler marshals itself.
+    /// </summary>
+    event Action<CaptureStageStep>? Progressed;
 }
 
 public sealed class CaptureStageTimeline(ILogger<CaptureStageTimeline>? logger = null) : ICaptureStageTimeline
@@ -62,6 +81,8 @@ public sealed class CaptureStageTimeline(ILogger<CaptureStageTimeline>? logger =
     private readonly Lock _gate = new();
     private readonly Dictionary<CaptureCorrelationId, Entry> _inFlight = [];
     private CaptureStageSummary? _lastCompleted;
+
+    public event Action<CaptureStageStep>? Progressed;
 
     public CaptureStageSummary? LastCompleted
     {
@@ -76,22 +97,32 @@ public sealed class CaptureStageTimeline(ILogger<CaptureStageTimeline>? logger =
 
     public void Begin(CaptureCorrelationId correlationId, DateTimeOffset fileSeenUtc)
     {
+        bool begun;
         lock (_gate)
         {
             SweepAbandonedUnsafe(fileSeenUtc);
-            _inFlight.TryAdd(correlationId, new Entry(fileSeenUtc));
+            begun = _inFlight.TryAdd(correlationId, new Entry(fileSeenUtc));
+        }
+
+        if (begun)
+        {
+            Progressed?.Invoke(new(correlationId, null, null));
         }
     }
 
     public void Mark(CaptureCorrelationId correlationId, string stage, TimeSpan elapsed)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(stage);
+        bool marked;
         lock (_gate)
         {
-            if (_inFlight.TryGetValue(correlationId, out var entry))
-            {
-                entry.Stages.Add(new(stage, Math.Round(elapsed.TotalMilliseconds, 1)));
-            }
+            marked = _inFlight.TryGetValue(correlationId, out var entry);
+            entry?.Stages.Add(new(stage, Math.Round(elapsed.TotalMilliseconds, 1)));
+        }
+
+        if (marked)
+        {
+            Progressed?.Invoke(new(correlationId, stage, null));
         }
     }
 
@@ -117,6 +148,7 @@ public sealed class CaptureStageTimeline(ILogger<CaptureStageTimeline>? logger =
                 ? "no stages recorded"
                 : string.Join(", ", summary.Stages.Select(stage => $"{stage.Stage}={stage.ElapsedMilliseconds}ms")),
             summary.TotalMilliseconds);
+        Progressed?.Invoke(new(correlationId, summary.Stages.Count == 0 ? null : summary.Stages[^1].Stage, summary));
         return summary;
     }
 

@@ -39,10 +39,14 @@ public sealed class PairedDeviceRowViewModel : BindableViewModel
 {
     private bool _confirming;
 
-    public PairedDeviceRowViewModel(PairedDevice device, Func<PairedDeviceRowViewModel, Task> revoke)
+    public PairedDeviceRowViewModel(
+        PairedDevice device,
+        Func<PairedDeviceRowViewModel, Task> revoke,
+        bool pairingOutOfDate = false)
     {
         ArgumentNullException.ThrowIfNull(revoke);
         Device = device;
+        IsPairingOutOfDate = pairingOutOfDate && device.Status == DeviceLifecycleStatus.Active;
         RevokeCommand = new AsyncDelegateCommand(async () =>
         {
             // [V2 rough package 60 — Team] #289: two presses, because revoking cannot be
@@ -73,6 +77,14 @@ public sealed class PairedDeviceRowViewModel : BindableViewModel
     public DateTimeOffset ExpiresUtc => Device.ExpiresUtc;
 
     public bool CanRevoke => Device.Status == DeviceLifecycleStatus.Active;
+
+    /// <summary>
+    /// [#601] This tablet asked for Control and its own grant did not allow it. Waiting does not
+    /// fix that; revoking it and pairing again does.
+    /// </summary>
+    public bool IsPairingOutOfDate { get; }
+
+    public string PairingOutOfDateLabel => "Out of date · pair again";
 
     /// <summary>Whether the next press revokes, rather than asks.</summary>
     public bool Confirming
@@ -148,7 +160,7 @@ public enum RelayOwnerClaimState
     NotConfiguredForClaiming,
 }
 
-public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
+public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisposable
 {
     private readonly DesktopCompanionAuthority _authority;
     private readonly DesktopPairingCoordinator? _coordinator;
@@ -224,6 +236,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
             }
         }
 
+        _authority.PairingOutOfDateChanged += OnPairingOutOfDateChanged;
         RefreshDevices();
         StartPairingCommand = new AsyncDelegateCommand(StartPairingAsync);
         ApproveCommand = new AsyncDelegateCommand(ApproveAsync);
@@ -809,7 +822,9 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
         return result.Outcome == RelayClaimOutcome.Claimed;
     }
 
-    private void OnDeviceResumed(PairedDevice device)
+    private void OnDeviceResumed(PairedDevice device) => RefreshDevicesOnUiThread();
+
+    private void RefreshDevicesOnUiThread()
     {
         if (Dispatcher.UIThread.CheckAccess())
         {
@@ -819,6 +834,8 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
         Dispatcher.UIThread.Post(RefreshDevices);
     }
+
+    private void OnPairingOutOfDateChanged(CompanionDeviceId deviceId) => RefreshDevicesOnUiThread();
 
     /// <summary>Completes when no returning tablet is being answered; a test waits on it.</summary>
     internal Task ResumesSettled => _resume?.WhenIdleAsync() ?? Task.CompletedTask;
@@ -869,6 +886,7 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
 
     public void Dispose()
     {
+        _authority.PairingOutOfDateChanged -= OnPairingOutOfDateChanged;
         if (_relayMarksBridge is not null)
         {
             _relayMarksBridge.CanonicalStateChanged -= OnCanonicalStateChanged;
@@ -891,7 +909,10 @@ public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
     private void RefreshDevices()
     {
         Devices = _authority.Snapshot.Devices
-            .Select(device => new PairedDeviceRowViewModel(device, RevokeAsync))
+            .Select(device => new PairedDeviceRowViewModel(
+                device,
+                RevokeAsync,
+                _authority.IsPairingOutOfDate(device.DeviceId)))
             .ToArray();
         OnPropertyChanged(nameof(Devices));
         OnPropertyChanged(nameof(HasNoDevices));

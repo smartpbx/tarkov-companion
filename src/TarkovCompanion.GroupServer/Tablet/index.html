@@ -99,6 +99,55 @@
   .switcher { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .switcher select { flex: 1 1 160px; min-width: 0; min-height: 44px; }
   .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
+
+  /* Paired: the map takes the screen. Measured before this: on a 1280x800 tablet the controls
+     stacked above the map took ~43% of the height and the map ran off the bottom; on a 390 px
+     phone the header wrapped onto two lines. */
+  header { flex-wrap: nowrap; }
+  header .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { white-space: nowrap; flex: none; }
+  body.live header { padding: 8px 16px; }
+  body.live main { max-width: none; margin: 0; width: 100%; padding: 8px; }
+  body.live #surface { padding: 8px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  #surfaceBar .modes { margin-bottom: 4px; }
+  #surfaceBar #modeNote { margin: 0; }
+  #mapColumn { display: flex; flex-direction: column; min-height: 0; }
+  #mapWrap { flex: 1 1 auto; min-height: 0; }
+  body.live #map { height: calc(100svh - 190px); min-height: 300px; }
+  #mapOverlay {
+    position: absolute; top: 10px; left: 10px; right: 64px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none;
+  }
+  #mapOverlay > * { pointer-events: auto; }
+  #mapOverlay .floors { margin: 0; }
+  #mapOverlay .floors button { background: rgba(11, 16, 22, .82); }
+  #mapOverlay .floors button[aria-pressed="true"] { background: var(--cyan); }
+  #mapOverlay .notice { margin: 0; max-width: 520px; background: rgba(14, 21, 29, .94); }
+  #surfacePanel h2 { margin-top: 6px; }
+  body.panel-hidden #surfacePanel { display: none; }
+  #panelToggle[aria-expanded="false"] { color: var(--cyan); }
+  /* A tablet on its side: the map fills the height, the controls are a column beside it that
+     scrolls on its own and folds away. */
+  @media (orientation: landscape) and (min-width: 700px) {
+    body.live { height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
+    body.live main { flex: 1 1 auto; min-height: 0; display: flex; }
+    body.live #surface {
+      flex: 1 1 auto; min-height: 0;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "map bar" "map panel";
+    }
+    body.live.panel-hidden #surface {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "bar" "map";
+    }
+    body.live.panel-hidden #surfaceBar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    body.live.panel-hidden #surfaceBar .modes { margin: 0; }
+    #surfaceBar { grid-area: bar; }
+    #mapColumn { grid-area: map; }
+    #surfacePanel { grid-area: panel; overflow-y: auto; min-height: 0; padding-right: 2px; }
+    body.live #map { height: 100%; min-height: 0; }
+  }
 </style>
 </head>
 <body>
@@ -139,56 +188,70 @@
   </section>
 
   <section id="surface" style="display:none">
-    <div class="modes" id="deviceModes">
-      <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
-      <button type="button" data-mode="Control" aria-pressed="false">Control</button>
-      <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
-    </div>
-    <p class="quiet" id="modeNote">Following the desktop's map.</p>
-    <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
-    <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
-         pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
-         either do nothing (Follow) or silently disagree with the desk (Independent). -->
-    <div class="switcher" id="mapSwitcher" hidden>
-      <label class="quiet" for="mapSwitch">Map</label>
-      <select id="mapSwitch"></select>
-    </div>
-    <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
-         drifted apart on purpose. This is the way back without giving up Independent: it hands
-         the desktop this view once rather than making it follow from now on. -->
-    <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
-    <div class="floors" id="floors"></div>
-    <div class="floors" id="layers"></div>
-    <div id="mapWrap">
-      <canvas id="map"></canvas>
-      <div id="mapTools">
-        <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
-        <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
-        <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+    <div id="surfaceBar">
+      <div class="modes" id="deviceModes">
+        <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
+        <button type="button" data-mode="Control" aria-pressed="false">Control</button>
+        <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
       </div>
-      <div id="mapMessage">Waiting for the desktop's map…</div>
+      <p class="quiet" id="modeNote">Following the desktop's map.</p>
     </div>
-    <p class="attribution" id="attribution"></p>
+    <!-- The map is the surface: it takes the height the screen has. Floors and the desktop's
+         answers sit on it rather than above it, where they used to push it off a landscape
+         tablet's screen (controls took ~43% of 800 px). -->
+    <div id="mapColumn">
+      <div id="mapWrap">
+        <canvas id="map"></canvas>
+        <div id="mapOverlay">
+          <div class="floors" id="floors"></div>
+          <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div id="mapTools">
+          <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+          <button type="button" id="panelToggle" title="Hide controls" aria-label="Hide controls" aria-expanded="true">☰</button>
+        </div>
+        <div id="mapMessage">Waiting for the desktop's map…</div>
+      </div>
+      <p class="attribution" id="attribution"></p>
+    </div>
 
-    <h2 style="margin-top:16px">Marks</h2>
-    <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
-         means, the way right-click and shift+right-click do on the desktop. -->
-    <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
-    <div class="form">
-      <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
-    </div>
-    <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+    <div id="surfacePanel">
+      <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
+           pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
+           either do nothing (Follow) or silently disagree with the desk (Independent). -->
+      <div class="switcher" id="mapSwitcher" hidden>
+        <label class="quiet" for="mapSwitch">Map</label>
+        <select id="mapSwitch"></select>
+      </div>
+      <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
+           drifted apart on purpose. This is the way back without giving up Independent: it hands
+           the desktop this view once rather than making it follow from now on. -->
+      <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
+      <h2>Layers</h2>
+      <div class="floors" id="layers"></div>
 
-    <h2 style="margin-top:16px">Look something up</h2>
-    <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
-    <!-- #407: search silently did nothing outside Control, with no way off this page to fix
-         that. One tap asks for the same lease the Control mode button above grants. -->
-    <button type="button" id="searchTakeControl">Take control</button>
-    <div class="form">
-      <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
-      <button type="button" id="findGo">Search on desktop</button>
+      <h2 style="margin-top:16px">Marks</h2>
+      <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
+           means, the way right-click and shift+right-click do on the desktop. -->
+      <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
+      <div class="form">
+        <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
+      </div>
+      <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+
+      <h2 style="margin-top:16px">Look something up</h2>
+      <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
+      <!-- #407: search silently did nothing outside Control, with no way off this page to fix
+           that. One tap asks for the same lease the Control mode button above grants. -->
+      <button type="button" id="searchTakeControl">Take control</button>
+      <div class="form">
+        <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
+        <button type="button" id="findGo">Search on desktop</button>
+      </div>
+      <div class="markList" id="found"></div>
     </div>
-    <div class="markList" id="found"></div>
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
@@ -799,6 +862,9 @@
   let camera = null;
   let localSelectionId = null;
   let localHiddenLayers = null;
+  // #290 "Send to tablet": the desktop's last send this page has seen. Undefined until the first
+  // surface, which only sets it, so reloading the page never replays an old send.
+  let seenSentToTablet;
 
   const COLOURS = {
     Extract: "#77b895",
@@ -1170,9 +1236,29 @@
     return mode === "Independent" ? localSelectionId : (live?.surface?.view?.selectionId ?? localSelectionId);
   }
 
+  // body.live lays the page out for the map (the CSS above); the pairing card never needs it.
+  function showSurface(on) {
+    $("surface").style.display = on ? "" : "none";
+    document.body.classList.toggle("live", on);
+  }
+
+  // The controls column folds away so the map can have the whole screen, and stays folded
+  // across reloads on this device.
+  const PANEL_KEY = "tarkov-companion-tablet-panel-hidden";
+  function setPanelHidden(hidden) {
+    document.body.classList.toggle("panel-hidden", hidden);
+    const toggle = $("panelToggle");
+    toggle.setAttribute("aria-expanded", String(!hidden));
+    const label = hidden ? "Show controls" : "Hide controls";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    try { localStorage.setItem(PANEL_KEY, hidden ? "1" : "0"); } catch { /* private window */ }
+    drawMap();
+  }
+
   function renderSurface() {
     const surface = live?.surface;
-    $("surface").style.display = live ? "" : "none";
+    showSurface(!!live);
     const message = $("mapMessage");
     if (!surface) {
       message.style.display = "";
@@ -1461,6 +1547,7 @@
       });
       live.connected = live.desktopOnline;
       live.surface = surface;
+      takeSentView(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -1486,6 +1573,24 @@
       renderLiveStatus();
       return false;
     }
+  }
+
+  // #290: the desktop pressed "Send to tablet". Independent keeps its own view on purpose, so
+  // this is the one mode it moves: to the desk's view, layers and selection, staying Independent.
+  // Follow and Control already show the desk's view; they only say it arrived.
+  function takeSentView(surface) {
+    const sent = surface.sentToTabletUtc ?? null;
+    const first = seenSentToTablet === undefined;
+    const fresh = sent !== null && sent !== seenSentToTablet;
+    seenSentToTablet = sent;
+    if (first || !fresh) return;
+    if (mode === "Independent") {
+      camera = { x: surface.view.centerX, y: surface.view.centerY, zoom: surface.view.zoom };
+      localHiddenLayers = null;
+      localSelectionId = surface.view.selectionId ?? null;
+    }
+
+    showNotice(`The desktop sent its view of ${surface.mapName}.`, "ok");
   }
 
   async function loadArtwork(sha) {
@@ -1783,7 +1888,7 @@
 
   function beginLive() {
     const session = live;
-    $("surface").style.display = "";
+    showSurface(true);
     // #407: "the map is the surface... everything else is a strip around it" was the stated
     // intent, but the pairing card kept its full section — heading, "Paired as…" text and an
     // Unpair button — permanently above the map, pushing it (and everything below it) off the
@@ -1820,7 +1925,7 @@
     confirmedMode = "Follow";
     pending.clear();
     await forgetSession();
-    $("surface").style.display = "none";
+    showSurface(false);
     $("pairing").hidden = false;
     $("unpairHeader").hidden = true;
     renderLiveStatus();
@@ -1848,7 +1953,7 @@
       if (event.data?.type !== "live" || event.data.tabId === tabId || !live) return;
       if (event.data.sessionId !== live.sessionId) return;
       live = null;
-      $("surface").style.display = "none";
+      showSurface(false);
       setStage("pairingIdle", "This tablet is open in another tab. Reload this one to use it here instead.");
       renderLiveStatus();
     };
@@ -1863,10 +1968,17 @@
     }
   }
 
+  // [#604] Held: the relay answers the moment the desktop sends something, and the next read goes
+  // straight out. Its `after` is also its acknowledgement, so there is no ack round trip either. A
+  // relay from before the hold says nothing about it and is read every second and a half as before.
   async function pollLiveFrames() {
     while (live && live.credential) {
+      const startedAt = performance.now();
+      let held = false;
+      let received = 0;
       try {
-        const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}`);
+        const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}&wait=20`);
+        held = response.headers.get("X-Relay-Frames-Held") === "1";
         if (response.status === 401) {
           await sessionEnded();
           return;
@@ -1874,6 +1986,7 @@
 
         if (response.ok) {
           const batch = await response.json();
+          received = batch.frames.length;
           for (const envelope of batch.frames) {
             await handleInboundFrame(envelope.frame);
             if (!live) return;
@@ -1904,7 +2017,7 @@
             }
           }
 
-          if (batch.frames.length > 0) {
+          if (batch.frames.length > 0 && !held) {
             await relayCall(`/v2/companion/relay/frames/${live.afterDeliveryId}/ack`, { method: "POST" });
           }
         }
@@ -1915,14 +2028,21 @@
 
       // [#290] Anything sent that the desktop has not answered by now: say so, once, rather than
       // leaving the person staring at buttons that never changed and never explained why.
-      for (const late of pending.expire(Date.now())) {
-        if (MODE_COMMAND_TYPES.has(late.type)) revertOptimisticMode();
-        showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      reportLateCommands();
+      const pause = !held ? 1500 : received > 0 || performance.now() - startedAt >= 250 ? 0 : 250;
+      if (pause > 0) await new Promise((resolve) => setTimeout(resolve, pause));
     }
   }
+
+  // Once a second as well as after every read: a held read can take twenty seconds to come back.
+  function reportLateCommands() {
+    for (const late of pending.expire(Date.now())) {
+      if (MODE_COMMAND_TYPES.has(late.type)) revertOptimisticMode();
+      showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
+    }
+  }
+
+  setInterval(() => { if (live) reportLateCommands(); }, 1000);
 
   async function handleInboundFrame(frame) {
     try {
@@ -1988,7 +2108,8 @@
       live.marks = update.state.marks;
       renderMarks();
     } else if (update.type === "workspace") {
-      live.workspaceRevision = update.state.cursor.revision.value;
+      // Never backwards: moves this tablet has streamed since are already counted (#604).
+      live.workspaceRevision = Math.max(live.workspaceRevision, update.state.cursor.revision.value);
       // Echo suppression: a workspace change this tablet itself caused comes straight back as
       // an ordinary broadcast update, and applying it would fight the pan the person is still
       // making. Its origin device is this one, so it is dropped rather than followed.
@@ -2144,11 +2265,15 @@
   // error, so the tablet ends up showing where the desktop actually is.
   function handleAcknowledgement(acknowledgement) {
     const commandId = acknowledgement?.commandId?.value ?? null;
-    const entry = pending.settle(commandId);
+    const streamed = streamedMoves.delete(commandId);
+    const entry = streamed ? { type: "controlWorkspace", label: "Moving the map" } : pending.settle(commandId);
     if (!entry) return; // Another tab's command, or one this page already gave up on.
     const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
     if (result.applied) return;
+    // [#604] A move that lost a revision race mid-drag has already been caught up by the state
+    // above, and the next move goes out on it. Saying so twenty times a second helps nobody.
+    if (streamed && QUIET_MOVE_REFUSALS.has(result.disposition)) return;
     if (MODE_COMMAND_TYPES.has(entry.type)) revertOptimisticMode();
     if (result.outOfDatePairing) {
       // [#601] Sticky, and a tap on it unpairs: the one thing that fixes it.
@@ -2310,6 +2435,84 @@
     renderSurface();
   }
 
+  // [#604] Control moves, streamed while the finger moves rather than once when it lifts. At most
+  // one is on its way at a time and at most one every MOVE_INTERVAL_MS; whatever the camera is when
+  // the way is clear is what goes, so a burst of moves costs one send and the last position is
+  // always the one that lands. Each is its own revision, taken here rather than when the desktop's
+  // echo comes back, so the next move never waits for a round trip. The answer is not waited for
+  // either: a refused move comes back with the desktop's state, which is what the next one builds on.
+  const MOVE_INTERVAL_MS = 60;
+  const QUIET_MOVE_REFUSALS = new Set(["RejectedStale", "RejectedConflict", "RequiresSnapshot"]);
+  const streamedMoves = new Set();
+  const moveStream = { wanted: false, inFlight: false, lastSentAt: 0, timer: null };
+
+  function streamNavigate() {
+    moveStream.wanted = true;
+    pumpMoveStream();
+  }
+
+  function pumpMoveStream() {
+    if (!moveStream.wanted || moveStream.inFlight || moveStream.timer) return;
+    const wait = MOVE_INTERVAL_MS - (performance.now() - moveStream.lastSentAt);
+    if (wait > 0) {
+      moveStream.timer = setTimeout(() => {
+        moveStream.timer = null;
+        pumpMoveStream();
+      }, wait);
+      return;
+    }
+
+    moveStream.wanted = false;
+    if (mode !== "Control" || !live?.surface || !live.authorityEpoch) return;
+    moveStream.inFlight = true;
+    moveStream.lastSentAt = performance.now();
+    const command = navigateCommand(live.surface.view.floorId);
+    live.workspaceRevision = command.requestedRevision.value;
+    streamedMoves.add(command.commandId.value);
+    if (streamedMoves.size > 64) streamedMoves.delete(streamedMoves.values().next().value);
+    sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
+      protocolVersion: live.protocolVersion,
+      sessionId: { value: live.sessionId },
+      authorityEpoch: { value: live.authorityEpoch },
+      clientSentUtc: new Date().toISOString(),
+      command,
+    }).catch(() => null).then((response) => {
+      moveStream.inFlight = false;
+      if (response && !response.ok && response.status !== 401 && response.status !== 403) {
+        streamedMoves.delete(command.commandId.value);
+        showNotice("Moving the map: could not reach the relay. Try again.", "error");
+      }
+
+      pumpMoveStream();
+    });
+  }
+
+  function navigateCommand(floorId) {
+    const view = viewCamera();
+    return {
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: {
+        type: "navigate",
+        workspace: "Raid",
+        mapId: live.surface.mapId,
+        floorId,
+        viewport: {
+          center: {
+            mapId: live.surface.mapId,
+            floorId,
+            coordinateSpace: "World",
+            projectionVersion: live.surface.transformVersion,
+            x: view.x,
+            y: null,
+            z: view.y,
+          },
+          zoom: Math.min(100, Math.max(0.01, view.zoom)),
+        },
+      },
+    };
+  }
+
   function sendNavigate(change) {
     if (!live?.surface) return;
     const view = viewCamera();
@@ -2318,6 +2521,11 @@
       // Independent: this tablet's own view moves and nothing is sent.
       if (change?.floorId !== undefined && live.surface) live.surface.view.floorId = change.floorId;
       renderSurface();
+      return;
+    }
+
+    if (change?.floorId === undefined) {
+      streamNavigate();
       return;
     }
 
@@ -2492,6 +2700,8 @@
     }
 
     drawMap();
+    // [#604] The desk follows the finger, not the lift of it.
+    if (mode === "Control") streamNavigate();
   });
 
   function endPointer(event) {
@@ -2742,6 +2952,12 @@
   });
 
   window.addEventListener("resize", () => drawMap());
+  // A layout change (the controls folding, a notice, the attribution wrapping) resizes the map
+  // without resizing the window.
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => drawMap()).observe($("mapWrap"));
+  $("panelToggle").addEventListener("click", () =>
+    setPanelHidden(!document.body.classList.contains("panel-hidden")));
+  try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
 
   // ---------------------------------------------------------------------------------------
   // UI wiring.
@@ -2808,6 +3024,8 @@
     mapId: live?.surface?.mapId ?? null,
     objectsCount: (live?.surface?.objects ?? []).length,
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
+    surfaceView: live?.surface?.view ?? null,
+    notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
   });
 
   setStage("pairingIdle");

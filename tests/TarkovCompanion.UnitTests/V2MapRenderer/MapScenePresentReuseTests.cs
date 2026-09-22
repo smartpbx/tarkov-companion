@@ -85,14 +85,19 @@ public sealed class MapScenePresentReuseTests
     }
 
     [Fact]
-    public void Presenting_a_scene_with_a_new_label_recreates_the_plan()
+    public void Presenting_a_scene_with_a_new_label_replaces_that_label_and_keeps_the_rest()
     {
+        // [#453] The list the view holds stays the same list; only the renamed entry is new.
         var renderer = Renderer(FullScene(1, T0));
         var labels = renderer.LabelObjects;
+        var before = labels.ToArray();
 
         renderer.Present(FullScene(2, T0, firstLabel: "Renamed"));
 
-        Assert.NotSame(labels, renderer.LabelObjects);
+        Assert.Same(labels, renderer.LabelObjects);
+        var renamed = Assert.Single(renderer.LabelObjects, label => label.Text == "Renamed");
+        Assert.DoesNotContain(renamed, before);
+        Assert.All(renderer.LabelObjects.Where(label => label != renamed), label => Assert.Contains(label, before));
     }
 
     [Fact]

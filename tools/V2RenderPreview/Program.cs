@@ -375,6 +375,27 @@ internal static class Program
                 UiStallMeter.Report($"navigate to {route}");
             }
 
+            // [#572] --loot-timing-demo: one finished loot scan (Setup > Diagnostics' timing) and one
+            // still running (the Loot page's progress line), through the app's own stage timeline.
+            if (args.Contains("--loot-timing-demo"))
+            {
+                var timeline = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureStageTimeline>();
+                var seen = DateTimeOffset.UtcNow.AddSeconds(-20);
+                var done = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
+                timeline.Begin(done, seen);
+                foreach (var (stage, ms) in new[] { ("settle_wait", 310d), ("context_ocr", 142d), ("grid_and_icon_matching", 118d), ("grid_reconstruct", 21d), ("profile_lookup", 9d), ("recommendation", 34d), ("decide", 6d) })
+                {
+                    timeline.Mark(done, stage, TimeSpan.FromMilliseconds(ms));
+                }
+
+                timeline.Complete(done, seen.AddMilliseconds(702));
+                var running = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
+                timeline.Begin(running, DateTimeOffset.UtcNow);
+                timeline.Mark(running, "settle_wait", TimeSpan.FromMilliseconds(300));
+                timeline.Mark(running, "context_ocr", TimeSpan.FromMilliseconds(140));
+                Pump(10);
+            }
+
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
             // section the same way its tab does ("progress", "privacy", "diagnostics", ...).
             if (shell?.SetupWorkspace is { } setup && StringOption(args, "--setup-section") is { } sectionName)
@@ -1316,6 +1337,8 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
+                        // #290: what the app wires at startup, so "Send to tablet" draws enabled.
+                        pairing.SendMapToTablet = _ => Task.FromResult(true);
                         break;
                     // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
                     // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
@@ -1328,6 +1351,13 @@ internal static class Program
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")],
                             controlRequestMessage: "Kitchen tablet is asking to control this desktop.");
+                        break;
+                    // [#601] A tablet whose Control was refused for a grant from an older build.
+                    case "out-of-date":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            devices: [DemoPairedDevice("Kitchen tablet", pairingOutOfDate: true)]);
                         break;
                     default:
                         throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
@@ -1674,6 +1704,22 @@ internal static class Program
                 FlyoutProbe.Save(window, flyoutId, outputPath, Pump);
             }
 
+            // [#453] --stall-tour / --memory-tour N: walk the app and report stalls or memory.
+            if (shell is not null && args.Contains("--stall-tour"))
+            {
+                StallTour.Run(window, viewModel, shell, services, args);
+            }
+
+            if (shell is not null && IntOption(args, "--raid-soak", 0) is var soakSeconds and > 0)
+            {
+                StallTour.RunRaidSoak(services, viewModel, shell, soakSeconds, IntOption(args, "--raid-soak-screenshot", 20), IntOption(args, "--raid-soak-group-ms", 2000));
+            }
+
+            if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
+            {
+                StallTour.RunMemory(viewModel, shell, memorySwitches);
+            }
+
             SaveFrame(window, outputPath, width, height);
             if (StringOption(args, "--crop") is { } crop)
             {
@@ -1847,7 +1893,7 @@ internal static class Program
     /// <see cref="TeamDemoGroup"/> does, so they land on the plan rather than off its edge on
     /// whichever map is being rendered.
     /// </remarks>
-    private static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
+    internal static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
         TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
     {
         var now = DateTimeOffset.UtcNow;
@@ -2151,7 +2197,9 @@ internal static class Program
     }
 
     /// <summary>One paired device, so the list has something in it to photograph.</summary>
-    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(string name)
+    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(
+        string name,
+        bool pairingOutOfDate = false)
     {
         var now = new DateTimeOffset(2026, 9, 18, 21, 0, 0, TimeSpan.Zero);
         using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
@@ -2181,7 +2229,7 @@ internal static class Program
             1,
             now.AddDays(30),
             now);
-        return new(device, _ => Task.CompletedTask);
+        return new(device, _ => Task.CompletedTask, pairingOutOfDate);
     }
 
     private static int IntOption(string[] args, string name, int fallback)

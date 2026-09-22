@@ -1,5 +1,6 @@
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -36,6 +37,26 @@ public sealed partial class V2ShellViewModel
         {
             current.StayToggled -= LootAutoReturnStayToggled;
         }
+    }
+
+    /// <summary>[#572] The Loot page's per-stage progress line; null in a shell built without Setup's admin pages.</summary>
+    public LootScanProgressViewModel? LootScanProgress { get; private set; }
+
+    /// <summary>
+    /// [#572] Setup's remembered countdown, applied now and whenever the player picks another,
+    /// and the progress line the Loot page shows while a scan runs.
+    /// </summary>
+    private void AttachLootScanSettings(SetupLootScanViewModel? settings)
+    {
+        if (settings is null)
+        {
+            return;
+        }
+
+        LootScanProgress = settings.Progress;
+        OnPropertyChanged(nameof(LootScanProgress));
+        SetLootAutoReturnTimeout(settings.Timeout);
+        settings.TimeoutChanged += SetLootAutoReturnTimeout;
     }
 
     /// <summary>Setup's countdown control: null, zero or negative turns the timed return off.</summary>
