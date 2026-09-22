@@ -168,7 +168,9 @@ public sealed class FleaWorkspaceViewModelTests
             388_888,
             Provenance);
         var repository = new FakeItemRepository(gpu) { Price = price };
-        var page = new FleaPageViewModel(new RepositorySearch(repository), repository, new EmptyHistory());
+        var page = new FleaPageViewModel(new RepositorySearch(repository), repository, new FixedHistory(
+            new(DateTimeOffset.UtcNow.AddDays(-2), 300_000, 100_000, "sync"),
+            new(DateTimeOffset.UtcNow.AddDays(-1), 360_000, 100_000, "sync")));
         string? opened = null;
         var workspace = new FleaWorkspaceViewModel(page, id => opened = id);
         page.Apply(V2ShellTestData.Snapshot().WithData(DataAvailability.Current, 10, DateTimeOffset.UnixEpoch));
@@ -186,9 +188,11 @@ public sealed class FleaWorkspaceViewModelTests
         Assert.True(workspace.HasSelection);
         Assert.Equal("Graphics card", workspace.SelectedName);
         Assert.Contains("24h", workspace.SelectedBand);
+        Assert.Equal("7 d low 300,000 ₽ · avg 330,000 ₽ · high 360,000 ₽", row.SevenDayBand);
+        Assert.Equal(row.SevenDayBand, workspace.SelectedSevenDayBand);
 
-        await WaitUntilAsync(() => workspace.HistoryStatus.StartsWith("No stored observations", StringComparison.Ordinal));
-        Assert.False(workspace.HasHistory);
+        await WaitUntilAsync(() => workspace.HistoryStatus.StartsWith("2 observations", StringComparison.Ordinal));
+        Assert.True(workspace.HasHistory);
 
         workspace.OpenInIntelCommand.Execute(null);
         Assert.Equal("gpu", opened);
@@ -220,5 +224,11 @@ public sealed class FleaWorkspaceViewModelTests
     {
         public Task<IReadOnlyList<PriceHistoryPoint>> GetAsync(string itemId, TimeSpan window, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<PriceHistoryPoint>>([]);
+    }
+
+    private sealed class FixedHistory(params PriceHistoryPoint[] points) : IPriceHistoryService
+    {
+        public Task<IReadOnlyList<PriceHistoryPoint>> GetAsync(string itemId, TimeSpan window, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<PriceHistoryPoint>>(points);
     }
 }

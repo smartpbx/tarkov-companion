@@ -76,6 +76,7 @@ public sealed class SqliteDataPersistenceTests
         var refresh = new SqliteDataRefreshRepository(database.Factory);
         var items = await client.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken);
         await refresh.RefreshItemsAsync(items.Data, new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero), TestContext.Current.CancellationToken);
+        await refresh.RefreshItemsAsync(items.Data, new(2026, 9, 9, 13, 0, 0, TimeSpan.Zero), TestContext.Current.CancellationToken);
         var prices = await client.GetPriceHistoryAsync(GameMode.Regular, "item-001", TestContext.Current.CancellationToken);
         await refresh.RefreshPriceHistoryAsync("item-001", prices.Data, TestContext.Current.CancellationToken);
 
@@ -84,6 +85,11 @@ public sealed class SqliteDataPersistenceTests
         var history = await service.GetAsync("item-001", TimeSpan.FromDays(2), TestContext.Current.CancellationToken);
 
         Assert.True(history.Count >= 2);
+        Assert.Equal(
+            [new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero), new(2026, 9, 9, 13, 0, 0, TimeSpan.Zero)],
+            history
+                .Where(point => point.Source == "json.tarkov.dev/items")
+                .Select(point => point.TimestampUtc));
         Assert.Contains(history, point => point.Source == "json.tarkov.dev/prices" && point.FleaPriceRoubles == 22000);
         Assert.All(history, point => Assert.Equal(TimeSpan.Zero, point.TimestampUtc.Offset));
     }

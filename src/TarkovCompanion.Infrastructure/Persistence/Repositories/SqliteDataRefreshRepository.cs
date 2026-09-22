@@ -22,6 +22,7 @@ public enum PriceHistoryRefreshOutcome
 
 public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connectionFactory)
 {
+    internal const int RetainedItemSyncPriceObservations = 64;
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
     public Task RefreshItemsAsync(
@@ -202,7 +203,11 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 """,
                 cancellationToken,
                 ("$itemId", item.Id),
-                ("$timestampUtc", FormatTimestamp(item.Updated ?? observedUtc)),
+                // This table is the companion's local history, so its clock is the sync that
+                // observed the price. The upstream item timestamp only moves when the item does;
+                // using it here replaced an unchanged price on every sync instead of retaining
+                // the series the Flea page claimed to show.
+                ("$timestampUtc", FormatTimestamp(observedUtc)),
                 ("$fleaPrice", item.LastLowPrice),
                 ("$traderValue", BestTraderValue(item.SellToTrader))).ConfigureAwait(false);
 
@@ -227,6 +232,28 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 ("$traderValue", BestTraderValue(item.SellToTrader)),
                 ("$measuredUtc", item.Updated is { } measured ? FormatTimestamp(measured) : null)).ConfigureAwait(false);
         }
+
+        // The items feed is large and refreshes for the life of an install. Keep enough local
+        // observations for the seven-day summary without growing one row per item forever.
+        await ExecuteAsync(
+            connection,
+            transaction,
+            $"""
+            DELETE FROM price_history
+            WHERE rowid IN (
+                SELECT rowid
+                FROM (
+                    SELECT rowid,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY item_id, source
+                               ORDER BY timestamp_utc DESC) AS observation_number
+                    FROM price_history
+                    WHERE source = 'json.tarkov.dev/items'
+                )
+                WHERE observation_number > {RetainedItemSyncPriceObservations}
+            );
+            """,
+            cancellationToken).ConfigureAwait(false);
 
         // A payload without usable rates leaves the last ones in place. They carry their own
         // date, so a reader refuses them once they are old rather than this erasing them early.

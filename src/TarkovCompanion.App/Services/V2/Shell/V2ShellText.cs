@@ -661,6 +661,8 @@ public static class V2ShellText
         ["V2.Shell.Intel.Days"] = "{0} days ago",
         ["V2.Shell.Intel.BestTrader"] = "Best trader",
         ["V2.Shell.Intel.Last24Hours"] = "Last 24 hours",
+        ["V2.Shell.Intel.Last7Days"] = "Last 7 days",
+        ["V2.Shell.Intel.HistoryRange"] = "low {0} · avg {1} · high {2}",
         ["V2.Shell.Intel.Range"] = "{0} – {1}",
         ["V2.Shell.Intel.RangeWithAverage"] = "{0} – {1} · avg {2}",
         ["V2.Shell.Intel.Sources"] = "Where to sell",

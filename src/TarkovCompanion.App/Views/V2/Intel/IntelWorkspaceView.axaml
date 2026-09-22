@@ -466,6 +466,11 @@
                 <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
                            Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding Intel24HourRange}" />
               </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding IntelHasSevenDayHistory}">
+                <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding IntelSevenDayLabel}" />
+                <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding IntelSevenDayRange}" />
+              </Grid>
               <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding HasIntelPerSlotValue}">
                 <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding IntelPerSlotHeading}" />
                 <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
