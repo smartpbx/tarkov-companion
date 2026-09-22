@@ -799,40 +799,8 @@ public sealed class TarkovDevLootSpawnNormalizer
     private static string StableSnapshotId(string datasetVersion, string mapId) =>
         $"json-tarkov-dev-snapshot:{HashText($"{datasetVersion}|{mapId}")}";
 
-    private static string TransformVersion(string mapId, MapVariant variant)
-    {
-        var transform = variant.Transform;
-        var bounds = variant.Bounds;
-        var canonical = string.Join('|',
-            mapId,
-            variant.Key,
-            Number(transform?.ScaleX),
-            Number(transform?.OffsetX),
-            Number(transform?.ScaleY),
-            Number(transform?.OffsetY),
-            Number(transform?.RotationDegrees),
-            Number(bounds?.First.X),
-            Number(bounds?.First.Y),
-            Number(bounds?.Second.X),
-            Number(bounds?.Second.Y),
-            string.Join(';', variant.Floors.Select(floor => string.Join(',',
-                floor.Id,
-                floor.Extents.Count.ToString(CultureInfo.InvariantCulture),
-                string.Join(':', floor.Extents.Select(ExtentIdentity))))));
-        return $"tarkov-dev-map-v1:{HashText(canonical)}";
-    }
-
-    private static string ExtentIdentity(MapLayerExtent extent) => string.Join('/',
-        Number(extent.MinimumHeight),
-        Number(extent.MaximumHeight),
-        string.Join(':', extent.Bounds.Select(bound => string.Join(',',
-            Number(bound.First.X),
-            Number(bound.First.Y),
-            Number(bound.Second.X),
-            Number(bound.Second.Y)))));
-
-    private static string Number(double? value) =>
-        value?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown";
+    private static string TransformVersion(string mapId, MapVariant variant) =>
+        LootSpawnTransformIdentity.For(mapId, variant);
 
     private static string CompositeContentHash(
         TarkovDevLootSpawnNormalizationRequest request,

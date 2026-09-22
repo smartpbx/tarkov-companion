@@ -112,8 +112,11 @@ public sealed class HighValueLootRuntimeSourceTests
     }
 
     [Fact]
-    public async Task Transform_mismatch_with_a_loaded_head_is_withheld_by_the_layer_guard()
+    public async Task Transform_mismatch_with_a_loaded_head_is_still_drawn_and_labelled_maybe_stale()
     {
+        // [Issue 563] Refusing the snapshot here is what left "High-value loot only" empty on a
+        // PC with a complete publication. A same-map snapshot from another catalog revision is
+        // drawn, bound to the scene's transform, and says its positions may be off.
         var source = Source(new MemoryStore(Bundle(Now, "generation-one")), new StubRefresh());
         await source.InitializeAsync(CancellationToken.None);
 
@@ -122,10 +125,26 @@ public sealed class HighValueLootRuntimeSourceTests
             TransformVersion = "different-transform",
         });
 
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal("different-transform", entry.Spawn.TransformVersion);
+        Assert.Equal("different-transform", result.TransformVersion);
+        Assert.Single(result.Objects);
+        Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
+        Assert.Contains("positions may be off", result.CompactLegend, StringComparison.Ordinal);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "snapshot.transform-stale");
+    }
+
+    [Fact]
+    public async Task Another_maps_snapshot_is_never_rebound_onto_this_map()
+    {
+        var source = Source(new MemoryStore(Bundle(Now, "generation-one")), new StubRefresh());
+        await source.InitializeAsync(CancellationToken.None);
+
+        var result = source.Build(Request(Now.AddMinutes(1)) with { MapId = "woods" });
+
         Assert.Empty(result.Entries);
         Assert.Empty(result.Objects);
         Assert.Equal(ResultCompleteness.Unavailable, result.Status.Completeness);
-        Assert.Equal("snapshot.map-transform-mismatch", Assert.Single(result.Diagnostics).Code);
     }
 
     private static HighValueLootRuntimeSource Source(

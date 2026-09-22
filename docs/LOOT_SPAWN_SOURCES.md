@@ -68,6 +68,11 @@ The production adapter preserves these source boundaries:
   aggregate-budget violations, ambiguous aliases, unknown item IDs, and chronology or provenance
   violations cannot become the publication head.
 
+The map layer's default filter asks for no confidence score (the feed is unscored), accepts prices
+up to seven days old, and ranks by the flea price before fee when the fee is unknown or by one market
+alone as a lower bound; a snapshot from an older catalog revision of the same map is still drawn,
+labelled "positions may be off" (#563).
+
 ## Version 1 bundle
 
 The manifest records:

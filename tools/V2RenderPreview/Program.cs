@@ -1386,8 +1386,28 @@ internal static class Program
             if (args.Contains("--loot-preset") &&
                 shell?.RaidCockpit is TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel lootPresetRaid)
             {
+                Console.WriteLine($"Loot before preset: unavailable {lootPresetRaid.Renderer?.HighValueLoot?.IsUnavailable}, layer on {LootLayerOn(lootPresetRaid)}");
                 lootPresetRaid.Renderer?.HighValueLootPresetCommand.Execute(null);
                 Pump(40);
+                Console.WriteLine($"Loot after preset: layer on {LootLayerOn(lootPresetRaid)}");
+                if (lootPresetRaid.Renderer?.Scene is { } lootScene)
+                {
+                    var lootProbe = services.GetRequiredService<TarkovCompanion.Application.Services.LootSpawns.IHighValueLootRuntimeSource>().Build(new(
+                        lootScene.LocationId,
+                        lootScene.TransformVersion,
+                        lootScene.Bounds,
+                        DateTimeOffset.UtcNow,
+                        TarkovCompanion.Core.Domain.LootSpawns.HighValueLootFilter.Default,
+                        lootScene.FloorIds));
+                    Console.WriteLine(
+                        $"Loot probe: bounds {lootScene.Bounds} · {lootProbe.Status.Completeness} {lootProbe.Status.Code} · {lootProbe.CompactLegend} · entries {lootProbe.Entries.Count}, objects {lootProbe.Objects.Count} · " +
+                        string.Join(", ", lootProbe.Diagnostics.GroupBy(d => d.Code).Select(g => $"{g.Key} x{g.Count()}")));
+                }
+                if (lootPresetRaid.Renderer?.HighValueLoot is { } lootPanel)
+                {
+                    Console.WriteLine(
+                        $"Loot: {lootPanel.StateMessage} | {lootPanel.FreshnessMessage} | {lootPanel.CoverageLabel} | rows {lootPanel.Rows.Count}, filtered {lootPanel.FilteredCount}, drawn {lootPanel.VisibleObjectIds.Count} | notice {lootPresetRaid.Renderer.RendererNotice}");
+                }
             }
 
             // #286: the Corrections card as a player leaves it: a side and a time left set by hand,
@@ -2076,6 +2096,11 @@ internal static class Program
         data.SaveTo(output);
         Console.WriteLine($"Saved {cropPath} ({rect.Width}x{rect.Height} at {scale}x).");
     }
+
+    private static bool? LootLayerOn(TarkovCompanion.App.ViewModels.V2.Raid.RaidCockpitViewModel raid) =>
+        raid.Renderer?.Scene.View.Layers
+            .FirstOrDefault(layer => layer.LayerId == TarkovCompanion.Application.Services.LootSpawns.HighValueLootLayerService.LayerId)
+            ?.IsVisible;
 
     private static void Pump(int turns)
     {
