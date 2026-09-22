@@ -1654,6 +1654,22 @@ internal static class Program
                 FlyoutProbe.Save(window, flyoutId, outputPath, Pump);
             }
 
+            // [#453] --stall-tour / --memory-tour N: walk the app and report stalls or memory.
+            if (shell is not null && args.Contains("--stall-tour"))
+            {
+                StallTour.Run(window, viewModel, shell, services, args);
+            }
+
+            if (shell is not null && IntOption(args, "--raid-soak", 0) is var soakSeconds and > 0)
+            {
+                StallTour.RunRaidSoak(services, viewModel, shell, soakSeconds, IntOption(args, "--raid-soak-screenshot", 20), IntOption(args, "--raid-soak-group-ms", 2000));
+            }
+
+            if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
+            {
+                StallTour.RunMemory(viewModel, shell, memorySwitches);
+            }
+
             SaveFrame(window, outputPath, width, height);
             if (StringOption(args, "--crop") is { } crop)
             {
@@ -1827,7 +1843,7 @@ internal static class Program
     /// <see cref="TeamDemoGroup"/> does, so they land on the plan rather than off its edge on
     /// whichever map is being rendered.
     /// </remarks>
-    private static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
+    internal static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
         TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
     {
         var now = DateTimeOffset.UtcNow;
