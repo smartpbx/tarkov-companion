@@ -18,10 +18,10 @@ namespace TarkovCompanion.UnitTests.V2MapRenderer;
 /// and floor reuses the current view instead of re-fitting.
 ///
 /// The third was the cause, and it is not in the renderer at all: V1 was still following the
-/// player, because nothing told V1 that somebody had moved the V2 map by hand. V1 turns its own
-/// following off when its own canvas is panned; the V2 renderer now says the same thing through
-/// <see cref="MapSceneRendererViewModel.CameraMovedByPlayer"/>. That test lives beside the
-/// cockpit, since it is the cockpit that joins the two.
+/// player, because nothing told V1 that somebody had panned the V2 map by hand. V1 turns its own
+/// following off when its own canvas is panned; the V2 renderer now reports pans through
+/// <see cref="MapSceneRendererViewModel.CameraMovedByPlayer"/> and zooms separately. The host can
+/// therefore retain Follow for a zoom without retaining it for a drag.
 /// </remarks>
 public sealed class MapPanHoldsTests
 {
@@ -98,32 +98,39 @@ public sealed class MapPanHoldsTests
     }
 
     [Fact]
-    public void A_pan_and_a_zoom_both_say_the_player_moved_the_map()
+    public void A_pan_and_a_zoom_report_their_distinct_player_intents()
     {
-        // What the cockpit listens for to stop V1 following. Fit must not raise it: fitting is
-        // how somebody asks for the whole map back, and V1 treats that as re-arming the follow.
+        // A pan stops following; a zoom changes Follow's remembered magnification while Follow
+        // is on and stops following otherwise. Fit is neither player intent.
         var renderer = Renderer();
         var moves = 0;
+        var zooms = 0;
         renderer.CameraMovedByPlayer += (_, _) => moves++;
+        renderer.CameraZoomedByPlayer += (_, _) => zooms++;
 
         renderer.BeginPan();
         renderer.UpdatePan(-90, -40);
         renderer.CommitPan();
         Assert.Equal(1, moves);
+        Assert.Equal(0, zooms);
 
         renderer.RequestZoom(1);
-        Assert.Equal(2, moves);
+        Assert.Equal(1, moves);
+        Assert.Equal(1, zooms);
 
         renderer.RequestZoomAt(1, 100, 100);
-        Assert.Equal(3, moves);
+        Assert.Equal(1, moves);
+        Assert.Equal(2, zooms);
 
         renderer.FitPlanCommand.Execute(null);
-        Assert.Equal(3, moves);
+        Assert.Equal(1, moves);
+        Assert.Equal(2, zooms);
 
         // A drag that never moved the pointer commits nothing and is not a move.
         renderer.BeginPan();
         renderer.CancelPan();
-        Assert.Equal(3, moves);
+        Assert.Equal(1, moves);
+        Assert.Equal(2, zooms);
     }
 
     /// <summary>Zooms the way the wheel and the zoom button do, since that is the only way in.</summary>

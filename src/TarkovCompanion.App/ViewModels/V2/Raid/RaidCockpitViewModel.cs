@@ -312,15 +312,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private const string PlayerObjectId = "you:position";
     private const string PlayerTrailObjectId = "you:trail";
 
-    /// <summary>What "Follow" zooms to, as a multiple of the whole plan fitted to the card.</summary>
-    /// <remarks>
-    /// The same judgement as V1's CentreOnPlayer: a whole map fitted to the panel is the right
-    /// view before a raid and the wrong one during it, where the player is a dot among street
-    /// names. Only ever zooms in — somebody who has zoomed further in to read a building is not
-    /// pulled back out by their next screenshot.
-    /// </remarks>
-    private const double FollowZoom = 3.0;
-
     /// <summary>The longest edge a composed tile picture is allowed to have, in pixels.</summary>
     private const double MaximumComposedTileExtent = 4096;
 
@@ -335,6 +326,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
     private readonly IWorkspaceLayoutStore? _layout;
+    private readonly FollowZoomSetting _followZoom;
     private double _contextPanelWidth = DefaultContextPanelWidth;
     private bool _contextPanelHidden;
     // [Issue 573] Hidden / Dim (default) / Normal, remembered the same way the panel's own width is.
@@ -453,6 +445,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _handDone = handDone;
         _profiles = profiles;
         _layout = layout;
+        _followZoom = new(layout);
         Cards = new(layout);
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
@@ -478,6 +471,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [V2 rough package 22] Every one of these is V1's own behaviour on V1's own view model.
         // The cockpit owns where the control sits, not what pressing it means.
         ToggleFollowCommand = new DelegateCommand(_map.ToggleFollowPlayer);
+        DecreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(-1));
+        IncreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(1));
         RotateCommand = new DelegateCommand(() => _ = _map.RotateAsync());
         ToggleVisitedCommand = new DelegateCommand(() => _ = _map.ToggleVisitedAsync());
         ToggleGroupNamesCommand = new DelegateCommand(() => _ = _map.ToggleGroupNamesAsync());
@@ -700,6 +695,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     /// <summary>Move the map to the player when a screenshot places them.</summary>
     public ICommand ToggleFollowCommand { get; }
+
+    public ICommand DecreaseFollowZoomCommand { get; }
+
+    public ICommand IncreaseFollowZoomCommand { get; }
+
+    public string FollowLabel => string.Create(CultureInfo.CurrentCulture, $"Follow {_followZoom.Value:0.#}×");
 
     /// <summary>Turn the plan a quarter, remembered per map.</summary>
     public ICommand RotateCommand { get; }
@@ -1139,6 +1140,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
             renderer.CameraMovedByPlayer -= CameraMovedByPlayer;
+            renderer.CameraZoomedByPlayer -= CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
             renderer.HighValueLootRefreshRequested -= HighValueLootRefreshRequested;
             renderer.PropertyChanged -= RendererPropertyChanged;
@@ -1720,7 +1722,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void PlayerFollowRequested(object? sender, EventArgs e) => FollowPlayer();
 
     /// <summary>
-    /// A drag or a zoom the player did themselves stops V1 following them.
+    /// A drag the player did themselves stops V1 following them.
     /// </summary>
     /// <remarks>
     /// [V2 rough package 46] Reported as the map snapping back after zooming in and panning.
@@ -1732,6 +1734,35 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// Recoverable the same way it is in V1: Follow and Fit both turn following back on.
     /// </remarks>
     private void CameraMovedByPlayer(object? sender, EventArgs e) => _map.ReportManualPan();
+
+    /// <summary>A wheel or zoom-button press changes Follow's remembered magnification.</summary>
+    /// <remarks>
+    /// [Issue 663] Zoom used to be reported as a generic manual camera move and switched Follow
+    /// off. While following, it now changes the setting and recentres the pointer-relative wheel
+    /// move on the player. Outside Follow it retains the old behaviour and remains a manual move.
+    /// </remarks>
+    private void CameraZoomedByPlayer(object? sender, EventArgs e)
+    {
+        if (!_map.FollowsPlayer || Renderer is null)
+        {
+            _map.ReportManualPan();
+            return;
+        }
+
+        _followZoom.Set(Renderer.CameraZoom);
+        OnPropertyChanged(nameof(FollowLabel));
+        FollowPlayer();
+    }
+
+    private void ChangeFollowZoom(int steps)
+    {
+        _followZoom.ChangeBy(steps);
+        OnPropertyChanged(nameof(FollowLabel));
+        if (_map.FollowsPlayer)
+        {
+            FollowPlayer();
+        }
+    }
 
     private void FollowPlayer()
     {
@@ -1747,7 +1778,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         _followPending = false;
-        Renderer.FocusOn(point, FollowZoom);
+        Renderer.ShowCamera(point, _followZoom.Value);
     }
 
     /// <summary>Where the player is in plan coordinates, when a screenshot has placed them.</summary>
@@ -2439,6 +2470,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 ranksLootByValue: true);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
+            renderer.CameraZoomedByPlayer += CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             renderer.HighValueLootRefreshRequested += HighValueLootRefreshRequested;
             // [Issue 318] "Make waypoint" on a selected spawn.
