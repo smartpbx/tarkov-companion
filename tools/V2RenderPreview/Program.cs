@@ -448,6 +448,18 @@ internal static class Program
                 }
             }
 
+            // Issue 655: save through the same scoped service as Setup's progress controls. The
+            // rendered summary must follow this change even though it does not create a new
+            // runtime snapshot.
+            if (StringOption(args, "--profile-level") is { } profileLevelText &&
+                int.TryParse(profileLevelText, out var profileLevel))
+            {
+                var profiles = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IPlayerProfileService>();
+                var profile = profiles.GetActiveAsync(default).GetAwaiter().GetResult();
+                profiles.SaveAsync(profile with { Level = profileLevel }, default).GetAwaiter().GetResult();
+                Pump(20);
+            }
+
             // [#269] Profile export/import: gives the active profile some progress, exports it to
             // a file through the real service, then previews importing that file as a new profile
             // (--profile-transfer-demo) or into the active one (--profile-transfer-demo into).
@@ -661,6 +673,23 @@ internal static class Program
                     events.Items[0].MarkSafeCommand.Execute(null);
                     Pump(60);
                 }
+            }
+
+            // Issue 645: a fresh install's honest history state is one locally recorded price.
+            // Seed that exact state after migrations so the Flea render proves it does not draw
+            // three identical low/average/high figures.
+            if (StringOption(args, "--one-price-item") is { } onePriceItem)
+            {
+                var factory = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory>();
+                using var connection = factory.OpenAsync(default).GetAwaiter().GetResult();
+                using var command = connection.CreateCommand();
+                command.CommandText =
+                    "INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source) " +
+                    "VALUES ($itemId, $timestamp, $flea, NULL, 'render-demo');";
+                command.Parameters.AddWithValue("$itemId", onePriceItem);
+                command.Parameters.AddWithValue("$timestamp", DateTimeOffset.UtcNow.ToString("O"));
+                command.Parameters.AddWithValue("$flea", 322_222);
+                command.ExecuteNonQuery();
             }
 
             // #287 (event state on items): creates an event, marks one item Allergic on it, and

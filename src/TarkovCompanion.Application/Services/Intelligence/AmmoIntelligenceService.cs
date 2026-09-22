@@ -80,7 +80,7 @@ public sealed class AmmoIntelligenceService
             stat,
             tier,
             ratings,
-            $"Ranks {rank} of {caliber.Count} for {stat.Caliber} by penetration, then damage.{tracerText}",
+            $"Ranks {rank} of {caliber.Count} for {CaliberText.Describe(stat.Caliber)} by penetration, then damage.{tracerText}",
             $"Heuristic, not a live detection: {stat.Penetration} penetration is compared with armor class x 10; damage is {stat.Damage}.",
             obtainable,
             confidence);

@@ -232,6 +232,12 @@ public interface IPlayerProfileService
     Task<PlayerProfile> ImportJsonAsync(string json, CancellationToken cancellationToken);
 }
 
+/// <summary>Publishes a profile after a successful progress save or import.</summary>
+public interface IPlayerProfileChangeSource
+{
+    event Action<PlayerProfile>? Changed;
+}
+
 public interface IQuestProgressService
 {
     Task<ItemNeedSummary> GetItemNeedsAsync(string itemId, CancellationToken cancellationToken);

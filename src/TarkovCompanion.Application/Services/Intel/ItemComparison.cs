@@ -182,13 +182,9 @@ public static class ItemComparisonBuilder
             ? Math.Round((double)value / slots)
             : null;
 
-    /// <summary>
-    /// Quests read from Keep, hideout from Value: the same sum the Intel headline shows, because
-    /// Value's quest count over-reports (a dorm key read "225 wanted" beside "0 needed").
-    /// </summary>
     private static double? Needed(ItemComparisonFacts item) => item.Intel.Keep is null && item.Intel.Value is null
         ? null
-        : (item.Intel.Keep?.Quests.Sum(row => row.Remaining ?? 0) ?? 0) + (item.Intel.Value?.HideoutCount ?? 0);
+        : V2IntelNeed.Remaining(item.Intel);
 
     /// <summary>
     /// The lock names, or how many locks when the catalog only has their ids: a column of
