@@ -29,6 +29,7 @@ public sealed record FleaScanResult(
     string? TraderName,
     long? Average24HourRoubles,
     long? AverageFeeRoubles,
+    DateTimeOffset? PriceUpdatedUtc,
     IReadOnlyList<FleaScanRow> Rows);
 
 /// <summary>
@@ -101,6 +102,7 @@ public sealed class FleaCaptureHandoff(
             price?.BestTrader?.TraderName,
             average,
             fee,
+            price?.Provenance.SourceUpdatedUtc ?? price?.Provenance.ObservedUtc,
             [
                 .. request.Analysis.FleaListings.Select(row => new FleaScanRow(
                     row.PriceRoubles,
