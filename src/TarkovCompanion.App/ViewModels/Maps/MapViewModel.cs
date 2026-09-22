@@ -3020,14 +3020,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // [#678] Not while the Raid map is stitching tiles on a worker (MapTileLease).
         Dispatcher.UIThread.Post(
-            () =>
+            () => MapTileLease.DisposeWhenFree(() =>
             {
                 foreach (var image in retained)
                 {
                     image.Dispose();
                 }
-            },
+            }),
             DispatcherPriority.Background);
     }
 
