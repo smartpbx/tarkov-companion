@@ -22,11 +22,10 @@ namespace TarkovCompanion.App.Services.V2.Capture;
 /// #273's pixel-to-grid recognition runs in <see cref="TarkovCompanion.App.Services.V2.Capture.CaptureRecognitionPipeline"/>,
 /// the one place pixels are still available; its result rides pixel-free on
 /// <see cref="CaptureAnalysis.Grid"/> as far as this handoff. It only ever measures the visible
-/// loot lattice (<see cref="InventoryGridSurface.VisibleLoot"/>): splitting the Loot screen's
-/// second panel into its own <see cref="InventoryGridSurface.CarriedInventory"/> lattice needs
-/// region-of-interest detection this pass does not attempt, so that surface still reconstructs an
-/// intentionally empty grid and the decision service reports it honestly as unavailable rather
-/// than this adapter fabricating recognized items.
+/// loot lattice (<see cref="InventoryGridSurface.VisibleLoot"/>) on <see cref="CaptureAnalysis.Grid"/>,
+/// and the backpack from the same frame on <see cref="CaptureAnalysis.CarriedGrid"/>. A frame
+/// with no backpack read reconstructs an empty carried grid, which the decision service reports
+/// as unavailable rather than this adapter fabricating recognized items.
 /// </remarks>
 public sealed class LootScanCaptureHandoff(
     IProfileRuntimeContextService profileContext,
@@ -297,9 +296,8 @@ public sealed record LootScanFrame(
     GridReconstructionRequest? Grid)
 {
     /// <summary>
-    /// The player's own backpack as the same frame showed it, where something read it. Nothing
-    /// in the capture pipeline does yet, so a scan says the carried grid is unread and offers no
-    /// fit; a frame that does carry one is planned against it.
+    /// The player's own backpack as the same frame showed it, where the in-raid Gear screen
+    /// showed one. Without it a scan says the carried grid is unread and offers no fit.
     /// </summary>
     public GridReconstructionRequest? CarriedGrid { get; init; }
 }

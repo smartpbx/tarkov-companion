@@ -71,12 +71,21 @@ public sealed class CaptureRecognitionPipeline(
         var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
 
         GridReconstructionRequest? grid = null;
+        GridReconstructionRequest? carried = null;
         if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
         {
             var gridStopwatch = System.Diagnostics.Stopwatch.StartNew();
             grid = await _gridBuilder
                 .BuildAsync(request.Image, surface, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
+            // The in-raid Gear screen shows the player's backpack beside the loot. Reading it is
+            // what lets the Loot Scan say where an item goes, or what to drop for it, instead of
+            // "TAKE?" with the carried grid unread.
+            carried = surface == InventoryGridSurface.VisibleLoot
+                ? await _gridBuilder
+                    .BuildCarriedAsync(request.Image, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
+                    .ConfigureAwait(false)
+                : null;
             // Region detection and per-cell icon matching against the catalog both happen inside
             // BuildAsync; splitting them would mean Infrastructure taking a dependency on this
             // Application-layer timeline, so they are reported together here as one stage.
@@ -120,6 +129,7 @@ public sealed class CaptureRecognitionPipeline(
             grid,
             await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
                 .ConfigureAwait(false),
+            CarriedGrid: carried,
             FleaListings: fleaListings);
     }
 

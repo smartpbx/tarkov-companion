@@ -510,8 +510,11 @@ public sealed class LootScanViewModel : BindableViewModel
             foreach (var cell in grid.Cells)
             {
                 var item = cell.Item.Value;
-                var width = item?.WidthCells.Value ?? 1;
-                var height = item?.HeightCells.Value ?? 1;
+                // An item nobody could name still covers the squares it was seen to cover.
+                var width = item?.WidthCells.Value ??
+                    CellsAcross(cell.Item.Bounds?.Width, grid.Geometry.CellWidthPixels.Value);
+                var height = item?.HeightCells.Value ??
+                    CellsAcross(cell.Item.Bounds?.Height, grid.Geometry.CellHeightPixels.Value);
                 occupied += width * height;
                 var isDrop = dropOwners.TryGetValue(cell.Anchor, out var owner);
                 tiles.Add(new(cell.Anchor, width, height,

@@ -27,7 +27,7 @@ was shown as unpinned and weighed on price.
 | Raid phase | The raid clock the way the rest of the app counts it, in thirds. The player can pick it instead. | Not in a raid, or the map's length for this side is unknown. |
 | Event state (Safe, Allergic, Untested) | `LootScanEventStateSource`: the running events in `IEventCatalog` and the results the Events page wrote into the active profile. An Allergic result in any running event wins. | No running event lists the item: a settled "outside every event". The event folder cannot be read: not claimed. |
 | Risk | The player's setting in the workspace, "Normal" until changed, kept for the session. | Never. |
-| Carried grid | `CaptureAnalysis.CarriedGrid`, carried to `LootScanFrame.CarriedGrid`. | Always, today. Nothing in the capture pipeline reads the backpack yet, so a wanted item reads "TAKE?" with what is missing. |
+| Carried grid | The backpack on the in-raid Gear screen (`GearScreenLayoutReader`), on `CaptureAnalysis.CarriedGrid` to `LootScanFrame.CarriedGrid`. | No backpack in view, or its frame hidden (a tooltip): a wanted item reads "TAKE?" with what is missing. |
 
 ## How near a quest is
 
@@ -121,8 +121,10 @@ unread name, count, rotation or attribute. A carried item nobody could name hold
 it was seen to cover, when that region is a whole number of cells, and is never offered for
 dropping. A doubtful footprint, an overlap or doubtful geometry still stops planning.
 
-Reading the backpack from the frame is recognition work (#273) and is not done: there is no
-in-raid loot screenshot to measure it on. See `docs/RECOGNITION.md`.
+The backpack is read from the in-raid Gear screen (2026-09-22, `docs/RECOGNITION.md`). On the
+one real frame with loot open, a full Duffle, the ammo pack in the box came out SWAP: place at
+row 3, column 2, drop the Poxeram, the one bag item named. Only the backpack's largest grid is
+planned against; a "no fit" does not know about room in the rig or pockets.
 
 ## Changing the answer
 
