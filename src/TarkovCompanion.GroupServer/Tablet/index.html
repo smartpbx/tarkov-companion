@@ -99,6 +99,55 @@
   .switcher { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .switcher select { flex: 1 1 160px; min-width: 0; min-height: 44px; }
   .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
+
+  /* Paired: the map takes the screen. Measured before this: on a 1280x800 tablet the controls
+     stacked above the map took ~43% of the height and the map ran off the bottom; on a 390 px
+     phone the header wrapped onto two lines. */
+  header { flex-wrap: nowrap; }
+  header .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { white-space: nowrap; flex: none; }
+  body.live header { padding: 8px 16px; }
+  body.live main { max-width: none; margin: 0; width: 100%; padding: 8px; }
+  body.live #surface { padding: 8px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  #surfaceBar .modes { margin-bottom: 4px; }
+  #surfaceBar #modeNote { margin: 0; }
+  #mapColumn { display: flex; flex-direction: column; min-height: 0; }
+  #mapWrap { flex: 1 1 auto; min-height: 0; }
+  body.live #map { height: calc(100svh - 190px); min-height: 300px; }
+  #mapOverlay {
+    position: absolute; top: 10px; left: 10px; right: 64px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none;
+  }
+  #mapOverlay > * { pointer-events: auto; }
+  #mapOverlay .floors { margin: 0; }
+  #mapOverlay .floors button { background: rgba(11, 16, 22, .82); }
+  #mapOverlay .floors button[aria-pressed="true"] { background: var(--cyan); }
+  #mapOverlay .notice { margin: 0; max-width: 520px; background: rgba(14, 21, 29, .94); }
+  #surfacePanel h2 { margin-top: 6px; }
+  body.panel-hidden #surfacePanel { display: none; }
+  #panelToggle[aria-expanded="false"] { color: var(--cyan); }
+  /* A tablet on its side: the map fills the height, the controls are a column beside it that
+     scrolls on its own and folds away. */
+  @media (orientation: landscape) and (min-width: 700px) {
+    body.live { height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
+    body.live main { flex: 1 1 auto; min-height: 0; display: flex; }
+    body.live #surface {
+      flex: 1 1 auto; min-height: 0;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "map bar" "map panel";
+    }
+    body.live.panel-hidden #surface {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "bar" "map";
+    }
+    body.live.panel-hidden #surfaceBar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    body.live.panel-hidden #surfaceBar .modes { margin: 0; }
+    #surfaceBar { grid-area: bar; }
+    #mapColumn { grid-area: map; }
+    #surfacePanel { grid-area: panel; overflow-y: auto; min-height: 0; padding-right: 2px; }
+    body.live #map { height: 100%; min-height: 0; }
+  }
 </style>
 </head>
 <body>
@@ -139,56 +188,70 @@
   </section>
 
   <section id="surface" style="display:none">
-    <div class="modes" id="deviceModes">
-      <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
-      <button type="button" data-mode="Control" aria-pressed="false">Control</button>
-      <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
-    </div>
-    <p class="quiet" id="modeNote">Following the desktop's map.</p>
-    <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
-    <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
-         pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
-         either do nothing (Follow) or silently disagree with the desk (Independent). -->
-    <div class="switcher" id="mapSwitcher" hidden>
-      <label class="quiet" for="mapSwitch">Map</label>
-      <select id="mapSwitch"></select>
-    </div>
-    <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
-         drifted apart on purpose. This is the way back without giving up Independent: it hands
-         the desktop this view once rather than making it follow from now on. -->
-    <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
-    <div class="floors" id="floors"></div>
-    <div class="floors" id="layers"></div>
-    <div id="mapWrap">
-      <canvas id="map"></canvas>
-      <div id="mapTools">
-        <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
-        <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
-        <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+    <div id="surfaceBar">
+      <div class="modes" id="deviceModes">
+        <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
+        <button type="button" data-mode="Control" aria-pressed="false">Control</button>
+        <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
       </div>
-      <div id="mapMessage">Waiting for the desktop's map…</div>
+      <p class="quiet" id="modeNote">Following the desktop's map.</p>
     </div>
-    <p class="attribution" id="attribution"></p>
+    <!-- The map is the surface: it takes the height the screen has. Floors and the desktop's
+         answers sit on it rather than above it, where they used to push it off a landscape
+         tablet's screen (controls took ~43% of 800 px). -->
+    <div id="mapColumn">
+      <div id="mapWrap">
+        <canvas id="map"></canvas>
+        <div id="mapOverlay">
+          <div class="floors" id="floors"></div>
+          <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div id="mapTools">
+          <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+          <button type="button" id="panelToggle" title="Hide controls" aria-label="Hide controls" aria-expanded="true">☰</button>
+        </div>
+        <div id="mapMessage">Waiting for the desktop's map…</div>
+      </div>
+      <p class="attribution" id="attribution"></p>
+    </div>
 
-    <h2 style="margin-top:16px">Marks</h2>
-    <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
-         means, the way right-click and shift+right-click do on the desktop. -->
-    <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
-    <div class="form">
-      <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
-    </div>
-    <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+    <div id="surfacePanel">
+      <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
+           pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
+           either do nothing (Follow) or silently disagree with the desk (Independent). -->
+      <div class="switcher" id="mapSwitcher" hidden>
+        <label class="quiet" for="mapSwitch">Map</label>
+        <select id="mapSwitch"></select>
+      </div>
+      <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
+           drifted apart on purpose. This is the way back without giving up Independent: it hands
+           the desktop this view once rather than making it follow from now on. -->
+      <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
+      <h2>Layers</h2>
+      <div class="floors" id="layers"></div>
 
-    <h2 style="margin-top:16px">Look something up</h2>
-    <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
-    <!-- #407: search silently did nothing outside Control, with no way off this page to fix
-         that. One tap asks for the same lease the Control mode button above grants. -->
-    <button type="button" id="searchTakeControl">Take control</button>
-    <div class="form">
-      <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
-      <button type="button" id="findGo">Search on desktop</button>
+      <h2 style="margin-top:16px">Marks</h2>
+      <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
+           means, the way right-click and shift+right-click do on the desktop. -->
+      <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
+      <div class="form">
+        <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
+      </div>
+      <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+
+      <h2 style="margin-top:16px">Look something up</h2>
+      <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
+      <!-- #407: search silently did nothing outside Control, with no way off this page to fix
+           that. One tap asks for the same lease the Control mode button above grants. -->
+      <button type="button" id="searchTakeControl">Take control</button>
+      <div class="form">
+        <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
+        <button type="button" id="findGo">Search on desktop</button>
+      </div>
+      <div class="markList" id="found"></div>
     </div>
-    <div class="markList" id="found"></div>
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
@@ -1170,9 +1233,29 @@
     return mode === "Independent" ? localSelectionId : (live?.surface?.view?.selectionId ?? localSelectionId);
   }
 
+  // body.live lays the page out for the map (the CSS above); the pairing card never needs it.
+  function showSurface(on) {
+    $("surface").style.display = on ? "" : "none";
+    document.body.classList.toggle("live", on);
+  }
+
+  // The controls column folds away so the map can have the whole screen, and stays folded
+  // across reloads on this device.
+  const PANEL_KEY = "tarkov-companion-tablet-panel-hidden";
+  function setPanelHidden(hidden) {
+    document.body.classList.toggle("panel-hidden", hidden);
+    const toggle = $("panelToggle");
+    toggle.setAttribute("aria-expanded", String(!hidden));
+    const label = hidden ? "Show controls" : "Hide controls";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    try { localStorage.setItem(PANEL_KEY, hidden ? "1" : "0"); } catch { /* private window */ }
+    drawMap();
+  }
+
   function renderSurface() {
     const surface = live?.surface;
-    $("surface").style.display = live ? "" : "none";
+    showSurface(!!live);
     const message = $("mapMessage");
     if (!surface) {
       message.style.display = "";
@@ -1783,7 +1866,7 @@
 
   function beginLive() {
     const session = live;
-    $("surface").style.display = "";
+    showSurface(true);
     // #407: "the map is the surface... everything else is a strip around it" was the stated
     // intent, but the pairing card kept its full section — heading, "Paired as…" text and an
     // Unpair button — permanently above the map, pushing it (and everything below it) off the
@@ -1820,7 +1903,7 @@
     confirmedMode = "Follow";
     pending.clear();
     await forgetSession();
-    $("surface").style.display = "none";
+    showSurface(false);
     $("pairing").hidden = false;
     $("unpairHeader").hidden = true;
     renderLiveStatus();
@@ -1848,7 +1931,7 @@
       if (event.data?.type !== "live" || event.data.tabId === tabId || !live) return;
       if (event.data.sessionId !== live.sessionId) return;
       live = null;
-      $("surface").style.display = "none";
+      showSurface(false);
       setStage("pairingIdle", "This tablet is open in another tab. Reload this one to use it here instead.");
       renderLiveStatus();
     };
@@ -2847,6 +2930,12 @@
   });
 
   window.addEventListener("resize", () => drawMap());
+  // A layout change (the controls folding, a notice, the attribution wrapping) resizes the map
+  // without resizing the window.
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => drawMap()).observe($("mapWrap"));
+  $("panelToggle").addEventListener("click", () =>
+    setPanelHidden(!document.body.classList.contains("panel-hidden")));
+  try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
 
   // ---------------------------------------------------------------------------------------
   // UI wiring.
