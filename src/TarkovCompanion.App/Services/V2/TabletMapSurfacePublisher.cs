@@ -77,6 +77,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private WorkspaceProjection? _remoteTarget;
     private int _remotePosted;
     private DesktopViewportEase? _ease;
+    private DateTimeOffset? _sentToTabletUtc;
 
     public TabletMapSurfacePublisher(
         RaidCockpitViewModel cockpit,
@@ -145,7 +146,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 _authority.Snapshot.CanonicalState.Workspace.Projection,
                 await SearchResultsAsync(cancellationToken).ConfigureAwait(false),
                 artwork is null ? null : _cockpit.BackgroundStatus(),
-                Utc());
+                Utc(),
+                _sentToTabletUtc);
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
             // The scene is rebuilt on every runtime tick and most ticks change nothing a tablet
@@ -182,6 +184,19 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         {
             _publishGate.Release();
         }
+    }
+
+    /// <summary>
+    /// "Send to tablet": publishes the desktop's current map view with a new stamp, and a paired
+    /// tablet in Independent moves its own view there (one in Follow already shows it).
+    /// </summary>
+    /// <returns>Whether the relay took the surface carrying this send.</returns>
+    public async Task<bool> SendToTabletAsync(CancellationToken cancellationToken = default)
+    {
+        var stamp = Utc();
+        _sentToTabletUtc = stamp;
+        await PublishNowAsync(cancellationToken).ConfigureAwait(false);
+        return LastSurface?.SentToTabletUtc == stamp;
     }
 
     private void OnSceneRebuilt(object? sender, EventArgs e)

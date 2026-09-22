@@ -1337,6 +1337,8 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
+                        // #290: what the app wires at startup, so "Send to tablet" draws enabled.
+                        pairing.SendMapToTablet = _ => Task.FromResult(true);
                         break;
                     // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
                     // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
