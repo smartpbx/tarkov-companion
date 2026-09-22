@@ -12,7 +12,7 @@
       <Setter Property="MaxWidth" Value="960" />
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
-      <Setter Property="Padding" Value="22,18" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
     </Style>
     <Style Selector="ProgressBar.v2-setup-progress">
       <Setter Property="MinHeight" Value="8" />
@@ -27,7 +27,7 @@
   </UserControl.Styles>
   <!-- V2 rough package 17 (home): compact section tabs like the shell's own, the home overview
        first, then one settings section at a time. -->
-  <StackPanel Classes="v2-stack" Margin="16,4,16,0">
+  <StackPanel Classes="v2-stack" Margin="16,8,16,0">
     <ItemsControl ItemsSource="{Binding Sections}"
                   AutomationProperties.AccessibilityView="Control"
                   AutomationProperties.AutomationId="v2-setup-sections"
