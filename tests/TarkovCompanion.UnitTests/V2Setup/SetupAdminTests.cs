@@ -7,6 +7,7 @@ using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Setup;
+using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Runtime;
@@ -169,15 +170,21 @@ public sealed class SetupAdminTests
             new DisplayDescriptor("1", "Display 1", new(0, 0, 1920, 1080), true, 1.0),
             new DisplayDescriptor("2", "Display 2", new(1920, 0, 3840, 1080), false, 1.25));
         var windows = new FakeWindows(new WindowDescriptor(1, "EscapeFromTarkov", "EFT", new(2400, 0, 3840, 1080), false, false));
-        var view = new SetupDisplaysViewModel(monitors, windows);
+        var placement = new FakePlacement("2");
+        var view = new SetupDisplaysViewModel(monitors, windows, placement);
 
         await view.RefreshAsync(default);
 
         Assert.True(view.IsAvailable);
         Assert.Equal(2, view.Displays.Count);
         Assert.Equal("Primary", view.Displays[0].Badges);
-        Assert.Equal("Game window here", view.Displays[1].Badges);
+        Assert.Equal("Companion here · Game window here", view.Displays[1].Badges);
         Assert.Equal("Game window, 3840×1080, on Display 2", view.CaptureTarget);
+
+        await Assert.IsType<AsyncDelegateCommand>(view.Displays[0].MoveCommand).ExecuteAsync();
+
+        Assert.Equal("1", placement.CurrentDisplayId);
+        Assert.Contains("Companion here", view.Displays[0].Badges, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -304,5 +311,19 @@ public sealed class SetupAdminTests
     {
         public Task<WindowDescriptor?> FindAsync(bool developerMode, CancellationToken cancellationToken) =>
             Task.FromResult(window);
+    }
+
+    private sealed class FakePlacement(string currentDisplayId) : IDesktopWindowPlacementController
+    {
+        public event EventHandler? CurrentDisplayChanged;
+
+        public string? CurrentDisplayId { get; private set; } = currentDisplayId;
+
+        public Task MoveToAsync(string displayId, CancellationToken cancellationToken = default)
+        {
+            CurrentDisplayId = displayId;
+            CurrentDisplayChanged?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
     }
 }

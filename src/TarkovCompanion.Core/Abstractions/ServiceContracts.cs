@@ -68,7 +68,17 @@ public sealed record CaptureRequest(string WindowSelector, PixelRect? Region, bo
 
 public sealed record WindowDescriptor(nint Handle, string ProcessName, string Title, PixelRect Bounds, bool IsMinimized, bool IsSimulator);
 
-public sealed record DisplayDescriptor(string Id, string Name, PixelRect Bounds, bool IsPrimary, double Scale);
+public sealed record DisplayDescriptor(
+    string Id,
+    string Name,
+    PixelRect Bounds,
+    bool IsPrimary,
+    double Scale,
+    PixelRect? WorkArea = null)
+{
+    /// <summary>The desktop area not occupied by the taskbar or dock.</summary>
+    public PixelRect UsableBounds => WorkArea ?? Bounds;
+}
 
 public sealed record EftPaths(string? InstallRoot, string? LogRoot, string? ScreenshotRoot, Confidence Confidence);
 

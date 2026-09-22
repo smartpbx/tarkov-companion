@@ -3,8 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
-  <!-- [#292] The monitors this machine has and what a scan will capture. Read-only: window placement
-       restores itself, so this says what it sees rather than offering to move anything. -->
+  <!-- [#292/#316] The monitors this machine has, where both windows are, and an explicit move. -->
   <StackPanel Classes="v2-stack">
     <TextBlock Classes="v2-label" Text="{Binding UnavailableNote}" IsVisible="{Binding IsUnavailable}" />
     <StackPanel Classes="v2-stack" IsVisible="{Binding IsAvailable}">
@@ -16,6 +15,8 @@
               <TextBlock Classes="v2-body" Text="{Binding Name}" />
               <TextBlock Classes="v2-label" Text="{Binding Detail}" />
               <TextBlock Classes="v2-label" Text="{Binding Badges}" IsVisible="{Binding HasBadges}" />
+              <Button Classes="v2-target" HorizontalAlignment="Left" Margin="0,2,0,0"
+                      Content="{Binding MoveLabel}" Command="{Binding MoveCommand}" IsVisible="{Binding CanMove}" />
             </StackPanel>
           </DataTemplate>
         </ItemsControl.ItemTemplate>

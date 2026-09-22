@@ -73,6 +73,7 @@ using TarkovCompanion.Core.Domain.Recognition.Grid;
 using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.Recognition.Grid;
 using TarkovCompanion.App.Services.V2.Notifications;
+using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.Application.Services.Notifications;
 using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
@@ -98,7 +99,9 @@ public sealed record AppCompositionSettings(
     IScanAdapter? ScanAdapter = null,
     TarkovTrackerOptions? TarkovTrackerOptions = null,
     HttpMessageHandler? TarkovTrackerHttpMessageHandler = null,
-    IIntegrationSecretStore? IntegrationSecretStore = null);
+    IIntegrationSecretStore? IntegrationSecretStore = null,
+    IMonitorService? MonitorService = null,
+    IDesktopWindowPlacementController? WindowPlacementController = null);
 
 public static class AppComposition
 {
@@ -390,6 +393,18 @@ public static class AppComposition
         // whatever place the operating system chose, every launch, and no store had an entry.
         services.AddSingleton<IShellLayoutStore>(_ =>
             new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
+        services.AddSingleton<IDesktopWindowPlacementStore>(_ =>
+            new JsonFileDesktopWindowPlacementStore(Path.Combine(paths.Config, "window-placement.json")));
+        if (settings.WindowPlacementController is not null)
+        {
+            services.AddSingleton(settings.WindowPlacementController);
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<DesktopWindowPlacementController>();
+            services.AddSingleton<IDesktopWindowPlacementController>(provider =>
+                provider.GetRequiredService<DesktopWindowPlacementController>());
+        }
         // [#309] What the hourly tidy moved, or failed to, kept as counts and reasons across restarts.
         services.AddSingleton<IScreenshotTidyLedger>(_ =>
             new JsonFileScreenshotTidyLedger(Path.Combine(paths.Config, "screenshot-tidy-ledger.json")));
@@ -602,10 +617,18 @@ public static class AppComposition
         services.AddSingleton<RecognitionSelfTest>();
         services.AddSingleton<IRecognitionSelfTest>(provider => provider.GetRequiredService<RecognitionSelfTest>());
 
+        if (settings.MonitorService is not null)
+        {
+            services.AddSingleton(settings.MonitorService);
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<IMonitorService, WindowsMonitorService>();
+        }
+
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IGameWindowLocator, WindowsGameWindowLocator>();
-            services.AddSingleton<IMonitorService, WindowsMonitorService>();
             services.AddSingleton<IEftPathLocator>(provider => new WindowsEftPathLocator(
                 null,
                 provider.GetRequiredService<IEftPathOverrideStore>()));
@@ -970,7 +993,8 @@ public static class AppComposition
             () => provider.GetRequiredService<ApplicationStartupCoordinator>().RefreshAsync(force: true, CancellationToken.None)));
         services.AddSingleton(provider => new SetupDisplaysViewModel(
             provider.GetService<IMonitorService>(),
-            provider.GetService<IGameWindowLocator>()));
+            provider.GetService<IGameWindowLocator>(),
+            provider.GetService<IDesktopWindowPlacementController>()));
         services.AddSingleton(provider => new SetupAdminViewModel(
             provider.GetRequiredService<SetupDataDetailViewModel>(),
             new SetupInfoPageViewModel("About", SetupPageContent.About, SetupPageFacts.ForAbout),

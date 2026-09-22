@@ -11,6 +11,7 @@ using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.Services.V2.Notifications;
 using TarkovCompanion.App.Services.V2.Profile;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
@@ -95,6 +96,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 {
                     DataContext = viewModel,
                 };
+                if (viewModel.PreviewShell is not null)
+                {
+                    services.GetService<DesktopWindowPlacementController>()?.Attach(window);
+                }
                 if (_appearance is { } appearance && _preferences is { } preferences)
                 {
                     appearance.Attach(window, preferences.Current);

@@ -18,6 +18,7 @@ using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Services.V2.Appearance;
+using TarkovCompanion.App.Services.Windowing;
 using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
@@ -120,7 +121,15 @@ internal static class Program
                     "Unable to start the update, because one or more running processes prevented it.");
             }
 
-            var services = AppComposition.Build(options, new AppCompositionSettings(DataRoot: dataRoot, Offline: true, TimeProvider: now, HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0))));
+            var monitorDemo = args.Contains("--display-demo") ? new RenderMonitorService() : null;
+            var placementDemo = monitorDemo is null ? null : new RenderWindowPlacementController("\\\\.\\DISPLAY1");
+            var services = AppComposition.Build(options, new AppCompositionSettings(
+                DataRoot: dataRoot,
+                Offline: true,
+                TimeProvider: now,
+                HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0)),
+                MonitorService: monitorDemo,
+                WindowPlacementController: placementDemo));
 
             AppBuilder.Configure(() => new AppClass(services))
                 .UseSkia()
@@ -2248,6 +2257,38 @@ internal static class Program
     {
         var index = Array.IndexOf(args, name);
         return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
+    }
+
+    /// <summary>Two ordinary displays for judging Setup's monitor rows without Windows APIs.</summary>
+    private sealed class RenderMonitorService : IMonitorService
+    {
+        public Task<IReadOnlyList<DisplayDescriptor>> GetDisplaysAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<DisplayDescriptor> displays =
+            [
+                new("\\\\.\\DISPLAY1", "Display 1", new(0, 0, 1920, 1080), true, 1,
+                    new(0, 0, 1920, 1040)),
+                new("\\\\.\\DISPLAY2", "Display 2", new(1920, 0, 2560, 1440), false, 1.25,
+                    new(1920, 0, 2560, 1400)),
+            ];
+            return Task.FromResult(displays);
+        }
+    }
+
+    private sealed class RenderWindowPlacementController(string currentDisplayId) : IDesktopWindowPlacementController
+    {
+        public event EventHandler? CurrentDisplayChanged;
+
+        public string? CurrentDisplayId { get; private set; } = currentDisplayId;
+
+        public Task MoveToAsync(string displayId, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CurrentDisplayId = displayId;
+            CurrentDisplayChanged?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>
