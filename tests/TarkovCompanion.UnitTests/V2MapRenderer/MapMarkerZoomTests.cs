@@ -38,6 +38,20 @@ public sealed class MapMarkerZoomTests
     }
 
     [Fact]
+    public void Hand_waypoints_and_pings_grow_with_zoom()
+    {
+        var renderer = Renderer(
+            At("waypoint", MapSceneObjectKind.Waypoint, 100, 100),
+            At("ping", MapSceneObjectKind.Ping, 300, 250));
+
+        Assert.All(renderer.PointMarkers, marker => Assert.Equal(MapMarkerScale.AtFit, marker.MarkerScale));
+
+        renderer.RequestZoom(1);
+
+        Assert.All(renderer.PointMarkers, marker => Assert.True(marker.MarkerScale > MapMarkerScale.AtFit));
+    }
+
+    [Fact]
     public void Stacks_chain_marks_along_one_spot_and_leave_pairs_and_loners_alone()
     {
         var anchors = new (double, double)[] { (0, 0), (20, 0), (40, 0), (200, 0), (215, 0), (400, 400) };
@@ -72,6 +86,24 @@ public sealed class MapMarkerZoomTests
     }
 
     [Fact]
+    public void Hand_waypoints_and_a_ping_share_one_badge_until_zoomed_in()
+    {
+        var renderer = Renderer(
+            At("waypoint-a", MapSceneObjectKind.Waypoint, 100, 100),
+            At("waypoint-b", MapSceneObjectKind.Waypoint, 104, 102),
+            At("ping", MapSceneObjectKind.Ping, 98, 105));
+
+        var badge = Assert.Single(renderer.StackMarkers);
+        Assert.Equal("3", badge.MarkerGlyph);
+        Assert.All(renderer.PointMarkers, marker => Assert.False(marker.IsShownOnPlan));
+
+        badge.SelectCommand.Execute(null);
+
+        Assert.False(badge.IsShownOnPlan);
+        Assert.All(renderer.PointMarkers, marker => Assert.True(marker.IsShownOnPlan));
+    }
+
+    [Fact]
     public void The_selected_mark_of_a_dense_spot_stays_on_the_plan()
     {
         var renderer = Renderer(Extract("a", 100, 100), Extract("b", 104, 102), Extract("c", 98, 105));
@@ -85,17 +117,21 @@ public sealed class MapMarkerZoomTests
 
     private static readonly MapSceneLayer Layer = new(new("extracts"), "Extracts", 10, true);
 
-    private static MapSceneObject Extract(string id, double x, double y) => new(
+    private static MapSceneObject Extract(string id, double x, double y) => At(id, MapSceneObjectKind.Extract, x, y);
+
+    private static MapSceneObject At(string id, MapSceneObjectKind kind, double x, double y) => new(
         new($"object:{id}"),
         Layer.Id,
-        MapSceneObjectKind.Extract,
-        MapSceneTruthKind.StaticReference,
+        kind,
+        kind is MapSceneObjectKind.Waypoint or MapSceneObjectKind.Ping
+            ? MapSceneTruthKind.UserAuthored
+            : MapSceneTruthKind.StaticReference,
         id,
         null,
         MapSceneGeometry.At(new(x, y)),
         [],
         new DataProvenance("fixture", new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero), Confidence: new Confidence(1)),
-        faction: MapFeatureFaction.Pmc);
+        faction: kind == MapSceneObjectKind.Extract ? MapFeatureFaction.Pmc : MapFeatureFaction.Unknown);
 
     private static MapSceneRendererViewModel Renderer(params MapSceneObject[] objects)
     {

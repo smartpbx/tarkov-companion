@@ -95,7 +95,9 @@ canonical mode; it never draws the same flat artwork and calls it a floor stack 
 The Avalonia consumer resolves reviewed artwork through an injected verified-cache resolver; it
 does not fetch a manifest URL from the view. Point features use fixed-size accessible controls,
 while line, area, and region geometry remains geometry. Coordinates outside reviewed bounds are
-not clamped into a false edge marker. Dense point layers are deterministically grouped; opening a
+not clamped into a false edge marker. Point drawings, including hand waypoints and pings, shrink
+at fit zoom while their hit targets stay accessible; three nearby marks become one count badge
+until the player opens it or zooms in. Dense point layers are deterministically grouped; opening a
 cluster exposes every source record through the searchable, paged list. That list includes every
 visible object even when a layer opts out of the older scene list summary. Bare-map hit testing
 considers only the individual markers and geometry actually drawn, so selecting a cluster cannot
