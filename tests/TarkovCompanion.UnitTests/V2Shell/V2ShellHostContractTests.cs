@@ -124,20 +124,23 @@ public sealed class V2ShellHostContractTests
         var map = File.ReadAllText(V2ShellTestData.RepositoryPath(
             "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml")) +
             File.ReadAllText(V2ShellTestData.RepositoryPath(
-                "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapPresentationControls.axaml"));
+                "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapPresentationControls.axaml")) +
+            File.ReadAllText(V2ShellTestData.RepositoryPath(
+                "src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapMarkKindTemplates.cs"));
         var raid = File.ReadAllText(V2ShellTestData.RepositoryPath(
             "src", "TarkovCompanion.App", "Views", "V2", "Raid", "RaidCockpitView.axaml"));
 
         // V2 rough package 22: the glyph chip is now ShowsGlyphIcon, because a person on the
         // plan (you, a squadmate) is drawn as a dot with a facing cone instead of a chip.
         Assert.Contains("IsVisible=\"{Binding ShowsGlyphIcon}\"", map, StringComparison.Ordinal);
-        Assert.Contains("IsVisible=\"{Binding IsPersonIcon}\"", map, StringComparison.Ordinal);
+        // [#678] Each kind of mark has its own template (MapMarkKindTemplates), a person's included.
+        Assert.Contains("<map:MapMarkKindTemplates.Person>", map, StringComparison.Ordinal);
         Assert.Contains("Data=\"{Binding ConeGeometry}\"", map, StringComparison.Ordinal);
         // [Issue 606] V1's own extract glyph, proportioned for the map's small round disc — see
         // V2.Icon.MapExtract in V2Icons.axaml — not V2.Icon.Exit, whose 24-unit-grid bracket read
         // as a second white shape at this size ("the black fill is bad, there is a weird white
         // square to it").
-        Assert.Contains("{DynamicResource V2.Icon.MapExtract}", map, StringComparison.Ordinal);
+        Assert.Contains("MapSceneMarkerIcon.Extract => \"V2.Icon.MapExtract\"", map, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding HasMarkerNumber}\"", map, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding FactionGlyph}\"", map, StringComparison.Ordinal);
         Assert.DoesNotContain("Text=\"{Binding OfferGlyph}\"", map, StringComparison.Ordinal);
