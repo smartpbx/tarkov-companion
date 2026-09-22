@@ -56,6 +56,30 @@ public sealed class CommonOcrFoundationTests
     }
 
     [Fact]
+    public void TheCharacterTabRowIsFoundWhenTheEngineReturnsItAsOneLine()
+    {
+        // Two real Gear screens 14 seconds apart read present and absent: the engine returns the
+        // tab row as one line or several, and the whole line used to have to equal "health".
+        var result = new OcrResult(
+        [
+            new OcrLine("OVERALL GEAR HEALTH SKILLS MAP TASKS ACHIEVEMENTS", new(1000, 10, 900, 20), null),
+        ], TimeSpan.Zero, "unscored-fixture");
+
+        Assert.True(new SupplementalOcrSignalDetector().Detect(result).HealthAndCharacter.IsPresent);
+    }
+
+    [Fact]
+    public void HealthInAnItemDescriptionIsNotTheCharacterScreen()
+    {
+        var result = new OcrResult(
+        [
+            new OcrLine("Restores health over time and lets you get back to the map sooner", new(900, 400, 700, 20), null),
+        ], TimeSpan.Zero, "unscored-fixture");
+
+        Assert.False(new SupplementalOcrSignalDetector().Detect(result).HealthAndCharacter.IsPresent);
+    }
+
+    [Fact]
     public async Task CoordinatorDeterministicallyDeduplicatesOverlappingPasses()
     {
         var image = Frame(1920, 1080);
