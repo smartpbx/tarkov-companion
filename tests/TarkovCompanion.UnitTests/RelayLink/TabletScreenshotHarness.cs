@@ -287,8 +287,11 @@ public sealed class TabletScreenshotHarness
         Search: new TabletSearch(
             "aid",
             [
-                new TabletSearchResult("item-sugar", "Pack of sugar", "Sugar", 4500, 3800, IsAllergic: false),
-                new TabletSearchResult("item-salewa", "Salewa first aid kit", "Salewa", 28000, 24000, IsAllergic: true),
+                new TabletSearchResult("item-sugar", "Pack of sugar", "Sugar", 4500, 3800, IsAllergic: false,
+                    Category: "Provision", Size: "1×1", PerSlotRoubles: 4500, TraderName: "Therapist",
+                    WikiUri: "https://escapefromtarkov.fandom.com/wiki/Pack_of_sugar"),
+                new TabletSearchResult("item-salewa", "Salewa first aid kit", "Salewa", 28000, 24000, IsAllergic: true,
+                    Category: "Medical", Size: "1×2", PerSlotRoubles: 14000, TraderName: "Therapist"),
             ]),
         Message: null,
         PublishedUtc: now);

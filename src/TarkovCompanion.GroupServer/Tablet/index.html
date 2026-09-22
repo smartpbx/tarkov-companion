@@ -96,6 +96,8 @@
   /* #407: a search result the desktop flagged this raid's event as allergic to. */
   .chip { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
   .chip.allergic { border-color: var(--alarm); color: var(--alarm); }
+  .wikiLink { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 6px; color: var(--cyan); text-decoration: none; }
   .switcher { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .switcher select { flex: 1 1 160px; min-width: 0; min-height: 44px; }
   .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
@@ -1458,6 +1460,18 @@
 
   // The answers to a lookup, resolved by the desktop that has the catalogue. #417 sent the query
   // over and left the answers on the wrong screen.
+  // The page itself loads nothing from anywhere else; a wiki link is followed only when tapped,
+  // and only to the wiki's own host (the desktop's WikiLinkPolicy, checked again here).
+  const WIKI_HOST = "escapefromtarkov.fandom.com";
+  function wikiLink(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === WIKI_HOST ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
   function renderResults(surface) {
     const holder = $("found");
     holder.replaceChildren();
@@ -1479,15 +1493,35 @@
         name.appendChild(chip);
       }
 
+      // #379: what the desktop's Intel list says about it too: kind, size, per-slot value and
+      // which trader pays.
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = [
-        item.shortName,
+      meta.textContent = [item.shortName, item.category, item.size].filter(Boolean).join(" · ");
+      const prices = document.createElement("div");
+      prices.className = "meta";
+      prices.textContent = [
         roubles(item.fleaRoubles) ? `flea ${roubles(item.fleaRoubles)}` : null,
-        roubles(item.traderRoubles) ? `trader ${roubles(item.traderRoubles)}` : null,
+        roubles(item.traderRoubles)
+          ? `${item.traderName ?? "trader"} ${roubles(item.traderRoubles)}`
+          : null,
+        roubles(item.perSlotRoubles) ? `${roubles(item.perSlotRoubles)} / slot` : null,
       ].filter(Boolean).join(" · ");
-      info.append(name, meta);
+      info.append(name, meta, prices);
       row.append(info);
+      // The wiki page in a new tab. The desktop only sends a link to the wiki's own host; this
+      // checks again, because a link is the one thing on this page that leaves it.
+      const wikiHref = typeof item.wikiUri === "string" ? wikiLink(item.wikiUri) : null;
+      if (wikiHref) {
+        const wiki = document.createElement("a");
+        wiki.className = "wikiLink";
+        wiki.href = wikiHref;
+        wiki.target = "_blank";
+        wiki.rel = "noopener noreferrer";
+        wiki.textContent = "Wiki";
+        row.append(wiki);
+      }
+
       holder.appendChild(row);
     }
   }
