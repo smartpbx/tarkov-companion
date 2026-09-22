@@ -44,6 +44,13 @@ public sealed class DesktopCompanionAuthority : IDisposable
                 state = DesktopCompanionAuthorityState.Create(initialCanonicalState);
                 await store.SaveAsync(state, cancellationToken).ConfigureAwait(false);
             }
+            else if (PairedTabletGrantUpgrade.Apply(state, TimeProvider.System.GetUtcNow()) is var upgraded &&
+                     !ReferenceEquals(upgraded, state))
+            {
+                // [#601] A tablet paired by an older build is given today's grant, and keeps it.
+                await store.SaveAsync(upgraded, cancellationToken).ConfigureAwait(false);
+                state = upgraded;
+            }
 
             return new DesktopCompanionAuthority(store, lease, state);
         }

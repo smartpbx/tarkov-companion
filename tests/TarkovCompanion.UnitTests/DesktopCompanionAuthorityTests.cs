@@ -235,6 +235,79 @@ public sealed class DesktopCompanionAuthorityTests
         }
     }
 
+    // [#601] A tablet paired before #558 was stored with a session grant that lacked
+    // RequestControl, so its Control request was refused before the desktop could show Allow.
+    [Fact]
+    public async Task AStoredPairingFromBeforeTheControlFixIsUpgradedAndItsControlRequestReachesTheDesktop()
+    {
+        var device = PairedTablet();
+        var oldSession = ActiveSession(device, TabletSession);
+        oldSession = new DeviceSession(
+            oldSession.Establishment,
+            oldSession.Status,
+            oldSession.Transport,
+            oldSession.Surface,
+            [.. device.Capabilities.Where(capability => capability != DeviceCapability.RequestControl)],
+            oldSession.LastUsedUtc);
+        var seeded = new DesktopCompanionAuthorityState(InitialState(), [device], [oldSession], DeliveryLedger.Empty);
+        var store = new MemoryAuthorityStore(seeded);
+
+        using var authority = await DesktopCompanionAuthority.OpenAsync(store, seeded.CanonicalState);
+
+        Assert.Contains(DeviceCapability.RequestControl, Assert.Single(authority.Snapshot.Sessions).Capabilities);
+        Assert.Equal(1, store.SaveCalls); // kept, so the next start does not have to do it again
+        var request = new RequestControlCommand(
+            Command(20),
+            new AggregateRevision(1),
+            Now.AddMinutes(1),
+            Now.AddMinutes(2),
+            TimeSpan.FromMinutes(2));
+        var result = await authority.ApplyCommandAsync(Frame(Now.AddMinutes(1)), Envelope(request));
+
+        Assert.Equal(CommandDisposition.Applied, result.Acknowledgement.Disposition);
+        // PendingControl is what the desktop's Allow prompt is raised from.
+        Assert.NotNull(result.State.CanonicalState.DeviceModes.PendingControl);
+    }
+
+    [Fact]
+    public async Task TheGrantUpgradeNeverGoesBeyondATabletGrantOrTouchesAnotherRole()
+    {
+        var member = PairedTablet();
+        var observer = new PairedDevice(
+            new CompanionDeviceId(Guid.Parse("10000000-0000-4000-8000-000000000003")),
+            "Watcher",
+            DeviceKey(),
+            DeviceAuthorizationRole.Observer,
+            [DeviceCapability.FollowDesktop],
+            DeviceLifecycleStatus.Active,
+            Now,
+            Now,
+            1,
+            Now.AddDays(30),
+            Now);
+        var narrowMember = new PairedDevice(
+            member.DeviceId, member.DisplayName, member.DeviceKey, member.Role,
+            [DeviceCapability.FollowDesktop, DeviceCapability.ManageProfilePreferences],
+            member.Status, member.CreatedUtc, member.LastUsedUtc, member.LastKeyEpoch, member.ExpiresUtc, member.StatusChangedUtc);
+        var seeded = new DesktopCompanionAuthorityState(
+            InitialState(),
+            [narrowMember, observer],
+            [ActiveSession(narrowMember, TabletSession)],
+            DeliveryLedger.Empty);
+
+        var upgraded = PairedTabletGrantUpgrade.Apply(seeded, Now);
+
+        var tablet = upgraded.Devices.Single(item => item.DeviceId == member.DeviceId);
+        Assert.Equal(
+            PairedTabletGrant.Create(Now).DeviceCapabilities.Append(DeviceCapability.ManageProfilePreferences).Order(),
+            tablet.Capabilities.Order());
+        Assert.Equal([DeviceCapability.FollowDesktop], upgraded.Devices.Single(item => item.DeviceId == observer.DeviceId).Capabilities);
+        Assert.Equal(
+            PairedTabletGrant.Create(Now).SessionCapabilities.Order(),
+            Assert.Single(upgraded.Sessions).Capabilities.Where(item => item != DeviceCapability.ManageProfilePreferences).Order());
+        Assert.Same(upgraded, PairedTabletGrantUpgrade.Apply(upgraded, Now));
+    }
+
     private static DesktopCompanionAuthorityState SeededState()
     {
         var device = PairedTablet();
