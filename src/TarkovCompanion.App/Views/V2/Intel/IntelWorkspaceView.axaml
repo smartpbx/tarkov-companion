@@ -481,6 +481,10 @@
                 <TextBlock Grid.Column="1" Classes="v2-label" HorizontalAlignment="Right"
                            Foreground="{DynamicResource V2.Brush.TextPrimary}" Text="{Binding IntelFeeLabel}" />
               </Grid>
+              <Border Classes="v2-intel-fact" IsVisible="{Binding IntelHasSellingComparison}"
+                      AutomationProperties.AutomationId="v2-intel-selling-comparison">
+                <TextBlock Classes="v2-body" Text="{Binding IntelSellingComparison}" TextWrapping="Wrap" />
+              </Border>
 
               <StackPanel Spacing="8" IsVisible="{Binding IntelHasPrices}" Margin="0,6,0,0">
                 <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding IntelSourcesHeading}" />

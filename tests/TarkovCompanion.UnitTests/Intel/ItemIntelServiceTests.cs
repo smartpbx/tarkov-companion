@@ -6,6 +6,7 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Profile;
 
 namespace TarkovCompanion.UnitTests.Intel;
 
@@ -94,6 +95,50 @@ public sealed class ItemIntelServiceTests
         var result = await service.GetAsync(item.Id, CancellationToken.None);
 
         Assert.Null(result.Prices);
+    }
+
+    [Fact]
+    public async Task HeldItemReportsItsFleaNetBesideTheBestTrader()
+    {
+        var item = Item("item-gpu", "Graphics card", ItemCategory.Barter);
+        var price = new ItemPriceSnapshot(
+            337_352,
+            [new TraderOffer("therapist", "Therapist", 100_980, Provenance)],
+            337_352,
+            300_000,
+            380_000,
+            Provenance);
+        var profile = Profile(new Dictionary<string, int> { [item.Id] = 2 });
+        var service = new ItemIntelService(
+            new FakeItemRepository([item], price),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog(),
+            profileService: new FakeProfileService(profile),
+            marketFacts: new FakeMarketFacts(item.Id, 250_000, new(0.05, 0.05, DateTimeOffset.UnixEpoch)));
+
+        var selling = Assert.IsType<V2IntelSellingFacts>((await service.GetAsync(item.Id, CancellationToken.None)).Prices?.Selling);
+
+        Assert.Equal(2, selling.HeldCount);
+        Assert.Equal(337_352, selling.AskingRoubles);
+        Assert.Equal(FleaMarketFee.Calculate(250_000, 337_352, 1, new(0.05, 0.05, DateTimeOffset.UnixEpoch)), selling.FeeRoubles);
+        Assert.Equal(selling.AskingRoubles - selling.FeeRoubles, selling.NetRoubles);
+        Assert.Equal("Therapist", selling.TraderName);
+        Assert.Equal(100_980, selling.TraderRoubles);
+    }
+
+    [Fact]
+    public async Task ItemNotRecordedAsHeldMakesNoSellingCall()
+    {
+        var item = Item("item-gpu", "Graphics card", ItemCategory.Barter);
+        var price = new ItemPriceSnapshot(337_352, [], null, null, null, Provenance);
+        var service = new ItemIntelService(
+            new FakeItemRepository([item], price),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog(),
+            profileService: new FakeProfileService(Profile(new Dictionary<string, int>())),
+            marketFacts: new FakeMarketFacts(item.Id, 250_000, new(0.05, 0.05, DateTimeOffset.UnixEpoch)));
+
+        Assert.Null((await service.GetAsync(item.Id, CancellationToken.None)).Prices?.Selling);
     }
 
     [Fact]
@@ -270,6 +315,45 @@ public sealed class ItemIntelServiceTests
         public Task<ItemNeedSummary> GetItemNeedsAsync(string itemId, CancellationToken cancellationToken) =>
             Task.FromResult(summary);
     }
+
+    private sealed class FakeProfileService(PlayerProfile profile) : IPlayerProfileService
+    {
+        public Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken) => Task.FromResult(profile);
+
+        public Task SaveAsync(PlayerProfile profile, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<string> ExportJsonAsync(CancellationToken cancellationToken) => Task.FromResult("{}");
+
+        public Task<PlayerProfile> ImportJsonAsync(string json, CancellationToken cancellationToken) => Task.FromResult(profile);
+    }
+
+    private sealed class FakeMarketFacts(string itemId, long basePrice, FleaMarketRates rates) : IItemMarketFactSource
+    {
+        public Task<ItemMarketFacts?> GetAsync(string requestedItemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemMarketFacts?>(requestedItemId == itemId
+                ? new(itemId, basePrice, 20, false, DateTimeOffset.UnixEpoch)
+                : null);
+
+        public Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<FleaMarketRates?>(rates);
+    }
+
+    private static PlayerProfile Profile(IReadOnlyDictionary<string, int> owned) => new(
+        Guid.NewGuid(),
+        "test",
+        GameMode.Regular,
+        20,
+        Faction.Usec,
+        null,
+        new Dictionary<string, int>(),
+        new HashSet<string>(),
+        new Dictionary<string, int>(),
+        new Dictionary<string, int>(),
+        new HashSet<string>(),
+        owned,
+        new Dictionary<string, TarkovCompanion.Core.Domain.Events.EventItemState>(),
+        new Dictionary<string, string>(),
+        DateTimeOffset.UnixEpoch);
 
     private sealed class FakeItemFactCatalog : IItemFactCatalog
     {

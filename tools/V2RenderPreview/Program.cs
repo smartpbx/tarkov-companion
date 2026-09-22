@@ -272,6 +272,14 @@ internal static class Program
                 DrainUntilComplete(seeding);
             }
 
+            // #284: put one catalog item in the active profile's recorded holdings so item
+            // detail can render its production selling comparison. This changes only the
+            // preview's throwaway profile; it does not synthesize any game or flea action.
+            if (StringOption(args, "--intel-held") is { } heldItemId)
+            {
+                DrainUntilComplete(SeedHeldItemAsync(services, heldItemId));
+            }
+
             UiStallMeter.Report("startup");
             if (showAfterStartup)
             {
@@ -1817,6 +1825,18 @@ internal static class Program
         }
 
         Console.WriteLine($"Marked {taskIds.Count} named quest(s) active.");
+    }
+
+    private static async Task SeedHeldItemAsync(IServiceProvider services, string itemId)
+    {
+        var profiles = services.GetRequiredService<IPlayerProfileService>();
+        var profile = await profiles.GetActiveAsync(CancellationToken.None);
+        var holdings = new Dictionary<string, int>(profile.OwnedItemCounts, StringComparer.Ordinal)
+        {
+            [itemId] = 2,
+        };
+        await profiles.SaveAsync(profile with { OwnedItemCounts = holdings }, CancellationToken.None);
+        Console.WriteLine($"Recorded 2 held for {itemId} in the preview profile.");
     }
 
     /// <summary>Three raids through the real history store; the newest of them is the one with a trail, and its id is returned.</summary>
