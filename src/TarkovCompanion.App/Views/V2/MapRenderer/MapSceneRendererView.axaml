@@ -169,23 +169,14 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
     <!-- A transit belongs to nobody's faction, so V1 drew it hollow rather than filled — the one
-         way a round badge on this map is not a solid disc. -->
+         way a round badge on this map is not a solid disc: a dark centre, a Success ring and a
+         Success glyph (InstrumentStyles' markerDisc.transit). [#606] It used to be the whole chip
+         at 55% opacity, glyph included, which on Windows read as a dark hatched blob. Declared
+         after the offer-state rings above so its own ring wins, as V1's did. -->
     <Style Selector="Border.v2-map-marker-chip.transit">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
-      <Setter Property="Opacity" Value="0.55" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
       <Setter Property="BorderThickness" Value="2" />
-    </Style>
-    <!-- The glyph sits directly on the coloured disc, so it needs the disc's own contrast rather
-         than the page's: Canvas is white-on-dark-theme's near-black and dark-on-light-theme's
-         near-white, the same relationship V1's fixed dark stroke had to its always-bright discs
-         (Action/Warning/Success are bright in both themes by design — see V2ThemeVariants). -->
-    <Style Selector="Grid.extract Path.v2-map-marker-icon, Grid.transit Path.v2-map-marker-icon">
-      <Setter Property="Width" Value="10" />
-      <Setter Property="Height" Value="10" />
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
-    </Style>
-    <Style Selector="Grid.transit Path.v2-map-marker-icon">
-      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
     <Style Selector="Grid.extract, Grid.transit">
       <Setter Property="Width" Value="16" />
@@ -201,11 +192,6 @@
                      ToggleButton.v2-map-marker:checked Grid.transit">
       <Setter Property="Width" Value="26" />
       <Setter Property="Height" Value="26" />
-    </Style>
-    <Style Selector="ToggleButton.v2-map-marker:checked Grid.extract Path.v2-map-marker-icon,
-                     ToggleButton.v2-map-marker:checked Grid.transit Path.v2-map-marker-icon">
-      <Setter Property="Width" Value="18" />
-      <Setter Property="Height" Value="18" />
     </Style>
     <Style Selector="TextBlock.v2-map-offered">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
@@ -271,6 +257,30 @@
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="VerticalAlignment" Value="Center" />
       <Setter Property="Stretch" Value="Uniform" />
+    </Style>
+    <!-- [#606] An extract's or a transit's glyph, sized for its round disc. These MUST come after
+         the generic Path.v2-map-marker-icon rule above: Avalonia has no selector specificity, the
+         later of two matching styles wins, and while these sat above it the generic 18px won.
+         The glyph then filled a 22px disc edge to edge and V1's door bracket stuck out of its
+         left side, which is the "dark square box" the owner saw on Windows (and which the
+         headless render showed too, identically). About half the disc, as V1's 12-unit glyph
+         was on its 20px disc.
+         The glyph sits directly on the coloured disc, so it needs the disc's own contrast rather
+         than the page's: Canvas is near-black in the dark theme and near-white in the light one,
+         the same relationship V1's fixed dark stroke had to its always-bright discs
+         (Action/Warning/Success are bright in both themes by design — see V2ThemeVariants). -->
+    <Style Selector="Grid.extract Path.v2-map-marker-icon, Grid.transit Path.v2-map-marker-icon">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+    <Style Selector="Grid.transit Path.v2-map-marker-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-marker:checked Grid.extract Path.v2-map-marker-icon,
+                     ToggleButton.v2-map-marker:checked Grid.transit Path.v2-map-marker-icon">
+      <Setter Property="Width" Value="15" />
+      <Setter Property="Height" Value="15" />
     </Style>
     <Style Selector="TextBlock.v2-map-marker-number">
       <Setter Property="FontSize" Value="13" />
