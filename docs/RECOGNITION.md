@@ -574,3 +574,4 @@ Reviewed stash frames cross a separate pixel-free assembly boundary described in
 `docs/STASH_SCAN.md` and ADR 0018. That boundary deduplicates exact content, stitches only unique
 evidence-backed overlap, retains unresolved origins and failed ordinal gaps, and never invents
 closed nested-container contents. It does not change this checkpoint's composition ownership.
+- Each game screenshot is recognised by the always-on scan and by an automatic V2 capture session; the shared `OcrCoordinator` reads identical pixels once for both (`SharesIdenticalFrames`, #453).
