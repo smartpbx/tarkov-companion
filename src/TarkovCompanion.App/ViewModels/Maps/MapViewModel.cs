@@ -1363,15 +1363,22 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly MapMarkerScale _markerScale = new();
     private IReadOnlyList<MapTileViewModel> _tiles = [];
 
-    /// <summary>Decoded tiles kept across map changes, so going back to a map is not a second load.</summary>
+    internal const long DecodedTileCacheCapacityBytes = 128L * 1024 * 1024;
+
+    /// <summary>Decoded tiles kept across map changes, so going back to a recent map is not a second load.</summary>
     /// <remarks>
-    /// 192 MB is three photographed maps (a map is up to 256 tiles of 256 pixels, 67 MB decoded).
-    /// The tiles of the map on screen are never evicted, whatever the budget says.
+    /// 128 MB is two maximum-size sharp tile sets (256 tiles of 256 pixels, 64 MB each). The
+    /// coarse underlay can make the map on screen exceed the budget temporarily; those tiles are
+    /// protected until the next map replaces them, then the LRU returns to its bound.
     /// </remarks>
     private readonly BoundedLruCache<string, DecodedTile> _decodedTiles = new(
-        192L * 1024 * 1024,
+        DecodedTileCacheCapacityBytes,
         tile => (long)tile.Image.PixelSize.Width * tile.Image.PixelSize.Height * 4,
         tile => ReleaseLater([tile.Image]));
+
+    internal long DecodedTileCacheBytes => _decodedTiles.Bytes;
+
+    internal int DecodedTileCacheCount => _decodedTiles.Count;
 
     private sealed record DecodedTile(string LocalPath, Bitmap Image, bool HasArtwork, bool Offline);
 
