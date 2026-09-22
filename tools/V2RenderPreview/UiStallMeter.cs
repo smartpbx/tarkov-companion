@@ -101,6 +101,10 @@ internal static class UiStallMeter
         }
     }
 
+    /// <summary>Busy and wall milliseconds, longest turn and long-turn count since the last report.</summary>
+    public static (double Busy, double Wall, double Longest, int Over) Snapshot() =>
+        (_busyMilliseconds, Stopwatch.GetElapsedTime(_startedTimestamp).TotalMilliseconds, _longest, Stalls.Count);
+
     public static void Report(string phase)
     {
         if (!Enabled)

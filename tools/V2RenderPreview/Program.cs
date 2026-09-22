@@ -1846,6 +1846,12 @@ internal static class Program
                 StallTour.RunRaidSoak(services, viewModel, shell, soakSeconds, IntOption(args, "--raid-soak-screenshot", 20), IntOption(args, "--raid-soak-group-ms", 2000));
             }
 
+            // [#657] --loot-tour on|off: pan, zoom and idle per map with the loot layer on or off.
+            if (shell is not null && StringOption(args, "--loot-tour") is { } lootTour)
+            {
+                LootTour.Run(services, viewModel, shell, lootTour == "on", (StringOption(args, "--loot-tour-maps") ?? "customs,interchange,streets-of-tarkov").Split(','), IntOption(args, "--loot-tour-idle", 60));
+            }
+
             if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
             {
                 StallTour.RunMemory(viewModel, shell, memorySwitches);
