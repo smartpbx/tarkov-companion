@@ -82,7 +82,7 @@ public sealed class StashLayoutAligner
         var byArtifact = frames
             .GroupBy(frame => frame.ArtifactId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
-        var hinted = new Dictionary<string, GridCellAddress>(StringComparer.Ordinal);
+        var hinted = new Dictionary<string, (GridCellAddress Origin, string Code)>(StringComparer.Ordinal);
 
         bool progressed;
         do
@@ -110,9 +110,16 @@ public sealed class StashLayoutAligner
                 if (FindOrigin(layout, placed) is { } origin)
                 {
                     origins[frame.ArtifactId] = origin;
-                    hinted[frame.ArtifactId] = origin;
+                    hinted[frame.ArtifactId] = (origin, "stash.origin.layout-overlap");
                     progressed = true;
                 }
+            }
+
+            if (!progressed && AddNextScrollOrderedOrigin(frames, origins) is { } ordered)
+            {
+                origins[ordered.ArtifactId] = ordered.Origin;
+                hinted[ordered.ArtifactId] = (ordered.Origin, "stash.origin.scroll-order");
+                progressed = true;
             }
         }
         while (progressed);
@@ -123,10 +130,57 @@ public sealed class StashLayoutAligner
         }
 
         return frames
-            .Select(frame => hinted.TryGetValue(frame.ArtifactId, out var origin)
-                ? WithOrigin(frame, origin, alignedUtc)
+            .Select(frame => hinted.TryGetValue(frame.ArtifactId, out var hint)
+                ? WithOrigin(frame, hint.Origin, alignedUtc, hint.Code)
                 : frame)
             .ToArray();
+    }
+
+    /// <summary>
+    /// A full-page scroll has no shared rows to match. Once overlap matching has stalled, place the
+    /// next readable scrollbar page immediately after the nearest earlier placed page, then retry
+    /// overlap matching. This preserves scroll order without guessing from capture ordinal (the
+    /// player may scroll back), and a later overlapping page supplies the exact smaller offset.
+    /// </summary>
+    private static (string ArtifactId, GridCellAddress Origin)? AddNextScrollOrderedOrigin(
+        IReadOnlyList<StashScanCaptureFrame> frames,
+        IReadOnlyDictionary<string, GridCellAddress> origins)
+    {
+        foreach (var container in frames.GroupBy(frame => frame.ContainerPath, StringComparer.Ordinal))
+        {
+            var ordered = container
+                .Where(frame => frame.Reconstruction.VerticalScrollPosition is not null && StashFrameLayout.From(frame) is not null)
+                .OrderBy(frame => frame.Reconstruction.VerticalScrollPosition)
+                .ThenBy(frame => frame.CaptureOrdinal)
+                .ToArray();
+            for (var index = 0; index < ordered.Length; index++)
+            {
+                var frame = ordered[index];
+                if (origins.ContainsKey(frame.ArtifactId))
+                {
+                    continue;
+                }
+
+                for (var previousIndex = index - 1; previousIndex >= 0; previousIndex--)
+                {
+                    var previous = ordered[previousIndex];
+                    if (!origins.TryGetValue(previous.ArtifactId, out var previousOrigin) ||
+                        StashFrameLayout.From(previous) is not { } previousLayout)
+                    {
+                        continue;
+                    }
+
+                    var samePage = Math.Abs(
+                        frame.Reconstruction.VerticalScrollPosition!.Value -
+                        previous.Reconstruction.VerticalScrollPosition!.Value) <= 0.01;
+                    return (
+                        frame.ArtifactId,
+                        new GridCellAddress(previousOrigin.Row + (samePage ? 0 : previousLayout.Rows), 0));
+                }
+            }
+        }
+
+        return null;
     }
 
     private static GridCellAddress? FindOrigin(
@@ -196,12 +250,16 @@ public sealed class StashLayoutAligner
             : null;
     }
 
-    private static StashScanCaptureFrame WithOrigin(StashScanCaptureFrame frame, GridCellAddress origin, DateTimeOffset alignedUtc)
+    private static StashScanCaptureFrame WithOrigin(
+        StashScanCaptureFrame frame,
+        GridCellAddress origin,
+        DateTimeOffset alignedUtc,
+        string code)
     {
         var observedUtc = alignedUtc < frame.Provenance.ObservedUtc ? frame.Provenance.ObservedUtc : alignedUtc;
         var provenance = new EvidenceProvenance(
             EvidenceSourceClass.DerivedCalculation,
-            "stash.origin.layout-overlap",
+            code,
             observedUtc,
             EvidenceConfidence.Unscored,
             Producer,
@@ -210,7 +268,7 @@ public sealed class StashLayoutAligner
         var hint = new EvidencedValue<GridCellAddress?>(
             $"stash.origin.{frame.CaptureOrdinal}",
             origin,
-            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, "stash.origin.layout-overlap"),
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, code),
             provenance);
         return new StashScanCaptureFrame(
             frame.SessionId,

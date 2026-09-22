@@ -60,6 +60,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 {
     private readonly IRuntimeStateStore _runtime;
     private readonly IItemIntelService _intel;
+
+    internal bool FleaPricesAreOffline => _runtime.Current.IsOffline;
+
+    internal TimeProvider FleaClock => _clock;
     private readonly IWikiLinkOpener _wikiOpener;
     private readonly StashScanWorkspaceViewModel? _stashScan;
     private readonly DebriefWorkspaceViewModel? _debrief;

@@ -1002,7 +1002,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 camera.Zoom * factor,
                 camera.BearingDegrees,
                 camera.PitchDegrees))));
-        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
+        CameraZoomedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     public void RequestPan(double viewportDeltaX, double viewportDeltaY)
@@ -1033,7 +1033,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     /// <summary>Starts a drag from the camera as it stands. The scene is not touched.</summary>
     /// <summary>
-    /// The player moved the camera themselves — a drag they finished, or a zoom they asked for.
+    /// The player moved the camera themselves by finishing a drag.
     /// </summary>
     /// <remarks>
     /// [V2 rough package 46] Reported as "when I zoom in and then try to pan, it snaps back to
@@ -1046,12 +1046,20 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// that is nearly invisible, because the fit already shows the whole map; at zoom 2 or 3 it
     /// is exactly the snap he describes.
     ///
-    /// Raised at the gesture boundary rather than from the camera change, because the follow
+    /// Raised at the gesture boundary rather than from the camera change, because Follow
     /// moves the camera through the same reducer and must not be mistaken for the player doing
-    /// it. Fit does not raise it either: fitting is how you ask for the whole map back, and V1
-    /// treats it as re-arming the follow.
+    /// it. Zoom has its own event because a following host can keep Follow and remember the new
+    /// magnification. Fit does not raise either event.
     /// </remarks>
     public event EventHandler? CameraMovedByPlayer;
+
+    /// <summary>The player changed magnification without necessarily asking to stop following.</summary>
+    /// <remarks>
+    /// [Issue 663] A following raid map treats the wheel as a new follow magnification. Keeping
+    /// this separate from a drag lets its host preserve Follow for zoom while a pan still turns
+    /// Follow off. A generic renderer has no Follow state of its own, so it only reports intent.
+    /// </remarks>
+    public event EventHandler? CameraZoomedByPlayer;
 
     public void BeginPan()
     {
@@ -1156,7 +1164,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         Request(new(
             MapSceneViewChangeKind.SetCamera,
             Camera: Clamp(new(moved.X, moved.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
-        CameraMovedByPlayer?.Invoke(this, EventArgs.Empty);
+        CameraZoomedByPlayer?.Invoke(this, EventArgs.Empty);
     }
 
     private MapSceneCamera PanTargetCamera(MapSceneCamera start, double viewportDeltaX, double viewportDeltaY)
@@ -2042,7 +2050,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var eligible = markers
             .Where(marker => marker.SceneObject is not null &&
-                marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective)
+                marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective
+                    or MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Ping)
             .ToArray();
         var groups = MapMarkerOverlapLayout.Stacks(
             eligible.Select(marker => (marker.AnchorLeft, marker.AnchorTop)).ToArray(),
@@ -3362,9 +3371,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 
     /// <summary>
     /// [#573] Drawn smaller with the plan fitted and full size zoomed in (<see cref="MapMarkerScale"/>).
-    /// A person, a ping and a count badge keep their size: they are what a crowded map must not hide.
+    /// A person and a count badge keep their size. Hand-authored waypoints and pings scale with
+    /// every other mark so the player's own dense spot does not bury the map at fit zoom.
     /// </summary>
-    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
+    public double MarkerScale => IsCluster || IsPersonIcon || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
 
     /// <summary>The mark's hit box in its own DIPs, so it is never under 32 screen pixels however small it is drawn.</summary>
     public double HitExtent => MapMarkerScale.HitExtent(MarkerScale);

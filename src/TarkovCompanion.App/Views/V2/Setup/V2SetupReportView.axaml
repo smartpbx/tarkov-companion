@@ -10,7 +10,7 @@
             Content="{Binding ReviewLabel}" Command="{Binding PreviewCommand}" />
     <Border Classes="v2-card" IsVisible="{Binding HasPreview}" AutomationProperties.AutomationId="v2-setup-report-preview">
       <StackPanel Classes="v2-stack">
-        <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+        <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
         <TextBlock Classes="v2-label" Text="{Binding Note}" TextWrapping="Wrap" />
         <TextBox Classes="v2-field-input" Text="{Binding ReportText, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True"
                  TextWrapping="Wrap" MaxHeight="280" FontFamily="Consolas,Menlo,monospace"

@@ -43,6 +43,8 @@
             <TextBlock Classes="v2-body" Text="{Binding TraderLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-body" Text="{Binding AverageLabel}" TextWrapping="Wrap" />
             <TextBlock Classes="v2-label" Text="{Binding ItemLabel}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding MarketDataNote}" TextWrapping="Wrap"
+                       IsVisible="{Binding HasMarketDataNote}" />
           </StackPanel>
           <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
             <ItemsControl ItemsSource="{Binding Rows}">
@@ -50,16 +52,18 @@
                 <DataTemplate x:DataType="vm:FleaScanRowViewModel">
                   <Border Classes="v2-flea-scan-row" Padding="10,6" Margin="0,2"
                           AutomationProperties.AutomationId="{Binding AutomationId}">
-                    <Grid ColumnDefinitions="250,*,Auto" ColumnSpacing="14">
-                      <StackPanel Spacing="1">
+                    <Grid ColumnDefinitions="78,220,*,Auto" ColumnSpacing="14">
+                      <TextBlock Grid.Column="0" Classes="v2-label" FontWeight="SemiBold"
+                                 Text="{Binding RankLabel}" VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1" Spacing="1">
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding PriceLabel}" />
                         <TextBlock Classes="v2-label" Text="{Binding StackLabel}" TextTrimming="CharacterEllipsis" />
                       </StackPanel>
-                      <StackPanel Grid.Column="1" Spacing="1">
+                      <StackPanel Grid.Column="2" Spacing="1">
                         <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" TextWrapping="Wrap" />
                         <TextBlock Classes="v2-label" Text="{Binding ConfidenceLabel}" />
                       </StackPanel>
-                      <Border Grid.Column="2" Classes="v2-flea-verdict" Classes.good="{Binding IsGoodBuy}"
+                      <Border Grid.Column="3" Classes="v2-flea-verdict" Classes.good="{Binding IsGoodBuy}"
                               VerticalAlignment="Center" Padding="8,3" CornerRadius="4">
                         <TextBlock Classes="v2-label" FontWeight="SemiBold" Text="{Binding VerdictLabel}" />
                       </Border>

@@ -2,7 +2,8 @@
              x:DataType="vm:SetupProfilesViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+             xmlns:setup="using:TarkovCompanion.App.Views.V2.Setup">
   <UserControl.Styles>
     <Style Selector="Border.v2-profile-row">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
@@ -27,7 +28,7 @@
        is decoration: each button is the app changing which progress it reads and which game data it
        loads, through the same service the tests drive. -->
   <StackPanel Classes="v2-stack">
-    <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
     <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
     <TextBlock Classes="v2-label" Text="{Binding Notice}" IsVisible="{Binding HasNotice}" TextWrapping="Wrap"
                Foreground="{DynamicResource V2.Brush.Warning}"
@@ -102,7 +103,7 @@
     <CheckBox Content="{Binding ShowArchivedLabel}" IsChecked="{Binding ShowArchived}" IsVisible="{Binding HasArchived}"
               AutomationProperties.AutomationId="v2-setup-profile-show-archived" />
 
-    <TextBlock Classes="v2-body" Text="{Binding NewHeading}" FontWeight="SemiBold" Margin="0,8,0,0" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding NewHeading}" AutomationProperties.HeadingLevel="3" Margin="0,8,0,0" />
     <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">
       <StackPanel Grid.Column="0" Classes="v2-field">
         <TextBlock Classes="v2-label" Text="{Binding NameLabel}" />
@@ -135,5 +136,10 @@
     <TextBlock Classes="v2-label" Text="{Binding Message}" IsVisible="{Binding HasMessage}" TextWrapping="Wrap"
                Classes.error="{Binding MessageIsError}"
                AutomationProperties.AutomationId="v2-setup-profile-message" />
+
+    <!-- [#269] Export this profile's progress to a file, or import one into it or a new profile. -->
+    <Panel Margin="0,12,0,0" IsVisible="{Binding HasTransfer}">
+      <setup:V2SetupProfileTransferView DataContext="{Binding Transfer}" />
+    </Panel>
   </StackPanel>
 </UserControl>

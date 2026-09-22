@@ -50,6 +50,26 @@ public sealed class StashScanWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Loading_after_a_capture_was_skipped_explains_what_to_do_next()
+    {
+        var store = new FakeSnapshotStore();
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var captureStatus = new StashScanCaptureStatus();
+        captureStatus.ReportNoActiveProfile();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(V2ShellTestData.Snapshot() with { Profile = null }),
+            captureStatus: captureStatus);
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal(StashScanCaptureStatus.NoActiveProfileMessage, viewModel.Status);
+    }
+
+    [Fact]
     public void SelectedItemDisplayNameIsNeverNullSoTheHiddenCorrectionCardNeverBindsAgainstNull()
     {
         var store = new FakeSnapshotStore();

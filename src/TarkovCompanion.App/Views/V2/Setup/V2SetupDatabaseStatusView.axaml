@@ -6,7 +6,7 @@
   <!-- #292 task 3: the database's migration state and its newest verified backup, both read from
        SqliteMigrationRunner rather than reimplemented here. -->
   <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-setup-database-status">
-    <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding HeadingLabel}" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding HeadingLabel}" AutomationProperties.HeadingLevel="3" />
     <TextBlock Classes="v2-label" Text="{Binding VersionLine}"
                AutomationProperties.AutomationId="v2-setup-database-version" />
     <TextBlock Classes="v2-label" Text="{Binding BackupLine}"

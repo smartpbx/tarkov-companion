@@ -77,7 +77,8 @@ public sealed class InventoryGridReconstructor
             request.Surface,
             recognition,
             unresolved,
-            issues);
+            issues,
+            request.VerticalScrollPosition);
     }
 
     private static GridReconstructionResult NoChange(
@@ -87,7 +88,8 @@ public sealed class InventoryGridReconstructor
             request.Surface,
             null,
             request.OccupiedCells,
-            [new GridReconstructionIssue(issue)]);
+            [new GridReconstructionIssue(issue)],
+            request.VerticalScrollPosition);
 
     private static void MarkDuplicateIds(
         IReadOnlyList<WorkingCell> cells,
