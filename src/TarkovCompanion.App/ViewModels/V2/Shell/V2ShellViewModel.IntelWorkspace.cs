@@ -586,6 +586,8 @@ public sealed partial class V2ShellViewModel
         {
             OnPropertyChanged(property);
         }
+
+        SyncIntelCompare();
     }
 
     private static bool MatchesKind(string category, V2IntelKindFilter kind) => kind switch

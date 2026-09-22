@@ -1,0 +1,90 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.IntelCompareView"
+             x:DataType="intelVm:IntelCompareViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             AutomationProperties.AutomationId="v2-intel-compare">
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
+    <!-- #287: the best value in a row. The check and the "best" in its accessible name carry the
+         meaning; the colour only backs them up. -->
+    <Style Selector="TextBlock.v2-intel-compare-best">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Border.v2-intel-compare-row">
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="Border.v2-intel-compare-row.alternate">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Border Background="{DynamicResource V2.Brush.Surface}" CornerRadius="{DynamicResource V2.Shape.Card}">
+    <Grid RowDefinitions="Auto,*">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="24,18,24,8">
+        <StackPanel Grid.Column="0" Spacing="4">
+          <TextBlock Classes="v2-intel-name" Focusable="True" AutomationProperties.HeadingLevel="1"
+                     AutomationProperties.AutomationId="v2-intel-compare-heading" Text="{Binding Heading}" />
+          <TextBlock Classes="v2-label" IsVisible="{Binding HasKindNote}" Text="{Binding KindNote}" />
+        </StackPanel>
+        <Button Grid.Column="1" Classes="v2-target v2-intel-secondary" VerticalAlignment="Top"
+                AutomationProperties.AutomationId="v2-intel-compare-close"
+                Command="{Binding CloseCommand}" Content="{Binding CloseLabel}" />
+      </Grid>
+
+      <TextBlock Grid.Row="1" Classes="v2-label" Margin="24,8" IsVisible="{Binding IsLoading}" Text="{Binding LoadingLabel}" />
+
+      <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsTable}" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24,8,24,24">
+          <!-- Column heads: one per item, the same width as the values under them. -->
+          <Border Classes="v2-intel-compare-row">
+            <Grid ColumnDefinitions="180,*" ColumnSpacing="12">
+              <ItemsControl Grid.Column="1" ItemsSource="{Binding ColumnNames}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><UniformGrid Rows="1" Columns="{Binding ColumnCount}" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Classes="v2-heading-3" Margin="0,0,12,0" TextWrapping="Wrap" Text="{Binding}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </Border>
+          <ItemsControl ItemsSource="{Binding Rows}" AutomationProperties.AutomationId="v2-intel-compare-rows">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="intelVm:IntelCompareRowViewModel">
+                <Border Classes="v2-intel-compare-row" Classes.alternate="{Binding IsAlternate}">
+                  <Grid ColumnDefinitions="180,*" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding Label}" />
+                    <ItemsControl Grid.Column="1" ItemsSource="{Binding Cells}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                          <UniformGrid Rows="1" Columns="{Binding $parent[UserControl].((intelVm:IntelCompareViewModel)DataContext).ColumnCount}" />
+                        </ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="intelVm:IntelCompareCellViewModel">
+                          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" Margin="0,0,12,0"
+                                AutomationProperties.Name="{Binding AccessibleText}">
+                            <Path Grid.Column="0" Classes="v2-icon v2-intel-yes" VerticalAlignment="Center"
+                                  IsVisible="{Binding IsBest}" Data="{DynamicResource V2.Icon.Check}" />
+                            <TextBlock Grid.Column="1" Classes="v2-body" Classes.v2-intel-compare-best="{Binding IsBest}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding Text}" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+  </Border>
+</UserControl>

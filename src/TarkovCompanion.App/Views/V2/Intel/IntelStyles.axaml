@@ -95,6 +95,12 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     </Style>
+    <!-- #287: the compare tray across the top of the detail pane. -->
+    <Style Selector="Border.v2-intel-compare-tray">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="24,10" />
+    </Style>
     <Style Selector="Border.v2-intel-fact">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
