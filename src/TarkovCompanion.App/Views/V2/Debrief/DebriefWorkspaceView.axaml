@@ -273,7 +273,7 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-debrief-history">
         <Grid RowDefinitions="Auto,Auto,Auto">
-          <Border Grid.Row="0" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
+          <Border Grid.Row="1" BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,12">
             <Grid Classes="v2-debrief-columns" ColumnDefinitions="2*,*,2*,*,2*" ColumnSpacing="16">
               <TextBlock Grid.Column="0" Classes="v2-debrief-muted" Text="Map" FontWeight="SemiBold" />
               <TextBlock Grid.Column="1" Classes="v2-debrief-muted" Text="Mode" FontWeight="SemiBold" />
@@ -284,8 +284,10 @@
           </Border>
           <!-- V2 rough package 26 (log facts): per-map stats, measured from raid history. No
                survival column: the game records no outcome and this does not invent one from a
-               field the player fills in by hand. -->
-          <Border Grid.Row="1" IsVisible="{Binding HasMapStats}"
+               field the player fills in by hand. Drawn above the raid table's column heads, not
+               between them and the rows: under "Mode" and "Started" its own columns read as a
+               misaligned raid. -->
+          <Border Grid.Row="0" IsVisible="{Binding HasMapStats}" Background="{DynamicResource V2.Brush.Canvas}"
                   BorderBrush="{DynamicResource V2.Brush.SurfaceRaised}" BorderThickness="0,0,0,1" Padding="20,10">
             <StackPanel Spacing="6">
               <TextBlock Classes="v2-debrief-muted" Text="By map" FontWeight="SemiBold" />
@@ -445,7 +447,7 @@
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Chart}" />
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Cart}" />
                   <TextBlock Classes="v2-debrief-strong" Text="Flea sales" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="Nothing sold during this raid." IsVisible="{Binding !HasSelectedSales}" />
@@ -466,7 +468,7 @@
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Quest}" />
+                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Clipboard}" />
                   <TextBlock Classes="v2-debrief-strong" Text="Quests" VerticalAlignment="Center" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="No quest events during this raid." IsVisible="{Binding !HasSelectedQuestEvents}" />

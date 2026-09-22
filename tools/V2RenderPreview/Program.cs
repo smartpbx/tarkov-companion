@@ -1776,13 +1776,13 @@ internal static class Program
         {
             var started = now - startedAgo;
             var id = await history.StartAsync(
-                new(Guid.NewGuid(), profile.Id, map, "Pmc", started, null, null, null),
+                new(Guid.NewGuid(), profile.Id, map, "Regular", started, null, null, null),
                 CancellationToken.None);
             await history.EndAsync(id, started + length, outcome, notes, CancellationToken.None);
             return id;
         }
 
-        await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
+        await Raid("factory", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
         // The companion's own words for a raid it found closed on restart, so the preview shows an
         // inferred end beside the hand-typed and observed ones.
         await Raid(
