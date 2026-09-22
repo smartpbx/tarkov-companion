@@ -31,7 +31,7 @@ namespace TarkovCompanion.Infrastructure.Profile;
 /// profile the player has since moved to. With no active profile (a V1 launch, or before the first
 /// profile exists) everything goes to <c>profile.json</c> exactly as before.
 /// </remarks>
-public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, IDisposable
+public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, IPlayerProfileChangeSource, IDisposable
 {
     private readonly IPlayerProfileService _legacy;
     private readonly IProfileRuntimeContextService _context;
@@ -41,6 +41,8 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
     private readonly SemaphoreSlim _seedGate = new(1, 1);
     private readonly ILogger<ProfileScopedPlayerProfileService> _logger;
     private Guid? _legacyProfileId;
+
+    public event Action<PlayerProfile>? Changed;
 
     public ProfileScopedPlayerProfileService(
         IPlayerProfileService legacy,
@@ -79,6 +81,7 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
         }
 
         await target.Service.SaveAsync(profile, cancellationToken).ConfigureAwait(false);
+        PublishChanged(profile);
     }
 
     public async Task<string> ExportJsonAsync(CancellationToken cancellationToken)
@@ -93,7 +96,9 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
         var imported = await target.Service.ImportJsonAsync(json, cancellationToken).ConfigureAwait(false);
         if (target.Active is not { } active || imported.Id == active.Context.Identity.ProfileId)
         {
-            return Remember(target, imported);
+            var remembered = Remember(target, imported);
+            PublishChanged(remembered);
+            return remembered;
         }
 
         // An import carries the id of whoever exported it. It replaces this profile's progress; it
@@ -105,6 +110,7 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
             GameMode = ToLegacyMode(active.Context.Mode),
         };
         await target.Service.SaveAsync(pinned, cancellationToken).ConfigureAwait(false);
+        PublishChanged(pinned);
         return pinned;
     }
 
@@ -189,6 +195,30 @@ public sealed class ProfileScopedPlayerProfileService : IPlayerProfileService, I
         }
 
         return profile;
+    }
+
+    /// <summary>
+    /// The profile is already durable when this runs. A presentation subscriber cannot turn a
+    /// successful save into a failed one or prevent another subscriber from hearing about it.
+    /// </summary>
+    private void PublishChanged(PlayerProfile profile)
+    {
+        if (Changed is not { } handlers)
+        {
+            return;
+        }
+
+        foreach (Action<PlayerProfile> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(profile);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "A player-profile subscriber failed after profile {ProfileId} was saved.", profile.Id);
+            }
+        }
     }
 
     /// <summary>
