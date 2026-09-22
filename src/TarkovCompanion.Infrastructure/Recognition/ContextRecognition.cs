@@ -280,6 +280,80 @@ public sealed class OcrCoordinator
         CancellationToken cancellationToken)
     {
         CapturedImagePixels.Validate(image);
+        if (!SharesIdenticalFrames)
+        {
+            return await RecognizeCoreAsync(image, cancellationToken).ConfigureAwait(false);
+        }
+
+        var key = FrameKey(image);
+        for (var attempt = 0; ; attempt++)
+        {
+            Task<CoordinatedOcrResult> shared;
+            lock (_recent)
+            {
+                var found = _recent.FirstOrDefault(entry => entry.Key == key);
+                if (found.Task is { IsFaulted: false, IsCanceled: false } reusable)
+                {
+                    shared = reusable;
+                }
+                else
+                {
+                    _recent.RemoveAll(entry => entry.Key == key);
+                    shared = RecognizeCoreAsync(image, cancellationToken);
+                    _recent.Add((key, shared));
+                    if (_recent.Count > RecentFrames)
+                    {
+                        _recent.RemoveAt(0);
+                    }
+                }
+            }
+
+            try
+            {
+                var result = await shared.WaitAsync(cancellationToken).ConfigureAwait(false);
+                if (result.IsPartial || !result.FullFrame.IsAvailable)
+                {
+                    // A reading cut short (a deadline, a provider out of memory) is this caller's
+                    // outcome, not a fact about the frame for the next one to inherit.
+                    lock (_recent)
+                    {
+                        _recent.RemoveAll(entry => ReferenceEquals(entry.Task, shared));
+                    }
+                }
+
+                return result;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && attempt == 0)
+            {
+                // The caller that started the shared reading gave up on it; read for this one.
+            }
+        }
+    }
+
+    /// <summary>
+    /// [#453] Whether a frame that is being, or was just, read is read once for every caller.
+    /// </summary>
+    /// <remarks>
+    /// Every game screenshot is recognised by the always-on scan (Raid HUD, Debrief scans) and by
+    /// the V2 capture session as well, through this one coordinator, so on the player's PC each
+    /// screenshot paid for its OCR twice while the game was running. Off by default: a caller that
+    /// reads the same pixels twice on purpose (a test, a re-decode with another engine) gets two
+    /// readings unless the host opts in.
+    /// </remarks>
+    public bool SharesIdenticalFrames { get; set; }
+
+    private const int RecentFrames = 4;
+
+    private readonly List<(string Key, Task<CoordinatedOcrResult> Task)> _recent = [];
+
+    private static string FrameKey(CapturedImage image) => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"{image.Width}x{image.Height}/{image.Stride}/{image.Format}:{Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(image.Pixels.Span))}");
+
+    private async Task<CoordinatedOcrResult> RecognizeCoreAsync(
+        CapturedImage image,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
         var fullFrame = await ReadAsync(image, new OcrRequest(ScanContext.Unknown), null, deadline)

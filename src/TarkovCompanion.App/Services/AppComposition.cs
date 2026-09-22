@@ -590,7 +590,13 @@ public static class AppComposition
         services.AddSingleton<IInvalidatableProjection>(provider =>
             provider.GetRequiredService<CanonicalItemResolverCache>());
         services.AddSingleton<ScanContextDetector>();
-        services.AddSingleton<OcrCoordinator>();
+        // [#453] One OCR per screenshot: the always-on scan and the V2 capture session read the same frame.
+        services.AddSingleton(provider =>
+        {
+            var coordinator = ActivatorUtilities.CreateInstance<OcrCoordinator>(provider);
+            coordinator.SharesIdenticalFrames = true;
+            return coordinator;
+        });
         services.AddSingleton<RecognitionService>();
         services.AddSingleton<IRecognitionService>(provider => provider.GetRequiredService<RecognitionService>());
         services.AddSingleton<RecognitionSelfTest>();
