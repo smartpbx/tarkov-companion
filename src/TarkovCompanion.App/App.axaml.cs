@@ -65,13 +65,16 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     // Wires #271's capture sessions and the #274/#282 Loot Scan decision path into
                     // this shell instance. Resolved (not merely registered) so it starts observing
                     // for the life of the process; legacy launches never build it.
-                    services.GetRequiredService<V2ShellCaptureBridge>();
+                    var captureBridge = services.GetRequiredService<V2ShellCaptureBridge>();
                     // [V2 rough package 24] Same reason: resolved so the paired tablets' map
                     // starts following this shell's own raid map for the life of the process.
                     var tabletPublisher = services.GetRequiredService<TabletMapSurfacePublisher>();
                     // #290: Team > Tablet's "Send to tablet" publishes through the same publisher.
                     services.GetRequiredService<CompanionPairingViewModel>().SendMapToTablet =
                         tabletPublisher.SendToTabletAsync;
+                    // #572: and every Loot Scan result goes to the paired tablet as well.
+                    captureBridge.LootScanShown += result =>
+                        tabletPublisher.ShowLootResult(TabletLootResultBuilder.From(result));
                     // One-time, best-effort: gives #269's profile context something real to
                     // report without a v1/v2 profile migration UI. See the bootstrap's own remarks.
                     _ = services.GetRequiredService<LegacyProfileContextBootstrap>()

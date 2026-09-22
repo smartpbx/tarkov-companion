@@ -1549,6 +1549,14 @@ internal static class Program
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
             // workspaces can be seen populated. Both go through the real services (the loot
             // planner, the snapshot store), so nothing here invents presentation state.
+            // #572: "Show loot results on the tablet only", ticked, so a render can show the desk
+            // staying on the map (needs --pairing-demo paired for the paired tablet).
+            if (args.Contains("--loot-tablet-only") &&
+                services.GetService<TarkovCompanion.App.ViewModels.V2.Setup.SetupAdminViewModel>()?.LootScan is { } lootSettings)
+            {
+                lootSettings.TabletOnly = true;
+            }
+
             if (shell is not null && args.Contains("--loot-demo"))
             {
                 var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()

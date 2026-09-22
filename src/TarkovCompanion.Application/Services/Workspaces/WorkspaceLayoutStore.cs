@@ -37,6 +37,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 572] Seconds before an automatic Loot result returns to the map, or "off".</summary>
     public const string LootAutoReturnSeconds = "loot.auto-return-seconds";
 
+    /// <summary>[Issue 572] "on" when a Loot result goes to the paired tablet and the desktop stays on the map.</summary>
+    public const string LootOnTabletOnly = "loot.tablet-only";
+
     /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
     public static string RaidCard(string cardId) => $"raid.card.{cardId}";
 }

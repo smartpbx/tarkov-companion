@@ -87,6 +87,23 @@ public sealed class LootScanStageProgressTests
         Assert.Equal(TimeSpan.FromSeconds(30), new SetupLootScanViewModel(layout, null).Timeout);
     }
 
+    // #572: "Show loot results on the tablet only" is kept like the countdown is.
+    [Fact]
+    public void TabletOnlyIsRememberedAcrossARestart()
+    {
+        var layout = new MemoryLayout();
+        var setup = new SetupLootScanViewModel(layout, null);
+        Assert.False(setup.TabletOnly);
+
+        setup.ToggleTabletOnlyCommand.Execute(null);
+
+        Assert.True(setup.TabletOnly);
+        Assert.Equal("on", layout.Get(WorkspaceLayoutKeys.LootOnTabletOnly));
+        Assert.True(new SetupLootScanViewModel(layout, null).TabletOnly);
+        setup.ToggleTabletOnlyCommand.Execute(null);
+        Assert.False(new SetupLootScanViewModel(layout, null).TabletOnly);
+    }
+
     [Theory]
     [InlineData("2", 5)]
     [InlineData("600", 60)]
