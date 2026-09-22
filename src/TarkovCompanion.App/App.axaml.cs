@@ -70,6 +70,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                     // [V2 rough package 24] Same reason: resolved so the paired tablets' map
                     // starts following this shell's own raid map for the life of the process.
                     var tabletPublisher = services.GetRequiredService<TabletMapSurfacePublisher>();
+                    // #407: the authorised Control command used to stop at the Raid map handler.
+                    // The same publisher now hands its allowlisted workspace to this shell.
+                    tabletPublisher.AttachDesktopWorkspaceNavigation(
+                        () => viewModel.PreviewShell.Router.Current.Location.Route,
+                        viewModel.PreviewShell.GoTo);
                     // #290: Team > Tablet's "Send to tablet" publishes through the same publisher.
                     services.GetRequiredService<CompanionPairingViewModel>().SendMapToTablet =
                         tabletPublisher.SendToTabletAsync;

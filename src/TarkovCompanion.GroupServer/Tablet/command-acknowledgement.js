@@ -70,7 +70,9 @@
       case "deleteMark": return "Removing a mark";
       case "requestControl": return "Taking control";
       case "setInteractionMode": return "Changing mode";
-      case "controlWorkspace": return "Moving the map";
+      case "controlWorkspace": return command.action?.type === "navigate" && command.action?.workspace !== "Raid"
+        ? "Switching workspace"
+        : "Moving the map";
       case "showOnDesktop": return "Showing on the desktop";
       default: return "That";
     }
