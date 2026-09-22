@@ -467,6 +467,73 @@ public sealed class RealStashFrameMeasurementTests(ITestOutputHelper output)
         }
     }
 
+    [Fact]
+    public async Task PlacesTheSevenScreenRealStashBurst()
+    {
+        var folder = Environment.GetEnvironmentVariable("TARKOV_STASH_REAL_FRAMES") ?? DefaultFrames;
+        if (!Directory.Exists(folder))
+        {
+            output.WriteLine($"[stash-real] skipped: no folder at {folder}.");
+            return;
+        }
+
+        var paths = Directory.EnumerateFiles(folder, "*.png").OrderBy(path => path, StringComparer.Ordinal).Take(7).ToArray();
+        Assert.Equal(7, paths.Length);
+        var loader = new SkiaScreenshotImageLoader();
+        var builder = new GridPixelReconstructionBuilder(
+            new StashScanMeasurement.FixedIconEvidenceCache([]),
+            new StashScanMeasurement.FixedItemRepository(new Dictionary<string, TarkovCompanion.Core.Domain.Items.ItemDefinition>()),
+            new StashScanMeasurement.UnavailableOcrEngine());
+        var reconstructor = new InventoryGridReconstructor();
+        var sessionId = new TarkovCompanion.Core.Abstractions.V2.CaptureSessionId(Guid.NewGuid());
+        var frames = new List<TarkovCompanion.Application.Services.StashScan.StashScanCaptureFrame>();
+        for (var index = 0; index < paths.Length; index++)
+        {
+            var image = await loader.LoadAsync(paths[index], CancellationToken.None)
+                ?? throw new InvalidOperationException($"frame {index} did not decode");
+            var request = await builder.BuildAsync(
+                image,
+                TarkovCompanion.Core.Domain.Recognition.Grid.InventoryGridSurface.Stash,
+                StashScanMeasurement.ObservedUtc,
+                cancellationToken: CancellationToken.None);
+            frames.Add(StashScanMeasurement.Frame(
+                sessionId,
+                index,
+                image,
+                reconstructor.Reconstruct(request, CancellationToken.None),
+                confirmsStart: index == 0));
+        }
+
+        TarkovCompanion.Application.Services.StashScan.StashScanAssemblyRequest Request(
+            IReadOnlyList<TarkovCompanion.Application.Services.StashScan.StashScanCaptureFrame> captures) => new(
+                "real-burst-result",
+                "real-burst-snapshot",
+                sessionId,
+                new(Guid.Parse("77777777-7777-7777-7777-777777777777"), "generation-a", "Pvp"),
+                "real-data",
+                StashScanMeasurement.ObservedUtc,
+                captures);
+        var assembler = new TarkovCompanion.Application.Services.StashScan.StashScanAssembler();
+        var aligned = new TarkovCompanion.Application.Services.StashScan.StashLayoutAligner()
+            .AddLayoutOrigins(frames, assembler.Assemble(Request(frames)), StashScanMeasurement.ObservedUtc);
+        var regions = assembler.Assemble(Request(aligned)).Recognition.Result.Value!.CapturedRegions;
+        var placed = regions.Count(region => region.OriginInContainer.Value is not null);
+        var report = string.Join(
+            Environment.NewLine,
+            regions.OrderBy(region => region.CaptureOrdinal).Select(region =>
+                $"[stash-real] burst frame {region.CaptureOrdinal}: scrollbar {frames[region.CaptureOrdinal].Reconstruction.VerticalScrollPosition?.ToString("F3", CultureInfo.InvariantCulture) ?? "unreadable"} · origin {region.OriginInContainer.Value?.Row.ToString(CultureInfo.InvariantCulture) ?? "unplaced"}")) +
+            Environment.NewLine + $"[stash-real] burst placed {placed}/7";
+        output.WriteLine(report);
+        Console.WriteLine(report);
+        if (Environment.GetEnvironmentVariable("TARKOV_STASH_REAL_REPORT") is { } reportDirectory)
+        {
+            Directory.CreateDirectory(reportDirectory);
+            await File.WriteAllTextAsync(Path.Combine(reportDirectory, "burst-placement.txt"), report);
+        }
+
+        Assert.Equal(7, placed);
+    }
+
     private const int ViewportX = 2232;
     private const int ViewportY = 84;
     private const int ViewportWidth = 618;
