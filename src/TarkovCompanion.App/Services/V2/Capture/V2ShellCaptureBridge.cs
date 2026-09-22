@@ -174,7 +174,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// <summary>A photographed flea screen: its rows open in Intel &gt; Flea, and the review says how many paid.</summary>
     private void OnFleaListingsRead(object? sender, FleaScanResult scan)
     {
-        var viewModel = new TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel(scan);
+        var viewModel = new TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel(
+            scan,
+            offline: _shell.FleaPricesAreOffline,
+            timeProvider: _shell.FleaClock);
         _fleaScan = viewModel;
         lock (_gate)
         {

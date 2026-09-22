@@ -272,7 +272,8 @@ public sealed record GridReconstructionRequest
     public GridReconstructionRequest(
         InventoryGridSurface surface,
         DetectedGridLattice? lattice,
-        IReadOnlyList<GridCellObservation> occupiedCells)
+        IReadOnlyList<GridCellObservation> occupiedCells,
+        double? verticalScrollPosition = null)
     {
         if (!Enum.IsDefined(surface))
         {
@@ -291,6 +292,7 @@ public sealed record GridReconstructionRequest
         Surface = surface;
         Lattice = lattice;
         OccupiedCells = Copy(occupiedCells, observationCount, nameof(occupiedCells));
+        VerticalScrollPosition = ValidScrollPosition(verticalScrollPosition, nameof(verticalScrollPosition));
     }
 
     public InventoryGridSurface Surface { get; }
@@ -298,6 +300,14 @@ public sealed record GridReconstructionRequest
     public DetectedGridLattice? Lattice { get; }
 
     public IReadOnlyList<GridCellObservation> OccupiedCells { get; }
+
+    /// <summary>Scrollbar thumb position from top (0) to bottom (1), when visible and readable.</summary>
+    public double? VerticalScrollPosition { get; }
+
+    private static double? ValidScrollPosition(double? value, string parameterName) =>
+        value is null || double.IsFinite(value.Value) && value.Value is >= 0 and <= 1
+            ? value
+            : throw new ArgumentOutOfRangeException(parameterName);
 
     private static ReadOnlyCollection<GridCellObservation> Copy(
         IReadOnlyList<GridCellObservation> values,
@@ -367,7 +377,8 @@ public sealed record GridReconstructionResult
         InventoryGridSurface surface,
         GridRecognition? recognition,
         IReadOnlyList<GridCellObservation> unresolvedCells,
-        IReadOnlyList<GridReconstructionIssue> issues)
+        IReadOnlyList<GridReconstructionIssue> issues,
+        double? verticalScrollPosition = null)
     {
         if (!Enum.IsDefined(outcome))
         {
@@ -414,6 +425,10 @@ public sealed record GridReconstructionResult
         Recognition = recognition;
         UnresolvedCells = Copy(unresolvedCells, unresolvedCount, nameof(unresolvedCells));
         Issues = Copy(issues, issueCount, nameof(issues));
+        VerticalScrollPosition = verticalScrollPosition is null ||
+                                 double.IsFinite(verticalScrollPosition.Value) && verticalScrollPosition.Value is >= 0 and <= 1
+            ? verticalScrollPosition
+            : throw new ArgumentOutOfRangeException(nameof(verticalScrollPosition));
     }
 
     public GridReconstructionOutcome Outcome { get; }
@@ -425,6 +440,8 @@ public sealed record GridReconstructionResult
     public IReadOnlyList<GridCellObservation> UnresolvedCells { get; }
 
     public IReadOnlyList<GridReconstructionIssue> Issues { get; }
+
+    public double? VerticalScrollPosition { get; }
 
     private static ReadOnlyCollection<T> Copy<T>(IReadOnlyList<T> values, int count, string parameterName)
     {

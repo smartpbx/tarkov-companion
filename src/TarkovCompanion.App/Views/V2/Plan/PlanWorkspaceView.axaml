@@ -89,7 +89,7 @@
       <Setter Property="Background" Value="{DynamicResource ControlBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource LineStrongBrush}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <Style Selector="Border.v2-plan-disclosure Expander">
       <Setter Property="MinHeight" Value="0" />
@@ -147,7 +147,7 @@
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
-              <TextBlock Classes="v2-heading-1" Text="Next raid" AutomationProperties.HeadingLevel="1"
+              <TextBlock Classes="v2-heading-2" Text="Next raid" AutomationProperties.HeadingLevel="2"
                          VerticalAlignment="Center" />
               <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
                    clipboard and in a file. Beside Refresh because both act on the whole board. -->
@@ -190,7 +190,7 @@
             </StackPanel>
 
             <!-- Which quests to plan around: search, a state chip, and a trader. -->
-            <Border Classes="v2-intel-search" MinHeight="42" Padding="12,0,4,0">
+            <Border Classes="v2-intel-search">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                 <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
                       Data="{DynamicResource V2.Icon.Search}" />
@@ -487,8 +487,19 @@
                 <TextBlock Grid.Column="1" Classes="v2-label" VerticalAlignment="Center" Text="{Binding RequirementsSummary}"
                            Classes.v2-intel-good="{Binding RequirementsReady}" />
               </Grid>
-              <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Requirements}" Margin="0,0,10,0">
+              <!-- [#453] Virtualised: "Locked" on Customs asks for over a hundred items, and building
+                   every row of a card that shows five held the interface thread. -->
+              <ItemsControl Grid.Row="1" ItemsSource="{Binding Requirements}">
+                  <ItemsControl.Template>
+                    <ControlTemplate>
+                      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                        <ItemsPresenter ItemsPanel="{TemplateBinding ItemsPanel}" Margin="0,0,10,0" />
+                      </ScrollViewer>
+                    </ControlTemplate>
+                  </ItemsControl.Template>
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:PlanRequirementRowViewModel">
                       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="0,4">
@@ -508,8 +519,7 @@
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
+              </ItemsControl>
             </Grid>
           </Border>
           <StackPanel x:Name="PlanPanelActions" Grid.Row="3" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Spacing="8" Margin="16,0,16,16">

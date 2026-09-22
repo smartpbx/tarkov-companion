@@ -152,9 +152,18 @@ public sealed class GridPixelReconstructionBuilder(
         var spec = stashSpec
             ?? _gridDetector.Detect(image, cancellationToken)
             ?? DetectInCenteredSafeArea(image, cancellationToken);
+        var scrollPosition = stashSpec is null ? null : StashScrollbarReader.Read(image, stashSpec, cancellationToken);
         return spec is null
             ? new(surface, null, [])
-            : await BuildFromSpecAsync(image, surface, spec, stashSpec is not null, observedUtc, options, cancellationToken)
+            : await BuildFromSpecAsync(
+                    image,
+                    surface,
+                    spec,
+                    stashSpec is not null,
+                    observedUtc,
+                    options,
+                    cancellationToken,
+                    verticalScrollPosition: scrollPosition)
                 .ConfigureAwait(false);
     }
 
@@ -202,11 +211,12 @@ public sealed class GridPixelReconstructionBuilder(
         DateTimeOffset observedUtc,
         GridPixelReconstructionOptions options,
         CancellationToken cancellationToken,
-        double? latticeScore = null)
+        double? latticeScore = null,
+        double? verticalScrollPosition = null)
     {
         if (BuildLattice(spec, observedUtc, latticeScore) is not { } lattice)
         {
-            return new(surface, null, []);
+            return new(surface, null, [], verticalScrollPosition);
         }
 
         // [V2 rough package 40] A packed stash has no gaps for the general merge to split on, so
@@ -227,7 +237,7 @@ public sealed class GridPixelReconstructionBuilder(
                 cancellationToken);
         if (footprints.Count == 0)
         {
-            return new(surface, lattice, []);
+            return new(surface, lattice, [], verticalScrollPosition);
         }
 
         var references = await _references.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -277,7 +287,7 @@ public sealed class GridPixelReconstructionBuilder(
                 })
             .ConfigureAwait(false);
 
-        return new(surface, lattice, observations);
+        return new(surface, lattice, observations, verticalScrollPosition);
     }
 
     /// <summary>

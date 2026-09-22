@@ -32,22 +32,17 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
 
     private readonly string _storePath;
     private readonly TimeProvider _timeProvider;
-    private readonly TimeSpan _pingLifetime;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private List<RaidMark> _marks = [];
     private bool _loaded;
     private ITimer? _expiryTimer;
     private bool _disposed;
 
-    public JsonFileRaidMarkStore(string storePath, TimeProvider? timeProvider = null, TimeSpan? pingLifetime = null)
+    public JsonFileRaidMarkStore(string storePath, TimeProvider? timeProvider = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(storePath);
         _storePath = storePath;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        // Test-only seam: production always takes MapMarkPolicy.PingLifetime. A shorter one lets a
-        // test prove the self-scheduled timer actually fires on its own, in real (if tiny) time,
-        // rather than only proving the read-time filter below works against a frozen clock.
-        _pingLifetime = pingLifetime ?? MapMarkPolicy.PingLifetime;
     }
 
     /// <summary>
@@ -113,7 +108,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         var now = _timeProvider.GetUtcNow();
         // A waypoint is a plan and stays until removed; a ping is "look here, now" and this is the
         // one place that decides how long "now" lasts (issue 584).
-        var expiresUtc = kind == RaidMarkKind.Ping ? now + _pingLifetime : (DateTimeOffset?)null;
+        var expiresUtc = kind == RaidMarkKind.Ping ? now + MapMarkPolicy.PingLifetime : (DateTimeOffset?)null;
         var mark = new RaidMark(
             Guid.NewGuid(),
             kind,

@@ -173,6 +173,10 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 window.Hide();
             };
 
+            // [#453] Stamped so an ordinary exit can be timed from the log: from here to "Desktop
+            // lifetime returned" is the interface letting go, and "Teardown finished" the rest.
+            window.Closed += (_, _) => CrashLog.Write("lifecycle", "Main window closed.");
+
             if (_closesToTray)
             {
                 // Otherwise hiding the only window would end the process before the tray icon

@@ -112,8 +112,14 @@
     <Style Selector="Grid.v2-team-reached">
       <Setter Property="Opacity" Value="0.75" />
     </Style>
+    <!-- [#574] The Marks card is an expander inside a 6,4 border; its header and body are
+         inset so its icon and text line up with the Party, Group and Devices cards above and
+         below (their inset is the standard 16). -->
     <Style Selector="Expander.v2-team-expander">
-      <Setter Property="Padding" Value="12,4,12,12" />
+      <Setter Property="Padding" Value="10,4,10,10" />
+    </Style>
+    <Style Selector="Expander.v2-team-expander /template/ ToggleButton#ExpanderHeader">
+      <Setter Property="Padding" Value="10,0" />
     </Style>
     <Style Selector="Border.v2-team-row.v2-team-reached">
       <Setter Property="Opacity" Value="0.75" />
