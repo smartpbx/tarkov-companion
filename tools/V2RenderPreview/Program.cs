@@ -1350,6 +1350,13 @@ internal static class Program
                             devices: [DemoPairedDevice("Kitchen tablet")],
                             controlRequestMessage: "Kitchen tablet is asking to control this desktop.");
                         break;
+                    // [#601] A tablet whose Control was refused for a grant from an older build.
+                    case "out-of-date":
+                        pairing.PresentForPreview(
+                            RelayOwnerClaimState.ClaimedByThisDesktop,
+                            CompanionPairingStage.Idle,
+                            devices: [DemoPairedDevice("Kitchen tablet", pairingOutOfDate: true)]);
+                        break;
                     default:
                         throw new ArgumentException($"No pairing demo state is named '{pairingState}'.");
                 }
@@ -2188,7 +2195,9 @@ internal static class Program
     }
 
     /// <summary>One paired device, so the list has something in it to photograph.</summary>
-    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(string name)
+    private static TarkovCompanion.App.ViewModels.V2.Tablet.PairedDeviceRowViewModel DemoPairedDevice(
+        string name,
+        bool pairingOutOfDate = false)
     {
         var now = new DateTimeOffset(2026, 9, 18, 21, 0, 0, TimeSpan.Zero);
         using var key = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
@@ -2218,7 +2227,7 @@ internal static class Program
             1,
             now.AddDays(30),
             now);
-        return new(device, _ => Task.CompletedTask);
+        return new(device, _ => Task.CompletedTask, pairingOutOfDate);
     }
 
     private static int IntOption(string[] args, string name, int fallback)
