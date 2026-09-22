@@ -195,6 +195,9 @@
   <Style Selector="ToggleButton.v2-menu-row, Button.v2-menu-row">
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <!-- A plain button row is otherwise drawn semibold, like every V2 button, and stood out
+         among the toggles and switches in the same menu. -->
+    <Setter Property="FontWeight" Value="Normal" />
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     <Setter Property="Template">
