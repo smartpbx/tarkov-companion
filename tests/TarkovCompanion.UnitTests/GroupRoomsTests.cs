@@ -125,6 +125,23 @@ public sealed class GroupRoomsTests
         Assert.Equal("Geo", members[0].Name);
     }
 
+    /// <summary>
+    /// [#453] Republishing the same state, a position only older, is not a room change: counting it
+    /// woke every held exchange in the room and kept four desktops exchanging three times a second.
+    /// </summary>
+    [Fact]
+    public void Only_a_publish_that_says_something_new_is_a_change()
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+
+        Assert.True(rooms.Publish("room", "Geo", Member("Geo")));
+        Assert.False(rooms.Publish("room", "Geo", Member("Geo") with { PositionAgeSeconds = 7 }));
+        Assert.True(rooms.Publish("room", "Geo", Member("Geo") with { X = 5 }));
+        Assert.True(rooms.Publish("room", "Geo", Member("Geo") with { X = 5, Loadout = ["Slick"] }));
+        Assert.False(rooms.Publish("room", "Geo", Member("Geo") with { X = 5, Loadout = ["Slick"] }));
+        Assert.True(rooms.Publish("room", "Clay", Member("Clay")));
+    }
+
     private static GroupMemberState Member(string name, IReadOnlyList<GroupObservedMember>? observed = null) => new(
         name,
         "bigmap",

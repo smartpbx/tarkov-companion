@@ -74,8 +74,11 @@ public static class RelayRoomStateRoutes
         // Keyed by the display name within the room, so a member who reconnects replaces their own
         // entry rather than appearing twice. Two people choosing the same name is their problem to
         // notice, and is better than a server that hands out identities.
-        rooms.Publish(room, state.Name, state);
-        changes.Record(room, state.Name);
+        // Only a publish that changes what the room reads wakes the others' held exchanges (#453).
+        if (rooms.Publish(room, state.Name, state))
+        {
+            changes.Record(room, state.Name);
+        }
 
         var revision = changes.RevisionFor(room, state.Name);
         if (Wait(request) is { } wait && Since(request) is { } since)
