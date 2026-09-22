@@ -83,8 +83,10 @@ public sealed class MapSceneRendererHostContractTests
 
         Assert.Contains("AutomationProperties.LiveSetting=\"Assertive\"", view, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.LiveSetting=\"Polite\"", view, StringComparison.Ordinal);
+        // [#574] The desktop control height since the owner asked for smaller controls; the
+        // tablet page keeps the touch size.
         Assert.Contains(
-            "<Setter Property=\"MinHeight\" Value=\"{DynamicResource V2.Target.Touch}\" />",
+            "<Setter Property=\"MinHeight\" Value=\"{DynamicResource V2.Target.Desktop}\" />",
             view,
             StringComparison.Ordinal);
         Assert.Contains("<ScrollViewer HorizontalScrollBarVisibility=\"Disabled\"", view, StringComparison.Ordinal);

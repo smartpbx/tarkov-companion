@@ -184,10 +184,6 @@
     <Style Selector="Button.v2-raid-panel-toggle:pointerover">
       <Setter Property="Opacity" Value="1" />
     </Style>
-    <Style Selector="Button.v2-raid-panel-toggle Path.v2-icon">
-      <Setter Property="Width" Value="14" />
-      <Setter Property="Height" Value="14" />
-    </Style>
     <Style Selector="Button.v2-raid-layers-button">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
@@ -204,9 +200,13 @@
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
-    <Style Selector="Button.v2-raid-layers-button Path.v2-icon">
-      <Setter Property="Width" Value="16" />
-      <Setter Property="Height" Value="16" />
+    <!-- [#574] A small phase switch inside the Layers menu: the small control size from the
+         tokens, as a style rather than inline on each of the four. -->
+    <Style Selector="ToggleButton.v2-raid-phase-choice">
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Control.Small.Height}" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Small.Inset}" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
     </Style>
   </UserControl.Styles>
 
@@ -400,9 +400,7 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                           <DataTemplate x:DataType="vm:TrafficPhaseChoiceViewModel">
-                            <ToggleButton Classes="v2-raid-viewcontrol" MinHeight="{DynamicResource V2.Control.Small.Height}"
-                                          Padding="{DynamicResource V2.Control.Small.Inset}" HorizontalAlignment="Stretch"
-                                          HorizontalContentAlignment="Center"
+                            <ToggleButton Classes="v2-raid-viewcontrol v2-raid-phase-choice"
                                           IsChecked="{Binding IsSelected, Mode=OneWay}" Command="{Binding SelectCommand}"
                                           Content="{Binding Label}"
                                           AutomationProperties.AutomationId="{Binding AutomationId}" />
@@ -443,37 +441,39 @@
             </StackPanel>
             <Button.Flyout>
               <Flyout Placement="TopEdgeAlignedRight">
-                <StackPanel Spacing="8" MinWidth="260" MaxWidth="420"
+                <!-- [#574] Rows like the Layers menu beside it (ToggleButton/Button.v2-menu-row): one
+                     height, a tick column, the label; not stretched buttons of their own. -->
+                <StackPanel Spacing="2" MinWidth="260" MaxWidth="420"
                             AutomationProperties.AccessibilityView="Control"
                             AutomationProperties.Name="Map view controls">
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                  <ToggleButton Classes="v2-menu-row"
                                 Content="{Binding RotationLabel}"
                                 IsChecked="{Binding IsRotated, Mode=OneWay}"
                                 Command="{Binding RotateCommand}"
                                 AutomationProperties.AutomationId="v2-raid-rotate"
                                 AutomationProperties.Name="Turn the map a quarter"
                                 ToolTip.Tip="Turn the map a quarter turn, remembered per map" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                  <ToggleButton Classes="v2-menu-row"
                                 Content="{Binding VisitedLabel}"
                                 IsChecked="{Binding ShowsVisited, Mode=OneWay}"
                                 Command="{Binding ToggleVisitedCommand}"
                                 AutomationProperties.AutomationId="v2-raid-visited"
                                 AutomationProperties.Name="Show where you have been"
                                 ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
-                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                  <ToggleButton Classes="v2-menu-row"
                                 Content="Squad names"
                                 IsChecked="{Binding ShowsGroupNames, Mode=OneWay}"
                                 Command="{Binding ToggleGroupNamesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-group-names"
                                 ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
-                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                  <Button Classes="v2-menu-row"
                           Content="{Binding FrameAreaText}"
                           IsVisible="{Binding CanFrameArea}"
                           Command="{Binding FrameAreaCommand}"
                           AutomationProperties.AutomationId="v2-raid-frame-area"
                           ToolTip.Tip="Put the part of the map this raid is happening in on screen" />
                   <!-- [Issue 573] Hidden / Dim (default) / Normal, one press cycles to the next. -->
-                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch"
+                  <Button Classes="v2-menu-row"
                           Content="{Binding CoOpExtractVisibilityLabel}"
                           Command="{Binding ToggleCoOpExtractVisibilityCommand}"
                           AutomationProperties.AutomationId="v2-raid-coop-extract-visibility"
@@ -500,7 +500,7 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
-                  <Button Classes="v2-target v2-raid-viewcontrol" HorizontalAlignment="Stretch" Content="Floors…"
+                  <Button Classes="v2-menu-row" Content="Floors…"
                           IsVisible="{Binding HasFloorVariant}"
                           Command="{Binding UseFloorVariantCommand}"
                           AutomationProperties.AutomationId="v2-raid-floor-variant"
@@ -539,7 +539,8 @@
               AutomationProperties.Name="{Binding ContextPanelToggleLabel}"
               ToolTip.Tip="{Binding ContextPanelToggleLabel}"
               Command="{Binding ToggleContextPanelCommand}">
-        <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+        <!-- [#574] The small icon size, not a 14px box around a default-size icon. -->
+        <Path Classes="v2-icon v2-icon-sm" Data="{DynamicResource V2.Icon.Sidebar}" />
       </Button>
       </Panel>
     </Border>

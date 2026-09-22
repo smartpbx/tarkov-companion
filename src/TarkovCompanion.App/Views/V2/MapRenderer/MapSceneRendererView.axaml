@@ -32,7 +32,9 @@
     <Style Selector="ToggleButton.v2-map-choice, Button.v2-map-choice">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="2" />
-      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+      <!-- [#574] The desktop control height, like every other button beside the map; 48 is the
+           touch size and the tablet has its own page. -->
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
     </Style>
     <Style Selector="ToggleButton.v2-map-choice:checked">
@@ -255,7 +257,7 @@
          anything a player is meant to act on. -->
     <Style Selector="TextBlock.v2-map-place-name">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="Opacity" Value="0.85" />
     </Style>
@@ -316,7 +318,7 @@
     </Style>
     <Style Selector="TextBlock.v2-map-pin-label">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Canvas}" />
-      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="HorizontalAlignment" Value="Center" />
       <Setter Property="IsHitTestVisible" Value="False" />
@@ -373,18 +375,8 @@
     <Style Selector="Border.v2-map-grid">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
     </Style>
-    <!-- A segmented control, not radio buttons: flat, joined, no per-item circle. -->
-    <Style Selector="ToggleButton.v2-segment">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="{DynamicResource V2.Space.Sm.Inset}" />
-    </Style>
-    <Style Selector="ToggleButton.v2-segment:checked">
-      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
-    </Style>
+    <!-- [#574] The segmented control's style lives in MapPresentationControls, the only view
+         that draws one (it is hosted outside this view too); the copy that was here was dead. -->
     <!-- Floating controls over the map: a translucent surface so the plan still reads beneath. -->
     <Style Selector="Border.v2-map-float">
       <Setter Property="Padding" Value="6" />
@@ -442,10 +434,6 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="Padding" Value="10,0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-    </Style>
-    <Style Selector="Button.v2-map-floor-summary Path.v2-icon">
-      <Setter Property="Width" Value="16" />
-      <Setter Property="Height" Value="16" />
     </Style>
   </UserControl.Styles>
 
