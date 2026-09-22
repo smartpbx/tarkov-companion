@@ -3365,21 +3365,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 return;
             }
 
-            var projection = _questProjectionService.Project(
-                query,
-                located,
-                variant,
-                SelectedFloor,
-                _mapCatalogProvenance);
+            // [#453] Placed off the interface thread: projecting every active objective's zones
+            // and points, twice, is pure work on data already read, and ran inside the turn
+            // that opens a map.
+            var projector = _questProjectionService;
+            var selectedFloor = SelectedFloor;
+            var provenance = _mapCatalogProvenance;
+            var (projection, sceneProjection) = await OffInterfaceThread.Run(
+                    () => Task.FromResult((
+                        projector.Project(query, located, variant, selectedFloor, provenance),
+                        // The plan draws every floor's objectives and lets its own floor selection
+                        // decide which show, so it needs them placed whichever floor V1's canvas is on.
+                        projector.Project(query, located, variant, selectedFloor: null, provenance))),
+                    cancellationToken)
+                .ConfigureAwait(true);
+            if (refreshGeneration != Volatile.Read(ref _questRefreshGeneration) ||
+                !ReferenceEquals(SelectedLocation, location) ||
+                !ReferenceEquals(SelectedVariant, variant))
+            {
+                return;
+            }
+
             _questProjection = projection;
-            // The plan draws every floor's objectives and lets its own floor selection decide
-            // which show, so it needs them placed whichever floor V1's canvas is on.
-            var sceneProjection = _questProjectionService.Project(
-                query,
-                located,
-                variant,
-                selectedFloor: null,
-                _mapCatalogProvenance);
             QuestAssociations = _questProjection.Objectives.Select(objective => new QuestMapAssociationViewModel(
                 $"{objective.TaskName} · {objective.ObjectiveKind}",
                 objective.Availability,

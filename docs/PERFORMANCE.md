@@ -192,6 +192,64 @@ prints how long a job posted at input priority waited (what the hang watchdog me
 `--stall-tour` walks every route and action and prints a table; `--memory-tour N` switches maps N
 times and prints memory after a forced collection every ten.
 
+## Every route, before and after (#453, 2026-09-22)
+
+`--stall-tour --ui-stalls 100` with the seed catalog, `--seed-active-quests 10`, `--raid-demo` on
+Customs, 1920x1080, headless; one process walks every route, every Plan filter and Setup section,
+typing in Intel and Plan, 80 raids in Debrief, three rounds of route switches and two of five maps.
+A "turn" is one drain of the dispatcher, so it can hold several jobs. Before is main at 93dcd88f
+(load ~5), after is main with #620 and the quest layer placed off the interface thread (load ~3).
+Rows under 250 ms both times are left out, except the first visit to each page; the whole table
+prints at the end of a run. 50 map switches over five maps with Photo on (`--memory-tour 50`):
+managed heap 123 MB -> 113 MB, private bytes flat at 660-690 MB after the tile cache fills.
+
+| Route or action | Before: longest ms (turns > 100 ms) | After |
+| --- | ---: | ---: |
+| startup | 753 (13) | 684 (9) |
+| navigate to raid | 3748 (6) | 2505 (6) |
+| before the tour | 1580 (13) | 929 (5) |
+| map switch to reserve (photo) | 1659 (4) | 559 (6) |
+| map switch to streets-of-tarkov (photo) | 376 (2) | 573 (2) |
+| map switch to lighthouse (photo) | 1031 (2) | 696 (2) |
+| map switch to customs (photo) | 2536 (1) | 1444 (3) |
+| photo on customs | 2404 (1) | 160 (1) |
+| map switch to reserve | 733 (2) | 740 (1) |
+| photo on reserve | 421 (1) | 118 (1) |
+| map switch to streets-of-tarkov | 856 (3) | 382 (3) |
+| map switch to lighthouse | 1123 (2) | 673 (2) |
+| navigate intel | 108 (1) | 90 (0) |
+| intel: type 'graphics card' | 126 (1) | 105 (1) |
+| navigate intel/keys | 561 (1) | 520 (1) |
+| navigate plan | 230 (2) | 210 (2) |
+| plan filter Locked | 969 (1) | 1029 (1) |
+| plan filter All | 392 (1) | 355 (1) |
+| plan (All): type 'graphics card' | 478 (5) | 394 (5) |
+| navigate plan/hideout | 369 (2) | 305 (2) |
+| navigate team | 68 (0) | 70 (0) |
+| navigate debrief (80 raids) | 127 (1) | 189 (1) |
+| navigate setup | 80 (0) | 78 (0) |
+| route cycle 1: raid | 282 (1) | 252 (1) |
+| route cycle 1: plan | 982 (1) | 888 (1) |
+| route cycle 2: raid | 356 (1) | 71 (0) |
+| route cycle 2: plan | 1153 (1) | 883 (1) |
+| route cycle 3: raid | 281 (1) | 56 (0) |
+| route cycle 3: plan | 1145 (1) | 928 (1) |
+| route cycle 3: plan/hideout | 205 (1) | 272 (1) |
+| map cycle 1: customs | 2325 (2) | 1361 (3) |
+| map cycle 1: reserve | 1016 (1) | 682 (1) |
+| map cycle 1: streets-of-tarkov | 858 (2) | 662 (2) |
+| map cycle 1: lighthouse | 1651 (1) | 691 (2) |
+| map cycle 1: factory | 452 (10) | 768 (5) |
+| map cycle 2: customs | 1652 (1) | 981 (4) |
+| map cycle 2: reserve | 940 (1) | 702 (1) |
+| map cycle 2: streets-of-tarkov | 347 (2) | 401 (2) |
+| map cycle 2: lighthouse | 725 (2) | 613 (3) |
+| map cycle 2: factory | 797 (2) | 618 (1) |
+
+Still over 250 ms: the first Raid paint, opening a map (its markers and tiles are built), Plan's
+Locked filter and every return to Plan (the board is re-read and every group row rebuilt), and
+Intel > Keys. None of these is a repeating freeze; each is one turn on one action.
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the
