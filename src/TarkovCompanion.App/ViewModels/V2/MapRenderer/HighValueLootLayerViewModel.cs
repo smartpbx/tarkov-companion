@@ -165,8 +165,16 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         IReadOnlyList<string>? availableCategories,
         IReadOnlyList<string>? availableFloors)
     {
-        _result = result ?? throw new ArgumentNullException(nameof(result));
-        _filterState = filterState ?? throw new ArgumentNullException(nameof(filterState));
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(filterState);
+        // [#453] The Raid map presents again on every change it draws (a squadmate moving, a
+        // screenshot), and each one used to send a player reading page 3 back to page 1. Only a
+        // different map or a different filter is a different list; BuildRows clamps the page if
+        // the same list got shorter.
+        var sameList = string.Equals(result.MapId, _result.MapId, StringComparison.OrdinalIgnoreCase)
+            && (ReferenceEquals(filterState, _filterState) || filterState == _filterState);
+        _result = result;
+        _filterState = filterState;
         var categoriesWereTruncated = _categoryOptionsTruncated;
         var floorsWereTruncated = _floorOptionsTruncated;
         (_availableCategories, _categoryOptionsTruncated) = NormalizeOptions(
@@ -177,7 +185,11 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
             availableFloors ?? _availableFloors,
             ActiveFloor(filterState));
         _floorOptionsTruncated |= availableFloors is null && floorsWereTruncated;
-        _pageIndex = 0;
+        if (!sameList)
+        {
+            _pageIndex = 0;
+        }
+
         Rebuild();
         RaiseAllChanged();
         ProjectionChanged?.Invoke();
