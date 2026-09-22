@@ -426,6 +426,28 @@ public sealed class DesktopCompanionAuthority : IDisposable
             return (delivered.State, delivered.Deliveries);
         }, cancellationToken).ConfigureAwait(false);
 
+    /// <summary>
+    /// Drops paired marks whose time has passed and delivers that to every live paired device, or
+    /// does nothing (not even a save) when none has.
+    /// </summary>
+    /// <remarks>[#584] Run by <see cref="RelayMarksBridge"/> when the next ping is due.</remarks>
+    public async ValueTask<AuthorityMutation?> ExpireMarksAsync(
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        if (DesktopCanonicalStateMachine.NextMarkExpiry(Snapshot.CanonicalState) is not { } due || due > nowUtc)
+        {
+            return null;
+        }
+
+        return await MutateAsync(state =>
+        {
+            var expired = DesktopCanonicalStateMachine.ApplyMarkExpiry(state.CanonicalState, nowUtc);
+            var next = state.With(canonicalState: expired.State);
+            return Broadcast(next, expired.Updates, expired.State.DesktopDeviceId, nowUtc);
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask<AuthorityMutation> RunMaintenanceAsync(
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken = default) =>
