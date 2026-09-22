@@ -126,3 +126,60 @@ public sealed class MapMarkerZoomTests
         return renderer;
     }
 }
+
+/// <summary>[#573] Loot spawns: the most valuable few with the plan fitted, more zoomed in, the rest counted.</summary>
+public sealed class MapLootRankingTests
+{
+    [Fact]
+    public void The_top_ranks_show_fitted_and_the_rest_appear_as_the_plan_zooms_in()
+    {
+        Assert.Equal(0, MapLootRanking.RevealZoom(0));
+        Assert.Equal(0, MapLootRanking.RevealZoom(MapLootRanking.TopAtFit - 1));
+        Assert.True(MapLootRanking.RevealZoom(MapLootRanking.TopAtFit) > 1);
+        // Four times the spawns on screen at twice the zoom: the same density per visible area.
+        Assert.Equal(2, MapLootRanking.RevealZoom((4 * MapLootRanking.TopAtFit) - 1), 6);
+    }
+
+    [Fact]
+    public void A_crowded_loot_layer_draws_twenty_fitted_and_counts_the_rest_on_badges()
+    {
+        var layer = new MapSceneLayer(new("loot"), "Loot", 10, true);
+        var loot = Enumerable.Range(0, 60)
+            .Select(index => new MapSceneObject(
+                new($"loot:{index:D2}"),
+                layer.Id,
+                MapSceneObjectKind.LootSpawn,
+                MapSceneTruthKind.PotentialSpawn,
+                $"Loot {index}",
+                null,
+                MapSceneGeometry.At(new(20 + (index % 10 * 35), 30 + (index / 10 * 40))),
+                [],
+                new DataProvenance("fixture", new DateTimeOffset(2026, 9, 22, 0, 0, 0, TimeSpan.Zero), Confidence: new Confidence(1))))
+            .ToArray();
+        var scene = new MapSceneSnapshot(
+            1, "customs", "customs", "customs", new MapSceneBounds(0, 0, 400, 300), [],
+            new(MapSceneCapability.Available, MapSceneCapability.Unavailable("no stack"), MapSceneCapability.Unavailable("no interior")),
+            new(MapSceneMode.Flat2D, null, new(200, 150, 1, 0, 0), [new(layer.Id, true)]),
+            [layer], loot, []);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            MapSceneRendererPresentation.English(CultureInfo.InvariantCulture, TimeZoneInfo.Utc),
+            showsDetailsPanel: false,
+            ranksLootByValue: true);
+        renderer.ViewChangeRequested += change => renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, change).Scene);
+
+        Assert.Empty(renderer.PointMarkers);
+        Assert.Equal(60, renderer.LootMarkers.Count);
+        Assert.Equal(MapLootRanking.TopAtFit, renderer.LootMarkers.Count(marker => marker.IsShownOnPlan));
+        Assert.Equal(40, renderer.LootBadges.Where(badge => badge.IsShownOnPlan).Sum(badge => badge.HiddenLootCount));
+        Assert.All(renderer.LootBadges, badge => Assert.StartsWith("+", badge.MarkerGlyph, StringComparison.Ordinal));
+
+        var badge = renderer.LootBadges.First(item => item.IsShownOnPlan);
+        badge.SelectCommand.Execute(null);
+
+        Assert.True(renderer.CameraZoom >= MapSceneRendererViewModel.StackZoom);
+        var shown = renderer.LootMarkers.Count(marker => marker.IsShownOnPlan);
+        Assert.True(shown > MapLootRanking.TopAtFit, $"{shown} drawn at zoom {renderer.CameraZoom}");
+        Assert.Equal(60 - shown, renderer.LootBadges.Sum(item => item.HiddenLootCount));
+    }
+}

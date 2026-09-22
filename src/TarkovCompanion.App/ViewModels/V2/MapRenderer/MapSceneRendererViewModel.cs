@@ -157,9 +157,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         // in the order a person walks it rather than the order the catalog happens to list. The
         // scene knows floor ids; only the host holds the catalog's height bands. Null means "no
         // opinion", which leaves the floors in the order the scene gave them.
-        Func<string, double?>? floorElevationResolver = null)
+        Func<string, double?>? floorElevationResolver = null,
+        // [#573] Draw potential loot spawns by value (MapLootRanking) under the place names, the
+        // rest counted on badges. The Raid cockpit's choice; the renderer gallery keeps the
+        // generic grid clusters and their list drill-down.
+        bool ranksLootByValue = false)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
+        _ranksLootByValue = ranksLootByValue;
+        _lootValues = MapLootRanking.ValuesOf(highValueLoot);
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         _isFitted = IsPlainFit(scene);
         ShowsDetailsPanel = showsDetailsPanel;
@@ -238,6 +244,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     /// their badge shows (MapSceneRendererObjectViewModel.IsShownOnPlan).
     /// </summary>
     public IReadOnlyList<MapSceneRendererObjectViewModel> StackMarkers { get; private set; } = [];
+
+    /// <summary>[#573] Potential loot spawns, drawn under the place names; see <see cref="MapLootRanking"/>.</summary>
+    public IReadOnlyList<MapSceneRendererObjectViewModel> LootMarkers { get; private set; } = [];
+
+    /// <summary>[#573] "+N" per area for loot spawns not drawn yet at this zoom.</summary>
+    public IReadOnlyList<MapSceneRendererObjectViewModel> LootBadges { get; private set; } = [];
+
+    private readonly bool _ranksLootByValue;
+    private IReadOnlyDictionary<MapSceneObjectId, (LootSpawnValueTier Tier, long Value)> _lootValues;
     public IReadOnlyList<MapSceneRendererGeometryViewModel> GeometryObjects { get; private set; } = [];
 
     /// <summary>
@@ -570,6 +585,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         EnsureHighValueLootMatchesScene(scene, highValueLoot, filterState.Filter);
+        _lootValues = MapLootRanking.ValuesOf(highValueLoot);
         Present(scene);
         _lootCategories = availableCategories ?? _lootCategories;
         HighValueLoot.Present(highValueLoot, filterState, _lootCategories, scene.FloorIds);
@@ -677,7 +693,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 marker.UpdateCamera(_scene.View.Camera);
             }
 
-            foreach (var stack in StackMarkers)
+            foreach (var stack in StackMarkers.Concat(LootBadges))
             {
                 stack.UpdateCamera(_scene.View.Camera);
             }
@@ -842,7 +858,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         var rendered = SpatialObjects
-            .Where(item => !item.IsCluster && item.SceneObject is not null)
+            .Where(item => !item.IsCluster && item.IsShownOnPlan && item.SceneObject is not null)
             .Select(item => item.SceneObject!)
             .Concat(GeometryObjects.Select(item => item.SceneObject))
             .ToArray();
@@ -1795,7 +1811,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 .ToArray()
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
-        PointMarkers = SpatialObjects.Where(item => !item.IsCluster).ToArray();
+        PointMarkers = SpatialObjects.Where(item => !item.IsCluster && !item.IsRankedLoot).ToArray();
+        LootMarkers = SpatialObjects.Where(item => item.IsRankedLoot).ToArray();
+        LootBadges = BuildLootBadges(LootMarkers);
         StackMarkers = BuildStackMarkers(PointMarkers);
         ClusterMarkers = SpatialObjects.Where(item => item.IsCluster).ToArray();
         SelectedObject = _selectedObjectId is { } selected
@@ -1822,7 +1840,77 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             .Where(item => item.Kind != MapSceneObjectKind.Label)
             .Where(item => item.Geometry.Kind == MapSceneGeometryKind.Point && _scene.Bounds.Contains(item.Geometry.Points[0]))
             .ToArray();
-        if (points.Length <= MaximumPointMarkers)
+        if (_ranksLootByValue && points.Any(IsRankableLoot))
+        {
+            var loot = points.Where(IsRankableLoot).ToArray();
+            var rest = points.Where(item => !IsRankableLoot(item)).ToArray();
+            return BuildPlacedMarkers(rest).Concat(BuildLootMarkers(loot)).ToArray();
+        }
+
+        return BuildPlacedMarkers(points);
+    }
+
+    private static bool IsRankableLoot(MapSceneObject item) =>
+        item.Kind == MapSceneObjectKind.LootSpawn && item.Truth == MapSceneTruthKind.PotentialSpawn;
+
+    private IReadOnlyList<MapSceneRendererObjectViewModel> BuildLootMarkers(IReadOnlyList<MapSceneObject> loot)
+    {
+        var ranked = MapLootRanking.Ranked(loot, _lootValues);
+        return ranked
+            .Select((item, rank) =>
+            {
+                var marker = MapSceneRendererObjectViewModel.ForObject(
+                    item,
+                    _projection,
+                    _scene.View.Camera,
+                    _presentation,
+                    item.Id == _selectedObjectId,
+                    () => SelectObject(item.Id),
+                    _styleResolver?.Invoke(item),
+                    canvasWidth: _canvasWidth,
+                    canvasHeight: _canvasHeight);
+                marker.RankAsLoot(
+                    MapLootRanking.RevealZoom(rank),
+                    _lootValues.TryGetValue(item.Id, out var value) ? value.Tier : LootSpawnValueTier.Unknown);
+                return marker;
+            })
+            .ToArray();
+    }
+
+    private IReadOnlyList<MapSceneRendererObjectViewModel> BuildLootBadges(IReadOnlyList<MapSceneRendererObjectViewModel> loot)
+    {
+        var badges = new List<MapSceneRendererObjectViewModel>();
+        foreach (var cell in loot
+                     .Where(marker => marker.LootRevealZoom > 0 && marker.SceneObject is not null)
+                     .GroupBy(marker => (
+                         Column: (int)Math.Floor(marker.AnchorLeft / MapLootRanking.BadgeCell),
+                         Row: (int)Math.Floor(marker.AnchorTop / MapLootRanking.BadgeCell)))
+                     .OrderBy(group => group.Key.Row)
+                     .ThenBy(group => group.Key.Column))
+        {
+            var members = cell.ToArray();
+            var objects = members.Select(member => member.SceneObject!).ToArray();
+            var point = new MapScenePoint(
+                objects.Average(item => item.Geometry.Points[0].X),
+                objects.Average(item => item.Geometry.Points[0].Y));
+            var badge = MapSceneRendererObjectViewModel.ForCluster(
+                cell.Key.Column,
+                cell.Key.Row + 10_000,
+                objects,
+                _projection,
+                _scene.View.Camera,
+                _presentation,
+                () => FocusOn(point, Math.Max(_scene.View.Camera.Zoom * 2, StackZoom)));
+            badge.CountHiddenLoot(members.Select(member => member.LootRevealZoom).ToArray());
+            badges.Add(badge);
+        }
+
+        return badges;
+    }
+
+    private IReadOnlyList<MapSceneRendererObjectViewModel> BuildPlacedMarkers(IReadOnlyList<MapSceneObject> points)
+    {
+        if (points.Count <= MaximumPointMarkers)
         {
             // [Issue 508] Two pins (or a ping and a pin) on the exact same spot must both stay
             // legible, so a coincident group among the marks a player actually places and reads —
@@ -2103,7 +2191,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void BuildDenseSceneNotice(IReadOnlyList<MapSceneObject> visibleObjects)
     {
-        var pointCount = visibleObjects.Count(item => item.Geometry.Kind == MapSceneGeometryKind.Point);
+        // [#573] Loot drawn by value rank is never grouped by the point cap, so it is not counted
+        // against it either ("286 grouped" was said of a Customs loot view that grouped nothing).
+        var pointCount = visibleObjects.Count(item => item.Geometry.Kind == MapSceneGeometryKind.Point &&
+            !(_ranksLootByValue && IsRankableLoot(item)));
         var geometryCount = visibleObjects.Count - pointCount;
         var outsideBounds = visibleObjects.Count(item => item.Geometry.Points.Any(point => !_scene.Bounds.Contains(point)));
         var messages = new List<string>(4);
@@ -2422,6 +2513,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(PointMarkers));
             OnPropertyChanged(nameof(ClusterMarkers));
             OnPropertyChanged(nameof(StackMarkers));
+            OnPropertyChanged(nameof(LootMarkers));
+            OnPropertyChanged(nameof(LootBadges));
             OnPropertyChanged(nameof(GeometryObjects));
             OnPropertyChanged(nameof(LabelObjects));
             OnPropertyChanged(nameof(HasLabelObjects));
@@ -2489,7 +2582,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         RaiseFloorStackChanged();
         foreach (var propertyName in new[]
                  {
-                     nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(StackMarkers), nameof(GeometryObjects),
+                     nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(StackMarkers), nameof(LootMarkers), nameof(LootBadges), nameof(GeometryObjects),
                      nameof(LabelObjects), nameof(HasLabelObjects),
                      nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
@@ -2886,6 +2979,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     private double _cameraZoom = 1;
     private double _stackZoom;
     private bool _isStackBadge;
+    private readonly string _markerGlyph;
+    private double[]? _hiddenLootZooms;
     private double _markerUprightDegrees;
     private double _coneDegrees;
 
@@ -2939,7 +3034,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         AnchorTop = anchorTop;
         _cameraZoom = markerInverseZoom > 0 && double.IsFinite(markerInverseZoom) ? 1 / markerInverseZoom : 1;
         _markerUprightDegrees = markerUprightDegrees;
-        MarkerGlyph = markerGlyph;
+        _markerGlyph = markerGlyph;
         Icon = icon;
         TruthGlyph = truthGlyph;
         FactionGlyph = factionGlyph;
@@ -3041,7 +3136,8 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         ? new SolidColorBrush(color)
         : null;
 
-    public string MarkerGlyph { get; }
+    /// <summary>The number or letter on the mark; a loot count badge says how many it still holds.</summary>
+    public string MarkerGlyph => _hiddenLootZooms is null ? _markerGlyph : $"+{HiddenLootCount}";
 
     /// <summary>Which drawn icon this marker shows. Never drawn when <see cref="HasMarkerNumber"/>.</summary>
     public MapSceneMarkerIcon Icon { get; }
@@ -3191,6 +3287,14 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
             OnPropertyChanged(nameof(ZOrder));
             OnPropertyChanged(nameof(ShowsSelectedName));
             OnPropertyChanged(nameof(IsShownOnPlan));
+            // The selected mark is drawn full size whatever the zoom, so it and its name read.
+            if (SetProperty(ref _markerInverseZoom, MarkerScale / _cameraZoom, nameof(MarkerInverseZoom)))
+            {
+                OnPropertyChanged(nameof(MarkerScale));
+                OnPropertyChanged(nameof(HitExtent));
+                OnPropertyChanged(nameof(HitCornerRadius));
+                OnPropertyChanged(nameof(PinHeadHitMargin));
+            }
         }
     }
 
@@ -3198,7 +3302,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// [#573] Drawn smaller with the plan fitted and full size zoomed in (<see cref="MapMarkerScale"/>).
     /// A person, a ping and a count badge keep their size: they are what a crowded map must not hide.
     /// </summary>
-    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark ? 1 : MapMarkerScale.For(_cameraZoom);
+    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
 
     /// <summary>The mark's hit box in its own DIPs, so it is never under 32 screen pixels however small it is drawn.</summary>
     public double HitExtent => MapMarkerScale.HitExtent(MarkerScale);
@@ -3213,9 +3317,41 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     /// Drawn on the plan now: a mark in a dense spot hides under its count badge while the plan is
     /// zoomed out (unless it is the selected one), and a badge shows only then.
     /// </summary>
-    public bool IsShownOnPlan => _isStackBadge
-        ? _cameraZoom < _stackZoom
-        : !(_stackZoom > 0 && _cameraZoom < _stackZoom && !_isSelected);
+    public bool IsShownOnPlan => _hiddenLootZooms is not null
+        ? HiddenLootCount > 0
+        : _isStackBadge
+            ? _cameraZoom < _stackZoom
+            : IsRankedLoot
+                ? _cameraZoom >= LootRevealZoom || _isSelected
+                : !(_stackZoom > 0 && _cameraZoom < _stackZoom && !_isSelected);
+
+    /// <summary>[#573] A potential loot spawn drawn by value rank (MapLootRanking), under the place names.</summary>
+    public bool IsRankedLoot { get; private set; }
+
+    /// <summary>The zoom from which this spawn is drawn; 0 for the most valuable ones.</summary>
+    public double LootRevealZoom { get; private set; }
+
+    public bool IsLootExceptional { get; private set; }
+
+    public bool IsLootHigh { get; private set; }
+
+    /// <summary>How many of a badge's spawns are not drawn yet at this zoom.</summary>
+    public int HiddenLootCount => _hiddenLootZooms?.Count(zoom => zoom > _cameraZoom) ?? 0;
+
+    public bool IsLootBadge => _hiddenLootZooms is not null;
+
+    internal void RankAsLoot(double revealZoom, LootSpawnValueTier tier)
+    {
+        IsRankedLoot = true;
+        LootRevealZoom = revealZoom;
+        IsLootExceptional = tier == LootSpawnValueTier.Exceptional;
+        IsLootHigh = tier == LootSpawnValueTier.High;
+    }
+
+    internal void CountHiddenLoot(double[] revealZooms)
+    {
+        _hiddenLootZooms = revealZooms;
+    }
 
     internal void JoinStack(double stackZoom)
     {
@@ -3251,6 +3387,12 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         if (wasShown != IsShownOnPlan)
         {
             OnPropertyChanged(nameof(IsShownOnPlan));
+        }
+
+        if (_hiddenLootZooms is not null)
+        {
+            OnPropertyChanged(nameof(HiddenLootCount));
+            OnPropertyChanged(nameof(MarkerGlyph));
         }
 
         SetProperty(ref _markerUprightDegrees, camera.BearingDegrees, nameof(MarkerUprightDegrees));

@@ -2403,7 +2403,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 fillsViewport: false,
                 floorNameResolver: FloorName,
                 styleResolver: StyleFor,
-                floorElevationResolver: FloorElevation);
+                floorElevationResolver: FloorElevation,
+                ranksLootByValue: true);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
