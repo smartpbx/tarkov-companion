@@ -15,7 +15,7 @@
   <!-- [#292] A layered page: each item is a headline and a one-line summary that are always there, and
        a short paragraph that opens on demand. A deep link opens the page at one item, expanded. -->
   <StackPanel Classes="v2-stack">
-    <TextBlock Classes="v2-body" Text="{Binding Title}" FontWeight="SemiBold" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding Title}" AutomationProperties.HeadingLevel="3" />
     <ItemsControl ItemsSource="{Binding Items}">
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>

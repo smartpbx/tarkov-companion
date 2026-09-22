@@ -28,7 +28,7 @@
        is decoration: each button is the app changing which progress it reads and which game data it
        loads, through the same service the tests drive. -->
   <StackPanel Classes="v2-stack">
-    <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
     <TextBlock Classes="v2-label" Text="{Binding Intro}" TextWrapping="Wrap" />
     <TextBlock Classes="v2-label" Text="{Binding Notice}" IsVisible="{Binding HasNotice}" TextWrapping="Wrap"
                Foreground="{DynamicResource V2.Brush.Warning}"
@@ -103,7 +103,7 @@
     <CheckBox Content="{Binding ShowArchivedLabel}" IsChecked="{Binding ShowArchived}" IsVisible="{Binding HasArchived}"
               AutomationProperties.AutomationId="v2-setup-profile-show-archived" />
 
-    <TextBlock Classes="v2-body" Text="{Binding NewHeading}" FontWeight="SemiBold" Margin="0,8,0,0" />
+    <TextBlock Classes="v2-heading-3" Text="{Binding NewHeading}" AutomationProperties.HeadingLevel="3" Margin="0,8,0,0" />
     <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">
       <StackPanel Grid.Column="0" Classes="v2-field">
         <TextBlock Classes="v2-label" Text="{Binding NameLabel}" />
