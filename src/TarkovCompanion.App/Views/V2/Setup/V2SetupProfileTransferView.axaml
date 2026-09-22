@@ -1,0 +1,78 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupProfileTransferView"
+             x:DataType="vm:SetupProfileTransferViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup"
+             AutomationProperties.AutomationId="v2-setup-profile-transfer">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.v2-label.error">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    </Style>
+    <Style Selector="Button.v2-profile-target">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.v2-profile-target.selected">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+    <Style Selector="Button.v2-profile-target.selected /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+    </Style>
+  </UserControl.Styles>
+  <!-- [#269] One profile's progress to a file and back. Import previews first; nothing is written
+       until Import is pressed on a preview for the target shown. -->
+  <StackPanel Classes="v2-stack">
+    <TextBlock Classes="v2-body" Text="{Binding Heading}" FontWeight="SemiBold" />
+    <StackPanel Classes="v2-field">
+      <TextBlock Classes="v2-label" Text="{Binding FileLabel}" />
+      <TextBox Classes="v2-field-input" Text="{Binding FilePath}" PlaceholderText="{Binding FilePlaceholder}"
+               AutomationProperties.AutomationId="v2-setup-profile-file"
+               AutomationProperties.Name="{Binding FileLabel}" />
+    </StackPanel>
+    <WrapPanel Classes="v2-toolbar">
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-profile-export"
+              Content="{Binding ExportLabel}" Command="{Binding ExportCommand}" />
+      <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-profile-preview-import"
+              Content="{Binding PreviewLabel}" Command="{Binding PreviewCommand}" />
+      <Button Classes="v2-target v2-profile-target" Classes.selected="{Binding ImportIntoActive}"
+              AutomationProperties.AutomationId="v2-setup-profile-import-into-active"
+              Content="{Binding IntoActiveLabel}" Command="{Binding IntoActiveCommand}" />
+      <Button Classes="v2-target v2-profile-target" Classes.selected="{Binding ImportAsNew}"
+              AutomationProperties.AutomationId="v2-setup-profile-import-as-new"
+              Content="{Binding AsNewLabel}" Command="{Binding AsNewCommand}" />
+    </WrapPanel>
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding HasStatus}"
+               Classes.error="{Binding StatusIsError}"
+               AutomationProperties.AutomationId="v2-setup-profile-transfer-status"
+               AutomationProperties.LiveSetting="Polite" />
+
+    <Border Classes="v2-card" IsVisible="{Binding HasPreview}"
+            AutomationProperties.AutomationId="v2-setup-profile-import-preview">
+      <StackPanel Classes="v2-stack">
+        <TextBlock Classes="v2-body" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding PreviewHeading}" />
+        <TextBlock Classes="v2-label" Text="{Binding PreviewDetail}" />
+        <TextBlock Classes="v2-label error" TextWrapping="Wrap" Text="{Binding Refusal}" IsVisible="{Binding HasRefusal}" />
+        <TextBlock Classes="v2-label" Text="{Binding NoChangesLabel}" IsVisible="{Binding HasNoChanges}" />
+        <ItemsControl ItemsSource="{Binding Changes}" AutomationProperties.AutomationId="v2-setup-profile-import-changes">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:SetupProfileTransferChangeViewModel">
+              <Grid ColumnDefinitions="220,160,*" ColumnSpacing="10" Margin="0,2">
+                <TextBlock Classes="v2-label" Text="{Binding Area}" />
+                <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Now}" />
+                <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding After}" FontWeight="SemiBold" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <WrapPanel Classes="v2-toolbar">
+          <Button Classes="v2-target primary" IsEnabled="{Binding CanImport}"
+                  AutomationProperties.AutomationId="v2-setup-profile-import-confirm"
+                  Content="{Binding ImportLabel}" Command="{Binding ImportCommand}" />
+          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-setup-profile-import-cancel"
+                  Content="{Binding CancelLabel}" Command="{Binding CancelCommand}" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>
