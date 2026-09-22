@@ -560,17 +560,12 @@
                 AutomationProperties.AccessibilityView="Control"
                 AutomationProperties.LandmarkType="Navigation"
                 AutomationProperties.Name="{Binding NavigationRegionName}">
-          <Grid RowDefinitions="Auto,*,Auto">
-            <Button Grid.Row="0" Classes="v2-target v2-rail-collapse" HorizontalAlignment="Right" Margin="0,8,8,0"
-                    AutomationProperties.AutomationId="v2-shell-navigation-rail-toggle"
-                    AutomationProperties.Name="{Binding NavigationRailToggleName}"
-                    AutomationProperties.ItemStatus="{Binding NavigationRailStateLabel}"
-                    ToolTip.Tip="{Binding NavigationRailToggleName}"
-                    Command="{Binding CycleNavigationRailCommand}">
-              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
-            </Button>
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,4,0,12"
+          <!-- [#607] "the sidebar toggling button should be at the bottom above settings": the
+               destinations start at the top, the toggle sits directly above the Settings gear,
+               its icon lined up with the gear's, in the labelled and the icons-only rail alike. -->
+          <Grid RowDefinitions="*,Auto,Auto">
+            <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding PrimaryDestinations}" Margin="0,8,0,12"
                             AutomationProperties.AutomationId="v2-shell-navigation-rail">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
@@ -593,6 +588,14 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
+            <Button Grid.Row="1" Classes="v2-target v2-rail-collapse" HorizontalAlignment="Left" Margin="16,0,0,0"
+                    AutomationProperties.AutomationId="v2-shell-navigation-rail-toggle"
+                    AutomationProperties.Name="{Binding NavigationRailToggleName}"
+                    AutomationProperties.ItemStatus="{Binding NavigationRailStateLabel}"
+                    ToolTip.Tip="{Binding NavigationRailToggleName}"
+                    Command="{Binding CycleNavigationRailCommand}">
+              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Sidebar}" />
+            </Button>
             <Button Grid.Row="2" Classes="v2-target v2-rail-gear"
                     Classes.selected="{Binding SetupDestination.IsCurrent}"
                     AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
