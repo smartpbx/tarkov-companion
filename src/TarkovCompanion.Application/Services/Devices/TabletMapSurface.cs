@@ -65,7 +65,13 @@ public sealed record TabletSearchResult(
     long? TraderRoubles,
     // #407: the same chip Intel draws (#287) for an item this raid's running event has marked
     // allergic — the one state a search result has to stop somebody, not just note in passing.
-    bool IsAllergic = false);
+    bool IsAllergic = false,
+    // #379: what the desktop's own Intel list says too (TabletSearchResultBuilder).
+    string? Category = null,
+    string? Size = null,
+    long? PerSlotRoubles = null,
+    string? TraderName = null,
+    string? WikiUri = null);
 
 /// <summary>The lookup the desktop is currently showing, and what it found.</summary>
 public sealed record TabletSearch(string Query, IReadOnlyList<TabletSearchResult> Results);

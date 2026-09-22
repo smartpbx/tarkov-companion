@@ -377,13 +377,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 var isAllergic = eventStates is not null &&
                     eventStates.TryGetValue(hit.Item.Id, out var state) &&
                     state == EventItemState.Allergic;
-                results.Add(new(
-                    hit.Item.Id,
-                    hit.Item.Name,
-                    hit.Item.ShortName,
-                    price?.FleaPriceRoubles,
-                    price?.BestTrader?.ValueRoubles,
-                    isAllergic));
+                results.Add(TabletSearchResultBuilder.From(hit, price, isAllergic));
             }
 
             _search = new(query, results);
