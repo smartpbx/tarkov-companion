@@ -1232,7 +1232,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private static string DescribeDetail(LoadoutItemFacts? facts) =>
         facts?.Caliber is { } caliber
-            ? caliber
+            ? CaliberText.Describe(caliber)
             : facts?.Gear is { } gear
                 ? GearFactsReader.Summarize(gear) ?? "No figures recorded"
                 : "No caliber recorded";
