@@ -351,7 +351,9 @@ public sealed class FleaPageViewModel : PageViewModel
 
     internal static string DescribeHistory(PriceHistorySummary? summary) => summary is null
         ? "7 d history not built yet"
-        : $"7 d low {Roubles(summary.LowRoubles)} · avg {Roubles(summary.AverageRoubles)} · high {Roubles(summary.HighRoubles)}";
+        : summary.ObservationCount < 2
+            ? "1 price so far"
+            : $"7 d low {Roubles(summary.LowRoubles)} · avg {Roubles(summary.AverageRoubles)} · high {Roubles(summary.HighRoubles)}";
 
     private static string DescribeBand(ItemPriceSnapshot? price)
     {
