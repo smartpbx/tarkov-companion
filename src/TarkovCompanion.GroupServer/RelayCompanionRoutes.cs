@@ -373,7 +373,28 @@ public static class RelayCompanionRoutes
                 return Results.StatusCode(StatusCodes.Status501NotImplemented);
             }
 
-            var batch = hub.Read(principal, after.GetValueOrDefault());
+            // [#604] A caller that names `wait` (seconds, zero allowed) is a held reader: its `after`
+            // is also its acknowledgement, so it never spends a round trip on the ack route, and a
+            // positive wait holds the read until a frame is queued. It is told so in a header, which
+            // is how a desktop knows this relay can hold. A caller that does not name it is
+            // answered exactly as before.
+            RelayFrameBatch batch;
+            if (FrameWaitFor(request) is { } frameWait)
+            {
+                var cursor = after.GetValueOrDefault();
+                if (cursor > 0)
+                {
+                    _ = hub.Acknowledge(principal, cursor);
+                }
+
+                batch = await hub.WaitAsync(principal, cursor, frameWait, cancellationToken).ConfigureAwait(false);
+                request.HttpContext.Response.Headers[FramesHeldHeader] = "1";
+            }
+            else
+            {
+                batch = hub.Read(principal, after.GetValueOrDefault());
+            }
+
             var waiting = principal.Role == DeviceAuthorizationRole.Owner
                 ? tenant.Tickets.Unanswered()
                     .Select(ticket => new RelayResumeRequest(ticket.TicketId, ticket.DeviceKeyId))
@@ -816,6 +837,8 @@ public static class RelayCompanionRoutes
             }
 
             var ticket = tenant.Tickets.Open(device.DeviceKey.KeyId);
+            // [#604] The desktop learns of a ticket on its frame read, which is now held: let it go.
+            tenant.Hub?.Wake();
             return Results.Ok(new RelayResumeTicketResponse(ticket.TicketId, ticket.ExpiresUtc, null));
         });
 
@@ -901,6 +924,23 @@ public static class RelayCompanionRoutes
         return recovered.Succeeded
             ? Results.Ok(RelaySessionCredentialResponse.From(recovered.Value!))
             : Results.BadRequest(recovered.Code);
+    }
+
+    /// <summary>Set on a frame read that held (or could have): the caller may skip the ack route.</summary>
+    public const string FramesHeldHeader = "X-Relay-Frames-Held";
+
+    /// <summary>A frame read's <c>wait</c>, zero or more seconds, or null when it named none.</summary>
+    private static TimeSpan? FrameWaitFor(HttpRequest request)
+    {
+        if (!request.Query.TryGetValue(WaitQuery, out var waitValues) ||
+            !double.TryParse(waitValues.ToString(), CultureInfo.InvariantCulture, out var seconds) ||
+            !double.IsFinite(seconds) ||
+            seconds < 0)
+        {
+            return null;
+        }
+
+        return TimeSpan.FromSeconds(Math.Min(seconds, OpaqueRelayFrameHub.MaximumWait.TotalSeconds));
     }
 
     /// <summary>Both hold parameters, or null when the caller named fewer than both.</summary>

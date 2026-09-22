@@ -108,6 +108,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
     private const string SessionHeader = "X-Relay-Session";
     private const string CredentialHeader = "X-Relay-Credential";
+    private const string FramesHeldHeader = "X-Relay-Frames-Held";
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan FrameLifetime = TimeSpan.FromSeconds(30);
 
@@ -560,8 +561,23 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
     private sealed record RelaySessionCredentialWire(Guid SessionId, Guid ChannelId, string Credential, string CsrfToken, DateTimeOffset ExpiresUtc);
 
+    /// <summary>
+    /// Whether this bridge reads the relay on its own once it has an owner session. On in the app.
+    /// </summary>
+    /// <remarks>
+    /// [#604] Its reads are held and follow each other at once, so a test that needs the desktop
+    /// to stop reading for a while (to overflow its queue) cannot wait out a poll interval any
+    /// more; it turns this off and reads with <see cref="PollOnceAsync"/> itself.
+    /// </remarks>
+    public bool ReadsOnItsOwn { get; set; } = true;
+
     private void EnsureLoopStarted()
     {
+        if (!ReadsOnItsOwn)
+        {
+            return;
+        }
+
         lock (_gate)
         {
             if (_loop is not null)
@@ -575,13 +591,36 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         _ = Task.Run(() => PollLoopAsync(_loop.Token));
     }
 
+    /// <summary>How long one of the loop's reads asks the relay to hold, within its own bound.</summary>
+    private static readonly TimeSpan HeldReadWait = TimeSpan.FromSeconds(20);
+
+    /// <summary>
+    /// The least time between two held reads that came back with nothing, so a relay that keeps
+    /// answering at once (a resume ticket, a reconnect) is never read in a tight loop.
+    /// </summary>
+    private static readonly TimeSpan EmptyReadFloor = TimeSpan.FromMilliseconds(250);
+
+    /// <remarks>
+    /// [#604] Each read is held by the relay until a frame is queued, and the next one is sent the
+    /// moment it comes back. This used to read, then sleep two seconds: a tablet in Control moved
+    /// the desk in two-second jumps. A relay from before the hold answers at once and sends no
+    /// <c>X-Relay-Frames-Held</c>, and this falls back to the old two-second rhythm against it.
+    /// </remarks>
     private async Task PollLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var delay = PollInterval;
+            var started = _clock.GetTimestamp();
             try
             {
-                await PollOnceAsync(cancellationToken).ConfigureAwait(false);
+                var read = await PollAsync(HeldReadWait, cancellationToken).ConfigureAwait(false);
+                if (read.Held)
+                {
+                    delay = read.Frames > 0 || _clock.GetElapsedTime(started) >= EmptyReadFloor
+                        ? TimeSpan.Zero
+                        : EmptyReadFloor;
+                }
             }
             catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException)
             {
@@ -593,9 +632,14 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                 }
             }
 
+            if (delay <= TimeSpan.Zero)
+            {
+                continue;
+            }
+
             try
             {
-                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (TaskCanceledException)
             {
@@ -604,27 +648,21 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         }
     }
 
-    /// <summary>Reads and handles whatever is queued for this desktop, once.</summary>
-    /// <remarks>
-    /// One read at a time: the loop and a direct caller share the delivery cursor, and two reads
-    /// racing over it would each handle the same frame.
-    /// </remarks>
-    public async Task PollOnceAsync(CancellationToken cancellationToken)
-    {
-        await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await ExpireDueMarksAsync(cancellationToken).ConfigureAwait(false);
-            await PollCoreAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _pollGate.Release();
-        }
-    }
+    /// <summary>Reads and handles whatever is queued for this desktop, once, without holding.</summary>
+    public async Task PollOnceAsync(CancellationToken cancellationToken) =>
+        await PollAsync(TimeSpan.Zero, cancellationToken).ConfigureAwait(false);
 
-    private async Task PollCoreAsync(CancellationToken cancellationToken)
+    private readonly record struct FrameRead(bool Held, int Frames);
+
+    /// <remarks>
+    /// The request itself is sent outside <see cref="_pollGate"/>, because a held read can take
+    /// twenty seconds and a direct <see cref="PollOnceAsync"/> must not wait behind it. Handling
+    /// is inside it, one at a time, and skips any frame another read has already handled: the
+    /// loop and a direct caller share the delivery cursor.
+    /// </remarks>
+    private async Task<FrameRead> PollAsync(TimeSpan wait, CancellationToken cancellationToken)
     {
+        await ExpireDueMarksAsync(cancellationToken).ConfigureAwait(false);
         HttpClient? relay;
         OwnerCredential? owner;
         lock (_gate)
@@ -635,12 +673,36 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
         if (relay is null || owner is null)
         {
-            return;
+            return default;
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"v2/companion/relay/frames?after={_afterDeliveryId}");
+        var after = Interlocked.Read(ref _afterDeliveryId);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"v2/companion/relay/frames?after={after}&wait={wait.TotalSeconds:0.###}"));
         AddBearer(request, owner);
         using var response = await relay.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await HandleFrameReadAsync(relay, owner, after, response, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _pollGate.Release();
+        }
+    }
+
+    private async Task<FrameRead> HandleFrameReadAsync(
+        HttpClient relay,
+        OwnerCredential owner,
+        long after,
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        var held = response.Headers.Contains(FramesHeldHeader);
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
             // [#289] The relay has ended this owner session: it expired (twelve hours, or two
@@ -651,13 +713,13 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                 var reclaimed = await reclaim(cancellationToken).ConfigureAwait(false);
                 if (reclaimed.Outcome == RelayClaimOutcome.Claimed)
                 {
-                    return; // adopted; the next read is on the new session
+                    return default; // adopted; the next read is on the new session
                 }
 
                 if (reclaimed.Outcome is RelayClaimOutcome.Unreachable or RelayClaimOutcome.RateLimited)
                 {
                     SetOwnerLink(RelayOwnerLinkState.Unreachable);
-                    return; // kept, and asked again on the next tick
+                    return default; // kept, and asked again on the next tick
                 }
             }
 
@@ -684,12 +746,12 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
                 SetOwnerLink(RelayOwnerLinkState.Rejected);
             }
 
-            return;
+            return default;
         }
 
         if (!response.IsSuccessStatusCode)
         {
-            return;
+            return default;
         }
 
         SetOwnerLink(RelayOwnerLinkState.Verified);
@@ -714,18 +776,33 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             }
         }
 
+        var handled = 0;
         foreach (var (deliveryId, frame) in frames)
         {
+            // Another read (the loop's, or a direct PollOnceAsync) may have handled it already.
+            if (deliveryId <= _afterDeliveryId)
+            {
+                continue;
+            }
+
             if (frame is not null)
             {
                 await HandleInboundFrameAsync(frame, cancellationToken).ConfigureAwait(false);
             }
 
-            _afterDeliveryId = Math.Max(_afterDeliveryId, deliveryId);
+            Interlocked.Exchange(ref _afterDeliveryId, Math.Max(_afterDeliveryId, deliveryId));
+            handled++;
         }
 
-        if (frames.Count > 0)
+        // [#604] A batch of Control moves is one move for the desktop's map: only the last one
+        // is where the tablet's finger now is, and handing the desk every step in between would
+        // have it replay the drag it has already fallen behind on.
+        RaisePendingDesktopWorkspace();
+
+        if (handled > 0 && !held)
         {
+            // An older relay. A held read acknowledges through its own `after` on the next read,
+            // so this round trip is only spent where the relay cannot do that.
             using var ack = new HttpRequestMessage(HttpMethod.Post, $"v2/companion/relay/frames/{_afterDeliveryId}/ack");
             AddBearer(ack, owner);
             using var ackResponse = await relay.SendAsync(ack, cancellationToken).ConfigureAwait(false);
@@ -733,7 +810,9 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         }
 
         var status = ParseBatchStatus(json);
-        if (status.RequiresReconnect && frames.Count == 0)
+        // A read that started before another one moved the cursor on is behind by construction,
+        // and the relay says "reconnect" to it; that is not a gap worth resetting the queue over.
+        if (status.RequiresReconnect && frames.Count == 0 && after == _afterDeliveryId)
         {
             // [#407] The relay dropped something from this queue (or restarted and lost it). What
             // a tablet sent and the relay dropped is gone either way, and each tablet's own resync
@@ -745,11 +824,12 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             if (resetResponse.IsSuccessStatusCode)
             {
                 var resetJson = await resetResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                _afterDeliveryId = ParseResetCursor(resetJson);
+                Interlocked.Exchange(ref _afterDeliveryId, ParseResetCursor(resetJson));
             }
         }
 
         await ReconcileMapAsync(relay, owner, status.Map, cancellationToken).ConfigureAwait(false);
+        return new FrameRead(held, handled);
     }
 
     private bool HasOwner()
@@ -819,15 +899,18 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
         // just moved canonical workspace state, so the desktop's own map has to move with it. The
         // reducer has already decided whether that device may — an unauthorized control command
         // never reaches Applied — so this only carries the result.
-        if (application.Acknowledgement.Disposition == CommandDisposition.Applied &&
-            command.Command is ControlWorkspaceCommand)
+        var controlMove = application.Acknowledgement.Disposition == CommandDisposition.Applied &&
+            command.Command is ControlWorkspaceCommand;
+        if (controlMove)
         {
-            DesktopWorkspaceRequested?.Invoke(application.State.CanonicalState.Workspace.Projection);
+            _pendingDesktopWorkspace = application.State.CanonicalState.Workspace.Projection;
         }
 
         CanonicalStateChanged?.Invoke(application.State.CanonicalState);
         ScheduleMarkExpiry();
 
+        // [#604] Queued, not awaited: the next frame in the batch (usually the next move of the
+        // same drag) is handled while these are still on their way, in order.
         foreach (var delivery in application.Deliveries)
         {
             PairedSessionState? target;
@@ -838,7 +921,7 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
 
             if (target is not null)
             {
-                await PublishDeliveryAsync(target, delivery, application.State.CanonicalState, cancellationToken).ConfigureAwait(false);
+                QueueDelivery(target, delivery, application.State.CanonicalState, controlMove);
             }
         }
     }
@@ -1177,7 +1260,15 @@ public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfa
             cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task PublishSealedAsync(
+    private Task PublishSealedAsync(
+        PairedSessionState state,
+        RelayPayloadKind kind,
+        byte[] json,
+        CancellationToken cancellationToken) =>
+        EnqueueSealed(state, kind, json, supersedeKey: null).WaitAsync(cancellationToken);
+
+    /// <summary>Seals and posts one frame now. Only the outbound queue calls this, one at a time.</summary>
+    private async Task SendSealedNowAsync(
         PairedSessionState state,
         RelayPayloadKind kind,
         byte[] json,

@@ -1863,10 +1863,17 @@
     }
   }
 
+  // [#604] Held: the relay answers the moment the desktop sends something, and the next read goes
+  // straight out. Its `after` is also its acknowledgement, so there is no ack round trip either. A
+  // relay from before the hold says nothing about it and is read every second and a half as before.
   async function pollLiveFrames() {
     while (live && live.credential) {
+      const startedAt = performance.now();
+      let held = false;
+      let received = 0;
       try {
-        const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}`);
+        const response = await relayCall(`/v2/companion/relay/frames?after=${live.afterDeliveryId}&wait=20`);
+        held = response.headers.get("X-Relay-Frames-Held") === "1";
         if (response.status === 401) {
           await sessionEnded();
           return;
@@ -1874,6 +1881,7 @@
 
         if (response.ok) {
           const batch = await response.json();
+          received = batch.frames.length;
           for (const envelope of batch.frames) {
             await handleInboundFrame(envelope.frame);
             if (!live) return;
@@ -1904,7 +1912,7 @@
             }
           }
 
-          if (batch.frames.length > 0) {
+          if (batch.frames.length > 0 && !held) {
             await relayCall(`/v2/companion/relay/frames/${live.afterDeliveryId}/ack`, { method: "POST" });
           }
         }
@@ -1915,14 +1923,21 @@
 
       // [#290] Anything sent that the desktop has not answered by now: say so, once, rather than
       // leaving the person staring at buttons that never changed and never explained why.
-      for (const late of pending.expire(Date.now())) {
-        if (MODE_COMMAND_TYPES.has(late.type)) revertOptimisticMode();
-        showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      reportLateCommands();
+      const pause = !held ? 1500 : received > 0 || performance.now() - startedAt >= 250 ? 0 : 250;
+      if (pause > 0) await new Promise((resolve) => setTimeout(resolve, pause));
     }
   }
+
+  // Once a second as well as after every read: a held read can take twenty seconds to come back.
+  function reportLateCommands() {
+    for (const late of pending.expire(Date.now())) {
+      if (MODE_COMMAND_TYPES.has(late.type)) revertOptimisticMode();
+      showNotice(`${late.label}: the desktop has not answered. It may be offline.`, "warn");
+    }
+  }
+
+  setInterval(() => { if (live) reportLateCommands(); }, 1000);
 
   async function handleInboundFrame(frame) {
     try {
@@ -1988,7 +2003,8 @@
       live.marks = update.state.marks;
       renderMarks();
     } else if (update.type === "workspace") {
-      live.workspaceRevision = update.state.cursor.revision.value;
+      // Never backwards: moves this tablet has streamed since are already counted (#604).
+      live.workspaceRevision = Math.max(live.workspaceRevision, update.state.cursor.revision.value);
       // Echo suppression: a workspace change this tablet itself caused comes straight back as
       // an ordinary broadcast update, and applying it would fight the pan the person is still
       // making. Its origin device is this one, so it is dropped rather than followed.
@@ -2144,11 +2160,15 @@
   // error, so the tablet ends up showing where the desktop actually is.
   function handleAcknowledgement(acknowledgement) {
     const commandId = acknowledgement?.commandId?.value ?? null;
-    const entry = pending.settle(commandId);
+    const streamed = streamedMoves.delete(commandId);
+    const entry = streamed ? { type: "controlWorkspace", label: "Moving the map" } : pending.settle(commandId);
     if (!entry) return; // Another tab's command, or one this page already gave up on.
     const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
     if (result.applied) return;
+    // [#604] A move that lost a revision race mid-drag has already been caught up by the state
+    // above, and the next move goes out on it. Saying so twenty times a second helps nobody.
+    if (streamed && QUIET_MOVE_REFUSALS.has(result.disposition)) return;
     if (MODE_COMMAND_TYPES.has(entry.type)) revertOptimisticMode();
     if (result.outOfDatePairing) {
       // [#601] Sticky, and a tap on it unpairs: the one thing that fixes it.
@@ -2310,6 +2330,84 @@
     renderSurface();
   }
 
+  // [#604] Control moves, streamed while the finger moves rather than once when it lifts. At most
+  // one is on its way at a time and at most one every MOVE_INTERVAL_MS; whatever the camera is when
+  // the way is clear is what goes, so a burst of moves costs one send and the last position is
+  // always the one that lands. Each is its own revision, taken here rather than when the desktop's
+  // echo comes back, so the next move never waits for a round trip. The answer is not waited for
+  // either: a refused move comes back with the desktop's state, which is what the next one builds on.
+  const MOVE_INTERVAL_MS = 60;
+  const QUIET_MOVE_REFUSALS = new Set(["RejectedStale", "RejectedConflict", "RequiresSnapshot"]);
+  const streamedMoves = new Set();
+  const moveStream = { wanted: false, inFlight: false, lastSentAt: 0, timer: null };
+
+  function streamNavigate() {
+    moveStream.wanted = true;
+    pumpMoveStream();
+  }
+
+  function pumpMoveStream() {
+    if (!moveStream.wanted || moveStream.inFlight || moveStream.timer) return;
+    const wait = MOVE_INTERVAL_MS - (performance.now() - moveStream.lastSentAt);
+    if (wait > 0) {
+      moveStream.timer = setTimeout(() => {
+        moveStream.timer = null;
+        pumpMoveStream();
+      }, wait);
+      return;
+    }
+
+    moveStream.wanted = false;
+    if (mode !== "Control" || !live?.surface || !live.authorityEpoch) return;
+    moveStream.inFlight = true;
+    moveStream.lastSentAt = performance.now();
+    const command = navigateCommand(live.surface.view.floorId);
+    live.workspaceRevision = command.requestedRevision.value;
+    streamedMoves.add(command.commandId.value);
+    if (streamedMoves.size > 64) streamedMoves.delete(streamedMoves.values().next().value);
+    sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
+      protocolVersion: live.protocolVersion,
+      sessionId: { value: live.sessionId },
+      authorityEpoch: { value: live.authorityEpoch },
+      clientSentUtc: new Date().toISOString(),
+      command,
+    }).catch(() => null).then((response) => {
+      moveStream.inFlight = false;
+      if (response && !response.ok && response.status !== 401 && response.status !== 403) {
+        streamedMoves.delete(command.commandId.value);
+        showNotice("Moving the map: could not reach the relay. Try again.", "error");
+      }
+
+      pumpMoveStream();
+    });
+  }
+
+  function navigateCommand(floorId) {
+    const view = viewCamera();
+    return {
+      type: "controlWorkspace",
+      ...commandHeader(live.workspaceRevision + 1),
+      action: {
+        type: "navigate",
+        workspace: "Raid",
+        mapId: live.surface.mapId,
+        floorId,
+        viewport: {
+          center: {
+            mapId: live.surface.mapId,
+            floorId,
+            coordinateSpace: "World",
+            projectionVersion: live.surface.transformVersion,
+            x: view.x,
+            y: null,
+            z: view.y,
+          },
+          zoom: Math.min(100, Math.max(0.01, view.zoom)),
+        },
+      },
+    };
+  }
+
   function sendNavigate(change) {
     if (!live?.surface) return;
     const view = viewCamera();
@@ -2318,6 +2416,11 @@
       // Independent: this tablet's own view moves and nothing is sent.
       if (change?.floorId !== undefined && live.surface) live.surface.view.floorId = change.floorId;
       renderSurface();
+      return;
+    }
+
+    if (change?.floorId === undefined) {
+      streamNavigate();
       return;
     }
 
@@ -2492,6 +2595,8 @@
     }
 
     drawMap();
+    // [#604] The desk follows the finger, not the lift of it.
+    if (mode === "Control") streamNavigate();
   });
 
   function endPointer(event) {

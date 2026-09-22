@@ -129,7 +129,7 @@ public sealed class RelayTenantDirectory
     public ImmutableArray<RelayTenant> Tenants => _tenants;
 
     /// <summary>Tablet map reads being held across every desktop, for <c>/health</c>.</summary>
-    public int WaitingCount => _tenants.Sum(tenant => tenant.Maps?.WaitingCount ?? 0);
+    public int WaitingCount => _tenants.Sum(tenant => (tenant.Maps?.WaitingCount ?? 0) + (tenant.Hub?.WaitingCount ?? 0));
 
     /// <param name="legacyRegistry">The single-owner registry this relay had before tenancy.</param>
     /// <param name="directory">Where registered desktops are kept, or null to keep them in memory.</param>
