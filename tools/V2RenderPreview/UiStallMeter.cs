@@ -19,11 +19,14 @@ namespace TarkovCompanion.V2RenderPreview;
 internal static class UiStallMeter
 {
     private static readonly List<(double Milliseconds, string Doing)> Stalls = [];
-    private static readonly List<(string Phase, int Count, double Longest)> Summary = [];
+    private static readonly List<(string Phase, int Count, double Longest, double InputWait)> Summary = [];
     private static double _busyMilliseconds;
     private static double _longest;
     private static int _turns;
     private static long _startedTimestamp;
+    private static double _longestInputWait;
+    private static Timer? _probe;
+    private static long _probePosted;
 
     public static bool Enabled { get; private set; }
 
@@ -34,6 +37,28 @@ internal static class UiStallMeter
         Enabled = true;
         ThresholdMilliseconds = thresholdMilliseconds;
         _startedTimestamp = Stopwatch.GetTimestamp();
+        // [#453] A turn here is everything RunJobs drained, which includes work a view model split
+        // into several jobs behind input on purpose; the real dispatcher answers input and paints
+        // between those jobs. So a probe posted at input priority from another thread every 10 ms
+        // says how long a click would actually have waited, which is what the hang watchdog
+        // measures on a player's machine.
+        _probe = new Timer(static _ =>
+        {
+            if (Interlocked.CompareExchange(ref _probePosted, Stopwatch.GetTimestamp(), 0) != 0)
+            {
+                return;
+            }
+
+            Dispatcher.UIThread.Post(static () =>
+            {
+                var posted = Interlocked.Exchange(ref _probePosted, 0);
+                var waited = Stopwatch.GetElapsedTime(posted).TotalMilliseconds;
+                if (waited > _longestInputWait)
+                {
+                    _longestInputWait = waited;
+                }
+            }, DispatcherPriority.Input);
+        }, null, 10, 10);
     }
 
     /// <summary>Runs whatever the dispatcher has queued, timing it when the meter is on.</summary>
@@ -90,13 +115,14 @@ internal static class UiStallMeter
         var wall = Stopwatch.GetElapsedTime(_startedTimestamp).TotalMilliseconds;
         Console.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"UI stalls [{phase}]: {Stalls.Count} turns over {ThresholdMilliseconds:0} ms; interface thread busy {_busyMilliseconds:0} ms of {wall:0} ms; longest turn {_longest:0} ms; {_turns} turns."));
+            $"UI stalls [{phase}]: {Stalls.Count} turns over {ThresholdMilliseconds:0} ms; interface thread busy {_busyMilliseconds:0} ms of {wall:0} ms; longest turn {_longest:0} ms; {_turns} turns; longest input wait {_longestInputWait:0} ms."));
         foreach (var (milliseconds, doing) in Stalls.OrderByDescending(stall => stall.Milliseconds).Take(15))
         {
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {milliseconds,7:0} ms  {doing}"));
         }
 
-        Summary.Add((phase, Stalls.Count, _longest));
+        Summary.Add((phase, Stalls.Count, _longest, _longestInputWait));
+        _longestInputWait = 0;
         Stalls.Clear();
         _busyMilliseconds = 0;
         _longest = 0;
@@ -107,11 +133,11 @@ internal static class UiStallMeter
     /// <summary>One row per reported phase: the table <c>--stall-tour</c> exists to print.</summary>
     public static void PrintSummary()
     {
-        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| Route or action | Longest UI turn (ms) | Turns over {ThresholdMilliseconds:0} ms |"));
-        Console.WriteLine("| --- | ---: | ---: |");
-        foreach (var (phase, count, longest) in Summary)
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| Route or action | Longest UI turn (ms) | Turns over {ThresholdMilliseconds:0} ms | Longest input wait (ms) |"));
+        Console.WriteLine("| --- | ---: | ---: | ---: |");
+        foreach (var (phase, count, longest, inputWait) in Summary)
         {
-            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| {phase} | {longest:0} | {count} |"));
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| {phase} | {longest:0} | {count} | {inputWait:0} |"));
         }
     }
 }

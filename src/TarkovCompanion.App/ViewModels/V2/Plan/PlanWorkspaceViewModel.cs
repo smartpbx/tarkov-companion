@@ -268,15 +268,61 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     private bool _isSuggested;
     private ICommand? _showAllObjectives;
 
+    /// <summary>How many rows are added to the drawn list per dispatcher turn.</summary>
+    internal const int ObjectiveChunkSize = 8;
+
+    private TarkovCompanion.App.ViewModels.V2.MapRenderer.ReconciledList<PlanObjectiveRowViewModel>? _visible;
+    private bool _growthPosted;
+
     /// <summary>
     /// The rows the list draws. Each row is a card with chips, two buttons and a twelve-entry
     /// menu, and "All" on Customs is 150 of them: drawn at once they held the interface thread
     /// for over a second. The first page is what fits a few screens; the rest is one press away.
     /// </summary>
-    public IReadOnlyList<PlanObjectiveRowViewModel> VisibleObjectives =>
-        _showsAllObjectives || Objectives.Count <= ObjectivePageSize
-            ? Objectives
-            : [.. Objectives.Take(ObjectivePageSize)];
+    /// <remarks>
+    /// [#453] Filled a few rows per dispatcher turn rather than a page at once: thirty cards built
+    /// in one turn still held the thread for about 300 ms when a filter chip changed the map. The
+    /// first rows appear at once, the rest behind queued input, and the list is appended to rather
+    /// than replaced, so the rows already drawn stay drawn.
+    /// </remarks>
+    public IReadOnlyList<PlanObjectiveRowViewModel> VisibleObjectives
+    {
+        get
+        {
+            if (_visible is null)
+            {
+                _visible = new();
+                Grow();
+            }
+
+            return _visible;
+        }
+    }
+
+    private int VisibleTarget => _showsAllObjectives ? Objectives.Count : Math.Min(Objectives.Count, ObjectivePageSize);
+
+    private void Grow()
+    {
+        _growthPosted = false;
+        if (_visible is null)
+        {
+            return;
+        }
+
+        var post = UiThreadPost.BehindInput();
+        var target = VisibleTarget;
+        var until = post is null ? target : Math.Min(target, _visible.Count + ObjectiveChunkSize);
+        for (var index = _visible.Count; index < until; index++)
+        {
+            _visible.Add(Objectives[index]);
+        }
+
+        if (_visible.Count < target && post is not null && !_growthPosted)
+        {
+            _growthPosted = true;
+            post(Grow);
+        }
+    }
 
     public bool HasMoreObjectives => !_showsAllObjectives && Objectives.Count > ObjectivePageSize;
 
@@ -285,7 +331,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public ICommand ShowAllObjectivesCommand => _showAllObjectives ??= new DelegateCommand(() =>
     {
         _showsAllObjectives = true;
-        OnPropertyChanged(nameof(VisibleObjectives));
+        Grow();
         OnPropertyChanged(nameof(HasMoreObjectives));
     });
 

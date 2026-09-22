@@ -982,7 +982,8 @@ public static class AppComposition
             provider.GetRequiredService<LegacyProfileContextBootstrap>().EnsureSeededAsync));
         services.AddSingleton(provider => new SetupProfilesViewModel(
             provider.GetRequiredService<ProfileManagementService>(),
-            action => Avalonia.Threading.Dispatcher.UIThread.Post(action)));
+            action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+            ProfileTransferComposition.Create(provider, paths)));
         // [#292] Setup's data detail, About, Data & Privacy and Displays.
         services.AddSingleton(provider => new SetupDataDetailViewModel(
             provider.GetRequiredService<IRuntimeStateStore>(),

@@ -26,11 +26,12 @@ public enum FleaRowVerdict
 /// <summary>One row of a photographed flea screen, worded for the list.</summary>
 public sealed class FleaScanRowViewModel
 {
-    public FleaScanRowViewModel(FleaScanRow row, FleaScanResult scan, int ordinal, CultureInfo culture)
+    public FleaScanRowViewModel(FleaScanRow row, FleaScanResult scan, int rank, CultureInfo culture)
     {
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(scan);
-        AutomationId = $"v2-flea-scan-row-{ordinal.ToString(CultureInfo.InvariantCulture)}";
+        AutomationId = $"v2-flea-scan-row-{rank.ToString(CultureInfo.InvariantCulture)}";
+        RankLabel = rank == 1 ? "#1 best buy" : $"#{rank.ToString(culture)}";
         PriceLabel = $"{Roubles(row.PriceRoubles, culture)} each";
         StackLabel = row.Quantity switch
         {
@@ -66,6 +67,8 @@ public sealed class FleaScanRowViewModel
 
     public string AutomationId { get; }
 
+    public string RankLabel { get; }
+
     public string PriceLabel { get; }
 
     public string StackLabel { get; }
@@ -97,7 +100,11 @@ public sealed class FleaScanRowViewModel
 /// <summary>A photographed flea screen as Intel &gt; Flea shows it.</summary>
 public sealed class FleaScanViewModel
 {
-    public FleaScanViewModel(FleaScanResult scan, CultureInfo? culture = null)
+    public FleaScanViewModel(
+        FleaScanResult scan,
+        CultureInfo? culture = null,
+        bool offline = false,
+        TimeProvider? timeProvider = null)
     {
         Scan = scan ?? throw new ArgumentNullException(nameof(scan));
         var format = culture ?? CultureInfo.CurrentCulture;
@@ -118,7 +125,23 @@ public sealed class FleaScanViewModel
             _ => "No 24 h flea average",
         };
         ObservedLabel = $"Photographed {LocalTime.Moment(scan.ObservedUtc)}";
-        Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index, format))];
+        Rows =
+        [
+            .. scan.Rows
+                .Select((row, sourceIndex) => (Row: row, SourceIndex: sourceIndex))
+                .OrderBy(candidate => candidate.Row.PriceRoubles)
+                .ThenBy(candidate => candidate.SourceIndex)
+                .Select((candidate, index) => new FleaScanRowViewModel(candidate.Row, scan, index + 1, format)),
+        ];
+        var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
+        var stale = scan.PriceUpdatedUtc is { } priceTime && now - priceTime > TimeSpan.FromDays(1);
+        MarketDataNote = (offline, stale, scan.PriceUpdatedUtc) switch
+        {
+            (true, true, { } offlineTime) => $"Offline · comparison prices are from {LocalTime.Moment(offlineTime)}",
+            (true, _, _) => "Offline · comparison prices are cached",
+            (false, true, { } onlineTime) => $"Price comparison is over a day old · {LocalTime.Moment(onlineTime)}",
+            _ => string.Empty,
+        };
         SummaryLabel = Rows.Count(row => row.IsGoodBuy) switch
         {
             0 => $"{Rows.Count.ToString(format)} rows read · none would pay to resell",
@@ -139,6 +162,10 @@ public sealed class FleaScanViewModel
     public string ObservedLabel { get; }
 
     public string SummaryLabel { get; }
+
+    public string MarketDataNote { get; }
+
+    public bool HasMarketDataNote => MarketDataNote.Length > 0;
 
     public IReadOnlyList<FleaScanRowViewModel> Rows { get; }
 }

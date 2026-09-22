@@ -2078,7 +2078,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var eligible = markers
             .Where(marker => marker.SceneObject is not null &&
-                marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective)
+                marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective
+                    or MapSceneMarkerIcon.Waypoint or MapSceneMarkerIcon.Ping)
             .ToArray();
         var groups = MapMarkerOverlapLayout.Stacks(
             eligible.Select(marker => (marker.AnchorLeft, marker.AnchorTop)).ToArray(),
@@ -3409,9 +3410,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 
     /// <summary>
     /// [#573] Drawn smaller with the plan fitted and full size zoomed in (<see cref="MapMarkerScale"/>).
-    /// A person, a ping and a count badge keep their size: they are what a crowded map must not hide.
+    /// A person and a count badge keep their size. Hand-authored waypoints and pings scale with
+    /// every other mark so the player's own dense spot does not bury the map at fit zoom.
     /// </summary>
-    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
+    public double MarkerScale => IsCluster || IsPersonIcon || _isSelected ? 1 : MapMarkerScale.For(_cameraZoom);
 
     /// <summary>The mark's hit box in its own DIPs, so it is never under 32 screen pixels however small it is drawn.</summary>
     public double HitExtent => MapMarkerScale.HitExtent(MarkerScale);

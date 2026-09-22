@@ -1,6 +1,7 @@
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Infrastructure.Maps;
+using TarkovCompanion.UnitTests.Runtime;
 
 namespace TarkovCompanion.UnitTests.Maps;
 
@@ -153,16 +154,13 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
     [Fact]
     public async Task AnExpiredPingIsDroppedOnItsOwnWithoutAnyOtherMutation()
     {
-        // Real time, not the frozen clock the tests above use: this is the one test that proves
-        // the store schedules its own timer for the next expiry (issue 584's "without waiting for
-        // another change") rather than only proving Marks filters correctly on a read the test
-        // itself triggers. A millisecond lifetime is the test-only seam pingLifetime exists for.
-        //
-        // Issue 602: the signal is "the file on disk no longer holds a mark", checked on every
-        // Changed from a handler attached BEFORE the add. Waiting for "the next Changed after the
-        // add returns" missed a timer that fired first, and Marks filters on read so it proves
-        // nothing about the timer.
-        var store = new JsonFileRaidMarkStore(StorePath, TimeProvider.System, pingLifetime: TimeSpan.FromMilliseconds(30));
+        // Drive the store's own timer through its injected clock. A 30 ms wall-clock lifetime
+        // raced a loaded CI runner in two different places: expiry could beat the subscription,
+        // and the add's disk write could outlive the ping. The separate test below fixes and
+        // covers the latter production race; this one deterministically proves the timer removes
+        // a ping without another store mutation.
+        var clock = new ManualTimeProvider(new(2026, 9, 22, 12, 0, 0, TimeSpan.Zero));
+        using var store = new JsonFileRaidMarkStore(StorePath, clock);
         var dropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         store.Changed += () =>
         {
@@ -173,6 +171,9 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         };
 
         await store.AddAsync(RaidMarkKind.Ping, "factory", null, 1, 1, label: null);
+        Assert.Equal(clock.GetUtcNow() + MapMarkPolicy.PingLifetime, Assert.Single(store.Marks).State.ExpiresUtc);
+
+        clock.Advance(MapMarkPolicy.PingLifetime);
 
         await dropped.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(store.Marks);
