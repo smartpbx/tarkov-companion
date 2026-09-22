@@ -188,7 +188,7 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <!-- Follow is the one view switch pressed mid-raid, so it stays on the strip; it is sized
@@ -196,7 +196,7 @@
     <Style Selector="ToggleButton.v2-raid-strip-toggle">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="MinWidth" Value="0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
