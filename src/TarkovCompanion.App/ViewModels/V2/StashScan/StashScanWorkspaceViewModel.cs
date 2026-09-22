@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -362,6 +363,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IRuntimeStateStore _runtime;
     private readonly TimeProvider _clock;
+    private readonly AppDataPaths? _paths;
     // Optional so a composition without an item catalog is still a valid composition: without
     // one, results rows have no wiki link, which is what they had until now.
     private readonly IItemRepository? _itemRepository;
@@ -398,7 +400,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         GuidedStashScanService? guidedScan = null,
         GuidedStashScanArming? arming = null,
         IProfileRuntimeContextService? profileContext = null,
-        StashPlanSource? planSource = null)
+        StashPlanSource? planSource = null,
+        AppDataPaths? paths = null)
     {
         _planSource = planSource;
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -407,6 +410,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         _clock = clock ?? TimeProvider.System;
+        _paths = paths;
         _itemRepository = itemRepository;
         _wikiOpener = wikiOpener;
         _guidedScan = guidedScan;
@@ -430,6 +434,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         DeleteSelectedCommand = new AsyncDelegateCommand(DeleteSelectedAsync);
         CompareToPreviousCommand = new AsyncDelegateCommand(CompareToPreviousAsync);
+        ExportCsvCommand = new AsyncDelegateCommand(() => ExportLatestAsync("csv", StashSnapshotExport.Csv));
+        ExportJsonCommand = new AsyncDelegateCommand(() => ExportLatestAsync("json", StashSnapshotExport.Json));
         MarkSelectedUnknownCommand = new AsyncDelegateCommand(MarkSelectedUnknownAsync);
         CorrectIdentityCommand = new AsyncDelegateCommand(CorrectIdentityAsync);
         CorrectQuantityCommand = new AsyncDelegateCommand(CorrectQuantityAsync);
@@ -698,6 +704,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public ICommand CompareToPreviousCommand { get; }
 
+    public ICommand ExportCsvCommand { get; }
+
+    public ICommand ExportJsonCommand { get; }
+
     public ICommand MarkSelectedUnknownCommand { get; }
 
     public ICommand CorrectIdentityCommand { get; }
@@ -940,6 +950,41 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         Status = comparison is null
             ? "That comparison could not be read."
             : $"{comparison.Changes.Count} change(s) since {previous.RecordedLabel}.";
+    }
+
+    private async Task ExportLatestAsync(string extension, Func<StashSnapshotRecord, string> format)
+    {
+        var scope = CurrentScope();
+        if (scope is null || _paths is null)
+        {
+            Status = "A profile and export folder are required.";
+            return;
+        }
+
+        try
+        {
+            var latest = (await _store.ListAsync(scope, 1, CancellationToken.None).ConfigureAwait(true)).SingleOrDefault();
+            var snapshot = latest is null
+                ? null
+                : await _store.ReadAsync(scope, latest.SnapshotId, CancellationToken.None).ConfigureAwait(true);
+            if (snapshot is null)
+            {
+                Status = "There is no stash snapshot to export.";
+                return;
+            }
+
+            var directory = Path.Combine(_paths.Root, "Exports");
+            Directory.CreateDirectory(directory);
+            var destination = Path.Combine(
+                directory,
+                $"{LocalTime.FileStamp(_clock.GetUtcNow())}-stash-snapshot.{extension}");
+            await File.WriteAllTextAsync(destination, format(snapshot), CancellationToken.None).ConfigureAwait(true);
+            Status = $"Exported {extension.ToUpperInvariant()} to {destination}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Export failed: {exception.Message}";
+        }
     }
 
     private async Task MarkSelectedUnknownAsync()
