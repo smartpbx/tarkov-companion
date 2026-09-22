@@ -15,7 +15,7 @@ public sealed partial class WindowsMonitorService : IMonitorService
     }
 
     [SupportedOSPlatform("windows")]
-    private static IReadOnlyList<DisplayDescriptor> EnumerateOnWindows()
+    private static unsafe IReadOnlyList<DisplayDescriptor> EnumerateOnWindows()
     {
         _ = MonitorNative.SetThreadDpiAwarenessContext(new nint(-4));
         var displays = new List<DisplayDescriptor>();
@@ -34,8 +34,9 @@ public sealed partial class WindowsMonitorService : IMonitorService
             }
 
             var number = displays.Count + 1;
+            var deviceName = new string(info.Device).TrimEnd('\0');
             displays.Add(new(
-                $"monitor-{monitor.ToInt64():X}",
+                string.IsNullOrWhiteSpace(deviceName) ? $"monitor-{monitor.ToInt64():X}" : deviceName,
                 $"Display {number}",
                 new PixelRect(
                     info.Monitor.Left,
@@ -43,7 +44,12 @@ public sealed partial class WindowsMonitorService : IMonitorService
                     info.Monitor.Right - info.Monitor.Left,
                     info.Monitor.Bottom - info.Monitor.Top),
                 (info.Flags & 1) != 0,
-                scale));
+                scale,
+                new PixelRect(
+                    info.WorkArea.Left,
+                    info.WorkArea.Top,
+                    info.WorkArea.Right - info.WorkArea.Left,
+                    info.WorkArea.Bottom - info.WorkArea.Top)));
             return 1;
         };
 
@@ -83,11 +89,12 @@ public sealed partial class WindowsMonitorService : IMonitorService
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MonitorInfo
+    private unsafe struct MonitorInfo
     {
         internal uint Size;
         internal NativeRect Monitor;
         internal NativeRect WorkArea;
         internal uint Flags;
+        internal fixed char Device[32];
     }
 }

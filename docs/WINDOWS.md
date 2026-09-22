@@ -13,6 +13,7 @@ The companion does not capture the screen. The GDI window-capture service was re
 The hotkey service owns a small Windows message-loop thread and receives `WM_HOTKEY` after `RegisterHotKey`. It unregisters during disposal. It never calls `SendInput`, `keybd_event`, or any other input-generation API.
 
 Monitor discovery uses ordinary display-monitor enumeration under per-monitor-v2 DPI awareness. Bounds are physical virtual-desktop coordinates, and effective DPI is exposed as a scale relative to 96 DPI.
+The V2 window keeps a physical-size placement per device name and resolution, clamps it to the monitor work area on startup or hot-plug, and Setup › Displays can move it explicitly.
 
 ## Paths and file watchers
 
