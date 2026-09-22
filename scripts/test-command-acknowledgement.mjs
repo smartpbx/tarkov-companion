@@ -81,6 +81,7 @@ check("labels name what the person did",
   && ack.labelFor({ type: "requestControl" }) === "Taking control"
   && ack.labelFor({ type: "setInteractionMode" }) === "Changing mode"
   && ack.labelFor({ type: "controlWorkspace" }) === "Moving the map"
+  && ack.labelFor({ type: "controlWorkspace", action: { type: "navigate", workspace: "Plan" } }) === "Switching workspace"
   && ack.labelFor({ type: "showOnDesktop" }) === "Showing on the desktop"
   && ack.labelFor({ type: "somethingElse" }) === "That"
   && ack.labelFor(undefined) === "That");

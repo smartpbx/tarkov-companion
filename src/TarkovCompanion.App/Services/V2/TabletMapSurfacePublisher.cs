@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Devices;
@@ -79,6 +80,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private DesktopViewportEase? _ease;
     private DateTimeOffset? _sentToTabletUtc;
     private TabletLootResult? _loot;
+    private TabletWorkspaceNavigation? _workspaceNavigation;
 
     public TabletMapSurfacePublisher(
         RaidCockpitViewModel cockpit,
@@ -116,6 +118,10 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     public DateTimeOffset? LastPublishedUtc { get; private set; }
 
     public TabletMapSurface? LastSurface { get; private set; }
+
+    /// <summary>Connects authorised tablet workspace requests to the already-built V2 shell.</summary>
+    public void AttachDesktopWorkspaceNavigation(Func<V2RouteId> currentRoute, Action<V2RouteId> navigate) =>
+        _workspaceNavigation = new TabletWorkspaceNavigation(currentRoute, navigate);
 
     /// <summary>Publishes now, regardless of the rebuild throttle. The test seam, and the first publish.</summary>
     public async Task PublishNowAsync(CancellationToken cancellationToken = default)
@@ -419,6 +425,19 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         Interlocked.Exchange(ref _remotePosted, 0);
         if (Interlocked.Exchange(ref _remoteTarget, null) is { } projection)
         {
+            // The wire enum is validated during deserialization, and this second allowlist keeps
+            // the desktop fail-closed if a future protocol value reaches this older app build.
+            if (!TabletWorkspaceNavigation.TryRoute(projection.Workspace, out _))
+            {
+                return;
+            }
+
+            _workspaceNavigation?.TryNavigate(projection.Workspace);
+            if (projection.Workspace != WorkspaceKind.Raid)
+            {
+                return;
+            }
+
             ApplyRemoteWorkspace(projection);
         }
     }
