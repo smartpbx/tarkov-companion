@@ -67,6 +67,25 @@ public sealed class QuestBoardReconcilerTests
         Assert.Same(first.Tasks[0], only);
     }
 
+    [Fact]
+    public void A_map_draws_one_page_of_rows_until_the_player_asks_for_all_of_them()
+    {
+        // Outside the interface thread there is nothing to spread the rows over, so they arrive at once.
+        var board = Board([.. Enumerable.Range(0, 45).Select(index => Quest($"q{index:D2}", 1))]);
+        var group = Assert.Single(Compose(board, []));
+
+        Assert.Equal(PlanMapGroupViewModel.ObjectivePageSize, group.VisibleObjectives.Count);
+        Assert.True(group.HasMoreObjectives);
+        var shown = group.VisibleObjectives;
+
+        group.ShowAllObjectivesCommand.Execute(null);
+
+        Assert.Same(shown, group.VisibleObjectives);
+        Assert.Equal(45, group.VisibleObjectives.Count);
+        Assert.Equal(group.Objectives, group.VisibleObjectives);
+        Assert.False(group.HasMoreObjectives);
+    }
+
     private static IReadOnlyList<PlanMapGroupViewModel> Compose(QuestBoardReadModel board, IReadOnlyList<PlanMapGroupViewModel> previous) =>
         PlanWorkspaceViewModel.ComposeGroups(PlanWorkspaceViewModel.Bucket(board.Tasks, showAll: true), previous, map => map);
 
