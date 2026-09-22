@@ -30,10 +30,11 @@ public sealed class FleaCaptureHandoffTests
         await handoff.AcceptAsync(
             Request(
                 [new("gpu", "Graphics card", new Confidence(0.91), "Graphics card")],
-                new(100_000, 1, new Confidence(0.9), "Graphics card 100 000"),
+                new(400_000, 1, new Confidence(0.9), "Graphics card 400 000"),
                 new(290_000, 3, new Confidence(0.8), "Graphics card 290 000 (3)"),
+                new(100_000, 1, new Confidence(0.9), "Graphics card 100 000"),
                 new(320_000, null, new Confidence(0.7), "Graphics card 320 000"),
-                new(400_000, 1, new Confidence(0.9), "Graphics card 400 000")),
+                new(400_000, 1, new Confidence(0.9), "Graphics card 400 000 duplicate")),
             CancellationToken.None);
 
         Assert.NotNull(read);
@@ -48,6 +49,8 @@ public sealed class FleaCaptureHandoffTests
         Assert.Equal("Therapist pays ₽120,000", page.TraderLabel);
         Assert.Contains("24 h average ₽337,352", page.AverageLabel, StringComparison.Ordinal);
         Assert.Contains($"after a ₽{fee.ToString("N0", CultureInfo.InvariantCulture)} fee", page.AverageLabel, StringComparison.Ordinal);
+        Assert.Equal(["#1 best buy", "#2", "#3", "#4", "#5"], page.Rows.Select(row => row.RankLabel));
+        Assert.Equal(["₽100,000 each", "₽290,000 each", "₽320,000 each", "₽400,000 each", "₽400,000 each"], page.Rows.Select(row => row.PriceLabel));
 
         // Cheaper than the trader pays: certain profit.
         Assert.Equal(FleaRowVerdict.ProfitToTrader, page.Rows[0].Verdict);
@@ -61,6 +64,25 @@ public sealed class FleaCaptureHandoffTests
         Assert.Equal("count not read", page.Rows[2].StackLabel);
         Assert.Equal(FleaRowVerdict.OverAverage, page.Rows[3].Verdict);
         Assert.False(page.Rows[3].IsGoodBuy);
+    }
+
+    [Fact]
+    public async Task OfflineOrOldComparisonPricesAreSaidBesideTheRows()
+    {
+        var catalog = new LootScanFactFixtures.Catalog();
+        var read = await new FleaCaptureHandoff(catalog, catalog).BuildAsync(
+            Request(
+                [new("gpu", "Graphics card", new Confidence(0.91), "Graphics card")],
+                new CaptureFleaListing(100_000, 1, new Confidence(0.9), "row")),
+            CancellationToken.None);
+        read = read with { PriceUpdatedUtc = Now.AddDays(-2) };
+
+        var offline = new FleaScanViewModel(read, CultureInfo.InvariantCulture, offline: true, timeProvider: new FixedClock(Now));
+        var online = new FleaScanViewModel(read, CultureInfo.InvariantCulture, offline: false, timeProvider: new FixedClock(Now));
+
+        Assert.StartsWith("Offline · comparison prices are from", offline.MarketDataNote, StringComparison.Ordinal);
+        Assert.StartsWith("Price comparison is over a day old", online.MarketDataNote, StringComparison.Ordinal);
+        Assert.True(offline.HasMarketDataNote);
     }
 
     [Fact]
@@ -126,5 +148,10 @@ public sealed class FleaCaptureHandoffTests
             CaptureReviewAction.UseDetected,
             ScanIntent.Flea,
             new CaptureCorrection(CaptureReviewAction.UseDetected, ScanIntent.Flea, RecognizedContext.Flea, 0, Now, "fixture"));
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }
