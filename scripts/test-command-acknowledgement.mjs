@@ -4,10 +4,10 @@
 // suite runs it too (TabletAcknowledgementScriptTests), so a change here that breaks it fails CI.
 import assert from "node:assert/strict";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const ack = (await import(path.join(here, "../src/TarkovCompanion.GroupServer/Tablet/command-acknowledgement.js"))).default;
+const ack = (await import(pathToFileURL(path.join(here, "../src/TarkovCompanion.GroupServer/Tablet/command-acknowledgement.js")).href)).default;
 
 let failures = 0;
 function check(name, condition) {
