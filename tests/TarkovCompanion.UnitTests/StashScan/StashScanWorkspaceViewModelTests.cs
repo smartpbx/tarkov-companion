@@ -1,4 +1,5 @@
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.ViewModels.V2.StashScan;
 using TarkovCompanion.Application.Services.LootScan;
@@ -239,6 +240,53 @@ public sealed class StashScanWorkspaceViewModelTests
 
         var pending = Assert.Single(viewModel.PendingCorrections);
         Assert.Equal("CorrectQuantity", pending.Action);
+    }
+
+    [Fact]
+    public async Task Export_buttons_write_the_latest_stash_as_csv_and_json_with_local_times()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"stash-export-{Guid.NewGuid():N}");
+        var store = new FakeSnapshotStore();
+        var record = Record();
+        store.Seed(record);
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        using var zone = LocalTime.UseZone(TimeZoneInfo.CreateCustomTimeZone(
+            "fixture-minus-four",
+            TimeSpan.FromHours(-4),
+            "fixture-minus-four",
+            "fixture-minus-four"));
+        try
+        {
+            var viewModel = new StashScanWorkspaceViewModel(
+                store,
+                Workflow(store, reviewCommands),
+                reviewCommands,
+                new FakeItemFactCatalog([], []),
+                new FakeRuntimeStateStore(RuntimeSnapshot()),
+                clock: new Runtime.ManualTimeProvider(record.RecordedUtc.AddHours(1)),
+                paths: AppDataPaths.Resolve(root));
+            await viewModel.LoadAsync();
+
+            await ((AsyncDelegateCommand)viewModel.ExportCsvCommand).ExecuteAsync();
+            await ((AsyncDelegateCommand)viewModel.ExportJsonCommand).ExecuteAsync();
+
+            var files = Directory.GetFiles(Path.Combine(root, "Exports")).Order().ToArray();
+            Assert.Equal(2, files.Length);
+            var csv = await File.ReadAllTextAsync(Assert.Single(files, path => path.EndsWith(".csv", StringComparison.Ordinal)));
+            var json = await File.ReadAllTextAsync(Assert.Single(files, path => path.EndsWith(".json", StringComparison.Ordinal)));
+            Assert.Contains(LocalTime.Iso(record.RecordedUtc), csv, StringComparison.Ordinal);
+            Assert.Contains(LocalTime.Iso(record.RecordedUtc), json, StringComparison.Ordinal);
+            Assert.Contains("Gas analyzer", csv, StringComparison.Ordinal);
+            Assert.Contains("Gas analyzer", json, StringComparison.Ordinal);
+            Assert.Contains("UTC-04:00", json, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     [Fact]

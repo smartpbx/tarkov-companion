@@ -1652,6 +1652,10 @@ internal static class Program
                 DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope, Resolve), CancellationToken.None));
                 var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
                 DrainUntilComplete(stashWorkspace.LoadAsync());
+                if (args.Contains("--stash-export-demo"))
+                {
+                    stashWorkspace.ExportJsonCommand.Execute(null);
+                }
                 if (args.Contains("--stash-list"))
                 {
                     stashWorkspace.ShowListCommand.Execute(null);

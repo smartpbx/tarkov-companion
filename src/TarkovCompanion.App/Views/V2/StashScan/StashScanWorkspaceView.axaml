@@ -311,6 +311,10 @@
         </StackPanel>
         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
                     IsVisible="{Binding HasSelection}">
+          <Button Classes="v2-outline" Content="Export CSV" Command="{Binding ExportCsvCommand}"
+                  AutomationProperties.AutomationId="v2-stash-export-csv" />
+          <Button Classes="v2-outline" Content="Export JSON" Command="{Binding ExportJsonCommand}"
+                  AutomationProperties.AutomationId="v2-stash-export-json" />
           <Button Classes="v2-outline" Content="Compare to previous" Command="{Binding CompareToPreviousCommand}"
                   AutomationProperties.AutomationId="v2-stash-compare" />
           <Button Classes="v2-plain" Content="Delete" Command="{Binding DeleteSelectedCommand}"
