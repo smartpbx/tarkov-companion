@@ -431,6 +431,45 @@ internal static class Program
                 }
             }
 
+            // [#269] Profile export/import: gives the active profile some progress, exports it to
+            // a file through the real service, then previews importing that file as a new profile
+            // (--profile-transfer-demo) or into the active one (--profile-transfer-demo into).
+            if (shell?.SetupWorkspace?.Profiles?.Transfer is { } transfer && StringOption(args, "--profile-transfer-demo") is { } transferMode)
+            {
+                var players = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IPlayerProfileService>();
+                var seeded = players.GetActiveAsync(default).GetAwaiter().GetResult();
+                players.SaveAsync(seeded with
+                {
+                    Level = 23,
+                    HideoutStationLevels = new Dictionary<string, int> { ["lavatory"] = 2, ["medstation"] = 1, ["workbench"] = 2 },
+                    WishlistItemIds = new HashSet<string>(["5c0530ee86f774697952d952", "5c12613b86f7743bbe2c3f76"]),
+                    ItemOverrides = new Dictionary<string, string> { ["57347ca924597744596b4e71"] = "keep" },
+                }, default).GetAwaiter().GetResult();
+                DrainUntilComplete(transfer.ExportCommand.ExecuteAsync());
+                DrainUntilComplete((transferMode == "into" ? transfer.IntoActiveCommand : transfer.AsNewCommand).ExecuteAsync());
+                DrainUntilComplete(transfer.PreviewCommand.ExecuteAsync());
+                Pump(20);
+
+                // "import": confirms the as-new preview, writing through the real stores, so the
+                // frame shows the new profile in the list and the outcome line.
+                if (transferMode == "import")
+                {
+                    DrainUntilComplete(transfer.ImportCommand.ExecuteAsync());
+                    Pump(40);
+                }
+
+                // "import-check": after the import, previews the same file into the profile it
+                // created; "nothing differs" is the proof that every part of it landed.
+                if (transferMode == "import-check")
+                {
+                    DrainUntilComplete(transfer.ImportCommand.ExecuteAsync());
+                    Pump(40);
+                    DrainUntilComplete(transfer.IntoActiveCommand.ExecuteAsync());
+                    DrainUntilComplete(transfer.PreviewCommand.ExecuteAsync());
+                    Pump(20);
+                }
+            }
+
             // [#292] Paths shown in full, or an About / Data & Privacy item opened as a deep link would.
             if (shell?.SetupWorkspace is { } setupPage)
             {

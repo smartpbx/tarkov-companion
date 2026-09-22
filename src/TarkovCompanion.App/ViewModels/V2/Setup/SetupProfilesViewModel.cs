@@ -160,8 +160,12 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     private bool _messageIsError;
     private bool _showArchived;
 
-    public SetupProfilesViewModel(ProfileManagementService service, Action<Action>? post = null)
+    public SetupProfilesViewModel(
+        ProfileManagementService service,
+        Action<Action>? post = null,
+        SetupProfileTransferViewModel? transfer = null)
     {
+        Transfer = transfer;
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _post = post ?? (action => action());
         Modes =
@@ -182,6 +186,11 @@ public sealed class SetupProfilesViewModel : BindableViewModel, IDisposable
     }
 
     public ObservableCollection<SetupProfileRowViewModel> Profiles { get; } = [];
+
+    /// <summary>Export and import of the active profile's progress; null where no file access is composed.</summary>
+    public SetupProfileTransferViewModel? Transfer { get; }
+
+    public bool HasTransfer => Transfer is not null;
 
     public IReadOnlyList<SetupProfileModeOption> Modes { get; }
 
