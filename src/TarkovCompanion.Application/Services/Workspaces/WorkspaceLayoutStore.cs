@@ -34,6 +34,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 573] Hidden / Dim / Normal — how a co-op extract is drawn and offered.</summary>
     public const string CoOpExtractVisibility = "raid.coop-extract-visibility";
 
+    /// <summary>[Issue 572] Seconds before an automatic Loot result returns to the map, or "off".</summary>
+    public const string LootAutoReturnSeconds = "loot.auto-return-seconds";
+
     /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
     public static string RaidCard(string cardId) => $"raid.card.{cardId}";
 }

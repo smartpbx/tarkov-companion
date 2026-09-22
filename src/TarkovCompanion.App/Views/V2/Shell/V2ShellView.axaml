@@ -763,6 +763,14 @@
                workspace host above, mutually exclusive with it by route content. -->
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLootScan}" Content="{Binding LootScanResult}" />
+          <!-- [#572] "Scanning · Matching icons" while a loot scan runs, over whatever the page shows. -->
+          <Panel Grid.Row="1" IsVisible="{Binding ShowsLootScan}" HorizontalAlignment="Right" VerticalAlignment="Top">
+            <Border Classes="v2-card" Margin="0,10,28,0" Padding="12,6"
+                    IsVisible="{Binding LootScanProgress.IsVisible, FallbackValue=False}"
+                    AutomationProperties.AutomationId="v2-loot-scan-progress" AutomationProperties.LiveSetting="Polite">
+              <TextBlock Classes="v2-label" Text="{Binding LootScanProgress.Text, FallbackValue=''}" />
+            </Border>
+          </Panel>
           <!-- V2 rough package 17 (scan): a quiet empty state with the one action that fills it. -->
           <StackPanel Grid.Row="1" IsVisible="{Binding ShowsLootScanEmpty}" Spacing="10" MaxWidth="420"
                       HorizontalAlignment="Center" VerticalAlignment="Center">

@@ -11,7 +11,9 @@ public sealed class SetupAdminViewModel(
     SetupInfoPageViewModel dataPrivacy,
     SetupDisplaysViewModel displays,
     // The report review and send, optional so a shell built without a Settings page still builds.
-    SetupReportViewModel? report = null)
+    SetupReportViewModel? report = null,
+    // [#572] The loot auto-return countdown, the last scan's timing and the Loot page's progress line.
+    SetupLootScanViewModel? lootScan = null)
 {
     public SetupDataDetailViewModel Data { get; } = data ?? throw new ArgumentNullException(nameof(data));
 
@@ -25,4 +27,8 @@ public sealed class SetupAdminViewModel(
     public SetupReportViewModel? Report { get; } = report;
 
     public bool HasReport => Report is not null;
+
+    public SetupLootScanViewModel? LootScan { get; } = lootScan;
+
+    public bool HasLootScan => LootScan is not null;
 }

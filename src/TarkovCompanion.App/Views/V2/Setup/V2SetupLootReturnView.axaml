@@ -1,0 +1,25 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupLootReturnView"
+             x:DataType="vm:SetupLootScanViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#572] How long an automatic Loot result stays before the app goes back to the map. Toggles, not a
+       slider: the choice in force is readable without touching anything, as in Accessibility. -->
+  <StackPanel Classes="v2-field" AutomationProperties.AutomationId="v2-setup-loot-return">
+    <TextBlock Classes="v2-label" Text="{Binding ReturnHeading}" />
+    <ItemsControl ItemsSource="{Binding Choices}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:LootAutoReturnChoiceViewModel">
+          <Button Classes="v2-target v2-tab" Classes.selected="{Binding IsCurrent}"
+                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                  AutomationProperties.Name="{Binding Label}"
+                  Content="{Binding Label}" Command="{Binding ChooseCommand}" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ReturnHint}" />
+  </StackPanel>
+</UserControl>

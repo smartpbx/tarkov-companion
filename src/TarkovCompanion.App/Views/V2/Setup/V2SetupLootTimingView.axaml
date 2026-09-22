@@ -1,0 +1,19 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.V2SetupLootTimingView"
+             x:DataType="vm:SetupLootScanViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <!-- [#572] The last loot scan, stage by stage, from the timeline #586 keeps: a slow scan says where
+       its time went instead of only feeling slow. -->
+  <StackPanel Classes="v2-field" AutomationProperties.AutomationId="v2-setup-loot-timing">
+    <TextBlock Classes="v2-label" Text="{Binding LastScanHeading}" AutomationProperties.HeadingLevel="2" />
+    <TextBlock Classes="v2-body" Text="{Binding LastScanSummary}" TextWrapping="Wrap" />
+    <ItemsControl ItemsSource="{Binding LastScanStages}" IsVisible="{Binding HasLastScan}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="x:String">
+          <TextBlock Classes="v2-label" Text="{Binding}" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel>
+</UserControl>
