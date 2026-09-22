@@ -192,6 +192,20 @@ prints how long a job posted at input priority waited (what the hang watchdog me
 `--stall-tour` walks every route and action and prints a table; `--memory-tour N` switches maps N
 times and prints memory after a forced collection every ten.
 
+## Returning to a page, and long lists (#453, second pass)
+
+Every return to Plan read the quest board again, got new instances of all 515 quests, and so
+built every group, row and card again; the shell also rebuilt each workspace's view from its
+template on every visit. Now quests that read the same keep their instances
+(`QuestBoardReconciler`), and `WorkspaceViewCache` keeps each workspace's view and hides it.
+Intel > Keys drew every key at once and rebuilt every row on each pick; it is virtualised and
+selection changes in place. `--stall-tour-only plan,intel` walks part of the tour.
+
+| Longest UI turn, headless 1920x1080, seed DB, two A/B runs | main | after |
+| --- | --- | --- |
+| Return to Plan (route cycles 1-3) | 866-1,090 ms | 38-71 ms |
+| Intel > Keys, first visit | 544-649 ms | 104-105 ms |
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

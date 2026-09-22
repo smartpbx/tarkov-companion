@@ -34,10 +34,14 @@ internal static class StallTour
     public static void Run(Window window, MainWindowViewModel viewModel, V2ShellViewModel shell, IServiceProvider services, IReadOnlyList<string> args)
     {
         var raid = shell.RaidCockpit as RaidCockpitViewModel;
+        // --stall-tour-only plan,intel: walk only those parts (maps, intel, plan, team, debrief,
+        // setup, cycle, mapcycle), for a quicker loop on one slow step.
+        var only = StringOption(args, "--stall-tour-only")?.Split(',');
+        bool Wants(string part) => only is null || only.Contains(part, StringComparer.OrdinalIgnoreCase);
         UiStallMeter.Report("before the tour");
 
         Step("navigate raid", () => Navigate(shell, "raid"));
-        if (raid is not null)
+        if (raid is not null && Wants("maps"))
         {
             foreach (var map in TourMaps.Skip(1).Append("customs"))
             {
@@ -64,6 +68,8 @@ internal static class StallTour
             }
         }
 
+        if (Wants("intel"))
+        {
         Step("navigate raid/loot", () => Navigate(shell, "raid/loot"));
         Step("navigate intel", () => Navigate(shell, "intel"));
         Step("intel: type 'graphics card'", () => { }, () => Type(text => shell.SearchText = text, "graphics card"));
@@ -71,8 +77,11 @@ internal static class StallTour
         {
             Step($"navigate {route}", () => Navigate(shell, route));
         }
+        }
 
         var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+        if (Wants("plan"))
+        {
         Step("navigate plan", () => Navigate(shell, "plan"));
         foreach (var filter in Enum.GetValues<PlanQuestFilter>().Append(PlanQuestFilter.Active))
         {
@@ -89,14 +98,18 @@ internal static class StallTour
             Step($"navigate {route}", () => Navigate(shell, route));
         }
 
-        foreach (var route in new[] { "team", "team/group", "team/tablet" })
+        }
+
+        foreach (var route in new[] { "team", "team/group", "team/tablet" }.Where(_ => Wants("team")))
         {
             Step($"navigate {route}", () => Navigate(shell, route));
         }
 
-        var raids = IntOption(args, "--stall-tour-raids", 80);
+        var raids = Wants("debrief") ? IntOption(args, "--stall-tour-raids", 80) : 0;
         DrainUntilComplete(SeedRaidsAsync(services, raids));
         UiStallMeter.Report("seeding raids (not a player action)");
+        if (Wants("debrief"))
+        {
         Step($"navigate debrief ({raids} raids)", () => Navigate(shell, "debrief"));
         var debrief = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>();
         Step("debrief reload", () => _ = debrief.LoadAsync());
@@ -105,9 +118,14 @@ internal static class StallTour
             var pick = debrief.Raids[5].RaidId;
             Step("debrief select a raid", () => _ = debrief.SelectRaidAsync(pick, CancellationToken.None));
         }
+        }
 
+        if (Wants("setup"))
+        {
         Step("navigate setup", () => Navigate(shell, "setup"));
-        if (shell.SetupWorkspace is { } setup)
+        }
+
+        if (Wants("setup") && shell.SetupWorkspace is { } setup)
         {
             foreach (var section in Enum.GetValues<V2SetupSection>())
             {
@@ -116,7 +134,7 @@ internal static class StallTour
         }
 
         var cycle = new[] { "raid", "plan", "intel", "debrief", "team", "setup", "plan/keep", "plan/hideout" };
-        for (var round = 1; round <= 3; round++)
+        for (var round = 1; round <= (Wants("cycle") ? 3 : 0); round++)
         {
             foreach (var route in cycle)
             {
@@ -124,7 +142,7 @@ internal static class StallTour
             }
         }
 
-        if (raid is not null)
+        if (raid is not null && Wants("mapcycle"))
         {
             Navigate(shell, "raid");
             Pump();
@@ -439,6 +457,19 @@ internal static class StallTour
 
             await history.EndAsync(id, started + TimeSpan.FromMinutes(30), i % 3 == 0 ? "Killed" : "Survived", null, CancellationToken.None).ConfigureAwait(false);
         }
+    }
+
+    private static string? StringOption(IReadOnlyList<string> args, string name)
+    {
+        for (var i = 0; i < args.Count - 1; i++)
+        {
+            if (args[i] == name)
+            {
+                return args[i + 1];
+            }
+        }
+
+        return null;
     }
 
     private static int IntOption(IReadOnlyList<string> args, string name, int fallback)

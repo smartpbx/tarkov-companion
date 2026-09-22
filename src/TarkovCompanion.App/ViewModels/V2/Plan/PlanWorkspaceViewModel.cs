@@ -849,9 +849,15 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             // Off the interface thread: the board is every quest and objective in the catalog
             // joined to the profile, and read here it held one turn for up to 2.5 s.
             var scope = _scope;
+            // Quests that read the same as last time keep last time's instances, so a return to
+            // the page keeps its groups and rows instead of building them all again (#453).
+            var previousBoard = _board;
             _board = await OffInterfaceThread
-                .Run(() => _readService.GetQuestBoardAsync(scope, cancellationToken), cancellationToken)
+                .Run(async () => QuestBoardReconciler.Reconcile(
+                    previousBoard,
+                    await _readService.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(false)), cancellationToken)
                 .ConfigureAwait(true);
+            var boardUnchanged = previousBoard is not null && ReferenceEquals(previousBoard, _board);
             UiActivity.Step("plan:board");
             if (_allergies is { } allergies)
             {
@@ -866,7 +872,11 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             UiActivity.Step("plan:mapnames");
             RebuildSearchIndex();
             UiActivity.Step("plan:searchindex");
-            _projected.Clear();
+            if (!boardUnchanged)
+            {
+                _projected.Clear();
+            }
+
             ApplyProfile(profile.Level, profile.TraderLevels);
             UiActivity.Step("plan:applyprofile");
             ApplyFilter();
@@ -975,6 +985,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             QuestsPageViewModel.SearchTerms(SearchText),
             SelectedTrader.TraderId,
             _searchableText);
+        UiActivity.Step("plan:bucketed");
         // Keeps whatever the last pass built and this one still wants; Groups only changes when
         // the result set does, so an unchanged list is not re-bound and not redrawn.
         var composed = ComposeGroups(entries, Groups, NameOfMap, this, _selectGroup, _openInRaid);
@@ -984,7 +995,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         _suggestedRaid = suggested;
         OnPropertyChanged(nameof(HasSuggestedRaid));
         OnPropertyChanged(nameof(SuggestedRaidLabel));
+        UiActivity.Step("plan:composed");
         RebuildRequirements(composedChanged);
+        UiActivity.Step("plan:requirements");
         PlanMapGroupViewModel? keep = null;
         if (previousMapKey is not null)
         {
@@ -999,6 +1012,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         SelectedGroup = keep ?? suggested ?? (Groups.Count > 0 ? Groups[0] : null);
+        UiActivity.Step("plan:selected");
         UpdateStatus();
     }
 
@@ -1238,16 +1252,32 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                     group.Select(task => task.TraderName).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? group.Key))
                 .OrderBy(option => option.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-        Traders = [AllTraders, .. named];
-        _selectedTrader = Traders.FirstOrDefault(option => option.TraderId == _selectedTrader.TraderId) ?? AllTraders;
-        OnPropertyChanged(nameof(SelectedTrader));
-        TraderLoyalty =
+        // Kept when they read the same (#453): a new list rebuilds the combo box and every loyalty
+        // spinner, on every return to the page.
+        PlanTraderOption[] traders = [AllTraders, .. named];
+        if (!Traders.SequenceEqual(traders))
+        {
+            Traders = traders;
+        }
+
+        var selected = Traders.FirstOrDefault(option => option.TraderId == _selectedTrader.TraderId) ?? AllTraders;
+        if (!ReferenceEquals(selected, _selectedTrader))
+        {
+            _selectedTrader = selected;
+            OnPropertyChanged(nameof(SelectedTrader));
+        }
+
+        PlanTraderLoyaltyViewModel[] loyalty =
         [
             .. named.Select(option => new PlanTraderLoyaltyViewModel(
                 option.TraderId!,
                 option.Name,
                 traderLevels.GetValueOrDefault(option.TraderId!))),
         ];
+        if (!TraderLoyalty.SequenceEqual(loyalty))
+        {
+            TraderLoyalty = loyalty;
+        }
     }
 
     /// <summary>Stores a typed level and re-reads the board, because every level-gated quest is measured against it.</summary>

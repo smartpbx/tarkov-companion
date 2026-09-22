@@ -15,7 +15,8 @@
              xmlns:pages="using:TarkovCompanion.App.ViewModels"
              xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
              xmlns:intelViews="using:TarkovCompanion.App.Views.V2.Intel"
-             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives">
+             xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
@@ -755,7 +756,8 @@
                markup (package 30's Margin="18,6,18,12"), which is what the host contract test
                checks; without it these pages drew flush to the window edge and the right-hand
                primary button was cut off by the frame at 1920 and 3840 alike. -->
-          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
+          <!-- [#453] Keeps each workspace's view between visits instead of building it again. -->
+          <shellViews:WorkspaceViewCache Grid.Row="1" IsVisible="{Binding ShowsWorkspace}" Content="{Binding WorkspaceContent}" />
           <!-- V2 rough package 17: the Intel workspace (search, results, item, prices) binds this
                shell directly; its search, selection and item facts are shell state. -->
           <intelViews:IntelWorkspaceView Grid.Row="1" IsVisible="{Binding ShowsIntelWorkspace}" />
