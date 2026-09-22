@@ -262,7 +262,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         }
     }
 
-    /// <summary>Points the one live timer at whichever unexpired ping is due to expire soonest,
+    /// <summary>Points the one live timer at whichever ping is due to expire soonest (now, if one already is),
     /// replacing whatever it was previously waiting for. Called with <see cref="_gate"/> held.</summary>
     private void ScheduleNextExpiry()
     {
@@ -273,11 +273,15 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             return;
         }
 
+        // A ping that is already past its time still counts, and gets a zero delay. It can be here
+        // because the prune ran before the file write and the write outlasted what the ping had
+        // left (a 30 ms test lifetime on a loaded CI runner did exactly that). Skipping it left no
+        // timer at all, so the ping sat in _marks and Changed never fired for it (issue 602).
         var now = _timeProvider.GetUtcNow();
         DateTimeOffset? next = null;
         foreach (var mark in _marks)
         {
-            if (mark.State.ExpiresUtc is not { } expires || expires <= now)
+            if (mark.State.ExpiresUtc is not { } expires)
             {
                 continue;
             }

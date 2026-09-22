@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Infrastructure.Maps;
 
@@ -156,17 +157,53 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         // the store schedules its own timer for the next expiry (issue 584's "without waiting for
         // another change") rather than only proving Marks filters correctly on a read the test
         // itself triggers. A millisecond lifetime is the test-only seam pingLifetime exists for.
+        //
+        // Issue 602: the signal is "the file on disk no longer holds a mark", checked on every
+        // Changed from a handler attached BEFORE the add. Waiting for "the next Changed after the
+        // add returns" missed a timer that fired first, and Marks filters on read so it proves
+        // nothing about the timer.
         var store = new JsonFileRaidMarkStore(StorePath, TimeProvider.System, pingLifetime: TimeSpan.FromMilliseconds(30));
+        var dropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.Changed += () =>
+        {
+            if (File.Exists(StorePath) && MarksOnDisk() == 0)
+            {
+                dropped.TrySetResult();
+            }
+        };
+
         await store.AddAsync(RaidMarkKind.Ping, "factory", null, 1, 1, label: null);
 
-        var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        store.Changed += () => fired.TrySetResult();
-
-        await fired.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        // Read via the field the test can see directly (not Marks, which would filter on its own
-        // read and could mask a timer that never actually ran).
+        await dropped.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(store.Marks);
+    }
+
+    [Fact]
+    public async Task APingThatExpiresWhileItsOwnWriteIsInFlightStillGetsDropped()
+    {
+        // Issue 602's real cause, made deterministic: the clock reads "before" until the add's
+        // write reaches the disk and "two lifetimes later" from then on, which is what a write
+        // slower than the ping's remaining life looks like to the store. The timer that follows is
+        // a real one (this clock does not override CreateTimer), so the drop must come from it.
+        var before = new DateTimeOffset(2026, 9, 22, 12, 0, 0, TimeSpan.Zero);
+        var clock = new WriteSlowerThanLifetimeClock(StorePath, before, before + (2 * MapMarkPolicy.PingLifetime));
+        var store = new JsonFileRaidMarkStore(StorePath, clock);
+        await store.AddAsync(RaidMarkKind.Ping, "factory", null, 1, 1, label: null);
+
+        var dropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        store.Changed += () => dropped.TrySetResult();
+        if (MarksOnDisk() != 0)
+        {
+            await dropped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        Assert.Equal(0, MarksOnDisk());
+    }
+
+    private int MarksOnDisk()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(StorePath));
+        return document.RootElement.GetProperty("marks").GetArrayLength();
     }
 
     public void Dispose()
@@ -193,5 +230,10 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         public override DateTimeOffset GetUtcNow() => _now;
 
         public void Advance(TimeSpan elapsed) => _now += elapsed;
+    }
+
+    private sealed class WriteSlowerThanLifetimeClock(string path, DateTimeOffset before, DateTimeOffset after) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => File.Exists(path) ? after : before;
     }
 }
