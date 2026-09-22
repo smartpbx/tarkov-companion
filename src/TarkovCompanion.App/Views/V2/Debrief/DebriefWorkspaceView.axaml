@@ -33,8 +33,11 @@
     <!-- The app-wide Button padding (12,7) reaches the date picker's own flyout button and pushed
          "month / day / year" to the top edge of the field. The picker takes no inset of its own and
          centres its three parts, so it lines up with the filter chips beside it. -->
+    <!-- [#574] The desktop control height, like the chips and drop-down on the same rows. -->
     <Style Selector="DatePicker">
       <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+      <Setter Property="Height" Value="{DynamicResource V2.Target.Desktop}" />
     </Style>
     <Style Selector="DatePicker /template/ Button#PART_FlyoutButton">
       <Setter Property="Padding" Value="0" />
@@ -162,7 +165,7 @@
       <Border Grid.Row="2" Classes="v2-debrief-pane" Padding="16,12" AutomationProperties.AutomationId="v2-debrief-filters">
         <StackPanel Spacing="10">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-            <Border Classes="v2-intel-search" MinHeight="38" Padding="12,0,4,0">
+            <Border Classes="v2-intel-search">
               <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                 <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
                       Data="{DynamicResource V2.Icon.Search}" />
@@ -387,9 +390,9 @@
 
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <StackPanel Classes="v2-icon-label">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Camera}" />
-                  <TextBlock Classes="v2-debrief-strong" Text="Screenshots" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-heading-3" Text="Screenshots" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasDistance}">
@@ -408,9 +411,9 @@
                  estimate (a market price at scan time); neither is presented as carried-out value. -->
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <StackPanel Classes="v2-icon-label">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Camera}" />
-                  <TextBlock Classes="v2-debrief-strong" Text="Scans" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-heading-3" Text="Scans" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedScanSummary}" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="v2-debrief-scan-summary" />
@@ -446,9 +449,9 @@
                  open. The game states no price for a sale, so none is shown or estimated. -->
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <StackPanel Classes="v2-icon-label">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Cart}" />
-                  <TextBlock Classes="v2-debrief-strong" Text="Flea sales" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-heading-3" Text="Flea sales" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="Nothing sold during this raid." IsVisible="{Binding !HasSelectedSales}" />
                 <ItemsControl ItemsSource="{Binding SelectedSales}" IsVisible="{Binding HasSelectedSales}">
@@ -467,9 +470,9 @@
 
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="6">
-                <StackPanel Orientation="Horizontal" Spacing="10">
+                <StackPanel Classes="v2-icon-label">
                   <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Clipboard}" />
-                  <TextBlock Classes="v2-debrief-strong" Text="Quests" VerticalAlignment="Center" />
+                  <TextBlock Classes="v2-heading-3" Text="Quests" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="No quest events during this raid." IsVisible="{Binding !HasSelectedQuestEvents}" />
                 <ItemsControl ItemsSource="{Binding SelectedQuestEvents}" IsVisible="{Binding HasSelectedQuestEvents}">
@@ -488,7 +491,7 @@
 
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-debrief-strong" Text="Correct outcome or notes" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-heading-3" Text="Correct outcome or notes" AutomationProperties.HeadingLevel="3" />
                 <TextBlock Classes="v2-label" Text="{Binding OutcomeHint}" TextWrapping="Wrap" />
                 <TextBlock Classes="v2-debrief-muted" Text="Outcome" Margin="0,4,0,0" />
                 <TextBox Classes="v2-field-input" Text="{Binding CorrectedOutcome}"
@@ -509,7 +512,7 @@
                  neither, so both are always Manual once entered, in the export and the per-map stats. -->
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-debrief-strong" Text="Kills and value brought out" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-heading-3" Text="Kills and value brought out" AutomationProperties.HeadingLevel="3" />
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
                   <StackPanel Grid.Column="0" Spacing="2">
                     <TextBlock Classes="v2-debrief-muted" Text="PMC kills" />
@@ -551,7 +554,7 @@
             <!-- #291 package 3: delete, with a preview of what goes before it happens. -->
             <Border Classes="v2-debrief-section">
               <StackPanel Spacing="8">
-                <TextBlock Classes="v2-debrief-strong" Text="Delete this raid" AutomationProperties.HeadingLevel="3" />
+                <TextBlock Classes="v2-heading-3" Text="Delete this raid" AutomationProperties.HeadingLevel="3" />
                 <Button Classes="v2-target v2-debrief-plain" IsVisible="{Binding !IsConfirmingDelete}"
                         AutomationProperties.AutomationId="v2-debrief-delete-begin"
                         Content="Delete raid" Command="{Binding BeginDeleteCommand}" />

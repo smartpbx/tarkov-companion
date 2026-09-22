@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
 using System.Threading.Tasks;
 using Avalonia.Markup.Xaml;
 using TarkovCompanion.App.ViewModels.V2.Setup;
@@ -57,6 +58,27 @@ public sealed partial class V2SetupWorkspaceView : UserControl
         {
             selfTest.Clipboard = Copy;
         }
+
+        if (page.QuestSync is { } questSync)
+        {
+            questSync.ChooseFiles = PickQuestScreenshotsAsync;
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> PickQuestScreenshotsAsync()
+    {
+        if (TopLevel.GetTopLevel(this)?.StorageProvider is not { CanOpen: true } storage)
+        {
+            return [];
+        }
+
+        var picked = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            AllowMultiple = true,
+            Title = "Choose TASKS screenshots",
+            FileTypeFilter = [FilePickerFileTypes.ImageAll],
+        }).ConfigureAwait(true);
+        return picked.Select(file => file.TryGetLocalPath()).Where(path => path is not null).Select(path => path!).ToArray();
     }
 
     private async Task Copy(string text)

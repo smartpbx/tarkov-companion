@@ -93,6 +93,16 @@ public sealed class V2SetupWorkspaceViewModelTests
     }
 
     [Fact]
+    public void QuestOnboardingOfferOpensProgress()
+    {
+        var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });
+
+        workspace.OpenQuestSyncCommand.Execute(null);
+
+        Assert.True(workspace.IsProgressSelected);
+    }
+
+    [Fact]
     public void EverySectionOfV1SettingsHasAHomeInSetup()
     {
         var workspace = new V2SetupWorkspaceViewModel(null, null, null, _ => { });

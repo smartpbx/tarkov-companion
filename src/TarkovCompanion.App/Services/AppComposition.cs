@@ -552,6 +552,17 @@ public static class AppComposition
         // The game's own screenshot key drives a scan, so one press gives the position and
         // whatever the picture shows rather than needing a second shortcut.
         services.AddSingleton<IScreenshotImageLoader, SkiaScreenshotImageLoader>();
+        // [#667] Quest onboarding reads only player-picked files or recent files from the
+        // already-discovered screenshot folder. Analysis remains preview-only until confirmed.
+        services.AddSingleton<QuestListMatcher>();
+        services.AddSingleton<QuestHistoryInference>();
+        services.AddSingleton<QuestScreenshotSyncService>();
+        services.AddSingleton<IQuestScreenshotImageSource, QuestScreenshotImageSource>();
+        services.AddSingleton(provider => new QuestScreenshotSyncViewModel(
+            provider.GetRequiredService<QuestScreenshotSyncService>(),
+            provider.GetRequiredService<IQuestScreenshotImageSource>(),
+            () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
+            timeProvider));
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
         services.AddSingleton<FleaSaleStateService>();

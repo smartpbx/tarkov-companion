@@ -196,7 +196,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #287 (Crafts & barters tab): same reasoning again.
         IIntelTradeCatalogService? intelTrade = null,
         // #287 (event state on items): same reasoning again.
-        IIntelEventStateCatalog? intelEventStates = null)
+        IIntelEventStateCatalog? intelEventStates = null,
+        // #667: Setup's screenshot quest onboarding, absent in lightweight shell tests.
+        QuestScreenshotSyncViewModel? questSync = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -232,6 +234,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (notifications is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachNotifications(notifications);
+        }
+
+        if (questSync is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachQuestSync(questSync);
         }
 
         if (preferences is not null && SetupWorkspace is not null)

@@ -10,6 +10,16 @@ namespace TarkovCompanion.UnitTests.V2MapRenderer;
 public sealed class MapTileLoadingTests
 {
     [Fact]
+    public void Decoded_tile_cache_is_bounded_to_two_maximum_size_sharp_tile_sets()
+    {
+        const long decodedTileBytes = 256L * 256 * 4;
+
+        Assert.Equal(
+            2L * MapTilePlanner.MaximumTilesPerView * decodedTileBytes,
+            MapViewModel.DecodedTileCacheCapacityBytes);
+    }
+
+    [Fact]
     public void Every_photographed_map_has_a_soft_picture_of_a_few_tiles_that_covers_it()
     {
         var catalog = RealMapCatalog.Load();

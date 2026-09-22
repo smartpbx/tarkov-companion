@@ -294,6 +294,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private static readonly MapSceneLayerId PlayerLayerId = new("you");
     private static readonly MapSceneLayerId VisitedLayerId = new("visited");
     private static readonly MapSceneLayerId SquadLayerId = new("squad");
+    private static readonly MapSceneLayerId SpawnsLayerId = new("spawns");
     /// <summary>
     /// The plan rectangle to fall back on when the map cannot say where its artwork is.
     /// </summary>
@@ -312,15 +313,6 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private const string PlayerObjectId = "you:position";
     private const string PlayerTrailObjectId = "you:trail";
 
-    /// <summary>What "Follow" zooms to, as a multiple of the whole plan fitted to the card.</summary>
-    /// <remarks>
-    /// The same judgement as V1's CentreOnPlayer: a whole map fitted to the panel is the right
-    /// view before a raid and the wrong one during it, where the player is a dot among street
-    /// names. Only ever zooms in — somebody who has zoomed further in to read a building is not
-    /// pulled back out by their next screenshot.
-    /// </remarks>
-    private const double FollowZoom = 3.0;
-
     /// <summary>The longest edge a composed tile picture is allowed to have, in pixels.</summary>
     private const double MaximumComposedTileExtent = 4096;
 
@@ -334,7 +326,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
+    private readonly EarlyRaidSpawnPolicy _earlyRaidSpawns;
     private readonly IWorkspaceLayoutStore? _layout;
+    private readonly FollowZoomSetting _followZoom;
     private double _contextPanelWidth = DefaultContextPanelWidth;
     private bool _contextPanelHidden;
     // [Issue 573] Hidden / Dim (default) / Normal, remembered the same way the panel's own width is.
@@ -409,6 +403,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
     // has to be allowed to rebuild for.
     private DateTimeOffset? _positionStaleAtUtc;
+    private DateTimeOffset? _spawnWindowExpiresUtc;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -453,10 +448,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _handDone = handDone;
         _profiles = profiles;
         _layout = layout;
+        _followZoom = new(layout);
         Cards = new(layout);
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _earlyRaidSpawns = new(_timeProvider);
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
         // [#453] Paced and behind input: see PacedDispatch.
@@ -478,6 +475,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [V2 rough package 22] Every one of these is V1's own behaviour on V1's own view model.
         // The cockpit owns where the control sits, not what pressing it means.
         ToggleFollowCommand = new DelegateCommand(_map.ToggleFollowPlayer);
+        DecreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(-1));
+        IncreaseFollowZoomCommand = new DelegateCommand(() => ChangeFollowZoom(1));
         RotateCommand = new DelegateCommand(() => _ = _map.RotateAsync());
         ToggleVisitedCommand = new DelegateCommand(() => _ = _map.ToggleVisitedAsync());
         ToggleGroupNamesCommand = new DelegateCommand(() => _ = _map.ToggleGroupNamesAsync());
@@ -700,6 +699,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     /// <summary>Move the map to the player when a screenshot places them.</summary>
     public ICommand ToggleFollowCommand { get; }
+
+    public ICommand DecreaseFollowZoomCommand { get; }
+
+    public ICommand IncreaseFollowZoomCommand { get; }
+
+    public string FollowLabel => string.Create(CultureInfo.CurrentCulture, $"Follow {_followZoom.Value:0.#}×");
 
     /// <summary>Turn the plan a quarter, remembered per map.</summary>
     public ICommand RotateCommand { get; }
@@ -1139,6 +1144,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             renderer.ViewChangeRequested -= ViewChangeRequested;
             renderer.CameraMovedByPlayer -= CameraMovedByPlayer;
+            renderer.CameraZoomedByPlayer -= CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
             renderer.HighValueLootRefreshRequested -= HighValueLootRefreshRequested;
             renderer.PropertyChanged -= RendererPropertyChanged;
@@ -1749,7 +1755,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void PlayerFollowRequested(object? sender, EventArgs e) => FollowPlayer();
 
     /// <summary>
-    /// A drag or a zoom the player did themselves stops V1 following them.
+    /// A drag the player did themselves stops V1 following them.
     /// </summary>
     /// <remarks>
     /// [V2 rough package 46] Reported as the map snapping back after zooming in and panning.
@@ -1761,6 +1767,35 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// Recoverable the same way it is in V1: Follow and Fit both turn following back on.
     /// </remarks>
     private void CameraMovedByPlayer(object? sender, EventArgs e) => _map.ReportManualPan();
+
+    /// <summary>A wheel or zoom-button press changes Follow's remembered magnification.</summary>
+    /// <remarks>
+    /// [Issue 663] Zoom used to be reported as a generic manual camera move and switched Follow
+    /// off. While following, it now changes the setting and recentres the pointer-relative wheel
+    /// move on the player. Outside Follow it retains the old behaviour and remains a manual move.
+    /// </remarks>
+    private void CameraZoomedByPlayer(object? sender, EventArgs e)
+    {
+        if (!_map.FollowsPlayer || Renderer is null)
+        {
+            _map.ReportManualPan();
+            return;
+        }
+
+        _followZoom.Set(Renderer.CameraZoom);
+        OnPropertyChanged(nameof(FollowLabel));
+        FollowPlayer();
+    }
+
+    private void ChangeFollowZoom(int steps)
+    {
+        _followZoom.ChangeBy(steps);
+        OnPropertyChanged(nameof(FollowLabel));
+        if (_map.FollowsPlayer)
+        {
+            FollowPlayer();
+        }
+    }
 
     private void FollowPlayer()
     {
@@ -1776,7 +1811,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         }
 
         _followPending = false;
-        Renderer.FocusOn(point, FollowZoom);
+        Renderer.ShowCamera(point, _followZoom.Value);
     }
 
     /// <summary>Where the player is in plan coordinates, when a screenshot has placed them.</summary>
@@ -1786,6 +1821,22 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         double.IsFinite(point.X) && double.IsFinite(point.Y)
             ? new MapScenePoint(point.X, point.Y)
             : null;
+
+    private static MapFeatureFaction RaidSide(string? side) => side?.Trim().ToLowerInvariant() switch
+    {
+        "pmc" => MapFeatureFaction.Pmc,
+        "scav" => MapFeatureFaction.Scav,
+        _ => MapFeatureFaction.Unknown,
+    };
+
+    private static bool IsNearbySpawn(
+        MapOverlayElement element,
+        MapRenderModel model,
+        IReadOnlyList<NearbySpawn> nearbyAreas) =>
+        nearbyAreas.Any(area =>
+            model.TryMapPosition(area.Position, out var point) &&
+            Math.Abs(point.X - element.Position.X) < 0.001 &&
+            Math.Abs(point.Y - element.Position.Y) < 0.001);
 
     /// <summary>
     /// V1's "Frame area": put the part of the map the raid is actually happening in on screen.
@@ -1930,18 +1981,26 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             case nameof(RaidPageViewModel.Clock):
                 OnPropertyChanged(nameof(RaidPhaseLabel));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 Corrections.ShowClock(_raid.Clock);
                 break;
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 // The raid clock ticks once a second, which is the only clock this page has. The
                 // plan changes with it exactly once per screenshot: when the marker turns from
                 // fresh to "from an older screenshot".
                 if (_positionStaleAtUtc is { } staleAt && _timeProvider.GetUtcNow() >= staleAt)
                 {
                     _positionStaleAtUtc = null;
+                    _rebuildRequest.Request();
+                }
+
+                if (_spawnWindowExpiresUtc is { } spawnExpiry && _timeProvider.GetUtcNow() >= spawnExpiry)
+                {
+                    _spawnWindowExpiresUtc = null;
                     _rebuildRequest.Request();
                 }
 
@@ -1956,6 +2015,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 break;
             case nameof(RaidPageViewModel.Extracts):
                 OnPropertyChanged(nameof(Extracts));
@@ -2002,6 +2062,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _seenRaid = raid;
         _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
+        OnPropertyChanged(nameof(ExtractClockSummary));
         _rebuildRequest.Request();
     }
 
@@ -2011,6 +2072,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void CorrectionsChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(RaidPhaseLabel));
+        OnPropertyChanged(nameof(ExtractClockSummary));
         _rebuildRequest.Request();
     }
 
@@ -2309,7 +2371,25 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 573] A co-op extract: hidden entirely, or drawn but never the one the game's own
         // "offered" flag highlights, unless the player asked to see co-op extracts normally.
         var coOpVisibility = _coOpExtractVisibility;
-        var legacyElements = model.OverlayElements
+        var spawnSelection = _earlyRaidSpawns.Select(
+            _map.NearbySpawnAreas,
+            RaidSide(raidSnapshot.Side),
+            raidSnapshot.StartedUtc);
+        _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
+            ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
+            : null;
+        IEnumerable<MapOverlayElement> legacyCandidates = model.OverlayElements;
+        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active)
+        {
+            legacyCandidates = legacyCandidates.Where(element =>
+                element.Layer != MapOverlayKind.Spawns || IsNearbySpawn(element, model, spawnSelection.Areas));
+        }
+        else if (spawnSelection.Phase == EarlyRaidSpawnPhase.Expired)
+        {
+            legacyCandidates = legacyCandidates.Where(element => element.Layer != MapOverlayKind.Spawns);
+        }
+
+        var legacyElements = legacyCandidates
             .Where(element => element.Layer is MapOverlayKind.Extracts or MapOverlayKind.QuestObjectives
                 or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys)
             .Where(element => element.Layer != MapOverlayKind.Extracts ||
@@ -2393,11 +2473,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // for the moment between the two halves of one change.
         var modelFloorChanged = !string.Equals(_modelFloorId, model.SelectedFloor?.Id, StringComparison.OrdinalIgnoreCase);
         _modelFloorId = model.SelectedFloor?.Id;
-        var requestedView = Renderer is { } current &&
-            string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal) && !boundsChanged
+        var current = Renderer;
+        var preservesView = current is not null &&
+            string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal) && !boundsChanged;
+        var requestedView = preservesView
             ? modelFloorChanged
-                ? current.Scene.View with { SelectedFloorId = model.SelectedFloor?.Id }
-                : current.Scene.View
+                ? current!.Scene.View with { SelectedFloorId = model.SelectedFloor?.Id }
+                : current!.Scene.View
             // A map opens fitted: the whole plan, centred, at whatever size the card is. Zoom 1
             // is exactly that, because the projection fits the plan rectangle into the viewport
             // before the camera's own zoom is applied. It also opens the way V1 has it turned —
@@ -2408,6 +2490,17 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 model.SelectedFloor?.Id,
                 FitCamera(planBounds, Bearing()),
                 []);
+
+        // [Issue 664] This is the Layers menu's Spawns switch, defaulted on only for a new PMC
+        // scene during the opening window. Once the scene exists its current switch state wins,
+        // so a player can turn the nearby areas off without the next clock tick turning them on.
+        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active && !preservesView)
+        {
+            requestedView = requestedView with
+            {
+                Layers = [.. requestedView.Layers.Where(layer => layer.LayerId != SpawnsLayerId), new(SpawnsLayerId, true)],
+            };
+        }
 
         // [V2 rough package 39] The mode follows V1's own "Stack" toggle, which is also what the
         // renderer's presentation control now pushes back here.
@@ -2468,6 +2561,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 ranksLootByValue: true);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
+            renderer.CameraZoomedByPlayer += CameraZoomedByPlayer;
             renderer.HighValueLootFilterRequested += HighValueLootFilterRequested;
             renderer.HighValueLootRefreshRequested += HighValueLootRefreshRequested;
             // [Issue 318] "Make waypoint" on a selected spawn.

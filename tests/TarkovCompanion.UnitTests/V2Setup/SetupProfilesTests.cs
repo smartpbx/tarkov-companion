@@ -182,6 +182,13 @@ public sealed class SetupProfilesTests
             Assert.Equal(ProfileRuntimeContextState.Ready, context.State);
             Assert.Equal(GameMode.Pve, context.CatalogScope!.GameMode);
             Assert.Equal(2, view.Profiles.Count);
+
+            // An ordinary progress-file save does not publish another runtime snapshot. Setup's
+            // summary follows the profile save itself so the level changes immediately.
+            await profiles.SaveAsync(active with { Level = 42 }, default);
+            await WaitUntilAsync(() => legacy.Settings.ProfileContext.Contains("level 42", StringComparison.Ordinal));
+            legacy.Settings.Apply(services.GetRequiredService<IRuntimeStateStore>().Current);
+            Assert.Contains("PvE alt · level 42", legacy.Settings.ProfileContext, StringComparison.Ordinal);
         }
         finally
         {
@@ -196,6 +203,16 @@ public sealed class SetupProfilesTests
                 }
             }
         }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var attempt = 0; attempt < 200 && !condition(); attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition());
     }
 
     private sealed class Fixture : IDisposable

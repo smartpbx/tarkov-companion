@@ -188,7 +188,7 @@
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <!-- Follow is the one view switch pressed mid-raid, so it stays on the strip; it is sized
@@ -196,8 +196,15 @@
     <Style Selector="ToggleButton.v2-raid-strip-toggle">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Padding" Value="12,6" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Control.Inset}" />
       <Setter Property="MinWidth" Value="0" />
+      <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    </Style>
+    <Style Selector="Button.v2-raid-follow-step">
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="Width" Value="32" />
+      <Setter Property="Padding" Value="4" />
+      <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
     <!-- [#574] A small phase switch inside the Layers menu: the small control size from the
@@ -337,11 +344,23 @@
             <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
                        Text="{Binding TrafficBannerTitle}" />
           </Border>
-          <ToggleButton Grid.Column="3" Classes="v2-target v2-raid-strip-toggle" Content="Follow" VerticalAlignment="Center"
-                        IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
-                        Command="{Binding ToggleFollowCommand}"
-                        AutomationProperties.AutomationId="v2-raid-follow"
-                        ToolTip.Tip="Move the map to you when you take a screenshot" />
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <Button Classes="v2-target v2-raid-follow-step" Content="−"
+                    Command="{Binding DecreaseFollowZoomCommand}"
+                    AutomationProperties.AutomationId="v2-raid-follow-zoom-out"
+                    AutomationProperties.Name="Zoom Follow out"
+                    ToolTip.Tip="Zoom Follow out" />
+            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{Binding FollowLabel}"
+                          IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
+                          Command="{Binding ToggleFollowCommand}"
+                          AutomationProperties.AutomationId="v2-raid-follow"
+                          ToolTip.Tip="Move the map to you when you take a screenshot" />
+            <Button Classes="v2-target v2-raid-follow-step" Content="+"
+                    Command="{Binding IncreaseFollowZoomCommand}"
+                    AutomationProperties.AutomationId="v2-raid-follow-zoom-in"
+                    AutomationProperties.Name="Zoom Follow in"
+                    ToolTip.Tip="Zoom Follow in" />
+          </StackPanel>
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
           <Button Grid.Column="5" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
@@ -794,6 +813,9 @@
             <Expander.Header>
               <StackPanel Spacing="1">
                 <TextBlock Classes="v2-heading-3" Text="Extract options" />
+                <TextBlock Classes="v2-label" Text="{Binding ExtractClockSummary}"
+                           AutomationProperties.AutomationId="v2-raid-extract-clock"
+                           IsVisible="{Binding ExtractClockSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock Classes="v2-label" Text="{Binding ExtractsSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Extracts.IsCollapsed}" />
               </StackPanel>

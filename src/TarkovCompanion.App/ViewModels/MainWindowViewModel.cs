@@ -20,6 +20,7 @@ using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Common;
@@ -867,13 +868,15 @@ public sealed class RaidPageViewModel : PageViewModel
             return;
         }
 
-        var remaining = RaidTimer.Resolve(
+        var remaining = RaidTimer.ResolveForRaid(
             raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc ? (clock, readUtc) : null,
             raid.StartedUtc,
             LengthFor(raid),
+            raid.Side,
+            Corrections.IsManual(RaidCorrectionField.Clock),
             nowUtc);
         TimeLeft = remaining.Display;
-        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? RaidManualCorrections.ManualBasis : remaining.Detail;
+        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? "set by hand" : remaining.Detail;
         Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
     }
 
@@ -1827,6 +1830,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
     private ApplicationRuntimeSnapshot? _snapshot;
     private string _diagnosticsStatus = "Nothing copied yet.";
     private readonly SelfTestJournal? _selfTest;
+    private readonly SynchronizationContext? _profileChangeContext;
+    private PlayerProfile? _latestProfileChange;
 
     /// <summary>
     /// Which pages did not load at startup, asked of whoever knows, when a report is built.
@@ -1937,7 +1942,8 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         RaidObservationService? observation = null,
         // V2 rough package 41 (#292, #281): the last self-test, so a problem report carries
         // which capability failed rather than only the state it failed in.
-        SelfTestJournal? selfTest = null)
+        SelfTestJournal? selfTest = null,
+        IPlayerProfileChangeSource? profileChanges = null)
         : base("Settings & diagnostics", "Runtime configuration and a manual data refresh", "Not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
@@ -1950,6 +1956,15 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
         _gameFolders = gameFolders;
         _observation = observation;
         _selfTest = selfTest;
+        var synchronizationContext = SynchronizationContext.Current;
+        _profileChangeContext = synchronizationContext?.GetType().Namespace?
+            .StartsWith("Avalonia", StringComparison.Ordinal) == true
+                ? synchronizationContext
+                : null;
+        if (profileChanges is not null)
+        {
+            profileChanges.Changed += ProfileChanged;
+        }
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
         ReportProblemCommand = new AsyncDelegateCommand(ReportProblemAsync);
@@ -2687,14 +2702,46 @@ public sealed class SettingsPageViewModel : PageViewModel, IUpdateWaitingSource
             { LogRoot: { Length: > 0 } logs } => $"Logs {logs} · no screenshot folder",
             _ => "Nothing found yet",
         };
-        ProfileContext = snapshot.Profile is null
-            ? "Profile unavailable"
-            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode}";
+        var profile = snapshot.Profile;
+        if (_latestProfileChange is { } changed)
+        {
+            if (profile is null || profile.Id == changed.Id)
+            {
+                profile = changed;
+            }
+            else
+            {
+                // A different id is a genuine profile switch, not a stale snapshot of the
+                // profile whose progress was just saved.
+                _latestProfileChange = null;
+            }
+        }
+
+        ProfileContext = profile is null ? "Profile unavailable" : DescribeProfile(profile);
         ScanProvider = snapshot.Scan.IsAvailable
             ? snapshot.Scan.Succeeded ? $"Last result: {snapshot.Scan.Source}" : snapshot.Scan.Detail
             : snapshot.Scan.Detail;
         Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
     }
+
+    /// <summary>
+    /// A runtime snapshot is not published for an ordinary profile-file save. Follow the save
+    /// signal so Setup does not keep showing the level from whichever snapshot happened earlier.
+    /// </summary>
+    private void ProfileChanged(PlayerProfile profile)
+    {
+        _latestProfileChange = profile;
+        if (_profileChangeContext is not null && !ReferenceEquals(SynchronizationContext.Current, _profileChangeContext))
+        {
+            _profileChangeContext.Post(_ => ProfileContext = DescribeProfile(profile), null);
+            return;
+        }
+
+        ProfileContext = DescribeProfile(profile);
+    }
+
+    private static string DescribeProfile(PlayerProfile profile) =>
+        $"{profile.Name} · level {profile.Level} · {profile.GameMode}";
 
     public async Task SyncAsync()
     {
@@ -2829,7 +2876,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             updates,
             gameFolders,
             observation,
-            selfTest)
+            selfTest,
+            profileService as IPlayerProfileChangeSource)
         {
             // The quest exchange and the TarkovTracker import are rendered on Settings now,
             // bound through this, so they stop costing 180 px above the quest board.

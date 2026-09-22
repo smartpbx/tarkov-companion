@@ -72,7 +72,7 @@ public sealed class RaidTimerTests
 
         Assert.Equal(RaidTimeBasis.Counted, remaining.Basis);
         Assert.Equal(TimeSpan.FromMinutes(28), remaining.Remaining);
-        Assert.Equal("Counted from the start", remaining.Detail);
+        Assert.Equal("counted from start", remaining.Detail);
     }
 
     /// <summary>
@@ -170,6 +170,7 @@ public sealed class RaidTimerTests
 /// </remarks>
 public sealed class RaidLengthBySideTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 9, 22, 12, 0, 0, TimeSpan.Zero);
     private static readonly TimeSpan Pmc = TimeSpan.FromMinutes(40);
     private static readonly TimeSpan Scav = TimeSpan.FromMinutes(25);
 
@@ -213,5 +214,61 @@ public sealed class RaidLengthBySideTests
     {
         // It arrives as whatever string the logs and the wire carry.
         Assert.Equal(Scav, RaidTimer.LengthFor("  scav  ", Pmc, Scav));
+    }
+
+    [Theory]
+    [InlineData("pmc")]
+    [InlineData("usec")]
+    [InlineData("bear")]
+    public void A_non_scav_start_can_count_down(string? side) =>
+        Assert.True(RaidTimer.CanCountFromStart(side));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("unknown")]
+    public void An_unknown_side_cannot_borrow_a_duration(string? side) =>
+        Assert.False(RaidTimer.CanCountFromStart(side));
+
+    [Theory]
+    [InlineData("scav")]
+    [InlineData("Scav")]
+    [InlineData("savage")]
+    public void A_scav_join_time_is_not_a_raid_start(string side)
+    {
+        Assert.False(RaidTimer.CanCountFromStart(side));
+        Assert.True(RaidTimer.CanCountFromStart(side, startSetByHand: true));
+    }
+
+    [Fact]
+    public void A_scav_catalog_duration_does_not_invent_time_left_from_the_join()
+    {
+        var remaining = RaidTimer.ResolveForRaid(
+            observed: null,
+            startedUtc: Now.AddMinutes(-5),
+            length: Scav,
+            side: "scav",
+            startSetByHand: false,
+            nowUtc: Now);
+
+        Assert.Equal(RaidTimeBasis.Unknown, remaining.Basis);
+        Assert.Null(remaining.Remaining);
+        Assert.Equal("open extracts or set by hand", remaining.Detail);
+    }
+
+    [Fact]
+    public void A_scav_screenshot_clock_is_still_used()
+    {
+        var remaining = RaidTimer.ResolveForRaid(
+            (TimeSpan.FromMinutes(18), Now.AddMinutes(-2)),
+            Now.AddMinutes(-5),
+            Scav,
+            "scav",
+            startSetByHand: false,
+            nowUtc: Now);
+
+        Assert.Equal(RaidTimeBasis.Observed, remaining.Basis);
+        Assert.Equal(TimeSpan.FromMinutes(16), remaining.Remaining);
+        Assert.Equal("from screenshot", remaining.Detail);
     }
 }

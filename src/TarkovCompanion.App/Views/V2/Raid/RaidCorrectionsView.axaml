@@ -75,6 +75,7 @@
                   Command="{Binding SetTimeLeftCommand}"
                   AutomationProperties.AutomationId="v2-raid-correct-time-left-set" />
           <Button Classes="v2-target v2-raid-viewcontrol" Content="Started now"
+                  IsVisible="{Binding IsPmc}"
                   Command="{Binding StartedNowCommand}"
                   AutomationProperties.AutomationId="v2-raid-correct-started-now"
                   ToolTip.Tip="Count this raid from this moment" />

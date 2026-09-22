@@ -426,6 +426,15 @@ internal static class Program
                 Pump(20);
             }
 
+            // #667: fixture OCR output through the real matcher and history inference, so the
+            // Setup preview can be judged without invoking a Windows-only OCR provider on dev.
+            if (shell?.SetupWorkspace?.QuestSync is { } questSync && args.Contains("--quest-sync-demo"))
+            {
+                DrainUntilComplete(questSync.LoadFixtureAsync(
+                    ["Flint", "Gunsmith Part", "CHARACTER TASKS"]));
+                Pump(20);
+            }
+
             // [#269] Profiles made through the real management service, so Setup > Game & Profile
             // renders the list a player would have: the first profile, a PvE one made active, and an
             // archived one behind "Show archived".
@@ -446,6 +455,18 @@ internal static class Program
                     row.BeginEditCommand.Execute(null);
                     Pump(10);
                 }
+            }
+
+            // Issue 655: save through the same scoped service as Setup's progress controls. The
+            // rendered summary must follow this change even though it does not create a new
+            // runtime snapshot.
+            if (StringOption(args, "--profile-level") is { } profileLevelText &&
+                int.TryParse(profileLevelText, out var profileLevel))
+            {
+                var profiles = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IPlayerProfileService>();
+                var profile = profiles.GetActiveAsync(default).GetAwaiter().GetResult();
+                profiles.SaveAsync(profile with { Level = profileLevel }, default).GetAwaiter().GetResult();
+                Pump(20);
             }
 
             // [#269] Profile export/import: gives the active profile some progress, exports it to
@@ -661,6 +682,23 @@ internal static class Program
                     events.Items[0].MarkSafeCommand.Execute(null);
                     Pump(60);
                 }
+            }
+
+            // Issue 645: a fresh install's honest history state is one locally recorded price.
+            // Seed that exact state after migrations so the Flea render proves it does not draw
+            // three identical low/average/high figures.
+            if (StringOption(args, "--one-price-item") is { } onePriceItem)
+            {
+                var factory = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.SqliteConnectionFactory>();
+                using var connection = factory.OpenAsync(default).GetAwaiter().GetResult();
+                using var command = connection.CreateCommand();
+                command.CommandText =
+                    "INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source) " +
+                    "VALUES ($itemId, $timestamp, $flea, NULL, 'render-demo');";
+                command.Parameters.AddWithValue("$itemId", onePriceItem);
+                command.Parameters.AddWithValue("$timestamp", DateTimeOffset.UtcNow.ToString("O"));
+                command.Parameters.AddWithValue("$flea", 322_222);
+                command.ExecuteNonQuery();
             }
 
             // #287 (event state on items): creates an event, marks one item Allergic on it, and
@@ -1142,7 +1180,12 @@ internal static class Program
                 if (StringOption(args, "--then-map") is { } thenMaps)
                 {
                     MapSwitchProbe.FirstPicturePath = StringOption(args, "--then-map-first");
-                    MapSwitchProbe.Run(window, viewModel, raid, thenMaps);
+                    MapSwitchProbe.Run(
+                        window,
+                        viewModel,
+                        raid,
+                        thenMaps,
+                        measureMemory: args.Contains("--map-switch-memory"));
                 }
 
                 // [V2 rough package 39] Which artwork this map actually publishes, so a render
@@ -1450,7 +1493,7 @@ internal static class Program
             if (shell is not null && args.Contains("--raid-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
-                var demo = RaidDemo(viewModel.Map.RenderModel);
+                var demo = RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14));
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
@@ -2043,7 +2086,8 @@ internal static class Program
     /// whichever map is being rendered.
     /// </remarks>
     internal static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
-        TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
+        TarkovCompanion.Application.Services.Maps.MapRenderModel? model,
+        int minutesAgo = 14)
     {
         var now = DateTimeOffset.UtcNow;
         var mapId = model?.Location.Id ?? "customs";
@@ -2096,7 +2140,7 @@ internal static class Program
             Guid.NewGuid(),
             TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid,
             mapId,
-            now.AddMinutes(-14),
+            now.AddMinutes(-Math.Max(0, minutesAgo)),
             now,
             new(0.9),
             trail[^1],

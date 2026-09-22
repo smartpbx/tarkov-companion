@@ -1,0 +1,118 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Setup.QuestScreenshotSyncView"
+             x:DataType="vm:QuestScreenshotSyncViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Setup">
+  <Border Classes="v2-card" Padding="14"
+          AutomationProperties.AutomationId="v2-quest-sync">
+    <StackPanel Classes="v2-stack">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel Spacing="3">
+          <TextBlock Classes="v2-heading-3" Text="Sync quests from screenshots"
+                     AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-label" Text="Open Character › TASKS and capture each screenful." />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="v2-plan-chip" IsVisible="{Binding ShowEmptyOffer}">
+          <TextBlock Classes="v2-label" Text="Recommended for an empty profile" />
+        </Border>
+      </Grid>
+
+      <WrapPanel Classes="v2-toolbar">
+        <Button Classes="v2-target primary" Content="Choose screenshots"
+                Command="{Binding PickCommand}"
+                AutomationProperties.AutomationId="v2-quest-sync-pick" />
+        <TextBlock Classes="v2-label" Text="or the last" VerticalAlignment="Center" />
+        <ComboBox Width="84" ItemsSource="{Binding RecentMinuteChoices}"
+                  SelectedItem="{Binding RecentMinutes}"
+                  AutomationProperties.AutomationId="v2-quest-sync-minutes"
+                  AutomationProperties.Name="Recent screenshot minutes" />
+        <TextBlock Classes="v2-label" Text="minutes" VerticalAlignment="Center" />
+        <Button Classes="v2-target" Content="Use recent"
+                Command="{Binding RecentCommand}"
+                AutomationProperties.AutomationId="v2-quest-sync-recent" />
+        <Button Classes="v2-target" Content="Not now" IsVisible="{Binding ShowEmptyOffer}"
+                Command="{Binding DismissOfferCommand}" />
+      </WrapPanel>
+
+      <TextBlock Classes="v2-label" Text="{Binding Status}" TextWrapping="Wrap"
+                 AutomationProperties.AutomationId="v2-quest-sync-status" />
+
+      <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10" IsVisible="{Binding HasPreview}">
+        <Border Classes="v2-card" Padding="10" IsVisible="{Binding HasMatched}">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MatchedHeading}" />
+            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding Matched}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestScreenshotLineViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,3">
+                      <TextBlock Classes="v2-body" Text="{Binding MatchedName}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding MatchedConfidence}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Column="1" Classes="v2-card" Padding="10" IsVisible="{Binding HasAmbiguous}">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding AmbiguousHeading}" />
+            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding Ambiguous}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestScreenshotLineViewModel">
+                    <StackPanel Spacing="4" Margin="0,3,0,7">
+                      <TextBlock Classes="v2-label" Text="{Binding OcrLine}" TextWrapping="Wrap" />
+                      <ComboBox ItemsSource="{Binding Candidates}" SelectedItem="{Binding SelectedCandidate}">
+                        <ComboBox.ItemTemplate>
+                          <DataTemplate x:DataType="vm:QuestScreenshotCandidateViewModel">
+                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                          </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                      </ComboBox>
+                      <Button Classes="v2-target" HorizontalAlignment="Left"
+                              Content="{Binding ConfirmLabel}" Command="{Binding ConfirmCommand}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+
+        <Border Grid.Column="2" Classes="v2-card" Padding="10" IsVisible="{Binding HasUnmatched}">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding UnmatchedHeading}" />
+            <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding Unmatched}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestScreenshotLineViewModel">
+                    <TextBlock Classes="v2-label" Text="{Binding OcrLine}" TextWrapping="Wrap" Margin="0,3" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Border Classes="v2-card" Padding="10" IsVisible="{Binding HasPreview}">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="Progress changes" />
+            <TextBlock Classes="v2-label" Text="{Binding HistorySummary}"
+                       AutomationProperties.AutomationId="v2-quest-sync-history" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="v2-target" Content="Cancel"
+                  Command="{Binding CancelCommand}"
+                  AutomationProperties.AutomationId="v2-quest-sync-cancel" />
+          <Button Grid.Column="2" Classes="v2-target primary" Content="Confirm sync"
+                  Command="{Binding ApplyCommand}"
+                  AutomationProperties.AutomationId="v2-quest-sync-confirm" />
+        </Grid>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>
