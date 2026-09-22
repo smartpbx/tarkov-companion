@@ -264,6 +264,14 @@ selection changes in place. `--stall-tour-only plan,intel` walks part of the tou
 | Return to Plan (route cycles 1-3) | 866-1,090 ms | 38-71 ms |
 | Intel > Keys, first visit | 544-649 ms | 104-105 ms |
 
+## The high-value loot layer (#657)
+
+`--loot-tour on|off` with `--seed-loot-cache <publication.cache>` times map switch, drag, wheel zoom and a
+60 s idle raid per map with the loot layer on or off. With it on, every squad tick rebuilt all ranked
+spawns' buttons (626 on Streets): 65.7% UI busy idle, a 1.5 s turn every 2 s. Now only revealed spawns
+get a control, kept across rebuilds, and the runtime source returns the same built layer for a minute:
+6.8% idle on Streets, same as off (11.1%).
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

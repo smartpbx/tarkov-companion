@@ -2337,13 +2337,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         var floorIds = model.Floors.Select(floor => floor.Id).ToArray();
         UiActivity.Step("raid:legacy");
-        var lootLayer = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
+        var lootLayer = LootLayerBuildLog.Time(() => _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
             transformVersion,
             planBounds,
             nowUtc,
             _lootFilter.Filter,
-            floorIds));
+            floorIds)));
 
         UiActivity.Step("raid:loot");
         var (marksLayer, markObjects) = BuildMarksLayer(_marks.Marks, model.Location.Id, nowUtc);

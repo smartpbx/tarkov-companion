@@ -54,6 +54,18 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     private LootSpawnSourceBundle? _lastKnownGood;
     private LootSpawnSourceRefreshOutcome? _lastRefreshOutcome;
     private ReboundSnapshot? _rebound;
+    private BuiltLayer[] _built = [];
+
+    /// <summary>
+    /// How long one built layer answers the same request again. [#657] The Raid map rebuilds its
+    /// scene on every squad position and screenshot, and each rebuild asked for the layer anew:
+    /// on Streets that re-projected every spawn in the publication, about 40 ms on the interface
+    /// thread every two seconds, and handed the map a new result, so it rebuilt every loot marker
+    /// too. What moves with the clock is only freshness, which is measured in hours and days.
+    /// Two are kept: the Raid map asks for the player's filter and, for the traffic prior, the
+    /// default one, and one slot would have thrown each away for the other.
+    /// </summary>
+    public static readonly TimeSpan ReuseFor = TimeSpan.FromSeconds(60);
 
     public HighValueLootRuntimeSource(
         ILootSpawnSourcePublicationStore publicationStore,
@@ -135,7 +147,27 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var snapshot = LastKnownGood?.Snapshots.SingleOrDefault(candidate =>
+        var head = LastKnownGood;
+        var built = Volatile.Read(ref _built);
+        foreach (var layer in built)
+        {
+            if (layer.Answers(head, request))
+            {
+                return layer.Result;
+            }
+        }
+
+        var result = BuildUncached(head, request, cancellationToken);
+        Volatile.Write(ref _built, [new BuiltLayer(head, request, result), .. built.Take(1)]);
+        return result;
+    }
+
+    private HighValueLootLayerResult BuildUncached(
+        LootSpawnSourceBundle? head,
+        HighValueLootRuntimeLayerRequest request,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = head?.Snapshots.SingleOrDefault(candidate =>
             string.Equals(candidate.MapId, request.MapId, StringComparison.Ordinal));
         var rebound = snapshot is not null &&
                       !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal);
@@ -232,6 +264,25 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     }
 
     private sealed record ReboundSnapshot(LootSpawnSnapshot Source, LootSpawnSnapshot Snapshot);
+
+    /// <summary>The last layer built, and what it was built from.</summary>
+    private sealed record BuiltLayer(
+        LootSpawnSourceBundle? Head,
+        HighValueLootRuntimeLayerRequest Request,
+        HighValueLootLayerResult Result)
+    {
+        public bool Answers(LootSpawnSourceBundle? head, HighValueLootRuntimeLayerRequest request)
+        {
+            var age = request.EvaluatedUtc - Request.EvaluatedUtc;
+            return ReferenceEquals(head, Head) &&
+                   age >= TimeSpan.Zero && age < ReuseFor &&
+                   string.Equals(request.MapId, Request.MapId, StringComparison.Ordinal) &&
+                   string.Equals(request.TransformVersion, Request.TransformVersion, StringComparison.Ordinal) &&
+                   request.MapBounds == Request.MapBounds &&
+                   (ReferenceEquals(request.Filter, Request.Filter) || request.Filter == Request.Filter) &&
+                   (request.FloorIds ?? []).SequenceEqual(Request.FloorIds ?? [], StringComparer.Ordinal);
+        }
+    }
 }
 
 /// <summary>

@@ -249,10 +249,26 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererObjectViewModel> StackMarkers { get; private set; } = [];
 
     /// <summary>[#573] Potential loot spawns, drawn under the place names; see <see cref="MapLootRanking"/>.</summary>
-    public IReadOnlyList<MapSceneRendererObjectViewModel> LootMarkers { get; private set; } = [];
+    /// <remarks>
+    /// [#657] Only the spawns drawn at this zoom, kept in one list the view already holds. It
+    /// used to be every ranked spawn on the map (626 on Streets) in a new array on each rebuild,
+    /// and a rebuild comes with every squad position and screenshot: the view threw away and
+    /// re-styled 626 buttons each time, most of them hidden, 1.4 s of every 2 s in a raid.
+    /// </remarks>
+    public IReadOnlyList<MapSceneRendererObjectViewModel> LootMarkers => _lootMarkers;
+
+    private readonly ReconciledList<MapSceneRendererObjectViewModel> _lootMarkers = [];
+
+    /// <summary>Every ranked spawn, most valuable first, drawn or not.</summary>
+    private MapSceneRendererObjectViewModel[] _rankedLoot = [];
+
+    /// <summary>The deepest zoom this map has been read at: what it revealed keeps its control.</summary>
+    private double _lootZoomReached;
 
     /// <summary>[#573] "+N" per area for loot spawns not drawn yet at this zoom.</summary>
-    public IReadOnlyList<MapSceneRendererObjectViewModel> LootBadges { get; private set; } = [];
+    public IReadOnlyList<MapSceneRendererObjectViewModel> LootBadges => _lootBadges;
+
+    private readonly ReconciledList<MapSceneRendererObjectViewModel> _lootBadges = [];
 
     private readonly bool _ranksLootByValue;
     private IReadOnlyDictionary<MapSceneObjectId, (LootSpawnValueTier Tier, long Value)> _lootValues;
@@ -640,6 +656,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         if (changedSceneIdentity)
         {
+            _lootZoomReached = 0;
             _clusterFilter = null;
             _clusterFilterLabel = string.Empty;
             _searchText = string.Empty;
@@ -707,6 +724,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             {
                 label.UpdateCamera(_scene.View.Camera);
             }
+
+            ShowRevealedLoot();
         }
 
         if (changedSceneIdentity || assetsChanged || boundsChanged)
@@ -1854,8 +1873,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             static marker => marker.Key,
             static (old, fresh) => old.DrawsSameAs(fresh));
         _pointMarkers.Reconcile([.. SpatialObjects.Where(item => !item.IsCluster && !item.IsRankedLoot)]);
-        LootMarkers = SpatialObjects.Where(item => item.IsRankedLoot).ToArray();
-        LootBadges = BuildLootBadges(LootMarkers);
+        _rankedLoot = [.. SpatialObjects.Where(item => item.IsRankedLoot)];
+        _lootBadges.Reconcile(ReconciledList<MapSceneRendererObjectViewModel>.Reuse(
+            _lootBadges,
+            BuildLootBadges(_rankedLoot),
+            static badge => badge.Key,
+            static (old, fresh) => old.DrawsSameBadgeAs(fresh)));
+        ShowRevealedLoot();
         StackMarkers = BuildStackMarkers(PointMarkers);
         ClusterMarkers = SpatialObjects.Where(item => item.IsCluster).ToArray();
         SelectedObject = _selectedObjectId is { } selected
@@ -1917,6 +1941,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 return marker;
             })
             .ToArray();
+    }
+
+    /// <summary>
+    /// Brings <see cref="LootMarkers"/> to the spawns revealed at the deepest zoom reached on this
+    /// map, and the selected one. Revealed in rank order, so zooming in appends to the end. Zooming
+    /// out keeps them (hidden by <c>IsShownOnPlan</c>), so zooming back in builds nothing again;
+    /// a spawn nobody has zoomed in far enough to see never gets a control at all.
+    /// </summary>
+    private void ShowRevealedLoot()
+    {
+        _lootZoomReached = Math.Max(_lootZoomReached, _scene.View.Camera.Zoom);
+        _lootMarkers.Reconcile([.. _rankedLoot.Where(marker => marker.LootRevealZoom <= _lootZoomReached || marker.IsShownOnPlan)]);
     }
 
     private IReadOnlyList<MapSceneRendererObjectViewModel> BuildLootBadges(IReadOnlyList<MapSceneRendererObjectViewModel> loot)
@@ -2153,6 +2189,8 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             marker.SetSelected(marker.ObjectId == next);
         }
+
+        ShowRevealedLoot();
 
         foreach (var item in ListItems.Where(item => item.Id == previous || item.Id == next))
         {
@@ -3130,6 +3168,15 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         IsNearRightEdge == other.IsNearRightEdge && IsNearBottomEdge == other.IsNearBottomEdge &&
         IsRankedLoot == other.IsRankedLoot && LootRevealZoom.Equals(other.LootRevealZoom) &&
         IsLootExceptional == other.IsLootExceptional && IsLootHigh == other.IsLootHigh;
+
+    /// <summary>A "+N" loot badge over the same spawns, drawn in the same place at the same zoom.</summary>
+    internal bool DrawsSameBadgeAs(MapSceneRendererObjectViewModel other) =>
+        _hiddenLootZooms is { } mine && other._hiddenLootZooms is { } theirs &&
+        Key == other.Key && Label == other.Label &&
+        AnchorLeft.Equals(other.AnchorLeft) && AnchorTop.Equals(other.AnchorTop) &&
+        _cameraZoom.Equals(other._cameraZoom) && _markerInverseZoom.Equals(other._markerInverseZoom) &&
+        _markerUprightDegrees.Equals(other._markerUprightDegrees) &&
+        mine.AsSpan().SequenceEqual(theirs);
 
     internal static double ConeFor(double? headingDegrees, double cameraBearingDegrees) =>
         headingDegrees is { } heading && double.IsFinite(heading)

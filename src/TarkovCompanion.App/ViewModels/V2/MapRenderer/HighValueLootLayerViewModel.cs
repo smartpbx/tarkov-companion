@@ -173,6 +173,10 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         // the same list got shorter.
         var sameList = string.Equals(result.MapId, _result.MapId, StringComparison.OrdinalIgnoreCase)
             && (ReferenceEquals(filterState, _filterState) || filterState == _filterState);
+        var sameResult = sameList && ReferenceEquals(result, _result);
+        var previousCategories = _availableCategories;
+        var previousFloors = _availableFloors;
+        var previousTruncation = (_categoryOptionsTruncated, _floorOptionsTruncated);
         _result = result;
         _filterState = filterState;
         var categoriesWereTruncated = _categoryOptionsTruncated;
@@ -185,6 +189,18 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
             availableFloors ?? _availableFloors,
             ActiveFloor(filterState));
         _floorOptionsTruncated |= availableFloors is null && floorsWereTruncated;
+        // [#657] The same result under the same filter and options draws the same rows and the
+        // same markers. The runtime source hands back the very same result while nothing it was
+        // built from has changed, so a squadmate moving no longer rebuilds the list, and the
+        // ProjectionChanged it raised no longer rebuilt every loot marker a second time.
+        if (sameResult &&
+            previousCategories.SequenceEqual(_availableCategories, StringComparer.Ordinal) &&
+            previousFloors.SequenceEqual(_availableFloors, StringComparer.Ordinal) &&
+            previousTruncation == (_categoryOptionsTruncated, _floorOptionsTruncated))
+        {
+            return;
+        }
+
         if (!sameList)
         {
             _pageIndex = 0;
