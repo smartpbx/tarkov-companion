@@ -864,6 +864,8 @@ public static class AppComposition
         services.AddSingleton<CaptureRecognitionPipeline>();
         services.AddSingleton<ICaptureSessionPipeline>(provider =>
             provider.GetRequiredService<CaptureRecognitionPipeline>());
+        services.AddSingleton<ILootScanRecognitionProgressSource>(provider =>
+            provider.GetRequiredService<CaptureRecognitionPipeline>());
         services.AddSingleton<InventoryGridReconstructor>();
         services.AddSingleton<LootScanDecisionService>();
         services.AddSingleton(provider => new LootScanCaptureHandoff(

@@ -1674,8 +1674,15 @@ internal static class Program
                     .Current.Profile ?? throw new InvalidOperationException("The demo composition has no profile.");
                 var scope = new TarkovCompanion.Core.Domain.Inventory.InventoryProfileScope(
                     profile.Id, profile.ProfileGeneration, profile.GameMode.ToString());
-                shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
-                    ScanDemo.LootResult(scope)));
+                var lootResult = ScanDemo.LootResult(scope);
+                if (StringOption(args, "--loot-progress") is { } progress)
+                {
+                    LootProgressDemo.Show(shell, lootResult, string.Equals(progress, "final", StringComparison.OrdinalIgnoreCase));
+                }
+                else
+                {
+                    shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(lootResult));
+                }
                 Pump(20);
             }
 

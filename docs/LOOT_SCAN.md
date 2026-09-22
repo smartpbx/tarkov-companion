@@ -10,6 +10,10 @@ turns every named cell into the inputs `ExplainableRecommendationEngine` asks fo
 `LootScanDecisionService` plans the engine's advice against the carried grid. The verdicts are
 TAKE, SWAP, LEAVE and REVIEW.
 
+While icon matching is still running, each named cell appears on the Loot page as PENDING. The
+final planner result updates and orders those same rows; cancelled and superseded scans cannot add
+late items.
+
 Until 2026-09-19 every real scan ended "valued, not decided". The source supplied catalog
 prices, left everything else unread, and told the engine three things it had not checked: not
 pinned, not protected, no item rule, each as a known "false" at full confidence. A pinned item

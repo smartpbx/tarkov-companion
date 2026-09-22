@@ -46,13 +46,19 @@ public sealed class CaptureRecognitionPipeline(
     // CaptureAnalysis - see ICaptureStageTimeline's own remarks for why. Optional: every existing
     // composition and test predates it, and a host that never registers one gets no timing lines
     // rather than a missing-service failure.
-    Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null) : ICaptureSessionPipeline
+    Application.Services.CaptureSessions.ICaptureStageTimeline? stageTimeline = null) : ICaptureSessionPipeline, ILootScanRecognitionProgressSource
 {
     private readonly OcrCoordinator _ocr = ocr ?? throw new ArgumentNullException(nameof(ocr));
     private readonly GridPixelReconstructionBuilder _gridBuilder = gridBuilder ?? throw new ArgumentNullException(nameof(gridBuilder));
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly CanonicalItemResolverCache? _resolverCache = resolverCache;
     private readonly OcrTextNormalizer _normalizer = normalizer ?? new OcrTextNormalizer();
+
+    public event EventHandler<LootScanRecognitionStarted>? LootRecognitionStarted;
+
+    public event EventHandler<LootScanItemMatched>? LootItemMatched;
+
+    public event EventHandler<LootScanRecognitionStopped>? LootRecognitionStopped;
 
     public async Task<CaptureAnalysis> AnalyzeAsync(CaptureAnalysisRequest request, CancellationToken cancellationToken)
     {
@@ -61,76 +67,160 @@ public sealed class CaptureRecognitionPipeline(
         // pixel-free downstream consumer (the handoff) can still bind advice to the exact frame
         // that produced it.
         var contentHash = Convert.ToHexStringLower(SHA256.HashData(request.Image.Pixels.Span));
+        var progressStarted = false;
 
-        var ocrStopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
-        stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
-        var detection = coordinated.Detection;
-        var isAmbiguous = detection.Context == ScanContext.Unknown;
-        var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);
-        var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
-
-        GridReconstructionRequest? grid = null;
-        GridReconstructionRequest? carried = null;
-        if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
+        void StartLootProgress()
         {
-            var gridStopwatch = System.Diagnostics.Stopwatch.StartNew();
-            grid = await _gridBuilder
-                .BuildAsync(request.Image, surface, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
+            if (progressStarted)
+            {
+                return;
+            }
+
+            progressStarted = true;
+            LootRecognitionStarted?.Invoke(this, new(
+                request.SessionId,
+                request.ArtifactId,
+                request.CorrelationId,
+                request.DecodeRevision,
+                request.Context,
+                contentHash,
+                _timeProvider.GetUtcNow()));
+        }
+
+        // An armed Loot capture is known before OCR. An unarmed Auto capture becomes loot only
+        // after the context detector and measured lattice place it below.
+        if (request.RequestedIntent == ScanIntent.Loot)
+        {
+            StartLootProgress();
+        }
+
+        try
+        {
+            var ocrStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var coordinated = await _ocr.RecognizeAsync(request.Image, cancellationToken).ConfigureAwait(false);
+            stageTimeline?.Mark(request.CorrelationId, "context_ocr", ocrStopwatch.Elapsed);
+            var detection = coordinated.Detection;
+            var isAmbiguous = detection.Context == ScanContext.Unknown;
+            var detectedContext = isAmbiguous ? (RecognizedContext?)null : Map(detection.Context, request.RequestedIntent);
+            var isAvailable = !coordinated.IsEmpty && coordinated.FullFrame.IsAvailable;
+
+            GridReconstructionRequest? grid = null;
+            GridReconstructionRequest? carried = null;
+            if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
+            {
+                if (surface == InventoryGridSurface.VisibleLoot)
+                {
+                    StartLootProgress();
+                }
+
+                var gridStopwatch = System.Diagnostics.Stopwatch.StartNew();
+                var progress = surface == InventoryGridSurface.VisibleLoot
+                    ? new InlineProgress<GridCellObservation>(cell => LootItemMatched?.Invoke(this, new(
+                        request.SessionId,
+                        request.ArtifactId,
+                        request.CorrelationId,
+                        request.DecodeRevision,
+                        cell)))
+                    : null;
+                grid = await _gridBuilder
+                    .BuildAsync(
+                        request.Image,
+                        surface,
+                        _timeProvider.GetUtcNow(),
+                        cancellationToken: cancellationToken,
+                        matchedItemProgress: progress)
+                    .ConfigureAwait(false);
             // The in-raid Gear screen shows the player's backpack beside the loot. Reading it is
             // what lets the Loot Scan say where an item goes, or what to drop for it, instead of
             // "TAKE?" with the carried grid unread.
-            carried = surface == InventoryGridSurface.VisibleLoot
-                ? await _gridBuilder
-                    .BuildCarriedAsync(request.Image, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
-                    .ConfigureAwait(false)
-                : null;
+                carried = surface == InventoryGridSurface.VisibleLoot
+                    ? await _gridBuilder
+                        .BuildCarriedAsync(request.Image, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
+                        .ConfigureAwait(false)
+                    : null;
             // Region detection and per-cell icon matching against the catalog both happen inside
             // BuildAsync; splitting them would mean Infrastructure taking a dependency on this
             // Application-layer timeline, so they are reported together here as one stage.
-            stageTimeline?.Mark(request.CorrelationId, "grid_and_icon_matching", gridStopwatch.Elapsed);
-        }
+                stageTimeline?.Mark(request.CorrelationId, "grid_and_icon_matching", gridStopwatch.Elapsed);
+            }
 
         // A measured lattice is a usable reading whether or not any text was read. Availability
         // was OCR's alone, so a Loot or Stash frame on a machine with no OCR engine - or one whose
         // text simply was not legible - resolved its review and then ended "no change", with the
         // grid it had measured thrown away.
-        isAvailable |= grid?.Lattice is not null;
+            isAvailable |= grid?.Lattice is not null;
 
         // The text detector could not place the screen, the player armed Loot or Stash, and the
         // pixels hold a measured inventory lattice: that is a grid screen, placed from its lines
         // instead of its words. Without this the review offered "Analyse as armed" and intake
         // then refused it as "context unknown, no change" - the button did nothing, on the one
         // machine class (no OCR, or OCR that read no anchor) where it was the only way forward.
-        var fleaListings = await ReadFleaListingsAsync(request, detection.Context, cancellationToken).ConfigureAwait(false);
-        if (fleaListings.Count > 0 && isAmbiguous && request.RequestedIntent == ScanIntent.Flea)
-        {
+            var fleaListings = await ReadFleaListingsAsync(request, detection.Context, cancellationToken).ConfigureAwait(false);
+            if (fleaListings.Count > 0 && isAmbiguous && request.RequestedIntent == ScanIntent.Flea)
+            {
             // Priced rows under an armed Flea intent are a flea screen, whatever the anchor
             // detector made of the header.
-            detectedContext = RecognizedContext.Flea;
-            isAmbiguous = false;
+                detectedContext = RecognizedContext.Flea;
+                isAmbiguous = false;
+            }
+
+            (detectedContext, isAmbiguous, var confidence) = PlaceFromLattice(
+                detectedContext,
+                isAmbiguous,
+                detection.Confidence,
+                grid?.Lattice is not null,
+                request.RequestedIntent);
+
+            return new(
+                contentHash,
+                detectedContext,
+                isAmbiguous,
+                isAvailable,
+                coordinated.DiagnosticCode,
+                confidence,
+                grid,
+                await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
+                    .ConfigureAwait(false),
+                CarriedGrid: carried,
+                FleaListings: fleaListings);
         }
+        catch (OperationCanceledException)
+        {
+            if (progressStarted)
+            {
+                LootRecognitionStopped?.Invoke(this, new(
+                    request.SessionId,
+                    request.ArtifactId,
+                    request.CorrelationId,
+                    request.DecodeRevision,
+                    WasCancelled: true));
+            }
 
-        (detectedContext, isAmbiguous, var confidence) = PlaceFromLattice(
-            detectedContext,
-            isAmbiguous,
-            detection.Confidence,
-            grid?.Lattice is not null,
-            request.RequestedIntent);
+            throw;
+        }
+        catch
+        {
+            if (progressStarted)
+            {
+                LootRecognitionStopped?.Invoke(this, new(
+                    request.SessionId,
+                    request.ArtifactId,
+                    request.CorrelationId,
+                    request.DecodeRevision,
+                    WasCancelled: false));
+            }
 
-        return new(
-            contentHash,
-            detectedContext,
-            isAmbiguous,
-            isAvailable,
-            coordinated.DiagnosticCode,
-            confidence,
-            grid,
-            await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
-                .ConfigureAwait(false),
-            CarriedGrid: carried,
-            FleaListings: fleaListings);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Progress{T}"/> captures a synchronization context. Recognition must report on
+    /// the worker that completed a cell; the UI bridge owns the one dispatcher hop.
+    /// </summary>
+    private sealed class InlineProgress<T>(Action<T> report) : IProgress<T>
+    {
+        public void Report(T value) => report(value);
     }
 
     /// <summary>
