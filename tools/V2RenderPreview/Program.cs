@@ -1649,7 +1649,25 @@ internal static class Program
                     StringOption(args, "--loot-scan-flea-rates"),
                     services.GetRequiredService<TimeProvider>().GetUtcNow());
                 DrainUntilComplete(seed);
-                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope, Resolve), CancellationToken.None));
+                var stashRecord = ScanDemo.StashRecord(scope, Resolve);
+                DrainUntilComplete(store.SaveAsync(stashRecord, CancellationToken.None));
+                if (args.Contains("--stash-review-demo"))
+                {
+                    var recognitionId = stashRecord.Recognition.Result.Value?.SnapshotId
+                        ?? throw new InvalidOperationException("The stash demo has no recognition snapshot id.");
+                    var reviews = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashReviewCommandSink>();
+                    DrainUntilComplete(reviews.AppendAsync(
+                        new TarkovCompanion.Core.Domain.Stash.StashReviewCommand(
+                            Guid.Parse("3ef70b2a-2aac-4ba1-bab8-b24dad6c1eb6"),
+                            recognitionId,
+                            TarkovCompanion.Core.Domain.Stash.StashReviewActionKind.CorrectQuantity,
+                            ["stash/6/8"],
+                            new DateTimeOffset(2026, 9, 22, 12, 34, 56, TimeSpan.Zero),
+                            "v2.stash-workspace",
+                            correctedQuantity: 3,
+                            reason: "Counted on review."),
+                        CancellationToken.None));
+                }
                 var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
                 DrainUntilComplete(stashWorkspace.LoadAsync());
                 if (args.Contains("--stash-list"))

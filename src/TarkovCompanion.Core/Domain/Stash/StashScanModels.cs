@@ -788,4 +788,8 @@ public sealed record StashReviewCommand
 public interface IStashReviewCommandSink
 {
     Task AppendAsync(StashReviewCommand command, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<StashReviewCommand>> ListAsync(
+        string snapshotId,
+        CancellationToken cancellationToken);
 }
