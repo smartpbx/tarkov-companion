@@ -101,7 +101,7 @@ public sealed record RelayDeviceRegistration(bool Registered, string Code)
     public static RelayDeviceRegistration Done { get; } = new(true, "registered");
 }
 
-public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
+public sealed partial class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 {
     /// <summary>How many sender sequences one write to protected storage reserves.</summary>
     internal const long SequenceBlock = 1024;
@@ -277,6 +277,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
 
         SetOwnerLink(RelayOwnerLinkState.Restored);
         EnsureLoopStarted();
+        ScheduleMarkExpiry();
         return true;
     }
 
@@ -613,6 +614,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         await _pollGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            await ExpireDueMarksAsync(cancellationToken).ConfigureAwait(false);
             await PollCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -824,6 +826,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
         }
 
         CanonicalStateChanged?.Invoke(application.State.CanonicalState);
+        ScheduleMarkExpiry();
 
         foreach (var delivery in application.Deliveries)
         {
@@ -1051,6 +1054,7 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             }
         }
 
+        ScheduleMarkExpiry();
         return application.Acknowledgement.Disposition;
     }
 
@@ -1243,6 +1247,8 @@ public sealed class RelayMarksBridge : IAsyncDisposable, ITabletMapSurfaceSink
             _loop = null;
             _relay = null;
         }
+
+        StopMarkExpiry();
 
         if (loop is not null)
         {

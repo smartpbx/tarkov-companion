@@ -258,24 +258,9 @@ public static class DesktopCanonicalStateMachine
             updates.AddRange(committed.Updates);
         }
 
-        var liveMarks = current.Marks.Marks.Where(mark => mark.ExpiresUtc is null || mark.ExpiresUtc > now).ToArray();
-        if (liveMarks.Length != current.Marks.Marks.Count)
-        {
-            var change = SyntheticId(current, CanonicalAggregateKind.Marks, now, "marks-expired");
-            var aggregate = new MarkAggregate(
-                new AggregateCursor(current.Marks.Cursor.Revision.Next(), change),
-                liveMarks);
-            var global = current.GlobalRevision.Next();
-            current = current.With(global, marks: aggregate);
-            updates.Add(new MarksCanonicalUpdate(
-                current.AuthorityEpoch,
-                global,
-                change,
-                now,
-                DesktopOrigin(current),
-                V2ContractVersion.Current,
-                aggregate));
-        }
+        var expiredMarks = ApplyMarkExpiry(current, now);
+        current = expiredMarks.State;
+        updates.AddRange(expiredMarks.Updates);
 
         if (current.CaptureIntent.ActiveIntent is { } capture &&
             capture.ExpiresUtc <= now &&
@@ -301,6 +286,62 @@ public static class DesktopCanonicalStateMachine
         var (retained, horizon) = RetainReceipts(current, current.RecentCommands, now);
         current = current.With(current.GlobalRevision, recentCommands: retained, receiptHorizonUtc: horizon);
         return new MaintenanceReduction(current, ProtocolGuard.List(updates, nameof(updates)));
+    }
+
+    /// <summary>
+    /// Drops every mark whose time has passed, as one revisioned marks update, or changes nothing.
+    /// </summary>
+    /// <remarks>
+    /// [#584] A ping on a paired tablet's Marks list carries <see cref="MapMark.ExpiresUtc"/>, and
+    /// this was only ever reached from <see cref="ApplyMaintenance"/>, which nothing in the running
+    /// desktop called. So a tablet's ping stayed on its list for good. Split out so the desktop can
+    /// run exactly this when <see cref="NextMarkExpiry"/> comes round, without also running device
+    /// and session maintenance on a ping's schedule.
+    /// </remarks>
+    public static MaintenanceReduction ApplyMarkExpiry(CanonicalCompanionState state, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        var liveMarks = state.Marks.Marks.Where(mark => mark.ExpiresUtc is null || mark.ExpiresUtc > now).ToArray();
+        if (liveMarks.Length == state.Marks.Marks.Count)
+        {
+            return new MaintenanceReduction(state, []);
+        }
+
+        var change = SyntheticId(state, CanonicalAggregateKind.Marks, now, "marks-expired");
+        var aggregate = new MarkAggregate(
+            new AggregateCursor(state.Marks.Cursor.Revision.Next(), change),
+            liveMarks);
+        var global = state.GlobalRevision.Next();
+        var next = state.With(global, marks: aggregate);
+        return new MaintenanceReduction(
+            next,
+            [
+                new MarksCanonicalUpdate(
+                    next.AuthorityEpoch,
+                    global,
+                    change,
+                    now,
+                    DesktopOrigin(next),
+                    V2ContractVersion.Current,
+                    aggregate),
+            ]);
+    }
+
+    /// <summary>When the earliest mark with an expiry is due, or null when none has one.</summary>
+    public static DateTimeOffset? NextMarkExpiry(CanonicalCompanionState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        DateTimeOffset? next = null;
+        foreach (var mark in state.Marks.Marks)
+        {
+            if (mark.ExpiresUtc is { } expires && (next is null || expires < next))
+            {
+                next = expires;
+            }
+        }
+
+        return next;
     }
 
     /// <summary>

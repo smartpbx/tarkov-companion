@@ -94,7 +94,8 @@ public static class ProtocolBounds
     public static TimeSpan CaptureIntentLifetime { get; } = TimeSpan.FromMinutes(2);
     public static TimeSpan ControlLeaseLifetime { get; } = TimeSpan.FromMinutes(2);
     public static TimeSpan MaximumControlLeaseLifetime { get; } = TimeSpan.FromMinutes(5);
-    public static TimeSpan PingLifetime { get; } = TimeSpan.FromSeconds(45);
+    // One number with the desktop's own map and the relay's group pings (#584).
+    public static TimeSpan PingLifetime => TarkovCompanion.Core.Common.MapMarkPolicy.PingLifetime;
     public static TimeSpan MaintenanceScanInterval { get; } = TimeSpan.FromHours(1);
     public static TimeSpan DeviceInactivityExpiry { get; } = TimeSpan.FromHours(2);
 }
