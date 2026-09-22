@@ -61,9 +61,9 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
     /// <summary>Which of the two this is, so a count is not read as a reading.</summary>
     public string Detail => Basis switch
     {
-        RaidTimeBasis.Observed => "From the extract list",
-        RaidTimeBasis.Counted => "Counted from the start",
-        _ => "No raid start observed",
+        RaidTimeBasis.Observed => "from screenshot",
+        RaidTimeBasis.Counted => "counted from start",
+        _ => "open extracts or set by hand",
     };
 }
 
@@ -83,6 +83,15 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
 /// </remarks>
 public static partial class RaidTimer
 {
+    /// <summary>Whether this side may count a full raid from the observed player start.</summary>
+    /// <remarks>
+    /// A PMC confirmation begins the raid. A scav confirmation is only when that scav joined a
+    /// raid already in progress, so even a catalog scav duration cannot turn it into a remaining
+    /// clock. A start entered by the player is allowed because its basis stays visible as manual.
+    /// </remarks>
+    public static bool CanCountFromStart(string? side, bool startSetByHand = false) =>
+        startSetByHand || side?.Trim().ToLowerInvariant() is "pmc" or "usec" or "bear";
+
     /// <summary>
     /// How long a raid runs on this map for the side it is being run as.
     /// </summary>
@@ -98,6 +107,8 @@ public static partial class RaidTimer
     ///
     /// The side arrives as the string the logs and the wire carry, so it is matched
     /// case-insensitively rather than parsed into an enum nobody else here has.
+    /// Selecting that duration does not make a scav join time a raid start: <see
+    /// cref="ResolveForRaid"/> uses it only when a screenshot or hand entry supplies the clock.
     /// </remarks>
     public static TimeSpan? LengthFor(string? side, TimeSpan? pmc, TimeSpan? scav) =>
         side?.Trim().ToLowerInvariant() switch
@@ -185,6 +196,20 @@ public static partial class RaidTimer
 
         return best;
     }
+
+    /// <summary>Resolves a live raid without treating a scav's join time as the raid's start.</summary>
+    public static RaidTimeRemaining ResolveForRaid(
+        (TimeSpan Clock, DateTimeOffset ReadUtc)? observed,
+        DateTimeOffset? startedUtc,
+        TimeSpan? length,
+        string? side,
+        bool startSetByHand,
+        DateTimeOffset nowUtc) =>
+        Resolve(
+            observed,
+            startedUtc,
+            CanCountFromStart(side, startSetByHand) ? length : null,
+            nowUtc);
 
     /// <summary>
     /// How long is left now, from whichever source has the better claim.

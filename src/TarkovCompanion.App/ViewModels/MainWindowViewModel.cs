@@ -867,13 +867,15 @@ public sealed class RaidPageViewModel : PageViewModel
             return;
         }
 
-        var remaining = RaidTimer.Resolve(
+        var remaining = RaidTimer.ResolveForRaid(
             raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc ? (clock, readUtc) : null,
             raid.StartedUtc,
             LengthFor(raid),
+            raid.Side,
+            Corrections.IsManual(RaidCorrectionField.Clock),
             nowUtc);
         TimeLeft = remaining.Display;
-        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? RaidManualCorrections.ManualBasis : remaining.Detail;
+        TimeLeftDetail = Corrections.IsManual(RaidCorrectionField.Clock) ? "set by hand" : remaining.Detail;
         Clock = remaining.ClockText(raid.StartedUtc, nowUtc);
     }
 

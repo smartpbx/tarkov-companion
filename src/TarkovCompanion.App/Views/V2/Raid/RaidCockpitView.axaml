@@ -813,6 +813,9 @@
             <Expander.Header>
               <StackPanel Spacing="1">
                 <TextBlock Classes="v2-heading-3" Text="Extract options" />
+                <TextBlock Classes="v2-label" Text="{Binding ExtractClockSummary}"
+                           AutomationProperties.AutomationId="v2-raid-extract-clock"
+                           IsVisible="{Binding ExtractClockSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock Classes="v2-label" Text="{Binding ExtractsSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding Cards.Extracts.IsCollapsed}" />
               </StackPanel>

@@ -145,7 +145,13 @@ public sealed class LootScanRaidContextSource(
             raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc && readUtc <= evaluatedUtc
                 ? (clock, readUtc)
                 : null;
-        var remaining = RaidTimer.Resolve(observed, raid.StartedUtc, total, evaluatedUtc);
+        var remaining = RaidTimer.ResolveForRaid(
+            observed,
+            raid.StartedUtc,
+            total,
+            raid.Side,
+            startSetByHand: false,
+            nowUtc: evaluatedUtc);
         if (remaining.Remaining is not { } left || left > total)
         {
             return Unread("raid.phase.clock-unknown", evaluatedUtc);
