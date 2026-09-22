@@ -58,6 +58,21 @@ check("a stale answer hands back the state to show",
 check("the protocol's own code is never shown",
   !ack.describeAcknowledgement({ disposition: "RejectedStale", code: "stale-revision-42" }).message.includes("stale-revision"));
 
+// [#601] A Control request refused for a capability the pairing's own grant lacks is an
+// out-of-date pairing, not the desktop saying no, and only for the Control commands.
+const denied = { commandId: { value: "c9" }, disposition: "RejectedUnauthorized", code: "capability-denied" };
+for (const type of ["requestControl", "controlWorkspace"]) {
+  const described = ack.describeAcknowledgement(denied, type);
+  check(`${type} refused for its grant says pair again`,
+    described.outOfDatePairing === true && described.message === "This pairing is out of date · pair again");
+}
+check("a mark refused for its grant is not called an out-of-date pairing",
+  ack.describeAcknowledgement(denied, "upsertMark").outOfDatePairing === false);
+check("Control refused for another reason is not called an out-of-date pairing",
+  ack.describeAcknowledgement({ ...denied, code: "control-lease-required" }, "controlWorkspace").outOfDatePairing === false
+  && ack.describeAcknowledgement({ ...denied, disposition: "RejectedStale" }, "requestControl").outOfDatePairing === false);
+check("no command type means no out-of-date pairing", ack.describeAcknowledgement(denied).outOfDatePairing === false);
+
 // Labels: what a person would call the thing they just did, for every command type index.html sends.
 check("labels name what the person did",
   ack.labelFor({ type: "upsertMark", mark: { kind: "Ping" } }) === "Ping"

@@ -2143,12 +2143,20 @@
   // stale, conflicting or out-of-date answer also carries the state to show instead of just an
   // error, so the tablet ends up showing where the desktop actually is.
   function handleAcknowledgement(acknowledgement) {
-    const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement);
-    const entry = pending.settle(result.commandId);
+    const commandId = acknowledgement?.commandId?.value ?? null;
+    const entry = pending.settle(commandId);
     if (!entry) return; // Another tab's command, or one this page already gave up on.
+    const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
     if (result.applied) return;
     if (MODE_COMMAND_TYPES.has(entry.type)) revertOptimisticMode();
+    if (result.outOfDatePairing) {
+      // [#601] Sticky, and a tap on it unpairs: the one thing that fixes it.
+      showNotice(result.message, result.tone, true, () =>
+        sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
+      return;
+    }
+
     showNotice(`${entry.label}: ${result.message}`, result.tone);
   }
 

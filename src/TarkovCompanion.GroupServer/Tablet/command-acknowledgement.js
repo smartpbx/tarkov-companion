@@ -32,17 +32,30 @@
     UnsupportedPreferenceSchema: { tone: "error", message: "This page and the desktop are out of step. Reload the page." },
   };
   const UNKNOWN = { tone: "error", message: "The desktop did not apply that." };
+  const OUT_OF_DATE_PAIRING = { tone: "error", message: "This pairing is out of date · pair again" };
+  const CONTROL_COMMAND_TYPES = new Set(["requestControl", "controlWorkspace"]);
 
   // A message this page cannot read yet is still a message: the protocol says an unrecognised
   // disposition is a refusal, never a success.
-  function describeAcknowledgement(acknowledgement) {
+  //
+  // [#601] `commandType` is what this page sent. A Control request refused because the pairing's
+  // own grant lacks the capability ("capability-denied") is not the desktop saying no: it is a
+  // pairing made by an older build, and no amount of waiting or retrying fixes it. Pairing again
+  // does. The code decides the message; it is still never shown.
+  function describeAcknowledgement(acknowledgement, commandType = null) {
     const commandId = acknowledgement?.commandId?.value ?? null;
     const disposition = typeof acknowledgement?.disposition === "string" ? acknowledgement.disposition : null;
-    const outcome = (disposition && Object.hasOwn(OUTCOMES, disposition) ? OUTCOMES[disposition] : null) ?? UNKNOWN;
+    const outOfDatePairing = disposition === "RejectedUnauthorized" &&
+      acknowledgement?.code === "capability-denied" &&
+      CONTROL_COMMAND_TYPES.has(commandType);
+    const outcome = outOfDatePairing
+      ? OUT_OF_DATE_PAIRING
+      : (disposition && Object.hasOwn(OUTCOMES, disposition) ? OUTCOMES[disposition] : null) ?? UNKNOWN;
     return {
       commandId,
       disposition,
       applied: disposition === "Applied",
+      outOfDatePairing,
       tone: outcome.tone,
       message: outcome.message,
       // Stale, conflict, preview and snapshot answers carry the state to show instead. Applied never does.
