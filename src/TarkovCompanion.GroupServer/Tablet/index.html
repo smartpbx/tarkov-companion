@@ -124,6 +124,25 @@
   #mapOverlay .floors button[aria-pressed="true"] { background: var(--cyan); }
   #mapOverlay .notice { margin: 0; max-width: 520px; background: rgba(14, 21, 29, .94); }
   #surfacePanel h2 { margin-top: 6px; }
+  /* #572: a Loot Scan result, over the map until it is put away. */
+  #lootSheet {
+    position: absolute; inset: 10px 64px 10px 10px; z-index: 2;
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  }
+  #lootSheet .lootHead { display: flex; align-items: center; gap: 10px; }
+  #lootSheet .lootHead h3 { margin: 0; font-size: 16px; flex: 1; min-width: 0; }
+  #lootRows { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .lootRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+    border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 7px 10px; }
+  .lootRow .verdict { font-size: 11px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--line); }
+  .lootRow .verdict.Take { color: var(--sage); border-color: var(--sage); }
+  .lootRow .verdict.Swap { color: var(--cyan); border-color: var(--cyan); }
+  .lootRow .verdict.Review { color: var(--ochre); border-color: var(--ochre); }
+  .lootRow .verdict.Leave { color: var(--quiet); }
+  .lootRow .lootName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lootRow .lootValue { font-variant-numeric: tabular-nums; }
+  .lootRow .lootReason { grid-column: 2 / 4; color: var(--quiet); font-size: 13px; }
   body.panel-hidden #surfacePanel { display: none; }
   #panelToggle[aria-expanded="false"] { color: var(--cyan); }
   /* A tablet on its side: the map fills the height, the controls are a column beside it that
@@ -213,6 +232,14 @@
           <button type="button" id="panelToggle" title="Hide controls" aria-label="Hide controls" aria-expanded="true">☰</button>
         </div>
         <div id="mapMessage">Waiting for the desktop's map…</div>
+        <div id="lootSheet" role="dialog" aria-labelledby="lootTitle" hidden>
+          <div class="lootHead">
+            <h3 id="lootTitle">Loot scan</h3>
+            <button type="button" id="lootClose">Back to map</button>
+          </div>
+          <p class="quiet" id="lootSummary" style="margin:0"></p>
+          <div id="lootRows"></div>
+        </div>
       </div>
       <p class="attribution" id="attribution"></p>
     </div>
@@ -231,6 +258,12 @@
       <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
       <h2>Layers</h2>
       <div class="floors" id="layers"></div>
+
+      <!-- #572: the last Loot Scan the desktop sent, to look at again. -->
+      <div id="lootAgain" hidden>
+        <h2 style="margin-top:16px">Loot</h2>
+        <button type="button" id="lootOpen">Last loot scan</button>
+      </div>
 
       <h2 style="margin-top:16px">Marks</h2>
       <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
@@ -1548,6 +1581,7 @@
       live.connected = live.desktopOnline;
       live.surface = surface;
       takeSentView(surface);
+      takeLoot(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -1573,6 +1607,65 @@
       renderLiveStatus();
       return false;
     }
+  }
+
+  // #572: a Loot Scan result rides on the map surface. A new one opens over the map; the first
+  // surface after a load only records which one it is, so a reload never pops up an old scan.
+  let seenLootId;
+  function takeLoot(surface) {
+    const loot = surface.loot ?? null;
+    const id = loot ? `${loot.scanId}|${loot.evaluatedUtc}` : null;
+    const first = seenLootId === undefined;
+    const fresh = id !== null && id !== seenLootId;
+    seenLootId = id;
+    $("lootAgain").hidden = !loot;
+    if (!loot) {
+      $("lootSheet").hidden = true;
+      return;
+    }
+
+    if (!$("lootSheet").hidden || (fresh && !first)) renderLoot(loot);
+  }
+
+  function renderLoot(loot) {
+    const at = new Date(loot.evaluatedUtc);
+    $("lootTitle").textContent = `${loot.heading} · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    $("lootSummary").textContent = loot.hiddenRows > 0
+      ? `${loot.summary} · ${loot.hiddenRows} more on the desktop`
+      : loot.summary;
+    const holder = $("lootRows");
+    holder.replaceChildren();
+    for (const item of loot.rows) {
+      const row = document.createElement("div");
+      row.className = "lootRow";
+      const verdict = document.createElement("span");
+      verdict.className = `verdict ${item.verdict}`;
+      verdict.textContent = item.verdictLabel;
+      const name = document.createElement("span");
+      name.className = "lootName";
+      name.textContent = item.name;
+      const value = document.createElement("span");
+      value.className = "lootValue";
+      value.textContent = item.value;
+      row.append(verdict, name, value);
+      if (item.reason) {
+        const reason = document.createElement("span");
+        reason.className = "lootReason";
+        reason.textContent = item.reason;
+        row.append(reason);
+      }
+
+      holder.appendChild(row);
+    }
+
+    if (loot.rows.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "Nothing was read in that container.";
+      holder.appendChild(empty);
+    }
+
+    $("lootSheet").hidden = false;
   }
 
   // #290: the desktop pressed "Send to tablet". Independent keeps its own view on purpose, so
@@ -2955,6 +3048,8 @@
   // A layout change (the controls folding, a notice, the attribution wrapping) resizes the map
   // without resizing the window.
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => drawMap()).observe($("mapWrap"));
+  $("lootClose").addEventListener("click", () => { $("lootSheet").hidden = true; });
+  $("lootOpen").addEventListener("click", () => { if (live?.surface?.loot) renderLoot(live.surface.loot); });
   $("panelToggle").addEventListener("click", () =>
     setPanelHidden(!document.body.classList.contains("panel-hidden")));
   try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
@@ -3026,6 +3121,8 @@
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
     surfaceView: live?.surface?.view ?? null,
     notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
+    lootOpen: !$("lootSheet").hidden,
+    lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
   });
 
   setStage("pairingIdle");

@@ -70,6 +70,30 @@ public sealed record TabletSearchResult(
 /// <summary>The lookup the desktop is currently showing, and what it found.</summary>
 public sealed record TabletSearch(string Query, IReadOnlyList<TabletSearchResult> Results);
 
+/// <summary>One item of a Loot Scan, as the tablet lists it: already worded by the desktop.</summary>
+/// <param name="Verdict">Take, Swap, Leave or Review: what the tablet colours the row by.</param>
+public sealed record TabletLootRow(string Name, string Verdict, string VerdictLabel, string Value, string Reason);
+
+/// <summary>
+/// The last Loot Scan, for the paired tablet (#572).
+/// </summary>
+/// <remarks>
+/// Rides on the map surface rather than a relay route of its own: the relay already holds the
+/// surface opaquely and wakes held tablet reads when it changes, which is all a loot result
+/// needs. The rows are the desktop's own words, capped at <see cref="MaximumRows"/>, so the
+/// surface stays small and the tablet never re-derives a verdict.
+/// </remarks>
+public sealed record TabletLootResult(
+    string ScanId,
+    DateTimeOffset EvaluatedUtc,
+    string Heading,
+    string Summary,
+    IReadOnlyList<TabletLootRow> Rows,
+    int HiddenRows)
+{
+    public const int MaximumRows = 40;
+}
+
 /// <summary>What the desktop is looking at: the view a following tablet mirrors.</summary>
 public sealed record TabletMapView(
     string? FloorId,
@@ -113,7 +137,9 @@ public sealed record TabletMapSurface(
     // "Send to tablet": when the desktop last asked its tablets to take this view. A tablet in
     // Independent jumps its own view to View when this changes; it is a stamp, not a counter, so
     // a desktop restart cannot repeat one a tablet has already seen.
-    DateTimeOffset? SentToTabletUtc = null);
+    DateTimeOffset? SentToTabletUtc = null,
+    // #572: the last Loot Scan, shown on the tablet when it is new.
+    TabletLootResult? Loot = null);
 
 /// <summary>
 /// Builds the tablet's surface from the desktop's assembled scene, so the two are the same scene
@@ -135,7 +161,8 @@ public static class TabletMapSurfaceBuilder
         TabletSearch? search,
         string? message,
         DateTimeOffset publishedUtc,
-        DateTimeOffset? sentToTabletUtc = null)
+        DateTimeOffset? sentToTabletUtc = null,
+        TabletLootResult? loot = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
@@ -214,7 +241,8 @@ public static class TabletMapSurfaceBuilder
             search,
             reviewed ? message : message ?? "This map has no reviewed 2D plan yet.",
             publishedUtc,
-            sentToTabletUtc);
+            sentToTabletUtc,
+            loot);
     }
 
     /// <summary>The kinds a map can hold thousands of, which are the ones to trim first.</summary>

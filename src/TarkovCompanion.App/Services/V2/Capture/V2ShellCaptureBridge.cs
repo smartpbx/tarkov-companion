@@ -481,8 +481,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
         }
 
         _shell.ShowLootScanResult(viewModel);
+        LootScanShown?.Invoke(viewModel);
         Push();
     }
+
+    /// <summary>#572: a Loot Scan result was handed to the shell; the paired tablet shows it too.</summary>
+    public event Action<LootScanViewModel>? LootScanShown;
 
     private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs) => Push();
 

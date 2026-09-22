@@ -66,6 +66,36 @@ public sealed class LootScanValuationTests
         Assert.Contains("too alike", card.WhyLabel, StringComparison.Ordinal);
     }
 
+    // #572: the paired tablet lists the same rows, in the same order and words, as the Loot page,
+    // and the result survives the surface's JSON.
+    [Fact]
+    public async Task TheTabletGetsTheLootPagesOwnRowsInItsOwnOrderAndWords()
+    {
+        var result = await EvaluateAsync(
+            Refused(0, 0),
+            Named(0, 1, "bolts", "Bolts", 1, 1),
+            Named(0, 2, "gpu", "Graphics card", 2, 1));
+        var workspace = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+
+        var loot = TarkovCompanion.App.Services.V2.TabletLootResultBuilder.From(workspace);
+
+        Assert.Equal(workspace.Decisions.Select(card => card.Name), loot.Rows.Select(row => row.Name));
+        Assert.Equal(workspace.Decisions.Select(card => card.VerdictLabel), loot.Rows.Select(row => row.VerdictLabel));
+        Assert.Equal(workspace.Decisions.Select(card => card.ShortValueLabel), loot.Rows.Select(row => row.Value));
+        Assert.Equal(workspace.Decisions.Select(card => card.HeadlineReason), loot.Rows.Select(row => row.Reason));
+        Assert.Equal(0, loot.HiddenRows);
+        Assert.Contains(workspace.TakeSummary, loot.Summary, StringComparison.Ordinal);
+        Assert.Equal(result.EvaluatedUtc, loot.EvaluatedUtc);
+
+        var surface = new TarkovCompanion.Application.Services.Devices.TabletMapSurface(
+            1, "customs", "Customs", "default", "v1", null, null, [], [], [], [],
+            new TarkovCompanion.Application.Services.Devices.TabletMapView(null, 0, 0, 1, null, null),
+            null, null, result.EvaluatedUtc, Loot: loot);
+        var read = TarkovCompanion.Application.Services.Devices.TabletMapSurfaceJson.Deserialize(
+            TarkovCompanion.Application.Services.Devices.TabletMapSurfaceJson.Serialize(surface));
+        Assert.Equal(loot.Rows, read!.Loot!.Rows);
+    }
+
     [Fact]
     public async Task TheWorkspaceListsWhatWasValuedDearestSquareFirstAndWhatWasNotReadLast()
     {

@@ -40,6 +40,7 @@ public sealed class SetupLootScanViewModel : BindableViewModel
     private TimeSpan? _timeout;
     private IReadOnlyList<LootAutoReturnChoiceViewModel> _choices = [];
     private CaptureStageSummary? _lastScan;
+    private bool _tabletOnly;
 
     public SetupLootScanViewModel(
         IWorkspaceLayoutStore? layout,
@@ -51,6 +52,8 @@ public sealed class SetupLootScanViewModel : BindableViewModel
         _timeline = timeline;
         _post = post ?? (action => action());
         _timeout = Parse(layout?.Get(WorkspaceLayoutKeys.LootAutoReturnSeconds));
+        _tabletOnly = string.Equals(layout?.Get(WorkspaceLayoutKeys.LootOnTabletOnly), "on", StringComparison.Ordinal);
+        ToggleTabletOnlyCommand = new DelegateCommand(() => TabletOnly = !TabletOnly);
         Progress = new LootScanProgressViewModel(timeline, _post, clock);
         _lastScan = timeline?.LastCompleted;
         if (timeline is not null)
@@ -79,6 +82,28 @@ public sealed class SetupLootScanViewModel : BindableViewModel
         get => _choices;
         private set => SetProperty(ref _choices, value);
     }
+
+    /// <summary>
+    /// [#572] A Loot result goes to the paired tablet and the desktop stays on the Raid map. Only
+    /// honoured while a tablet is paired, so a result never goes nowhere.
+    /// </summary>
+    public bool TabletOnly
+    {
+        get => _tabletOnly;
+        set
+        {
+            if (SetProperty(ref _tabletOnly, value))
+            {
+                _layout?.Set(WorkspaceLayoutKeys.LootOnTabletOnly, value ? "on" : "off");
+            }
+        }
+    }
+
+    public ICommand ToggleTabletOnlyCommand { get; }
+
+    public string TabletOnlyLabel => "Show loot results on the tablet only";
+
+    public string TabletOnlyHint => "The desktop stays on the map. Needs a paired tablet.";
 
     public string LastScanHeading => "Last loot scan";
 

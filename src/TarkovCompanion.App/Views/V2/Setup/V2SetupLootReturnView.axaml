@@ -21,5 +21,10 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
     <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding ReturnHint}" />
+    <!-- [#572] The result on the tablet, the desktop left on the map. -->
+    <CheckBox Margin="0,8,0,0" IsChecked="{Binding TabletOnly, Mode=TwoWay}"
+              AutomationProperties.AutomationId="v2-setup-loot-tablet-only"
+              Content="{Binding TabletOnlyLabel}" />
+    <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding TabletOnlyHint}" />
   </StackPanel>
 </UserControl>
