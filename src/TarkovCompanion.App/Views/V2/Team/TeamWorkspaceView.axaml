@@ -124,6 +124,10 @@
     <Style Selector="Path.v2-icon.v2-team-warning">
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <Style Selector="TextBlock.v2-team-warning-text">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
     <!-- Buttons: one filled primary action per view, cyan outline for secondary ones, and plain
          text for the rest, instead of a wall of bordered buttons. -->
     <Style Selector="Button.v2-team-primary">
@@ -553,6 +557,10 @@
                               <TextBlock Classes="v2-label" Text="{Binding Role}" />
                               <TextBlock Classes="v2-label" Text="·" />
                               <TextBlock Classes="v2-label" Text="{Binding Status}" />
+                              <TextBlock Classes="v2-label" Text="·" IsVisible="{Binding IsPairingOutOfDate}" />
+                              <TextBlock Classes="v2-label v2-team-warning-text" IsVisible="{Binding IsPairingOutOfDate}"
+                                         Text="{Binding PairingOutOfDateLabel}"
+                                         AutomationProperties.AutomationId="v2-team-device-out-of-date" />
                             </StackPanel>
                             <TextBlock Classes="v2-label" TextWrapping="Wrap"
                                        AutomationProperties.LiveSetting="Assertive"

@@ -308,6 +308,44 @@ public sealed class DesktopCompanionAuthorityTests
         Assert.Same(upgraded, PairedTabletGrantUpgrade.Apply(upgraded, Now));
     }
 
+    // [#601] The tablet says "This pairing is out of date · pair again" when its Control is refused
+    // for a capability its grant lacks. The desktop has to say it too, on that device's row.
+    [Fact]
+    public async Task AControlRequestRefusedForAMissingCapabilityMarksThatPairingOutOfDateOnTheDesktop()
+    {
+        var member = PairedTablet();
+        // An Observer is not upgraded on load, so its grant still lacks RequestControl.
+        var observer = new PairedDevice(
+            member.DeviceId, member.DisplayName, member.DeviceKey, DeviceAuthorizationRole.Observer,
+            [DeviceCapability.FollowDesktop],
+            member.Status, member.CreatedUtc, member.LastUsedUtc, member.LastKeyEpoch, member.ExpiresUtc, member.StatusChangedUtc);
+        var seeded = new DesktopCompanionAuthorityState(
+            InitialState(), [observer], [ActiveSession(observer, TabletSession)], DeliveryLedger.Empty);
+        using var authority = await DesktopCompanionAuthority.OpenAsync(new MemoryAuthorityStore(seeded), seeded.CanonicalState);
+        var raised = new List<CompanionDeviceId>();
+        authority.PairingOutOfDateChanged += raised.Add;
+        Assert.False(authority.IsPairingOutOfDate(TabletDevice));
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var request = new RequestControlCommand(
+                Command(20 + attempt), new AggregateRevision(1), Now.AddMinutes(1), Now.AddMinutes(2), TimeSpan.FromMinutes(2));
+            var refused = await authority.ApplyCommandAsync(Frame(Now.AddMinutes(1)), Envelope(request));
+            Assert.Equal(CommandDisposition.RejectedUnauthorized, refused.Acknowledgement.Disposition);
+        }
+
+        Assert.True(authority.IsPairingOutOfDate(TabletDevice));
+        Assert.Equal([TabletDevice], raised); // once, not once per refusal
+
+        using var pairing = new TarkovCompanion.App.ViewModels.V2.Tablet.CompanionPairingViewModel(
+            authority,
+            TarkovCompanion.App.ViewModels.V2.Tablet.CompanionPairingAvailability.Unavailable,
+            TimeProvider.System);
+        var row = Assert.Single(pairing.Devices);
+        Assert.True(row.IsPairingOutOfDate);
+        Assert.Equal("Out of date · pair again", row.PairingOutOfDateLabel);
+    }
+
     private static DesktopCompanionAuthorityState SeededState()
     {
         var device = PairedTablet();

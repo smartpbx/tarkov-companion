@@ -12,6 +12,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
     private readonly IDesktopCompanionAuthorityStore _store;
     private readonly IDisposable _lease;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<CompanionDeviceId, byte> _outOfDatePairings = new();
     private DesktopCompanionAuthorityState _state;
     private bool _disposed;
     private int _disposeStarted;
@@ -27,6 +28,20 @@ public sealed class DesktopCompanionAuthority : IDisposable
     }
 
     public DesktopCompanionAuthorityState Snapshot => Volatile.Read(ref _state);
+
+    /// <summary>
+    /// Whether this device's Control was last refused because its own grant lacks the capability.
+    /// </summary>
+    /// <remarks>
+    /// [#601] The tablet says "This pairing is out of date · pair again" when that happens; the
+    /// desktop has to say it too, because the person who can pair again is at the desktop. Kept in
+    /// memory only: a restart upgrades stored grants (<see cref="PairedTabletGrantUpgrade"/>), and
+    /// the next refusal, if any, sets it again.
+    /// </remarks>
+    public bool IsPairingOutOfDate(CompanionDeviceId deviceId) => _outOfDatePairings.ContainsKey(deviceId);
+
+    /// <summary>Raised, outside the mutation gate, when <see cref="IsPairingOutOfDate"/> changes for a device.</summary>
+    public event Action<CompanionDeviceId>? PairingOutOfDateChanged;
 
     public static async ValueTask<DesktopCompanionAuthority> OpenAsync(
         IDesktopCompanionAuthorityStore store,
@@ -218,6 +233,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(envelope);
         await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
+        CompanionDeviceId? outOfDateChanged = null;
         try
         {
             var state = _state;
@@ -248,12 +264,39 @@ public sealed class DesktopCompanionAuthority : IDisposable
             next = next.With(deliveryLedger: acknowledgement.Ledger);
             deliveries.Add(new AuthorityDelivery(context.DeviceId, acknowledgement.Item));
             await CommitAsync(next, cancellationToken).ConfigureAwait(false);
+            outOfDateChanged = TrackOutOfDatePairing(context.DeviceId, envelope.Command, reduction.Acknowledgement);
             return new PairedCommandApplication(next, reduction.Acknowledgement, deliveries.AsReadOnly());
         }
         finally
         {
             _gate.Release();
+            if (outOfDateChanged is { } changedDevice)
+            {
+                PairingOutOfDateChanged?.Invoke(changedDevice);
+            }
         }
+    }
+
+    private CompanionDeviceId? TrackOutOfDatePairing(
+        CompanionDeviceId deviceId,
+        CompanionCommand command,
+        CommandAcknowledgement acknowledgement)
+    {
+        if (command is not (RequestControlCommand or ControlWorkspaceCommand))
+        {
+            return null;
+        }
+
+        if (acknowledgement.Disposition == CommandDisposition.RejectedUnauthorized &&
+            acknowledgement.Code == "capability-denied")
+        {
+            return _outOfDatePairings.TryAdd(deviceId, 0) ? deviceId : null;
+        }
+
+        // Control that got through means the grant has what it needs after all.
+        return acknowledgement.Disposition == CommandDisposition.Applied && _outOfDatePairings.TryRemove(deviceId, out _)
+            ? deviceId
+            : null;
     }
 
     /// <summary>
