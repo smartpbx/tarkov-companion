@@ -40,8 +40,10 @@ function resolvePlaywright() {
 
 const SIZES = [
   ["tablet-landscape-1280x800", 1280, 800],
+  ["tablet-landscape-1024x768", 1024, 768],
   ["portrait-800x1280", 800, 1280],
   ["phone-390x844", 390, 844],
+  ["phone-landscape-844x390", 844, 390],
 ];
 
 async function shootAll(page, outDir, stateName) {
@@ -118,6 +120,10 @@ async function main() {
     await page.locator("#modeNote").filter({ hasText: "You are driving" }).waitFor({ timeout: 20000 });
     await page.waitForTimeout(250);
     await shootAll(page, outDir, "04-control");
+    // The controls column folded away: the map alone, with the mode bar above it.
+    await page.click("#panelToggle");
+    await shootAll(page, outDir, "04c-control-panel-hidden");
+    await page.click("#panelToggle");
 
     // #290 bonus: a rejected command's notice — asking for Control again while already holding
     // it is refused by the reducer (control-request-not-available) with no desktop involvement,
@@ -149,13 +155,16 @@ async function main() {
     // waited a full minute for an exit that was never coming).
     process.stdin.pause();
     await page.reload({ waitUntil: "load" });
-    await page.locator("#liveStatus").filter({ hasText: /offline/i }).waitFor({ timeout: 15000 });
+    await page.locator("#liveStatus").filter({ hasText: /offline|not been seen/i }).waitFor({ timeout: 15000 });
     await shootAll(page, outDir, "06-offline");
 
     console.log("DONE");
   } catch (error) {
     console.error(`FAILURE: ${error && error.stack ? error.stack : error}`);
     console.error(consoleLog.join("\n"));
+    // What the page looked like when it failed, which is usually the whole answer.
+    await page.screenshot({ path: path.join(outDir, "zz-failure.png"), fullPage: true }).catch(() => {});
+    console.error(`liveStatus: ${await page.evaluate(() => document.getElementById("liveStatus")?.textContent).catch(() => "?")}`);
     await browser.close();
     process.exitCode = 1;
     return;
