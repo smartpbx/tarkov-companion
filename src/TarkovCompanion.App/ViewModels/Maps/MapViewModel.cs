@@ -1393,6 +1393,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
+    private IReadOnlyList<NearbySpawn> _nearbySpawnAreas = [];
     private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
     private IReadOnlyList<ExtractPanelViewModel> _extractPanel = [];
     private IReadOnlyList<SpawnThreatViewModel> _spawnThreats = [];
@@ -4642,6 +4643,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasSpawnPanel => SpawnPanel.Count > 0;
 
+    /// <summary>The grouped, side-filtered areas behind the rows, in world coordinates.</summary>
+    /// <remarks>
+    /// [Issue 664] V2 projects these same areas onto its scene during the opening of a PMC raid.
+    /// Exposing the result keeps its marker filter on the exact grouping and metre-based radius
+    /// used by the panel instead of trying to recover metres from plan pixels.
+    /// </remarks>
+    public IReadOnlyList<NearbySpawn> NearbySpawnAreas => _nearbySpawnAreas;
+
     /// <summary>
     /// What the list is anchored to, said plainly.
     /// </summary>
@@ -4790,6 +4799,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_mapFeatures.Count == 0 || _playerTrailPositions.Count == 0)
         {
+            _nearbySpawnAreas = [];
             SpawnPanel = [];
             SpawnThreats = [];
             SpawnPanelDetail = string.Empty;
@@ -4802,6 +4812,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             anchor.Position,
             _playerPosition?.Position,
             _side);
+        _nearbySpawnAreas = near;
         UpdateSpawnThreats(near, anchor);
         SpawnPanel = near
             .Select(spawn => new SpawnPanelViewModel(

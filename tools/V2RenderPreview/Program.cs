@@ -1450,7 +1450,7 @@ internal static class Program
             if (shell is not null && args.Contains("--raid-demo"))
             {
                 var store = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>();
-                var demo = RaidDemo(viewModel.Map.RenderModel);
+                var demo = RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14));
                 for (var i = 0; i < 8; i++)
                 {
                     store.Update(snapshot => snapshot with { Raid = demo.Raid, Group = demo.Group });
@@ -2030,7 +2030,8 @@ internal static class Program
     /// whichever map is being rendered.
     /// </remarks>
     internal static (TarkovCompanion.Core.Domain.Raids.RaidSnapshot Raid, TarkovCompanion.Application.Services.Group.GroupSnapshot Group) RaidDemo(
-        TarkovCompanion.Application.Services.Maps.MapRenderModel? model)
+        TarkovCompanion.Application.Services.Maps.MapRenderModel? model,
+        int minutesAgo = 14)
     {
         var now = DateTimeOffset.UtcNow;
         var mapId = model?.Location.Id ?? "customs";
@@ -2083,7 +2084,7 @@ internal static class Program
             Guid.NewGuid(),
             TarkovCompanion.Core.Domain.Raids.RaidLifecycleState.InRaid,
             mapId,
-            now.AddMinutes(-14),
+            now.AddMinutes(-Math.Max(0, minutesAgo)),
             now,
             new(0.9),
             trail[^1],
