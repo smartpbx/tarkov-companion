@@ -32,6 +32,31 @@ public sealed class StashScanWorkspaceViewModelTests
     private static readonly DataProvenance Fixture = new("fixture", DateTimeOffset.UnixEpoch);
 
     [Fact]
+    public void One_square_uses_the_catalog_short_name_while_a_larger_tile_keeps_the_full_name()
+    {
+        var definition = new ItemDefinition(
+            "item-gas-analyzer",
+            "Gas analyzer",
+            "GasAn",
+            string.Empty,
+            ItemCategory.Barter,
+            new ItemDimensions(1, 1),
+            true,
+            null,
+            null,
+            null,
+            null,
+            null,
+            new HashSet<string>(),
+            Fixture);
+        var oneSquare = ReconstructedTile(width: 1, height: 1);
+        var larger = ReconstructedTile(width: 2, height: 1);
+
+        Assert.Equal("GasAn", StashScanWorkspaceViewModel.TileName(oneSquare, definition, definition.Name));
+        Assert.Equal("Gas analyzer", StashScanWorkspaceViewModel.TileName(larger, definition, definition.Name));
+    }
+
+    [Fact]
     public async Task Loading_without_a_profile_says_so_and_stays_empty()
     {
         var store = new FakeSnapshotStore();
@@ -469,6 +494,18 @@ public sealed class StashScanWorkspaceViewModelTests
         V2ContractTestData.Complete<bool?>("item.rotated", false),
         V2ContractTestData.Complete<bool?>("item.foundInRaid", true),
         V2ContractTestData.Complete("item.condition", ItemConditionReading.NotApplicable));
+
+    private static StashReconstructedTile ReconstructedTile(int width, int height) => new(
+        "stash",
+        0,
+        0,
+        width,
+        height,
+        "item-gas-analyzer",
+        "Gas analyzer",
+        1,
+        [],
+        V2ContractTestData.ScreenshotProvenance());
 
     private sealed class MemoryPendingStore : IGuidedStashScanPendingStore
     {
