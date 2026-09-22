@@ -1670,11 +1670,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void HighValueLootProjectionChanged()
     {
+        // [#677] A new loot result or filter changes what the layer's switch counts.
+        BuildLayers();
         var visibleObjects = RebuildProjectedObjects();
         RebuildListItems();
         BuildDenseSceneNotice(visibleObjects);
         RestoreLootSelection();
-        RaisePresentChanged(false, false, false, true, false, false);
+        RaisePresentChanged(false, false, true, true, false, false);
     }
 
     private void RebuildAll()
@@ -1813,7 +1815,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             if (HighValueLoot is not null &&
                 item.LayerId == HighValueLootLayerService.LayerId &&
-                !HighValueLoot.VisibleObjectIds.Contains(item.Id))
+                !HighValueLoot.ShowableObjectIds.Contains(item.Id))
             {
                 continue;
             }

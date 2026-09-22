@@ -681,6 +681,30 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void High_value_layer_switch_turns_back_on_after_being_turned_off()
+    {
+        // [#677] Off, the layer counted no objects, so its switch read "nothing to show" and
+        // could not be turned on again; only the gem preset could show loot.
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        MapSceneRendererLayerViewModel LootLayer() =>
+            renderer.Layers.Single(item => item.Layer.Id == HighValueLootLayerService.LayerId);
+        var shownCount = LootLayer().Count;
+        Assert.True(shownCount > 0);
+
+        LootLayer().ToggleCommand.Execute(null);
+        Assert.False(IsVisible(renderer, HighValueLootLayerService.LayerId));
+        Assert.Equal(shownCount, LootLayer().Count);
+        Assert.True(LootLayer().CanToggle);
+
+        LootLayer().ToggleCommand.Execute(null);
+
+        Assert.True(IsVisible(renderer, HighValueLootLayerService.LayerId));
+        var loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        Assert.NotEmpty(loot.VisibleObjectIds);
+        Assert.NotEmpty(loot.Rows);
+    }
+
+    [Fact]
     public void High_value_preset_keeps_orientation_camera_and_selected_spawn()
     {
         var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
