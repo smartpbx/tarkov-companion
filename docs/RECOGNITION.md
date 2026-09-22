@@ -194,6 +194,18 @@ after a match. No location crop is a prerequisite, because window shape and UI s
 both surfaces. These are measured text signals for later v2 adapters, not a claim that limb
 health or game state was inferred.
 
+**On three real in-raid Gear screens (2026-09-20, Windows OCR, from Clayton's log).** Context was
+never ambiguous: all three scored Container at 0.70, which only "tactical rig" + "backpack" +
+"pockets" (0.25 + 0.25 + 0.20) sum to, so those three anchors are marked live-validated. The
+`ambiguous_runner_up` with five candidates on the same log line is the single-item name ranking
+run over a container screen's text, not the context. The character captions read present on one
+frame and absent on another 14 seconds later: the tab row can come back as one line, and a whole
+line had to equal "health". Captions are now matched word by word on lines of up to eight
+words. The version strip read absent on all three, though it is there: it is 10 to 14 pixels
+tall with a peak luminance of 77 on a background of 11 (113 on 35 over a bright scene), which
+the engine likely drops; nothing reads this signal yet. Unmeasured until an OCR probe of that
+corner runs on Windows.
+
 `SqliteRecognitionCatalogRepository` builds canonical item references from the synchronized
 `items` table, including short names as aliases. Production callers do not supply handcrafted
 item lists. `CanonicalItemResolverCache` indexes that catalog once, and the fuzzy resolver

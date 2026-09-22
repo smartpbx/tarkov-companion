@@ -58,18 +58,21 @@ public sealed partial class SupplementalOcrSignalDetector
     public SupplementalOcrSignals Detect(OcrResult fullFrame)
     {
         ArgumentNullException.ThrowIfNull(fullFrame);
+        // Matched word by word on short lines. The tab bar is one row of captions, and whether
+        // the engine returns it as seven lines or one depends on the spacing it measures: two
+        // real Gear screens 14 seconds apart (2026-09-20) came back present and absent when a
+        // whole line had to equal "health". A line longer than a caption row is prose, where
+        // "health" and "map" can both occur in an item description.
         var characterLines = fullFrame.Lines
-            .Where(line => CharacterTerms.Contains(
-                _normalizer.NormalizeForLookup(line.Text),
-                StringComparer.Ordinal))
-            .OrderBy(line => line.Bounds.Y)
-            .ThenBy(line => line.Bounds.X)
+            .Select(line => (Line: line, Terms: CharacterTermsIn(line.Text)))
+            .Where(entry => entry.Terms.Count > 0)
+            .OrderBy(entry => entry.Line.Bounds.Y)
+            .ThenBy(entry => entry.Line.Bounds.X)
             .ToArray();
+        var terms = characterLines.SelectMany(entry => entry.Terms).ToHashSet(StringComparer.Ordinal);
         // HEALTH plus one independent character-menu caption is the smallest useful
         // structural claim. A lone word "health" can occur in a tooltip or item description.
-        var hasHealth = characterLines.Any(line =>
-            _normalizer.NormalizeForLookup(line.Text) == "health");
-        var characterPresent = hasHealth && characterLines.Length >= 2;
+        var characterPresent = terms.Contains("health") && terms.Count >= 2;
 
         var versionLines = fullFrame.Lines
             .Where(line => VersionPattern().IsMatch(line.Text))
@@ -81,13 +84,24 @@ public sealed partial class SupplementalOcrSignalDetector
             Signal(
                 SupplementalOcrSignalKind.HealthAndCharacter,
                 characterPresent,
-                characterPresent ? characterLines : [],
+                characterPresent ? characterLines.Select(entry => entry.Line).ToArray() : [],
                 characterPresent ? "health_character_text_present" : "health_character_text_absent"),
             Signal(
                 SupplementalOcrSignalKind.VersionStrip,
                 versionLines.Length > 0,
                 versionLines,
                 versionLines.Length > 0 ? "version_strip_text_present" : "version_strip_text_absent"));
+    }
+
+    /// <summary>Longest line, in words, still read as a row of captions.</summary>
+    private const int MaximumCaptionRowWords = 8;
+
+    private IReadOnlyList<string> CharacterTermsIn(string text)
+    {
+        var words = _normalizer.NormalizeForLookup(text).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return words.Length is 0 or > MaximumCaptionRowWords
+            ? []
+            : words.Where(word => CharacterTerms.Contains(word, StringComparer.Ordinal)).Distinct(StringComparer.Ordinal).ToArray();
     }
 
     private static SupplementalOcrSignal Signal(
