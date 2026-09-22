@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profile;
@@ -75,7 +76,8 @@ public sealed record V2IntelPriceFacts(
     long? High24HourRoubles,
     IReadOnlyList<V2IntelTraderPrice> Traders,
     DateTimeOffset UpdatedUtc,
-    long? FeeRoubles = null);
+    long? FeeRoubles = null,
+    PriceHistorySummary? SevenDayHistory = null);
 
 /// <summary>One active quest that still wants this item, by name.</summary>
 public sealed record V2IntelQuestNeedRow(string TaskName, int? Remaining, bool FoundInRaidRequired);
@@ -135,7 +137,8 @@ public sealed class ItemIntelService(
     IPlayerProfileService? profileService = null,
     ProfileNeedAggregationService? needAggregation = null,
     IRequirementCatalog? requirements = null,
-    IItemMarketFactSource? marketFacts = null) : IItemIntelService
+    IItemMarketFactSource? marketFacts = null,
+    IPriceHistoryService? priceHistory = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -256,7 +259,26 @@ public sealed class ItemIntelService(
                 .Select(offer => new V2IntelTraderPrice(offer.TraderName, offer.ValueRoubles))
                 .ToArray(),
             price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc,
-            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false));
+            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false),
+            await HistoryAsync(itemId, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<PriceHistorySummary?> HistoryAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (priceHistory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var points = await priceHistory.GetAsync(itemId, TimeSpan.FromDays(7), cancellationToken).ConfigureAwait(false);
+            return PriceHistorySummary.From(points);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

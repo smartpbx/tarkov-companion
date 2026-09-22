@@ -1,5 +1,6 @@
 using TarkovCompanion.App.Services.Diagnostics;
 using System.Globalization;
+using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Items;
@@ -17,6 +18,7 @@ public sealed record FleaPriceViewModel(
     string DailyBand,
     string BestSale,
     string ValuePerSlot,
+    string SevenDayBand,
     string Provenance);
 
 public sealed record FleaHistoryPointViewModel(string Observed, string FleaPrice, string TraderValue, string Source);
@@ -274,6 +276,9 @@ public sealed class FleaPageViewModel : PageViewModel
             foreach (var hit in hits)
             {
                 var price = await _itemRepository.GetPriceAsync(hit.Item.Id, cancellationToken).ConfigureAwait(true);
+                var history = await _priceHistoryService
+                    .GetAsync(hit.Item.Id, HistoryWindow, cancellationToken)
+                    .ConfigureAwait(true);
                 results.Add(new(
                     hit.Item.Id,
                     hit.Item.Name,
@@ -283,6 +288,7 @@ public sealed class FleaPageViewModel : PageViewModel
                     DescribeBand(price),
                     DescribeBestSale(price),
                     DescribeValuePerSlot(hit.Item, price),
+                    DescribeHistory(PriceHistorySummary.From(history)),
                     $"json.tarkov.dev · {Describe(hit.Item.Provenance.SourceUpdatedUtc)}"));
             }
 
@@ -342,6 +348,10 @@ public sealed class FleaPageViewModel : PageViewModel
         var perSlot = item.ValuePerSlot(price);
         return perSlot > 0 ? $"{Roubles(perSlot)} per slot" : "Value per slot unavailable";
     }
+
+    internal static string DescribeHistory(PriceHistorySummary? summary) => summary is null
+        ? "7 d history not built yet"
+        : $"7 d low {Roubles(summary.LowRoubles)} · avg {Roubles(summary.AverageRoubles)} · high {Roubles(summary.HighRoubles)}";
 
     private static string DescribeBand(ItemPriceSnapshot? price)
     {

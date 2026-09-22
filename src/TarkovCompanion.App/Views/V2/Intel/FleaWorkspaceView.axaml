@@ -115,7 +115,7 @@
                           AutomationProperties.AutomationId="{Binding AutomationId}"
                           AutomationProperties.Name="{Binding Name}"
                           Command="{Binding SelectCommand}">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="2">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="2">
                       <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-body" FontWeight="SemiBold"
                                  Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
@@ -124,6 +124,7 @@
                       <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label" Text="{Binding ValuePerSlot}" />
                       <TextBlock Grid.Row="2" Grid.Column="0" Classes="v2-label" Text="{Binding DailyBand}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Grid.Row="2" Grid.Column="1" Classes="v2-label" Text="{Binding Dimensions}" />
+                      <TextBlock Grid.Row="3" Grid.ColumnSpan="2" Classes="v2-label" Text="{Binding SevenDayBand}" TextTrimming="CharacterEllipsis" />
                     </Grid>
                   </Button>
                 </DataTemplate>
@@ -149,6 +150,7 @@
                 <TextBlock Classes="v2-intel-price v2-intel-best" Text="{Binding SelectedPrice}" />
                 <TextBlock Classes="v2-body" TextWrapping="Wrap" Text="{Binding SelectedBestSale}" />
                 <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedBand}" />
+                <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedSevenDayBand}" />
                 <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedValuePerSlot}" />
                 <TextBlock Classes="v2-label" TextWrapping="Wrap" Text="{Binding SelectedProvenance}" />
                 <Button Classes="v2-target v2-intel-secondary" HorizontalAlignment="Stretch"
