@@ -799,6 +799,9 @@
   let camera = null;
   let localSelectionId = null;
   let localHiddenLayers = null;
+  // #290 "Send to tablet": the desktop's last send this page has seen. Undefined until the first
+  // surface, which only sets it, so reloading the page never replays an old send.
+  let seenSentToTablet;
 
   const COLOURS = {
     Extract: "#77b895",
@@ -1461,6 +1464,7 @@
       });
       live.connected = live.desktopOnline;
       live.surface = surface;
+      takeSentView(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -1486,6 +1490,24 @@
       renderLiveStatus();
       return false;
     }
+  }
+
+  // #290: the desktop pressed "Send to tablet". Independent keeps its own view on purpose, so
+  // this is the one mode it moves: to the desk's view, layers and selection, staying Independent.
+  // Follow and Control already show the desk's view; they only say it arrived.
+  function takeSentView(surface) {
+    const sent = surface.sentToTabletUtc ?? null;
+    const first = seenSentToTablet === undefined;
+    const fresh = sent !== null && sent !== seenSentToTablet;
+    seenSentToTablet = sent;
+    if (first || !fresh) return;
+    if (mode === "Independent") {
+      camera = { x: surface.view.centerX, y: surface.view.centerY, zoom: surface.view.zoom };
+      localHiddenLayers = null;
+      localSelectionId = surface.view.selectionId ?? null;
+    }
+
+    showNotice(`The desktop sent its view of ${surface.mapName}.`, "ok");
   }
 
   async function loadArtwork(sha) {
@@ -2913,6 +2935,8 @@
     mapId: live?.surface?.mapId ?? null,
     objectsCount: (live?.surface?.objects ?? []).length,
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
+    surfaceView: live?.surface?.view ?? null,
+    notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
   });
 
   setStage("pairingIdle");
