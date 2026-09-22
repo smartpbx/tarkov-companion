@@ -35,6 +35,7 @@ internal static class UiStallMeter
     public static void Enable(double thresholdMilliseconds)
     {
         Enabled = true;
+        AllocationTicks.StartIfAsked();
         ThresholdMilliseconds = thresholdMilliseconds;
         _startedTimestamp = Stopwatch.GetTimestamp();
         // [#453] A turn here is everything RunJobs drained, which includes work a view model split
@@ -105,6 +106,8 @@ internal static class UiStallMeter
     public static (double Busy, double Wall, double Longest, int Over) Snapshot() =>
         (_busyMilliseconds, Stopwatch.GetElapsedTime(_startedTimestamp).TotalMilliseconds, _longest, Stalls.Count);
 
+    private static (int, int, int, double) _gc;
+
     public static void Report(string phase)
     {
         if (!Enabled)
@@ -116,6 +119,13 @@ internal static class UiStallMeter
         Console.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"UI stalls [{phase}]: {Stalls.Count} turns over {ThresholdMilliseconds:0} ms; interface thread busy {_busyMilliseconds:0} ms of {wall:0} ms; longest turn {_longest:0} ms; {_turns} turns; longest input wait {_longestInputWait:0} ms."));
+        // [#678] What the collector cost in the same span: a switch was as much GC as work.
+        var gc = (GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2), GC.GetTotalPauseDuration().TotalMilliseconds);
+        Console.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  GC: gen0 {gc.Item1 - _gc.Item1}, gen1 {gc.Item2 - _gc.Item2}, gen2 {gc.Item3 - _gc.Item3}, paused {gc.Item4 - _gc.Item4:0} ms, heap {GC.GetTotalMemory(false) / 1048576} MB"));
+        _gc = gc;
+        AllocationTicks.Report();
         foreach (var (milliseconds, doing) in Stalls.OrderByDescending(stall => stall.Milliseconds).Take(15))
         {
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {milliseconds,7:0} ms  {doing}"));

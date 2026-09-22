@@ -3,6 +3,7 @@ using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Plan;
@@ -46,6 +47,8 @@ internal static class StallTour
             foreach (var map in TourMaps.Skip(1).Append("customs"))
             {
                 Step($"map switch to {map} (photo)", () => SelectMap(raid, map), () => WaitForMap(viewModel, raid, map));
+                Census(raid);
+                ControlCensus(window);
             }
 
             foreach (var map in TourMaps)
@@ -185,7 +188,7 @@ internal static class StallTour
                 WaitForMap(viewModel, raid, map);
             }
 
-            if (i % 10 == 0)
+            if (i % 5 == 0)
             {
                 Memory(i);
             }
@@ -338,6 +341,37 @@ internal static class StallTour
 
         Pump();
         UiStallMeter.Report(name);
+    }
+
+    /// <summary>[#678] How many marks the map just built controls for, and how many of them show.</summary>
+    private static void Census(RaidCockpitViewModel raid)
+    {
+        if (raid.Renderer is not { } renderer)
+        {
+            return;
+        }
+
+        var points = renderer.PointMarkers;
+        var kinds = points.GroupBy(marker => marker.IsPersonIcon ? "person" : marker.IsPinMark ? "pin" : marker.IsPingMark ? "ping" : "chip")
+            .Select(group => $"{group.Key} {group.Count()}");
+        Console.WriteLine(
+            $"  marks on {renderer.Scene.LocationId}: {points.Count} points ({points.Count(marker => marker.IsShownOnPlan)} shown; {string.Join(", ", kinds)}), " +
+            $"{renderer.StackMarkers.Count} stacks, {renderer.ClusterMarkers.Count} clusters, {renderer.LabelObjects.Count} names, " +
+            $"{renderer.LootMarkers.Count} loot, {renderer.LootBadges.Count} loot badges, {renderer.GeometryObjects.Count} shapes, {renderer.ListItems.Count} list rows");
+    }
+
+    /// <summary>[#678] Controls under each list on screen, by the type of its first item: what a switch built.</summary>
+    private static void ControlCensus(Window window)
+    {
+        var total = window.GetVisualDescendants().Count();
+        var lists = window.GetVisualDescendants().OfType<ItemsControl>()
+            .Where(list => list.IsEffectivelyVisible && list.ItemCount > 0)
+            .Select(list => (Name: list.Items.Cast<object?>().FirstOrDefault()?.GetType().Name ?? "?", Items: list.ItemCount, Controls: list.GetVisualDescendants().Count()))
+            .GroupBy(entry => entry.Name)
+            .Select(group => (group.Key, Items: group.Sum(entry => entry.Items), Controls: group.Sum(entry => entry.Controls)))
+            .OrderByDescending(entry => entry.Controls)
+            .Take(8);
+        Console.WriteLine($"  controls in window: {total}; lists: " + string.Join(", ", lists.Select(entry => $"{entry.Key} {entry.Items}/{entry.Controls}")));
     }
 
     private static void Navigate(V2ShellViewModel shell, string route)
