@@ -294,6 +294,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private static readonly MapSceneLayerId PlayerLayerId = new("you");
     private static readonly MapSceneLayerId VisitedLayerId = new("visited");
     private static readonly MapSceneLayerId SquadLayerId = new("squad");
+    private static readonly MapSceneLayerId SpawnsLayerId = new("spawns");
     /// <summary>
     /// The plan rectangle to fall back on when the map cannot say where its artwork is.
     /// </summary>
@@ -325,6 +326,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly GroupSessionService? _groupSession;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly TimeProvider _timeProvider;
+    private readonly EarlyRaidSpawnPolicy _earlyRaidSpawns;
     private readonly IWorkspaceLayoutStore? _layout;
     private readonly FollowZoomSetting _followZoom;
     private double _contextPanelWidth = DefaultContextPanelWidth;
@@ -401,6 +403,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     // one thing on the plan that changes with the clock alone, so it is the one thing the clock
     // has to be allowed to rebuild for.
     private DateTimeOffset? _positionStaleAtUtc;
+    private DateTimeOffset? _spawnWindowExpiresUtc;
 
     public RaidCockpitViewModel(
         MapViewModel map,
@@ -450,6 +453,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _earlyRaidSpawns = new(_timeProvider);
         _presentation = MapSceneRendererPresentation.English(CultureInfo.CurrentCulture, LocalTime.Zone);
         var synchronizationContext = SynchronizationContext.Current;
         // [#453] Paced and behind input: see PacedDispatch.
@@ -1789,6 +1793,22 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? new MapScenePoint(point.X, point.Y)
             : null;
 
+    private static MapFeatureFaction RaidSide(string? side) => side?.Trim().ToLowerInvariant() switch
+    {
+        "pmc" => MapFeatureFaction.Pmc,
+        "scav" => MapFeatureFaction.Scav,
+        _ => MapFeatureFaction.Unknown,
+    };
+
+    private static bool IsNearbySpawn(
+        MapOverlayElement element,
+        MapRenderModel model,
+        IReadOnlyList<NearbySpawn> nearbyAreas) =>
+        nearbyAreas.Any(area =>
+            model.TryMapPosition(area.Position, out var point) &&
+            Math.Abs(point.X - element.Position.X) < 0.001 &&
+            Math.Abs(point.Y - element.Position.Y) < 0.001);
+
     /// <summary>
     /// V1's "Frame area": put the part of the map the raid is actually happening in on screen.
     /// </summary>
@@ -1946,6 +1966,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 if (_positionStaleAtUtc is { } staleAt && _timeProvider.GetUtcNow() >= staleAt)
                 {
                     _positionStaleAtUtc = null;
+                    _rebuildRequest.Request();
+                }
+
+                if (_spawnWindowExpiresUtc is { } spawnExpiry && _timeProvider.GetUtcNow() >= spawnExpiry)
+                {
+                    _spawnWindowExpiresUtc = null;
                     _rebuildRequest.Request();
                 }
 
@@ -2316,7 +2342,25 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [Issue 573] A co-op extract: hidden entirely, or drawn but never the one the game's own
         // "offered" flag highlights, unless the player asked to see co-op extracts normally.
         var coOpVisibility = _coOpExtractVisibility;
-        var legacyElements = model.OverlayElements
+        var spawnSelection = _earlyRaidSpawns.Select(
+            _map.NearbySpawnAreas,
+            RaidSide(raidSnapshot.Side),
+            raidSnapshot.StartedUtc);
+        _spawnWindowExpiresUtc = spawnSelection.Phase == EarlyRaidSpawnPhase.Active
+            ? raidSnapshot.StartedUtc + EarlyRaidSpawnPolicy.VisibleFor
+            : null;
+        IEnumerable<MapOverlayElement> legacyCandidates = model.OverlayElements;
+        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active)
+        {
+            legacyCandidates = legacyCandidates.Where(element =>
+                element.Layer != MapOverlayKind.Spawns || IsNearbySpawn(element, model, spawnSelection.Areas));
+        }
+        else if (spawnSelection.Phase == EarlyRaidSpawnPhase.Expired)
+        {
+            legacyCandidates = legacyCandidates.Where(element => element.Layer != MapOverlayKind.Spawns);
+        }
+
+        var legacyElements = legacyCandidates
             .Where(element => element.Layer is MapOverlayKind.Extracts or MapOverlayKind.QuestObjectives
                 or MapOverlayKind.Labels or MapOverlayKind.Spawns or MapOverlayKind.Keys)
             .Where(element => element.Layer != MapOverlayKind.Extracts ||
@@ -2400,11 +2444,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // for the moment between the two halves of one change.
         var modelFloorChanged = !string.Equals(_modelFloorId, model.SelectedFloor?.Id, StringComparison.OrdinalIgnoreCase);
         _modelFloorId = model.SelectedFloor?.Id;
-        var requestedView = Renderer is { } current &&
-            string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal) && !boundsChanged
+        var current = Renderer;
+        var preservesView = current is not null &&
+            string.Equals(current.Scene.LocationId, model.Location.Id, StringComparison.Ordinal) && !boundsChanged;
+        var requestedView = preservesView
             ? modelFloorChanged
-                ? current.Scene.View with { SelectedFloorId = model.SelectedFloor?.Id }
-                : current.Scene.View
+                ? current!.Scene.View with { SelectedFloorId = model.SelectedFloor?.Id }
+                : current!.Scene.View
             // A map opens fitted: the whole plan, centred, at whatever size the card is. Zoom 1
             // is exactly that, because the projection fits the plan rectangle into the viewport
             // before the camera's own zoom is applied. It also opens the way V1 has it turned —
@@ -2415,6 +2461,17 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 model.SelectedFloor?.Id,
                 FitCamera(planBounds, Bearing()),
                 []);
+
+        // [Issue 664] This is the Layers menu's Spawns switch, defaulted on only for a new PMC
+        // scene during the opening window. Once the scene exists its current switch state wins,
+        // so a player can turn the nearby areas off without the next clock tick turning them on.
+        if (spawnSelection.Phase == EarlyRaidSpawnPhase.Active && !preservesView)
+        {
+            requestedView = requestedView with
+            {
+                Layers = [.. requestedView.Layers.Where(layer => layer.LayerId != SpawnsLayerId), new(SpawnsLayerId, true)],
+            };
+        }
 
         // [V2 rough package 39] The mode follows V1's own "Stack" toggle, which is also what the
         // renderer's presentation control now pushes back here.
