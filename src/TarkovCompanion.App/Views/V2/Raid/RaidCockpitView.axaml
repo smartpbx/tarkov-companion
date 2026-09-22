@@ -125,6 +125,10 @@
       <Setter Property="Padding" Value="8,6" />
       <Setter Property="Opacity" Value="0.97" />
     </Style>
+    <!-- [Refs #571] An objective already marked done: its check is lit, and pressing it undoes. -->
+    <Style Selector="Button.v2-raid-done Path.v2-icon">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
     <Style Selector="ToggleButton.v2-raid-viewcontrol, Button.v2-raid-viewcontrol">
       <Setter Property="MinHeight" Value="32" />
       <Setter Property="MinWidth" Value="0" />
@@ -584,17 +588,22 @@
           <Border Classes="v2-card v2-raid-section" IsVisible="{Binding HasQuestObjectives}"
                   AutomationProperties.AutomationId="v2-raid-objectives">
             <StackPanel Spacing="8">
-              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                <TextBlock Classes="v2-heading-3" Text="Objectives" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding QuestObjectiveSummary}"
-                           VerticalAlignment="Center" />
-                <!-- [Issue 571] Brings a done objective back on the map and this list, dimmed with a check. -->
-                <ToggleButton Grid.Column="2" Classes="v2-target v2-raid-viewcontrol" Content="Show completed"
-                              IsChecked="{Binding ShowCompletedObjectives, Mode=OneWay}"
-                              Command="{Binding ToggleShowCompletedObjectivesCommand}"
-                              AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
-                              ToolTip.Tip="Show objectives already marked done, dimmed with a check" />
-              </Grid>
+              <!-- [Refs #571] The header wraps rather than squeezing: at the panel's narrowest the
+                   heading, the count and "Show completed" did not fit one line, the heading was
+                   pushed out and the toggle ran past the card's edge. The toggle drops under the
+                   heading when it has to, and the count has its own line. -->
+              <StackPanel Spacing="2">
+                <WrapPanel ItemSpacing="10" LineSpacing="4">
+                  <TextBlock Classes="v2-heading-3" Text="Objectives" VerticalAlignment="Center" />
+                  <!-- [Issue 571] Brings a done objective back on the map and this list, dimmed with a check. -->
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Show completed"
+                                IsChecked="{Binding ShowCompletedObjectives, Mode=OneWay}"
+                                Command="{Binding ToggleShowCompletedObjectivesCommand}"
+                                AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
+                                ToolTip.Tip="Show objectives already marked done, dimmed with a check" />
+                </WrapPanel>
+                <TextBlock Classes="v2-label" Text="{Binding QuestObjectiveSummary}" TextWrapping="Wrap" />
+              </StackPanel>
 
               <!-- [Issue 379] After "Place on map" the next right-click on bare map is this objective's
                    place, not a ping; this says so and lets the player back out. -->
@@ -675,7 +684,8 @@
               </ContentControl>
 
               <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding QuestObjectives}">
+                <!-- Right margin: the scroll bar draws over the content, and it sat on the checks. -->
+                <ItemsControl ItemsSource="{Binding QuestObjectives}" Margin="0,0,12,0">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="4" /></ItemsPanelTemplate>
                   </ItemsControl.ItemsPanel>
@@ -688,22 +698,31 @@
                                 AutomationProperties.AutomationId="v2-raid-objective-row"
                                 AutomationProperties.Name="{Binding Description}"
                                 ToolTip.Tip="{Binding Task}">
+                          <!-- [Refs #571] The name gets the row's width and two lines; where it is
+                               sits on its own line under it. Beside a wide "Done" button and the
+                               location on one line, names were cut to "Loc…". -->
                           <Border Classes="v2-raid-row" Classes.v2-raid-offered="{Binding IsSelected}" Padding="8,5">
-                            <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="8">
-                              <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Center"
+                            <Grid ColumnDefinitions="30,*" ColumnSpacing="8">
+                              <Border Classes="v2-raid-chip v2-raid-chip-objective" IsVisible="{Binding HasNumber}" VerticalAlignment="Top"
                                       HorizontalAlignment="Left">
                                 <TextBlock Classes="v2-label" Text="{Binding Number}" />
                               </Border>
-                              <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Description}"
-                                         TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" VerticalAlignment="Center" />
-                              <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                              <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                                <TextBlock Classes="v2-body" Text="{Binding Description}"
+                                           TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Classes="v2-label" Text="{Binding Where}" TextTrimming="CharacterEllipsis" />
+                              </StackPanel>
                             </Grid>
                           </Border>
                         </Button>
-                        <Button Grid.Column="1" Classes="v2-target v2-raid-viewcontrol" Content="{Binding DoneLabel}"
+                        <!-- [Refs #571] A 32px check rather than a "Done" button, so the name keeps the width. -->
+                        <Button Grid.Column="1" Classes="v2-target v2-icon-btn" Classes.v2-raid-done="{Binding IsDone}"
                                 Command="{Binding ToggleDoneCommand}" IsVisible="{Binding CanToggleDone}"
-                                VerticalAlignment="Center"
-                                AutomationProperties.AutomationId="v2-raid-objective-row-done" />
+                                VerticalAlignment="Center" ToolTip.Tip="{Binding DoneTip}"
+                                AutomationProperties.Name="{Binding DoneTip}"
+                                AutomationProperties.AutomationId="v2-raid-objective-row-done">
+                          <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Tick}" />
+                        </Button>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>

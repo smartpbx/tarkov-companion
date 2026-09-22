@@ -67,6 +67,9 @@ public sealed class RaidObjectiveRowViewModel : BindableViewModel
 
     public string DoneLabel => IsDone ? "Not done" : "Done";
 
+    /// <summary>The row's check button says what pressing it does; the button itself is only an icon.</summary>
+    public string DoneTip => IsDone ? "Mark not done" : "Mark done";
+
     public ICommand ToggleDoneCommand { get; }
 }
 
