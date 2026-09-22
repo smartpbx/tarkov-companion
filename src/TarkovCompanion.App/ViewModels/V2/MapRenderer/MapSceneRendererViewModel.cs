@@ -230,6 +230,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererObjectViewModel> SpatialObjects { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> PointMarkers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererObjectViewModel> ClusterMarkers { get; private set; } = [];
+
+    /// <summary>
+    /// [#573] Count badges for dense spots: three or more extracts, transits or quest objectives
+    /// on one building are drawn as one badge while the plan is zoomed out, and pressing it zooms
+    /// in on the spot. The marks themselves stay in <see cref="PointMarkers"/> and hide while
+    /// their badge shows (MapSceneRendererObjectViewModel.IsShownOnPlan).
+    /// </summary>
+    public IReadOnlyList<MapSceneRendererObjectViewModel> StackMarkers { get; private set; } = [];
     public IReadOnlyList<MapSceneRendererGeometryViewModel> GeometryObjects { get; private set; } = [];
 
     /// <summary>
@@ -667,6 +675,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             foreach (var marker in SpatialObjects)
             {
                 marker.UpdateCamera(_scene.View.Camera);
+            }
+
+            foreach (var stack in StackMarkers)
+            {
+                stack.UpdateCamera(_scene.View.Camera);
             }
 
             foreach (var label in LabelObjects)
@@ -1783,6 +1796,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
         PointMarkers = SpatialObjects.Where(item => !item.IsCluster).ToArray();
+        StackMarkers = BuildStackMarkers(PointMarkers);
         ClusterMarkers = SpatialObjects.Where(item => item.IsCluster).ToArray();
         SelectedObject = _selectedObjectId is { } selected
             ? CreateSelectedObject(selected)
@@ -1886,6 +1900,52 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         return result;
+    }
+
+    /// <summary>The zoom below which a dense spot is drawn as one count badge.</summary>
+    /// <remarks>
+    /// Marks within <see cref="MapMarkerOverlapLayout.CollisionDistance"/> canvas DIPs of each other
+    /// are fanned into a small ring; at twice the fitted zoom that ring has room to read, below it
+    /// three or more of them only bury the building they stand on.
+    /// </remarks>
+    public const double StackZoom = 2;
+
+    private IReadOnlyList<MapSceneRendererObjectViewModel> BuildStackMarkers(IReadOnlyList<MapSceneRendererObjectViewModel> markers)
+    {
+        var eligible = markers
+            .Where(marker => marker.SceneObject is not null &&
+                marker.Icon is MapSceneMarkerIcon.Extract or MapSceneMarkerIcon.Transit or MapSceneMarkerIcon.Objective)
+            .ToArray();
+        var groups = MapMarkerOverlapLayout.Stacks(
+            eligible.Select(marker => (marker.AnchorLeft, marker.AnchorTop)).ToArray(),
+            MapMarkerOverlapLayout.CollisionDistance,
+            minimumCount: 3);
+        var stacks = new List<MapSceneRendererObjectViewModel>();
+        foreach (var group in groups)
+        {
+            var members = group.Select(index => eligible[index]).ToArray();
+            foreach (var member in members)
+            {
+                member.JoinStack(StackZoom);
+            }
+
+            var objects = members.Select(member => member.SceneObject!).ToArray();
+            var point = new MapScenePoint(
+                objects.Average(item => item.Geometry.Points[0].X),
+                objects.Average(item => item.Geometry.Points[0].Y));
+            var badge = MapSceneRendererObjectViewModel.ForCluster(
+                stacks.Count,
+                -1,
+                objects,
+                _projection,
+                _scene.View.Camera,
+                _presentation,
+                () => FocusOn(point, StackZoom * 1.25));
+            badge.ShowAsStackBelow(StackZoom);
+            stacks.Add(badge);
+        }
+
+        return stacks;
     }
 
     private MapSceneRendererObjectViewModel BuildClusterMarker(
@@ -2361,6 +2421,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             OnPropertyChanged(nameof(SpatialObjects));
             OnPropertyChanged(nameof(PointMarkers));
             OnPropertyChanged(nameof(ClusterMarkers));
+            OnPropertyChanged(nameof(StackMarkers));
             OnPropertyChanged(nameof(GeometryObjects));
             OnPropertyChanged(nameof(LabelObjects));
             OnPropertyChanged(nameof(HasLabelObjects));
@@ -2428,7 +2489,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         RaiseFloorStackChanged();
         foreach (var propertyName in new[]
                  {
-                     nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(GeometryObjects),
+                     nameof(SpatialObjects), nameof(PointMarkers), nameof(ClusterMarkers), nameof(StackMarkers), nameof(GeometryObjects),
                      nameof(LabelObjects), nameof(HasLabelObjects),
                      nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
@@ -2822,6 +2883,9 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 {
     private bool _isSelected;
     private double _markerInverseZoom;
+    private double _cameraZoom = 1;
+    private double _stackZoom;
+    private bool _isStackBadge;
     private double _markerUprightDegrees;
     private double _coneDegrees;
 
@@ -2873,7 +2937,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         _isSelected = isSelected;
         AnchorLeft = anchorLeft;
         AnchorTop = anchorTop;
-        _markerInverseZoom = markerInverseZoom;
+        _cameraZoom = markerInverseZoom > 0 && double.IsFinite(markerInverseZoom) ? 1 / markerInverseZoom : 1;
         _markerUprightDegrees = markerUprightDegrees;
         MarkerGlyph = markerGlyph;
         Icon = icon;
@@ -2889,6 +2953,7 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         IsNearRightEdge = isNearRightEdge;
         IsNearBottomEdge = isNearBottomEdge;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
+        _markerInverseZoom = MarkerScale / _cameraZoom;
     }
 
     /// <summary>
@@ -3125,7 +3190,44 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
         {
             OnPropertyChanged(nameof(ZOrder));
             OnPropertyChanged(nameof(ShowsSelectedName));
+            OnPropertyChanged(nameof(IsShownOnPlan));
         }
+    }
+
+    /// <summary>
+    /// [#573] Drawn smaller with the plan fitted and full size zoomed in (<see cref="MapMarkerScale"/>).
+    /// A person, a ping and a count badge keep their size: they are what a crowded map must not hide.
+    /// </summary>
+    public double MarkerScale => IsCluster || IsPersonIcon || IsPingMark ? 1 : MapMarkerScale.For(_cameraZoom);
+
+    /// <summary>The mark's hit box in its own DIPs, so it is never under 32 screen pixels however small it is drawn.</summary>
+    public double HitExtent => MapMarkerScale.HitExtent(MarkerScale);
+
+    /// <summary>Round, so the empty corners of the marker's box still do not take the pointer.</summary>
+    public CornerRadius HitCornerRadius => new(HitExtent / 2);
+
+    /// <summary>Centres a pin's round hit area on its head, which is drawn above the pin's tip.</summary>
+    public Thickness PinHeadHitMargin => new(0, (PinWidth - HitExtent) / 2, 0, 0);
+
+    /// <summary>
+    /// Drawn on the plan now: a mark in a dense spot hides under its count badge while the plan is
+    /// zoomed out (unless it is the selected one), and a badge shows only then.
+    /// </summary>
+    public bool IsShownOnPlan => _isStackBadge
+        ? _cameraZoom < _stackZoom
+        : !(_stackZoom > 0 && _cameraZoom < _stackZoom && !_isSelected);
+
+    internal void JoinStack(double stackZoom)
+    {
+        _stackZoom = stackZoom;
+        OnPropertyChanged(nameof(IsShownOnPlan));
+    }
+
+    internal void ShowAsStackBelow(double stackZoom)
+    {
+        _isStackBadge = true;
+        _stackZoom = stackZoom;
+        OnPropertyChanged(nameof(IsShownOnPlan));
     }
 
     /// <summary>
@@ -3136,7 +3238,21 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 
     public void UpdateCamera(MapSceneCamera camera)
     {
-        SetProperty(ref _markerInverseZoom, 1 / camera.Zoom, nameof(MarkerInverseZoom));
+        var wasShown = IsShownOnPlan;
+        _cameraZoom = camera.Zoom;
+        if (SetProperty(ref _markerInverseZoom, MarkerScale / camera.Zoom, nameof(MarkerInverseZoom)))
+        {
+            OnPropertyChanged(nameof(MarkerScale));
+            OnPropertyChanged(nameof(HitExtent));
+            OnPropertyChanged(nameof(HitCornerRadius));
+            OnPropertyChanged(nameof(PinHeadHitMargin));
+        }
+
+        if (wasShown != IsShownOnPlan)
+        {
+            OnPropertyChanged(nameof(IsShownOnPlan));
+        }
+
         SetProperty(ref _markerUprightDegrees, camera.BearingDegrees, nameof(MarkerUprightDegrees));
         SetProperty(ref _coneDegrees, ConeFor(HeadingDegrees, camera.BearingDegrees), nameof(ConeDegrees));
     }

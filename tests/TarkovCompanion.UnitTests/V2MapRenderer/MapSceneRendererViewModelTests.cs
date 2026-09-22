@@ -360,7 +360,8 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Same(list, renderer.ListItems);
         Assert.Equal(1, resolveCalls);
         Assert.Equal(1.25, renderer.CameraZoom);
-        Assert.Equal(0.8, renderer.SpatialObjects[0].MarkerInverseZoom, 6);
+        // [#573] Counter-scaled by the zoom, times the size a mark is drawn at that zoom.
+        Assert.Equal(renderer.SpatialObjects[0].MarkerScale / 1.25, renderer.SpatialObjects[0].MarkerInverseZoom, 6);
     }
 
     [Fact]

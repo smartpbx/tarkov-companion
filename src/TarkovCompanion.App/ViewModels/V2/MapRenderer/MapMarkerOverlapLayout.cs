@@ -77,4 +77,55 @@ internal static class MapMarkerOverlapLayout
 
         return result;
     }
+
+    /// <summary>
+    /// [#573] Groups of at least <paramref name="minimumCount"/> anchors that chain together within
+    /// <paramref name="distance"/> of one another, as index lists in input order; everything else
+    /// is left out. Chained rather than all-pairs: three marks along one building are one spot even
+    /// when the two ends are further apart than the distance.
+    /// </summary>
+    public static IReadOnlyList<IReadOnlyList<int>> Stacks(
+        IReadOnlyList<(double X, double Y)> anchors,
+        double distance,
+        int minimumCount)
+    {
+        ArgumentNullException.ThrowIfNull(anchors);
+        var group = new int[anchors.Count];
+        Array.Fill(group, -1);
+        var groups = new List<List<int>>();
+        for (var start = 0; start < anchors.Count; start++)
+        {
+            if (group[start] >= 0)
+            {
+                continue;
+            }
+
+            var members = new List<int> { start };
+            group[start] = groups.Count;
+            for (var next = 0; next < members.Count; next++)
+            {
+                var (x, y) = anchors[members[next]];
+                for (var other = 0; other < anchors.Count; other++)
+                {
+                    if (group[other] >= 0)
+                    {
+                        continue;
+                    }
+
+                    var dx = anchors[other].X - x;
+                    var dy = anchors[other].Y - y;
+                    if (Math.Sqrt((dx * dx) + (dy * dy)) < distance)
+                    {
+                        group[other] = groups.Count;
+                        members.Add(other);
+                    }
+                }
+            }
+
+            members.Sort();
+            groups.Add(members);
+        }
+
+        return groups.Where(members => members.Count >= minimumCount).ToArray();
+    }
 }

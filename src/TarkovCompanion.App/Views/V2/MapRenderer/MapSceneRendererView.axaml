@@ -642,6 +642,7 @@
                                 Classes.offer-not-offered="{Binding IsKnownNotOffered}"
                                 Classes.offer-unknown="{Binding IsOfferUnknown}"
                                 IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                IsVisible="{Binding IsShownOnPlan}"
                                 Opacity="{Binding MarkerOpacity}"
                                 RenderTransformOrigin="50%,50%"
                                 AutomationProperties.AutomationId="{Binding AutomationId}"
@@ -708,6 +709,10 @@
                                takes the pointer: not the 44px box, most of which is below the tip. -->
                           <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
                                 IsVisible="{Binding IsWaypointMark}" Data="{DynamicResource V2.Icon.PinRound}" />
+                          <!-- [#573] A round target on the head, never under 32 screen pixels, for a pin
+                               drawn small at fit zoom. -->
+                          <Ellipse Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Top" Margin="{Binding PinHeadHitMargin}" />
                           <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
                                 IsVisible="{Binding IsObjectiveMark}" Data="{DynamicResource V2.Icon.PinShield}" />
                           <Path Classes="v2-map-pin-round"
@@ -755,7 +760,9 @@
                       <Panel.RenderTransform>
                         <TranslateTransform X="{Binding PinOffsetX}" Y="{Binding PinOffsetY}" />
                       </Panel.RenderTransform>
-                      <Border Classes="v2-map-mark-hit" />
+                      <!-- [#573] Round, and never under 32 screen pixels however small the mark is drawn. -->
+                      <Border Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                              CornerRadius="{Binding HitCornerRadius}" />
                       <!-- An extract (or the transit two-arrow) is a round badge at two-thirds of
                            every other chip's size by default, and back to that size once selected
                            — six of them used to bury a whole building at fit zoom. -->
@@ -831,6 +838,42 @@
                           AutomationProperties.Name="{Binding AutomationName}"
                           AutomationProperties.HelpText="{Binding Detail}"
                           Command="{Binding SelectCommand}">
+                    <Button.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
+                        <RotateTransform Angle="{Binding MarkerUprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </Button.RenderTransform>
+                    <Panel>
+                      <Border Classes="v2-map-mark-hit" />
+                      <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                        <Grid Width="40" Height="40">
+                          <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Text="{Binding MarkerGlyph}" />
+                        </Grid>
+                      </Border>
+                    </Panel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- [#573] A dense spot's count badge: shown while the plan is zoomed out, pressing it
+                 zooms in on the spot, where its marks fan out and read on their own. -->
+            <ItemsControl ItemsSource="{Binding StackMarkers}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <Button Classes="v2-map-marker cluster" Theme="{StaticResource V2.MapMarkTheme}"
+                          RenderTransformOrigin="50%,50%"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding AutomationName}"
+                          AutomationProperties.HelpText="{Binding Detail}"
+                          Command="{Binding SelectCommand}"
+                          IsVisible="{Binding IsShownOnPlan}"
+                          ToolTip.Tip="{Binding Label}">
                     <Button.RenderTransform>
                       <TransformGroup>
                         <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
