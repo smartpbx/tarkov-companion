@@ -33,4 +33,7 @@ public static class WorkspaceLayoutKeys
 
     /// <summary>[Issue 573] Hidden / Dim / Normal — how a co-op extract is drawn and offered.</summary>
     public const string CoOpExtractVisibility = "raid.coop-extract-visibility";
+
+    /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
+    public static string RaidCard(string cardId) => $"raid.card.{cardId}";
 }
