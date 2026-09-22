@@ -48,6 +48,8 @@ public sealed class NotificationCoordinator
     private string? _announcedFailure;
     private string? _announcedUpdate;
     private bool _relayOutageAnnounced;
+    private readonly HashSet<string> _seenSaleIds = new(StringComparer.Ordinal);
+    private DateTimeOffset? _listeningSinceUtc;
 
     public NotificationCoordinator(TimeSpan? coalesceWindow = null) =>
         _coalesceWindow = coalesceWindow ?? DefaultCoalesceWindow;
@@ -66,6 +68,7 @@ public sealed class NotificationCoordinator
         ArgumentNullException.ThrowIfNull(settings);
 
         var inRaid = inputs.RaidState == RaidLifecycleState.InRaid;
+        _listeningSinceUtc ??= inputs.NowUtc;
         var raised = new List<NotificationRequest>();
         GatherSquadMarks(inputs, settings, inRaid);
         if (FlushSquadMarks(inputs.NowUtc) is { } marks)
@@ -91,6 +94,11 @@ public sealed class NotificationCoordinator
         if (RelayUnreachable(inputs, settings, inRaid) is { } relay)
         {
             raised.Add(relay);
+        }
+
+        if (FleaSold(inputs, settings, inRaid) is { } sold)
+        {
+            raised.Add(sold);
         }
 
         return raised;
@@ -266,6 +274,56 @@ public sealed class NotificationCoordinator
             "Sharing is on but the relay stopped answering. Positions on the map are the last good read.",
             1,
             inputs.NowUtc);
+    }
+
+    /// <summary>
+    /// Every flea sale since the companion started listening, said once, after the raid.
+    /// </summary>
+    /// <remarks>
+    /// The startup replay reads the whole session's log again, so a sale from this morning
+    /// arrives looking brand new. Only the game's own timestamp on the line tells it apart: a
+    /// sale written before this coordinator first looked is recorded and never announced, and so
+    /// is one whose timestamp could not be read, because a stale "sold" is worse than a missed
+    /// one when Intel › Flea lists them all anyway. During a raid nothing is recorded, so the
+    /// sales that came in are said together when it ends.
+    /// </remarks>
+    private NotificationRequest? FleaSold(NotificationInputs inputs, NotificationSettings settings, bool inRaid)
+    {
+        if (inRaid)
+        {
+            return null;
+        }
+
+        var offers = 0;
+        var items = 0;
+        foreach (var sale in inputs.FleaSales)
+        {
+            if (string.IsNullOrWhiteSpace(sale.OfferId) || !_seenSaleIds.Add(sale.OfferId))
+            {
+                continue;
+            }
+
+            if (sale.WrittenUtc is not { } written || written < _listeningSinceUtc)
+            {
+                continue;
+            }
+
+            offers++;
+            items += Math.Max(1, sale.Count);
+        }
+
+        if (offers == 0 || !settings.FleaSold)
+        {
+            return null;
+        }
+
+        var title = offers == 1
+            ? "Flea offer sold"
+            : string.Create(CultureInfo.CurrentCulture, $"{offers} flea offers sold");
+        var body = items == 1
+            ? "1 item. Intel › Flea lists it."
+            : string.Create(CultureInfo.CurrentCulture, $"{items} items. Intel › Flea lists them.");
+        return new(NotificationKind.FleaSold, title, body, offers, inputs.NowUtc);
     }
 
     /// <summary>"items", "items and tasks", "items, tasks and barters".</summary>

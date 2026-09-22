@@ -39,6 +39,10 @@ public sealed class JsonFileNotificationSettingsStore(string settingsPath) : INo
                     UpdateReady = document.UpdateReady,
                     RelayUnreachable = document.RelayUnreachable,
                     ShowsDesktopPopup = document.ShowsDesktopPopup,
+                    FleaSold = document.FleaSold,
+                    QuietHours = document.QuietHours,
+                    QuietFromHour = Math.Clamp(document.QuietFromHour, 0, 23),
+                    QuietToHour = Math.Clamp(document.QuietToHour, 0, 23),
                 };
         }
         finally
@@ -59,7 +63,11 @@ public sealed class JsonFileNotificationSettingsStore(string settingsPath) : INo
                 settings.DataRefreshFailed,
                 settings.UpdateReady,
                 settings.RelayUnreachable,
-                settings.ShowsDesktopPopup);
+                settings.ShowsDesktopPopup,
+                settings.FleaSold,
+                settings.QuietHours,
+                settings.QuietFromHour,
+                settings.QuietToHour);
             await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(document, JsonOptions),
@@ -106,5 +114,9 @@ public sealed class JsonFileNotificationSettingsStore(string settingsPath) : INo
         bool DataRefreshFailed = true,
         bool UpdateReady = true,
         bool RelayUnreachable = true,
-        bool ShowsDesktopPopup = false);
+        bool ShowsDesktopPopup = false,
+        bool FleaSold = true,
+        bool QuietHours = false,
+        int QuietFromHour = 23,
+        int QuietToHour = 8);
 }

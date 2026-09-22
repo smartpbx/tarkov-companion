@@ -400,7 +400,7 @@ public sealed partial class WindowsEftLogWatcher(
             observer.Observe(group);
         }
 
-        if (FleaSaleParser.ParseLine(line, observedUtc) is { } sale)
+        if (FleaSaleParser.ParseLine(line, observedUtc, _timeProvider.LocalTimeZone) is { } sale)
         {
             observer.Observe(sale);
         }

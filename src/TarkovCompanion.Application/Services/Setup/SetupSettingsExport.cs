@@ -65,7 +65,11 @@ public static class SetupSettingsExport
             normalized.Notifications.RelayUnreachable,
             normalized.Notifications.ShowsDesktopPopup,
             normalized.ScreenshotRetention.IsEnabled,
-            normalized.ScreenshotRetention.RetentionHours);
+            normalized.ScreenshotRetention.RetentionHours,
+            normalized.Notifications.FleaSold,
+            normalized.Notifications.QuietHours,
+            normalized.Notifications.QuietFromHour,
+            normalized.Notifications.QuietToHour);
         return JsonSerializer.Serialize(document, JsonOptions);
     }
 
@@ -110,6 +114,10 @@ public static class SetupSettingsExport
                 UpdateReady = document.NotifyUpdateReady ?? NotificationSettings.Default.UpdateReady,
                 RelayUnreachable = document.NotifyRelayUnreachable ?? NotificationSettings.Default.RelayUnreachable,
                 ShowsDesktopPopup = document.NotifyDesktopPopup ?? NotificationSettings.Default.ShowsDesktopPopup,
+                FleaSold = document.NotifyFleaSold ?? NotificationSettings.Default.FleaSold,
+                QuietHours = document.QuietHours ?? NotificationSettings.Default.QuietHours,
+                QuietFromHour = Math.Clamp(document.QuietFromHour ?? NotificationSettings.Default.QuietFromHour, 0, 23),
+                QuietToHour = Math.Clamp(document.QuietToHour ?? NotificationSettings.Default.QuietToHour, 0, 23),
             },
             new ScreenshotRetentionSettings(
                 document.ScreenshotCleanupEnabled ?? ScreenshotRetentionSettings.Default.IsEnabled,
@@ -139,5 +147,9 @@ public static class SetupSettingsExport
         bool? NotifyRelayUnreachable,
         bool? NotifyDesktopPopup,
         bool? ScreenshotCleanupEnabled,
-        int? ScreenshotRetentionHours);
+        int? ScreenshotRetentionHours,
+        bool? NotifyFleaSold = null,
+        bool? QuietHours = null,
+        int? QuietFromHour = null,
+        int? QuietToHour = null);
 }

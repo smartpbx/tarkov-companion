@@ -2,9 +2,9 @@
 
 The companion runs on a second screen while the game has the first one. Nobody is looking at it
 during a fight, so the question this feature answers is not "what could we tell him" but "what
-would he want to be interrupted for". The answer is five things, and the list is closed.
+would he want to be interrupted for". The answer is six things, and the list is closed.
 
-## The five
+## The six
 
 | Notification | Fires | Source |
 | --- | --- | --- |
@@ -13,13 +13,14 @@ would he want to be interrupted for". The answer is five things, and the list is
 | The squad relay went unreachable while sharing was on | after the raid | `GroupSnapshot.StaleSince` |
 | The game-data refresh failed, naming the endpoints | after the raid | `RuntimeDataState.FailedEndpoints` |
 | A newer build is downloaded and waiting | after the raid | `SettingsPageViewModel.CanRestartForUpdate` |
+| A flea offer sold (#314) | after the raid | `FleaSalesSnapshot`, only sales the game wrote after the companion started, so the startup replay never re-announces the morning's sales |
 
-Only the first one interrupts a raid. The other four are suppressed while `RaidLifecycleState` is
+Only the first one interrupts a raid. The other five are suppressed while `RaidLifecycleState` is
 `InRaid` and — this is the part worth keeping — the coordinator does not record that it suppressed
 them, so the condition is still true when the raid ends and the notification arrives then rather
 than being swallowed.
 
-## The three rules that cut across all five
+## The three rules that cut across all six
 
 - **Nothing repeats.** Each is keyed on its own cause: a mark's relay id, a raid's id, which
   endpoints failed, which build is waiting, one relay outage. A cause that clears (a clean refresh,
@@ -67,5 +68,8 @@ discover that a switch does nothing. The test ignores the switch beside it on pu
 on a notification you have turned off is how you decide whether to turn it on.
 
 Settings live in `Config/notifications.json`. An unreadable file falls back to the defaults (all
-five on, no pop-up) rather than to silence, and each switch is defaulted per property so a file
+six on, no pop-up) rather than to silence, and each switch is defaulted per property so a file
 written by an older build cannot silently turn off a notification added later.
+
+**Quiet hours** (off by default, 23:00 to 08:00 local) hold the pop-up back; the tray count still
+counts, and **Test this** ignores them.

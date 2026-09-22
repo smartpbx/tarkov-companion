@@ -25,7 +25,13 @@ public static class FleaSaleParser
     /// Called on every line the watcher sees, so it rejects almost all of them on a single
     /// ordinal substring scan before the JSON parser is touched.
     /// </remarks>
-    public static FleaSaleObservation? ParseLine(string? line, DateTimeOffset observedUtc)
+    /// <param name="line">One log line.</param>
+    /// <param name="observedUtc">When the line was read.</param>
+    /// <param name="localZone">
+    /// The zone the game wrote its timestamps in, so the sale's own time can be read. Null leaves
+    /// <see cref="FleaSaleObservation.WrittenUtc"/> unknown.
+    /// </param>
+    public static FleaSaleObservation? ParseLine(string? line, DateTimeOffset observedUtc, TimeZoneInfo? localZone = null)
     {
         if (string.IsNullOrEmpty(line) || !line.Contains(NotificationMarker, StringComparison.Ordinal))
         {
@@ -67,7 +73,8 @@ public static class FleaSaleParser
                 offerId,
                 ReadText(payload, "handbookId"),
                 ReadCount(payload),
-                observedUtc.ToUniversalTime());
+                observedUtc.ToUniversalTime(),
+                localZone is null ? null : RaidReplayDecision.WrittenUtc(line, localZone));
         }
         catch (JsonException)
         {

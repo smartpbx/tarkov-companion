@@ -52,7 +52,11 @@ public static class SetupSettingsDiff
         Add("Data refresh failed", current.Notifications.DataRefreshFailed, incoming.Notifications.DataRefreshFailed);
         Add("Update ready", current.Notifications.UpdateReady, incoming.Notifications.UpdateReady);
         Add("Relay unreachable", current.Notifications.RelayUnreachable, incoming.Notifications.RelayUnreachable);
+        Add("Flea offer sold", current.Notifications.FleaSold, incoming.Notifications.FleaSold);
         Add("Desktop pop-up", current.Notifications.ShowsDesktopPopup, incoming.Notifications.ShowsDesktopPopup);
+        Add("Quiet hours", current.Notifications.QuietHours, incoming.Notifications.QuietHours);
+        Add("Quiet from", current.Notifications.QuietFromHour, incoming.Notifications.QuietFromHour, DescribeHourOfDay);
+        Add("Quiet until", current.Notifications.QuietToHour, incoming.Notifications.QuietToHour, DescribeHourOfDay);
 
         Add("Screenshot cleanup", current.ScreenshotRetention.IsEnabled, incoming.ScreenshotRetention.IsEnabled);
         Add("Screenshot retention", current.ScreenshotRetention.RetentionHours, incoming.ScreenshotRetention.RetentionHours, DescribeHours);
@@ -68,6 +72,9 @@ public static class SetupSettingsDiff
     };
 
     private static string DescribePercent(object value) => ((int)value).ToString(CultureInfo.InvariantCulture);
+
+    private static string DescribeHourOfDay(object value) =>
+        string.Create(CultureInfo.InvariantCulture, $"{(int)value:00}:00");
 
     private static string DescribeHours(object value) =>
         string.Format(CultureInfo.InvariantCulture, "{0}h", (int)value);
