@@ -690,8 +690,8 @@ public static class AppComposition
         services.AddSingleton<StashSnapshotComparer>();
         services.AddSingleton<SqliteStashSnapshotStore>();
         services.AddSingleton<IStashSnapshotStore>(provider => provider.GetRequiredService<SqliteStashSnapshotStore>());
-        services.AddSingleton<InMemoryStashReviewCommandSink>();
-        services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<InMemoryStashReviewCommandSink>());
+        services.AddSingleton<SqliteStashReviewCommandStore>();
+        services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<SqliteStashReviewCommandStore>());
         services.AddSingleton<StashScanWorkflow>();
         // [V2 rough package 40] The guided full-stash scan: several screenshots, one stash, and
         // the owned counts a finished scan feeds. Refs #283 #273.

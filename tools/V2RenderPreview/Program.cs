@@ -710,6 +710,27 @@ internal static class Program
                 Pump(80);
             }
 
+            // #287 (side-by-side comparison): --intel-compare "M855;M856;M855A1" searches each
+            // query, opens its first hit and adds it to the compare tray, then opens the table.
+            // --intel-compare-tray stops at the tray, with the last item's detail still showing.
+            if (shell is not null && StringOption(args, "--intel-compare") is { } compareQueries)
+            {
+                foreach (var query in compareQueries.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    shell.SearchText = query;
+                    DrainUntilComplete(shell.SearchAsync());
+                    Pump(60);
+                    shell.IntelCompare.ToggleCurrentCommand.Execute(null);
+                    Pump(10);
+                }
+
+                if (!args.Contains("--intel-compare-tray"))
+                {
+                    DrainUntilComplete(shell.IntelCompare.OpenAsync());
+                    Pump(20);
+                }
+            }
+
             // The Raid workspace's map follows whatever the legacy MapViewModel is already
             // showing; a headless run has nobody at the V1 Raid page to have selected one, so
             // pick a map here the same way the map picker's own SelectCommand does, once the
@@ -1337,6 +1358,8 @@ internal static class Program
                             CompanionPairingStage.Idle,
                             claimMessage: "Claimed. This desktop is now the relay's owner.",
                             devices: [DemoPairedDevice("Kitchen tablet")]);
+                        // #290: what the app wires at startup, so "Send to tablet" draws enabled.
+                        pairing.SendMapToTablet = _ => Task.FromResult(true);
                         break;
                     // [#562] The shell-level prompt (ControlRequestPromptView, V2ShellViewModel.
                     // ControlRequestPrompt) draws from the same CompanionPairingViewModel Team's
@@ -1547,6 +1570,14 @@ internal static class Program
             // Package 17 (scan): render-only fixtures so the Loot decision and Stash scan
             // workspaces can be seen populated. Both go through the real services (the loot
             // planner, the snapshot store), so nothing here invents presentation state.
+            // #572: "Show loot results on the tablet only", ticked, so a render can show the desk
+            // staying on the map (needs --pairing-demo paired for the paired tablet).
+            if (args.Contains("--loot-tablet-only") &&
+                services.GetService<TarkovCompanion.App.ViewModels.V2.Setup.SetupAdminViewModel>()?.LootScan is { } lootSettings)
+            {
+                lootSettings.TabletOnly = true;
+            }
+
             if (shell is not null && args.Contains("--loot-demo"))
             {
                 var profile = services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>()
@@ -1618,7 +1649,25 @@ internal static class Program
                     StringOption(args, "--loot-scan-flea-rates"),
                     services.GetRequiredService<TimeProvider>().GetUtcNow());
                 DrainUntilComplete(seed);
-                DrainUntilComplete(store.SaveAsync(ScanDemo.StashRecord(scope, Resolve), CancellationToken.None));
+                var stashRecord = ScanDemo.StashRecord(scope, Resolve);
+                DrainUntilComplete(store.SaveAsync(stashRecord, CancellationToken.None));
+                if (args.Contains("--stash-review-demo"))
+                {
+                    var recognitionId = stashRecord.Recognition.Result.Value?.SnapshotId
+                        ?? throw new InvalidOperationException("The stash demo has no recognition snapshot id.");
+                    var reviews = services.GetRequiredService<TarkovCompanion.Core.Domain.Stash.IStashReviewCommandSink>();
+                    DrainUntilComplete(reviews.AppendAsync(
+                        new TarkovCompanion.Core.Domain.Stash.StashReviewCommand(
+                            Guid.Parse("3ef70b2a-2aac-4ba1-bab8-b24dad6c1eb6"),
+                            recognitionId,
+                            TarkovCompanion.Core.Domain.Stash.StashReviewActionKind.CorrectQuantity,
+                            ["stash/6/8"],
+                            new DateTimeOffset(2026, 9, 22, 12, 34, 56, TimeSpan.Zero),
+                            "v2.stash-workspace",
+                            correctedQuantity: 3,
+                            reason: "Counted on review."),
+                        CancellationToken.None));
+                }
                 var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
                 DrainUntilComplete(stashWorkspace.LoadAsync());
                 if (args.Contains("--stash-list"))
@@ -1776,13 +1825,13 @@ internal static class Program
         {
             var started = now - startedAgo;
             var id = await history.StartAsync(
-                new(Guid.NewGuid(), profile.Id, map, "Pmc", started, null, null, null),
+                new(Guid.NewGuid(), profile.Id, map, "Regular", started, null, null, null),
                 CancellationToken.None);
             await history.EndAsync(id, started + length, outcome, notes, CancellationToken.None);
             return id;
         }
 
-        await Raid("factory4_day", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
+        await Raid("factory", TimeSpan.FromDays(3), TimeSpan.FromMinutes(21), "Survived", null);
         // The companion's own words for a raid it found closed on restart, so the preview shows an
         // inferred end beside the hand-typed and observed ones.
         await Raid(

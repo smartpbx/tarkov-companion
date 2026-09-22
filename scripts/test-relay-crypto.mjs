@@ -4,11 +4,11 @@
 // plus a self-consistent seal/open round trip. Run with `node scripts/test-relay-crypto.mjs`.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const crypto = (await import(path.join(here, "../src/TarkovCompanion.GroupServer/Tablet/relay-crypto.js"))).default;
+const crypto = (await import(pathToFileURL(path.join(here, "../src/TarkovCompanion.GroupServer/Tablet/relay-crypto.js")).href)).default;
 
 function toHex(bytes) {
   return Array.from(bytes).map((byte) => byte.toString(16).padStart(2, "0")).join("");

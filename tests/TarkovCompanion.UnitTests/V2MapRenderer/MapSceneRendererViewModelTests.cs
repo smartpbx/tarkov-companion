@@ -360,7 +360,8 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Same(list, renderer.ListItems);
         Assert.Equal(1, resolveCalls);
         Assert.Equal(1.25, renderer.CameraZoom);
-        Assert.Equal(0.8, renderer.SpatialObjects[0].MarkerInverseZoom, 6);
+        // [#573] Counter-scaled by the zoom, times the size a mark is drawn at that zoom.
+        Assert.Equal(renderer.SpatialObjects[0].MarkerScale / 1.25, renderer.SpatialObjects[0].MarkerInverseZoom, 6);
     }
 
     [Fact]
@@ -939,6 +940,34 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Contains("2", loot.MultipleCategoryFilterMessage, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void High_value_list_keeps_its_page_when_the_same_map_is_presented_again()
+    {
+        // [#453] The Raid map presents on every squadmate move; each one used to throw a player
+        // reading page 2 back to page 1.
+        var result = MapOnlyLootResult("customs", "transform-1", count: 120);
+        var state = HighValueLootLayerFilterState.Default;
+        var loot = new HighValueLootLayerViewModel(result, state, null, null, true, Presentation, _ => { }, _ => { });
+        Assert.Equal(3, loot.PageCount);
+        loot.NextPageCommand.Execute(null);
+        Assert.Equal(2, loot.PageNumber);
+
+        loot.Present(MapOnlyLootResult("customs", "transform-1", count: 120), state, null, null);
+        Assert.Equal(2, loot.PageNumber);
+
+        // A shorter list keeps as much of the place as it can.
+        loot.NextPageCommand.Execute(null);
+        loot.Present(MapOnlyLootResult("customs", "transform-1", count: 70), state, null, null);
+        Assert.Equal(2, loot.PageNumber);
+
+        // Another map, or another filter, is another list.
+        loot.Present(MapOnlyLootResult("woods", "transform-1", count: 120), state, null, null);
+        Assert.Equal(1, loot.PageNumber);
+        loot.NextPageCommand.Execute(null);
+        loot.Present(MapOnlyLootResult("woods", "transform-1", count: 120), state with { MinimumTier = LootSpawnValueTier.Moderate }, null, null);
+        Assert.Equal(1, loot.PageNumber);
+    }
+
     [Theory]
     [InlineData(FreshnessState.Stale, "last-known")]
     [InlineData(FreshnessState.Unknown, "could not be verified")]
@@ -1041,10 +1070,33 @@ public sealed class MapSceneRendererViewModelTests
     private static HighValueLootLayerResult MapOnlyLootResult(
         string mapId,
         string transformVersion,
-        EvidenceProvenance? sourceProvenance = null)
+        EvidenceProvenance? sourceProvenance = null,
+        int count = 1)
     {
         var provenance = sourceProvenance ?? LootProvenance();
         var status = new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current);
+        var entries = Enumerable.Range(0, count).Select(index => MapOnlyEntry(mapId, transformVersion, provenance, status, index)).ToArray();
+        return new(
+            HighValueLootLayerService.Layer,
+            mapId,
+            transformVersion,
+            HighValueLootFilter.Default,
+            status,
+            "Potential spawns",
+            provenance.EvidenceThroughUtc,
+            new(count, 0, 0, count),
+            [],
+            entries,
+            []);
+    }
+
+    private static HighValueLootEntry MapOnlyEntry(
+        string mapId,
+        string transformVersion,
+        EvidenceProvenance provenance,
+        ResultStatus status,
+        int index)
+    {
         var candidate = new LootSpawnCandidate(
             "fixture-item",
             "Fixture item",
@@ -1054,7 +1106,7 @@ public sealed class MapSceneRendererViewModelTests
             new("trader", 50_000L, status, provenance),
             new("squares", 1, status, provenance));
         var spawn = new LootSpawnRecord(
-            "map-only",
+            index == 0 ? "map-only" : $"map-only-{index:D3}",
             mapId,
             "Map-only fixture",
             new(LootSpawnPrecision.MapOnly, null),
@@ -1074,7 +1126,7 @@ public sealed class MapSceneRendererViewModelTests
             transformVersion,
             status,
             provenance);
-        var entry = new HighValueLootEntry(
+        return new HighValueLootEntry(
             spawn,
             LootSpawnValueTier.Moderate,
             90_000,
@@ -1093,18 +1145,6 @@ public sealed class MapSceneRendererViewModelTests
             null,
             null,
             null);
-        return new(
-            HighValueLootLayerService.Layer,
-            mapId,
-            transformVersion,
-            HighValueLootFilter.Default,
-            status,
-            "Potential spawns",
-            provenance.EvidenceThroughUtc,
-            new(1, 0, 0, 1),
-            [],
-            [entry],
-            []);
     }
 
     private static HighValueLootFilter Filter(IReadOnlyList<string>? categories = null) => new(

@@ -27,6 +27,12 @@ public enum NotificationKind
 
     /// <summary>The relay stopped answering while sharing was switched on.</summary>
     RelayUnreachable,
+
+    /// <summary>
+    /// A flea offer sold. Waits for the raid to end like the others; the game posts these while
+    /// the player cannot see them, and a second screen is where they get read (#314).
+    /// </summary>
+    FleaSold,
 }
 
 /// <summary>
@@ -51,8 +57,23 @@ public sealed record NotificationSettings
 
     public bool RelayUnreachable { get; init; } = true;
 
+    public bool FleaSold { get; init; } = true;
+
     /// <summary>Off until asked for. See the remarks on this record.</summary>
     public bool ShowsDesktopPopup { get; init; }
+
+    /// <summary>
+    /// Whether the pop-up keeps quiet between <see cref="QuietFromHour"/> and
+    /// <see cref="QuietToHour"/>, local time. The tray count still counts: quiet hours stop
+    /// something being drawn, never something being recorded.
+    /// </summary>
+    public bool QuietHours { get; init; }
+
+    /// <summary>The local hour (0-23) quiet hours start.</summary>
+    public int QuietFromHour { get; init; } = 23;
+
+    /// <summary>The local hour (0-23) quiet hours end. Earlier than the start means past midnight.</summary>
+    public int QuietToHour { get; init; } = 8;
 
     public static NotificationSettings Default { get; } = new();
 
@@ -63,8 +84,29 @@ public sealed record NotificationSettings
         NotificationKind.DataRefreshFailed => DataRefreshFailed,
         NotificationKind.UpdateReady => UpdateReady,
         NotificationKind.RelayUnreachable => RelayUnreachable,
+        NotificationKind.FleaSold => FleaSold,
         _ => false,
     };
+
+    /// <summary>
+    /// Whether a local time of day falls in quiet hours. From 23 to 8 covers 23:00 to 07:59; a
+    /// start equal to the end is an empty window rather than the whole day, so a slip of the
+    /// picker can never silence everything.
+    /// </summary>
+    public bool IsQuietAt(TimeOnly localTime)
+    {
+        if (!QuietHours)
+        {
+            return false;
+        }
+
+        var from = Math.Clamp(QuietFromHour, 0, 23);
+        var to = Math.Clamp(QuietToHour, 0, 23);
+        var hour = localTime.Hour;
+        return from <= to
+            ? hour >= from && hour < to
+            : hour >= from || hour < to;
+    }
 
     public NotificationSettings With(NotificationKind kind, bool enabled) => kind switch
     {
@@ -73,6 +115,7 @@ public sealed record NotificationSettings
         NotificationKind.DataRefreshFailed => this with { DataRefreshFailed = enabled },
         NotificationKind.UpdateReady => this with { UpdateReady = enabled },
         NotificationKind.RelayUnreachable => this with { RelayUnreachable = enabled },
+        NotificationKind.FleaSold => this with { FleaSold = enabled },
         _ => this,
     };
 }
@@ -95,6 +138,12 @@ public sealed record NotificationRequest(
 /// <param name="By">Whose it is. Ours are never announced back to us.</param>
 /// <param name="IsPing">A ping ("look here now") rather than a waypoint, for the wording.</param>
 public readonly record struct SquadMarkInput(long Id, string By, bool IsPing);
+
+/// <summary>One flea sale, as the coordinator needs to see it.</summary>
+/// <param name="OfferId">The game's offer id, which is what stops one sale being announced twice.</param>
+/// <param name="Count">How many items went with it.</param>
+/// <param name="WrittenUtc">When the game wrote it; null when its timestamp could not be read.</param>
+public readonly record struct FleaSaleInput(string OfferId, int Count, DateTimeOffset? WrittenUtc);
 
 /// <summary>
 /// Everything the coordinator looks at, in one record it can be handed repeatedly.
@@ -127,6 +176,9 @@ public sealed record NotificationInputs
 
     /// <summary>The build waiting to be installed, or null when there is nothing to install.</summary>
     public string? UpdateReadyBuild { get; init; }
+
+    /// <summary>The flea sales seen this session.</summary>
+    public IReadOnlyList<FleaSaleInput> FleaSales { get; init; } = [];
 }
 
 /// <summary>Where the notification settings are kept between runs.</summary>

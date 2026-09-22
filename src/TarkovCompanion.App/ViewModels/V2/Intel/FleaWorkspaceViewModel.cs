@@ -19,6 +19,8 @@ public sealed record FleaListRowViewModel(FleaPriceViewModel Price, bool IsSelec
 
     public string DailyBand => Price.DailyBand;
 
+    public string SevenDayBand => Price.SevenDayBand;
+
     public string ValuePerSlot => Price.ValuePerSlot;
 
     public string Dimensions => Price.Dimensions;
@@ -127,6 +129,8 @@ public sealed class FleaWorkspaceViewModel : BindableViewModel
 
     public string SelectedBand => _page.Selected?.DailyBand ?? string.Empty;
 
+    public string SelectedSevenDayBand => _page.Selected?.SevenDayBand ?? string.Empty;
+
     public string SelectedValuePerSlot => _page.Selected?.ValuePerSlot ?? string.Empty;
 
     public string SelectedProvenance => _page.Selected?.Provenance ?? string.Empty;
@@ -157,7 +161,7 @@ public sealed class FleaWorkspaceViewModel : BindableViewModel
                 foreach (var name in new[]
                 {
                     nameof(HasSelection), nameof(SelectedName), nameof(SelectedPrice), nameof(SelectedBestSale),
-                    nameof(SelectedBand), nameof(SelectedValuePerSlot), nameof(SelectedProvenance),
+                    nameof(SelectedBand), nameof(SelectedSevenDayBand), nameof(SelectedValuePerSlot), nameof(SelectedProvenance),
                 })
                 {
                     OnPropertyChanged(name);

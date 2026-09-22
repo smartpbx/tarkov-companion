@@ -542,6 +542,22 @@
                   </Grid>
                 </Border>
 
+                <!-- #290: the desk's half of the tablet's "Show on desktop". -->
+                <Border Classes="v2-team-row" IsVisible="{Binding !HasNoDevices}">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel Spacing="1" VerticalAlignment="Center">
+                      <TextBlock Classes="v2-body" Text="Show the Raid map's current view on your tablets." TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-team-send-to-tablet-status"
+                                 IsVisible="{Binding Pairing.HasSendMapToTabletMessage}" Text="{Binding Pairing.SendMapToTabletMessage}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="v2-team-outline" Content="Send to tablet"
+                            AutomationProperties.AutomationId="v2-team-send-to-tablet"
+                            IsEnabled="{Binding Pairing.CanSendMapToTablet}"
+                            Command="{Binding Pairing.SendMapToTabletCommand}" />
+                  </Grid>
+                </Border>
+
                 <ItemsControl ItemsSource="{Binding Devices}" IsVisible="{Binding !HasNoDevices}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>

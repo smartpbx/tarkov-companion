@@ -183,11 +183,18 @@ public sealed record SquadSnapshot(
 /// </param>
 /// <param name="Count">How many sold.</param>
 /// <param name="ObservedUtc">When the line was read, not when the sale happened.</param>
+/// <param name="WrittenUtc">
+/// When the game wrote the line, read from its own timestamp, or null when that could not be
+/// read. The startup replay reads a whole session's old sales "now", and only this tells a sale
+/// from this morning apart from one that just happened, which is what the flea-sold
+/// notification needs.
+/// </param>
 public sealed record FleaSaleObservation(
     string OfferId,
     string? HandbookItemId,
     int Count,
-    DateTimeOffset ObservedUtc);
+    DateTimeOffset ObservedUtc,
+    DateTimeOffset? WrittenUtc = null);
 
 /// <summary>Flea sales seen this session, newest first.</summary>
 /// <param name="Sales">Every sale observed, at most one row per offer.</param>

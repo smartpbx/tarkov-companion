@@ -1385,6 +1385,21 @@ foreach ($Zoom in @(0, 3)) {
         interaction = [pscustomobject]@{ steps = $ExtractSteps.ToArray() }
     })
 }
+# [#573] The loot layer on real data: Customs with "High-value loot only" pressed, fitted. It
+# drew 232 identical diamonds over every building before it was ranked by value; the spawns
+# arrive with the loot publication, which a clean runner downloads first.
+$Shots.Add([pscustomobject]@{
+    name = "v2-a-raid-loot-layer-1920"
+    args = @("--ui-shell", "v2-a", "--map", "customs")
+    shellMode = "v2-a"; width = 1920; height = 1080
+    seedPreview = [pscustomobject]@{ variant = "v2-a"; address = "#/raid" }
+    interaction = [pscustomobject]@{ steps = @(
+        [pscustomobject]@{
+            action = "invoke"; description = "show only the high-value loot layer"
+            targetAutomationId = "v2-map-loot-preset"; targetControlType = "Button"
+            timeoutSeconds = 120; settleMilliseconds = 4000
+        }) }
+})
 $Shots.Add([pscustomobject]@{
     name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
     width = 1100; height = 850

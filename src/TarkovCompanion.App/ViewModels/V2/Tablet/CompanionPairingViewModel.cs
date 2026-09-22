@@ -160,7 +160,7 @@ public enum RelayOwnerClaimState
     NotConfiguredForClaiming,
 }
 
-public sealed class CompanionPairingViewModel : BindableViewModel, IDisposable
+public sealed partial class CompanionPairingViewModel : BindableViewModel, IDisposable
 {
     private readonly DesktopCompanionAuthority _authority;
     private readonly DesktopPairingCoordinator? _coordinator;

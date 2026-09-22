@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profile;
@@ -53,7 +54,8 @@ public sealed record V2IntelAmmoFacts(
     IReadOnlyDictionary<int, ArmorEffectiveness> ArmorClassRatings,
     string PracticalAdvice,
     int? ArmorDamagePercent = null,
-    double? FragmentationChance = null);
+    double? FragmentationChance = null,
+    double? VelocityMetresPerSecond = null);
 
 /// <summary>One trader's buy-back price, as the catalog names the trader.</summary>
 public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
@@ -75,7 +77,8 @@ public sealed record V2IntelPriceFacts(
     long? High24HourRoubles,
     IReadOnlyList<V2IntelTraderPrice> Traders,
     DateTimeOffset UpdatedUtc,
-    long? FeeRoubles = null);
+    long? FeeRoubles = null,
+    PriceHistorySummary? SevenDayHistory = null);
 
 /// <summary>One active quest that still wants this item, by name.</summary>
 public sealed record V2IntelQuestNeedRow(string TaskName, int? Remaining, bool FoundInRaidRequired);
@@ -120,6 +123,13 @@ public sealed record V2ItemIntelResult(
 public interface IItemIntelService
 {
     Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The card plus the gear and weight facts a side-by-side comparison (#287) needs. The default
+    /// leaves those unknown, so a service that has no fact catalog still compares on what it has.
+    /// </summary>
+    async Task<ItemComparisonFacts> GetComparisonFactsAsync(string itemId, CancellationToken cancellationToken) =>
+        new(await GetAsync(itemId, cancellationToken).ConfigureAwait(false), Gear: null, WeightKg: null);
 }
 
 public sealed class ItemIntelService(
@@ -135,7 +145,8 @@ public sealed class ItemIntelService(
     IPlayerProfileService? profileService = null,
     ProfileNeedAggregationService? needAggregation = null,
     IRequirementCatalog? requirements = null,
-    IItemMarketFactSource? marketFacts = null) : IItemIntelService
+    IItemMarketFactSource? marketFacts = null,
+    IPriceHistoryService? priceHistory = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -161,6 +172,20 @@ public sealed class ItemIntelService(
         } with { Description = item.Description, Prices = prices, Keep = keep };
     }
 
+    public async Task<ItemComparisonFacts> GetComparisonFactsAsync(string itemId, CancellationToken cancellationToken)
+    {
+        var intel = await GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+        if (intel.Kind == V2IntelKind.Unknown)
+        {
+            return new(intel, Gear: null, WeightKg: null);
+        }
+
+        // Cached by the catalog after its first read, so a comparison of three costs three lookups.
+        var facts = await factCatalog.GetLoadoutFactsAsync(cancellationToken).ConfigureAwait(false);
+        var match = facts.FirstOrDefault(fact => string.Equals(fact.ItemId, itemId, StringComparison.Ordinal));
+        return new(intel, match?.Gear, match?.WeightKg);
+    }
+
     private async Task<V2ItemIntelResult> BuildAmmoAsync(
         ItemDefinition item,
         V2IntelValueFacts value,
@@ -180,7 +205,8 @@ public sealed class ItemIntelService(
                 intelligence.ArmorClassRatings,
                 intelligence.PracticalAdvice,
                 intelligence.Stats.ArmorDamagePercent,
-                intelligence.Stats.FragmentationChance);
+                intelligence.Stats.FragmentationChance,
+                intelligence.Stats.VelocityMetresPerSecond);
         return Base(V2IntelKind.Ammo, item, value) with { Ammo = ammo };
     }
 
@@ -256,7 +282,26 @@ public sealed class ItemIntelService(
                 .Select(offer => new V2IntelTraderPrice(offer.TraderName, offer.ValueRoubles))
                 .ToArray(),
             price.Provenance.SourceUpdatedUtc ?? price.Provenance.ObservedUtc,
-            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false));
+            await FeeRoublesAsync(itemId, price.FleaPriceRoubles, cancellationToken).ConfigureAwait(false),
+            await HistoryAsync(itemId, cancellationToken).ConfigureAwait(false));
+    }
+
+    private async Task<PriceHistorySummary?> HistoryAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (priceHistory is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var points = await priceHistory.GetAsync(itemId, TimeSpan.FromDays(7), cancellationToken).ConfigureAwait(false);
+            return PriceHistorySummary.From(points);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

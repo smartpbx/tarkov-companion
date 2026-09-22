@@ -101,8 +101,25 @@ public sealed class NotificationBridge : IDisposable
     /// Goes through the real channels rather than a preview, because the question the button
     /// answers is "what will I actually see". It ignores the switch beside it on purpose: pressing
     /// "test this" on a notification you have turned off is how you decide whether to turn it on.
+    /// Quiet hours are ignored too: a test pressed at midnight is somebody asking to see it.
     /// </remarks>
-    public void Test(NotificationKind kind) => Deliver(NotificationSamples.For(kind, _timeProvider.GetUtcNow()));
+    public void Test(NotificationKind kind) => Deliver(NotificationSamples.For(kind, _timeProvider.GetUtcNow()), ignoreQuietHours: true);
+
+    /// <summary>Sets quiet hours for the pop-up, and remembers the answer.</summary>
+    public async Task SetQuietHoursAsync(bool enabled, int fromHour, int toHour, CancellationToken cancellationToken)
+    {
+        _settings = _settings with
+        {
+            QuietHours = enabled,
+            QuietFromHour = Math.Clamp(fromHour, 0, 23),
+            QuietToHour = Math.Clamp(toHour, 0, 23),
+        };
+        await _settingsStore.SaveAsync(_settings, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Whether the pop-up is being held back by quiet hours right now.</summary>
+    public bool IsQuietNow() => _settings.IsQuietAt(
+        TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(_timeProvider.GetUtcNow(), _timeProvider.LocalTimeZone).DateTime));
 
     /// <summary>Re-reads the player's own relay name, so their own marks stay silent.</summary>
     public async Task RefreshPlayerNameAsync(CancellationToken cancellationToken)
@@ -158,7 +175,7 @@ public sealed class NotificationBridge : IDisposable
         }
     }
 
-    private void Deliver(NotificationRequest request)
+    private void Deliver(NotificationRequest request, bool ignoreQuietHours = false)
     {
         foreach (var channel in _quietChannels)
         {
@@ -167,7 +184,7 @@ public sealed class NotificationBridge : IDisposable
 
         // The one thing that can put something on screen by itself, and the one thing that is off
         // until asked for.
-        if (_settings.ShowsDesktopPopup)
+        if (_settings.ShowsDesktopPopup && (ignoreQuietHours || !IsQuietNow()))
         {
             _popupChannel()?.Show(request);
         }
@@ -196,6 +213,9 @@ public sealed class NotificationBridge : IDisposable
             IsSharing = group.IsSharing,
             RelayStaleSince = group.StaleSince,
             SquadMarks = marks,
+            FleaSales = snapshot.FleaSales.Sales
+                .Select(sale => new FleaSaleInput(sale.OfferId, sale.Count, sale.WrittenUtc))
+                .ToArray(),
             FailedDataEndpoints = snapshot.Data.FailedEndpoints,
             // "Ready to install" is the unpacked build waiting for a restart, not merely one that
             // exists in the feed: an offer somebody has not downloaded is not ready for anything.

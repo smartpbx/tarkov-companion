@@ -9,6 +9,30 @@ public sealed record UnresolvedPriceHistoryPoint(
     string Source,
     string RawJson);
 
+/// <summary>The flea observations retained for one item, reduced to a compact seven-day line.</summary>
+public sealed record PriceHistorySummary(long LowRoubles, long AverageRoubles, long HighRoubles, int ObservationCount)
+{
+    public static PriceHistorySummary? From(IReadOnlyList<PriceHistoryPoint> points)
+    {
+        ArgumentNullException.ThrowIfNull(points);
+        var prices = points
+            .Select(point => point.FleaPriceRoubles)
+            .OfType<long>()
+            .Where(price => price > 0)
+            .ToArray();
+        if (prices.Length == 0)
+        {
+            return null;
+        }
+
+        return new(
+            prices.Min(),
+            checked((long)Math.Round(prices.Average(value => (decimal)value), MidpointRounding.AwayFromZero)),
+            prices.Max(),
+            prices.Length);
+    }
+}
+
 public interface IPriceHistoryStore
 {
     Task<IReadOnlyList<PriceHistoryPoint>> GetAsync(

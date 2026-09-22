@@ -46,7 +46,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(17, first.Applied.Count);
+            Assert.Equal(18, first.Applied.Count);
             Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -150,6 +150,7 @@ public sealed class SqliteMigrationTests
                     "0015_flea_market_settings",
                     "0016_restore_task_objective_items",
                     "0017_raid_soft_delete",
+                    "0018_stash_review_commands",
                 ],
                 applied.Applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);

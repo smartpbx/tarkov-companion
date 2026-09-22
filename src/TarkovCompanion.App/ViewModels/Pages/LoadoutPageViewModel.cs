@@ -509,8 +509,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
             var slot = SelectedSlot;
             var hits = await _searchService.SearchAsync(SearchQuery, 60, cancellationToken).ConfigureAwait(true);
             var fitting = hits
-                .Where(hit => LoadoutSlotRules.Accepts(slot.Slot, hit.Item.Category))
-                .OrderByDescending(hit => LoadoutSlotRules.Fits(slot.Slot, hit.Item.Category))
+                .Where(hit => LoadoutSlotRules.Accepts(slot.Slot, KindOf(hit.Item.Id, hit.Item.Category, facts)))
+                .OrderByDescending(hit => LoadoutSlotRules.Fits(slot.Slot, KindOf(hit.Item.Id, hit.Item.Category, facts)))
                 .Take(20)
                 .ToArray();
             Results = fitting.Select(hit => Describe(hit.Item, facts)).ToArray();
@@ -967,7 +967,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
             var facts = _facts.GetValueOrDefault(itemId);
             var name = item?.Name ?? facts?.Name ?? itemId;
-            var category = item?.Category ?? facts?.Category ?? ItemCategory.Unknown;
+            var category = KindOf(itemId, item?.Category ?? ItemCategory.Unknown, _facts);
             if (!LoadoutSlotRules.Accepts(slot.Slot, category))
             {
                 // The results were filtered for the slot they were searched under; the slot can
@@ -1177,12 +1177,20 @@ public sealed class LoadoutPageViewModel : PageViewModel
             item.Id,
             item.Name,
             item.ShortName,
-            item.Category.ToString(),
+            KindOf(item.Id, item.Category, facts).ToString(),
             DescribeCost(fact),
             DescribeWeight(fact),
             DescribeDetail(fact),
             new AsyncDelegateCommand(() => AssignAsync(item.Id, CancellationToken.None)));
     }
+
+    /// <summary>
+    /// What kind of item this is: the item's own category, or the fact table's when the item
+    /// says Unknown. A weapon preset is filed as Unknown and its facts carry its base weapon's
+    /// kind (see SqliteItemFactCatalog.InheritFromPresetBases).
+    /// </summary>
+    private static ItemCategory KindOf(string itemId, ItemCategory category, IReadOnlyDictionary<string, LoadoutItemFacts> facts) =>
+        category == ItemCategory.Unknown && facts.GetValueOrDefault(itemId) is { } fact ? fact.Category : category;
 
     internal static LoadoutFindingViewModel Finding(LoadoutEvaluation evaluation, string message) =>
         new(message, evaluation.Explanations?.GetValueOrDefault(message) ?? string.Empty);
@@ -1232,7 +1240,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private static string DescribeDetail(LoadoutItemFacts? facts) =>
         facts?.Caliber is { } caliber
-            ? caliber
+            ? CaliberText.Describe(caliber)
             : facts?.Gear is { } gear
                 ? GearFactsReader.Summarize(gear) ?? "No figures recorded"
                 : "No caliber recorded";

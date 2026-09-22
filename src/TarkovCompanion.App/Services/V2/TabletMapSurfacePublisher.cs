@@ -77,6 +77,8 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private WorkspaceProjection? _remoteTarget;
     private int _remotePosted;
     private DesktopViewportEase? _ease;
+    private DateTimeOffset? _sentToTabletUtc;
+    private TabletLootResult? _loot;
 
     public TabletMapSurfacePublisher(
         RaidCockpitViewModel cockpit,
@@ -145,7 +147,9 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 _authority.Snapshot.CanonicalState.Workspace.Projection,
                 await SearchResultsAsync(cancellationToken).ConfigureAwait(false),
                 artwork is null ? null : _cockpit.BackgroundStatus(),
-                Utc());
+                Utc(),
+                _sentToTabletUtc,
+                Volatile.Read(ref _loot));
             await PushDesktopWorkspaceAsync(scene, cancellationToken).ConfigureAwait(false);
 
             // The scene is rebuilt on every runtime tick and most ticks change nothing a tablet
@@ -182,6 +186,37 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         {
             _publishGate.Release();
         }
+    }
+
+    /// <summary>
+    /// "Send to tablet": publishes the desktop's current map view with a new stamp, and a paired
+    /// tablet in Independent moves its own view there (one in Follow already shows it).
+    /// </summary>
+    /// <returns>Whether the relay took the surface carrying this send.</returns>
+    public async Task<bool> SendToTabletAsync(CancellationToken cancellationToken = default)
+    {
+        var stamp = Utc();
+        _sentToTabletUtc = stamp;
+        await PublishNowAsync(cancellationToken).ConfigureAwait(false);
+        return LastSurface?.SentToTabletUtc == stamp;
+    }
+
+    /// <summary>#572: puts a Loot Scan result on the paired tablets with the next publish, now.</summary>
+    public void ShowLootResult(TabletLootResult loot)
+    {
+        ArgumentNullException.ThrowIfNull(loot);
+        Volatile.Write(ref _loot, loot);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await PublishNowAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // A tablet that misses a loot result still has the desktop's Loot page.
+            }
+        });
     }
 
     private void OnSceneRebuilt(object? sender, EventArgs e)
@@ -342,13 +377,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 var isAllergic = eventStates is not null &&
                     eventStates.TryGetValue(hit.Item.Id, out var state) &&
                     state == EventItemState.Allergic;
-                results.Add(new(
-                    hit.Item.Id,
-                    hit.Item.Name,
-                    hit.Item.ShortName,
-                    price?.FleaPriceRoubles,
-                    price?.BestTrader?.ValueRoubles,
-                    isAllergic));
+                results.Add(TabletSearchResultBuilder.From(hit, price, isAllergic));
             }
 
             _search = new(query, results);

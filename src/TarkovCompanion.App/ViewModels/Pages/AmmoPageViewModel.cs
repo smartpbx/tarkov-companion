@@ -68,7 +68,6 @@ public sealed class AmmoPageViewModel : PageViewModel
 {
     private int? _knownItemCount;
 
-    private const string CaliberPrefix = "Caliber";
     private const string NoRoundSelected = "Select a round to see how it ranks and why.";
 
     private readonly IItemFactCatalog _catalog;
@@ -448,17 +447,8 @@ public sealed class AmmoPageViewModel : PageViewModel
         return traits.Count == 0 ? "No extra traits are recorded." : string.Join(" · ", traits);
     }
 
-    /// <summary>Turns the upstream caliber token into something a player can read.</summary>
-    /// <remarks>
-    /// json.tarkov.dev writes calibers as "Caliber556x45NATO". Only the prefix is dropped: the
-    /// digits are left exactly as the source wrote them, because inserting the decimal point a
-    /// player expects would be this app guessing at a value it was never given.
-    /// </remarks>
-    private static string DescribeCaliber(string caliber) =>
-        caliber.StartsWith(CaliberPrefix, StringComparison.OrdinalIgnoreCase) &&
-        caliber.Length > CaliberPrefix.Length
-            ? caliber[CaliberPrefix.Length..]
-            : caliber;
+    /// <summary>See <see cref="CaliberText"/>.</summary>
+    private static string DescribeCaliber(string caliber) => CaliberText.Describe(caliber);
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 

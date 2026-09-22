@@ -96,9 +96,79 @@
   /* #407: a search result the desktop flagged this raid's event as allergic to. */
   .chip { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 600; margin-left: 6px; vertical-align: middle; }
   .chip.allergic { border-color: var(--alarm); color: var(--alarm); }
+  .wikiLink { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 6px; color: var(--cyan); text-decoration: none; }
   .switcher { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .switcher select { flex: 1 1 160px; min-width: 0; min-height: 44px; }
   .headerBtn { background: transparent; border-color: transparent; min-height: 32px; padding: 6px 10px; flex: none; }
+
+  /* Paired: the map takes the screen. Measured before this: on a 1280x800 tablet the controls
+     stacked above the map took ~43% of the height and the map ran off the bottom; on a 390 px
+     phone the header wrapped onto two lines. */
+  header { flex-wrap: nowrap; }
+  header .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header h1 { white-space: nowrap; flex: none; }
+  body.live header { padding: 8px 16px; }
+  body.live main { max-width: none; margin: 0; width: 100%; padding: 8px; }
+  body.live #surface { padding: 8px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  #surfaceBar .modes { margin-bottom: 4px; }
+  #surfaceBar #modeNote { margin: 0; }
+  #mapColumn { display: flex; flex-direction: column; min-height: 0; }
+  #mapWrap { flex: 1 1 auto; min-height: 0; }
+  body.live #map { height: calc(100svh - 190px); min-height: 300px; }
+  #mapOverlay {
+    position: absolute; top: 10px; left: 10px; right: 64px;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none;
+  }
+  #mapOverlay > * { pointer-events: auto; }
+  #mapOverlay .floors { margin: 0; }
+  #mapOverlay .floors button { background: rgba(11, 16, 22, .82); }
+  #mapOverlay .floors button[aria-pressed="true"] { background: var(--cyan); }
+  #mapOverlay .notice { margin: 0; max-width: 520px; background: rgba(14, 21, 29, .94); }
+  #surfacePanel h2 { margin-top: 6px; }
+  /* #572: a Loot Scan result, over the map until it is put away. */
+  #lootSheet {
+    position: absolute; inset: 10px 64px 10px 10px; z-index: 2;
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  }
+  #lootSheet .lootHead { display: flex; align-items: center; gap: 10px; }
+  #lootSheet .lootHead h3 { margin: 0; font-size: 16px; flex: 1; min-width: 0; }
+  #lootRows { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .lootRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+    border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 7px 10px; }
+  .lootRow .verdict { font-size: 11px; font-weight: 700; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--line); }
+  .lootRow .verdict.Take { color: var(--sage); border-color: var(--sage); }
+  .lootRow .verdict.Swap { color: var(--cyan); border-color: var(--cyan); }
+  .lootRow .verdict.Review { color: var(--ochre); border-color: var(--ochre); }
+  .lootRow .verdict.Leave { color: var(--quiet); }
+  .lootRow .lootName { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lootRow .lootValue { font-variant-numeric: tabular-nums; }
+  .lootRow .lootReason { grid-column: 2 / 4; color: var(--quiet); font-size: 13px; }
+  body.panel-hidden #surfacePanel { display: none; }
+  #panelToggle[aria-expanded="false"] { color: var(--cyan); }
+  /* A tablet on its side: the map fills the height, the controls are a column beside it that
+     scrolls on its own and folds away. */
+  @media (orientation: landscape) and (min-width: 700px) {
+    body.live { height: 100svh; display: flex; flex-direction: column; overflow: hidden; }
+    body.live main { flex: 1 1 auto; min-height: 0; display: flex; }
+    body.live #surface {
+      flex: 1 1 auto; min-height: 0;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-areas: "map bar" "map panel";
+    }
+    body.live.panel-hidden #surface {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "bar" "map";
+    }
+    body.live.panel-hidden #surfaceBar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    body.live.panel-hidden #surfaceBar .modes { margin: 0; }
+    #surfaceBar { grid-area: bar; }
+    #mapColumn { grid-area: map; }
+    #surfacePanel { grid-area: panel; overflow-y: auto; min-height: 0; padding-right: 2px; }
+    body.live #map { height: 100%; min-height: 0; }
+  }
 </style>
 </head>
 <body>
@@ -139,56 +209,84 @@
   </section>
 
   <section id="surface" style="display:none">
-    <div class="modes" id="deviceModes">
-      <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
-      <button type="button" data-mode="Control" aria-pressed="false">Control</button>
-      <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
-    </div>
-    <p class="quiet" id="modeNote">Following the desktop's map.</p>
-    <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
-    <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
-         pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
-         either do nothing (Follow) or silently disagree with the desk (Independent). -->
-    <div class="switcher" id="mapSwitcher" hidden>
-      <label class="quiet" for="mapSwitch">Map</label>
-      <select id="mapSwitch"></select>
-    </div>
-    <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
-         drifted apart on purpose. This is the way back without giving up Independent: it hands
-         the desktop this view once rather than making it follow from now on. -->
-    <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
-    <div class="floors" id="floors"></div>
-    <div class="floors" id="layers"></div>
-    <div id="mapWrap">
-      <canvas id="map"></canvas>
-      <div id="mapTools">
-        <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
-        <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
-        <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+    <div id="surfaceBar">
+      <div class="modes" id="deviceModes">
+        <button type="button" data-mode="Follow" aria-pressed="true">Follow</button>
+        <button type="button" data-mode="Control" aria-pressed="false">Control</button>
+        <button type="button" data-mode="Independent" aria-pressed="false">Independent</button>
       </div>
-      <div id="mapMessage">Waiting for the desktop's map…</div>
+      <p class="quiet" id="modeNote">Following the desktop's map.</p>
     </div>
-    <p class="attribution" id="attribution"></p>
+    <!-- The map is the surface: it takes the height the screen has. Floors and the desktop's
+         answers sit on it rather than above it, where they used to push it off a landscape
+         tablet's screen (controls took ~43% of 800 px). -->
+    <div id="mapColumn">
+      <div id="mapWrap">
+        <canvas id="map"></canvas>
+        <div id="mapOverlay">
+          <div class="floors" id="floors"></div>
+          <div class="notice" id="commandNotice" role="status" aria-live="polite" hidden></div>
+        </div>
+        <div id="mapTools">
+          <button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" id="fit" title="Fit the whole map" aria-label="Fit">⤢</button>
+          <button type="button" id="panelToggle" title="Hide controls" aria-label="Hide controls" aria-expanded="true">☰</button>
+        </div>
+        <div id="mapMessage">Waiting for the desktop's map…</div>
+        <div id="lootSheet" role="dialog" aria-labelledby="lootTitle" hidden>
+          <div class="lootHead">
+            <h3 id="lootTitle">Loot scan</h3>
+            <button type="button" id="lootClose">Back to map</button>
+          </div>
+          <p class="quiet" id="lootSummary" style="margin:0"></p>
+          <div id="lootRows"></div>
+        </div>
+      </div>
+      <p class="attribution" id="attribution"></p>
+    </div>
 
-    <h2 style="margin-top:16px">Marks</h2>
-    <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
-         means, the way right-click and shift+right-click do on the desktop. -->
-    <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
-    <div class="form">
-      <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
-    </div>
-    <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+    <div id="surfacePanel">
+      <!-- #407: a Control-mode tablet can send the desktop to a different map entirely, not only
+           pan and zoom on the one it is already showing. Hidden outside Control: elsewhere it would
+           either do nothing (Follow) or silently disagree with the desk (Independent). -->
+      <div class="switcher" id="mapSwitcher" hidden>
+        <label class="quiet" for="mapSwitch">Map</label>
+        <select id="mapSwitch"></select>
+      </div>
+      <!-- #290: Independent is the one mode where this tablet's own view and the desktop's have
+           drifted apart on purpose. This is the way back without giving up Independent: it hands
+           the desktop this view once rather than making it follow from now on. -->
+      <button type="button" id="showOnDesktop" hidden>Show this view on desktop</button>
+      <h2>Layers</h2>
+      <div class="floors" id="layers"></div>
 
-    <h2 style="margin-top:16px">Look something up</h2>
-    <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
-    <!-- #407: search silently did nothing outside Control, with no way off this page to fix
-         that. One tap asks for the same lease the Control mode button above grants. -->
-    <button type="button" id="searchTakeControl">Take control</button>
-    <div class="form">
-      <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
-      <button type="button" id="findGo">Search on desktop</button>
+      <!-- #572: the last Loot Scan the desktop sent, to look at again. -->
+      <div id="lootAgain" hidden>
+        <h2 style="margin-top:16px">Loot</h2>
+        <button type="button" id="lootOpen">Last loot scan</button>
+      </div>
+
+      <h2 style="margin-top:16px">Marks</h2>
+      <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
+           means, the way right-click and shift+right-click do on the desktop. -->
+      <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Hold a mark to remove it.</p>
+      <div class="form">
+        <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
+      </div>
+      <div class="markList" id="markList"><p class="empty">Nothing marked yet.</p></div>
+
+      <h2 style="margin-top:16px">Look something up</h2>
+      <p class="quiet" id="searchNote">Take control of the desktop to search on it.</p>
+      <!-- #407: search silently did nothing outside Control, with no way off this page to fix
+           that. One tap asks for the same lease the Control mode button above grants. -->
+      <button type="button" id="searchTakeControl">Take control</button>
+      <div class="form">
+        <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
+        <button type="button" id="findGo">Search on desktop</button>
+      </div>
+      <div class="markList" id="found"></div>
     </div>
-    <div class="markList" id="found"></div>
   </section>
 </main>
 <script src="/tablet/relay-crypto.js"></script>
@@ -799,6 +897,9 @@
   let camera = null;
   let localSelectionId = null;
   let localHiddenLayers = null;
+  // #290 "Send to tablet": the desktop's last send this page has seen. Undefined until the first
+  // surface, which only sets it, so reloading the page never replays an old send.
+  let seenSentToTablet;
 
   const COLOURS = {
     Extract: "#77b895",
@@ -1170,9 +1271,29 @@
     return mode === "Independent" ? localSelectionId : (live?.surface?.view?.selectionId ?? localSelectionId);
   }
 
+  // body.live lays the page out for the map (the CSS above); the pairing card never needs it.
+  function showSurface(on) {
+    $("surface").style.display = on ? "" : "none";
+    document.body.classList.toggle("live", on);
+  }
+
+  // The controls column folds away so the map can have the whole screen, and stays folded
+  // across reloads on this device.
+  const PANEL_KEY = "tarkov-companion-tablet-panel-hidden";
+  function setPanelHidden(hidden) {
+    document.body.classList.toggle("panel-hidden", hidden);
+    const toggle = $("panelToggle");
+    toggle.setAttribute("aria-expanded", String(!hidden));
+    const label = hidden ? "Show controls" : "Hide controls";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    try { localStorage.setItem(PANEL_KEY, hidden ? "1" : "0"); } catch { /* private window */ }
+    drawMap();
+  }
+
   function renderSurface() {
     const surface = live?.surface;
-    $("surface").style.display = live ? "" : "none";
+    showSurface(!!live);
     const message = $("mapMessage");
     if (!surface) {
       message.style.display = "";
@@ -1372,6 +1493,18 @@
 
   // The answers to a lookup, resolved by the desktop that has the catalogue. #417 sent the query
   // over and left the answers on the wrong screen.
+  // The page itself loads nothing from anywhere else; a wiki link is followed only when tapped,
+  // and only to the wiki's own host (the desktop's WikiLinkPolicy, checked again here).
+  const WIKI_HOST = "escapefromtarkov.fandom.com";
+  function wikiLink(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === WIKI_HOST ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
   function renderResults(surface) {
     const holder = $("found");
     holder.replaceChildren();
@@ -1393,15 +1526,35 @@
         name.appendChild(chip);
       }
 
+      // #379: what the desktop's Intel list says about it too: kind, size, per-slot value and
+      // which trader pays.
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = [
-        item.shortName,
+      meta.textContent = [item.shortName, item.category, item.size].filter(Boolean).join(" · ");
+      const prices = document.createElement("div");
+      prices.className = "meta";
+      prices.textContent = [
         roubles(item.fleaRoubles) ? `flea ${roubles(item.fleaRoubles)}` : null,
-        roubles(item.traderRoubles) ? `trader ${roubles(item.traderRoubles)}` : null,
+        roubles(item.traderRoubles)
+          ? `${item.traderName ?? "trader"} ${roubles(item.traderRoubles)}`
+          : null,
+        roubles(item.perSlotRoubles) ? `${roubles(item.perSlotRoubles)} / slot` : null,
       ].filter(Boolean).join(" · ");
-      info.append(name, meta);
+      info.append(name, meta, prices);
       row.append(info);
+      // The wiki page in a new tab. The desktop only sends a link to the wiki's own host; this
+      // checks again, because a link is the one thing on this page that leaves it.
+      const wikiHref = typeof item.wikiUri === "string" ? wikiLink(item.wikiUri) : null;
+      if (wikiHref) {
+        const wiki = document.createElement("a");
+        wiki.className = "wikiLink";
+        wiki.href = wikiHref;
+        wiki.target = "_blank";
+        wiki.rel = "noopener noreferrer";
+        wiki.textContent = "Wiki";
+        row.append(wiki);
+      }
+
       holder.appendChild(row);
     }
   }
@@ -1461,6 +1614,8 @@
       });
       live.connected = live.desktopOnline;
       live.surface = surface;
+      takeSentView(surface);
+      takeLoot(surface);
       if (surface.artwork && surface.artwork.contentSha256 !== artworkSha) {
         await loadArtwork(surface.artwork.contentSha256);
       } else if (!surface.artwork) {
@@ -1486,6 +1641,83 @@
       renderLiveStatus();
       return false;
     }
+  }
+
+  // #572: a Loot Scan result rides on the map surface. A new one opens over the map; the first
+  // surface after a load only records which one it is, so a reload never pops up an old scan.
+  let seenLootId;
+  function takeLoot(surface) {
+    const loot = surface.loot ?? null;
+    const id = loot ? `${loot.scanId}|${loot.evaluatedUtc}` : null;
+    const first = seenLootId === undefined;
+    const fresh = id !== null && id !== seenLootId;
+    seenLootId = id;
+    $("lootAgain").hidden = !loot;
+    if (!loot) {
+      $("lootSheet").hidden = true;
+      return;
+    }
+
+    if (!$("lootSheet").hidden || (fresh && !first)) renderLoot(loot);
+  }
+
+  function renderLoot(loot) {
+    const at = new Date(loot.evaluatedUtc);
+    $("lootTitle").textContent = `${loot.heading} · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    $("lootSummary").textContent = loot.hiddenRows > 0
+      ? `${loot.summary} · ${loot.hiddenRows} more on the desktop`
+      : loot.summary;
+    const holder = $("lootRows");
+    holder.replaceChildren();
+    for (const item of loot.rows) {
+      const row = document.createElement("div");
+      row.className = "lootRow";
+      const verdict = document.createElement("span");
+      verdict.className = `verdict ${item.verdict}`;
+      verdict.textContent = item.verdictLabel;
+      const name = document.createElement("span");
+      name.className = "lootName";
+      name.textContent = item.name;
+      const value = document.createElement("span");
+      value.className = "lootValue";
+      value.textContent = item.value;
+      row.append(verdict, name, value);
+      if (item.reason) {
+        const reason = document.createElement("span");
+        reason.className = "lootReason";
+        reason.textContent = item.reason;
+        row.append(reason);
+      }
+
+      holder.appendChild(row);
+    }
+
+    if (loot.rows.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "Nothing was read in that container.";
+      holder.appendChild(empty);
+    }
+
+    $("lootSheet").hidden = false;
+  }
+
+  // #290: the desktop pressed "Send to tablet". Independent keeps its own view on purpose, so
+  // this is the one mode it moves: to the desk's view, layers and selection, staying Independent.
+  // Follow and Control already show the desk's view; they only say it arrived.
+  function takeSentView(surface) {
+    const sent = surface.sentToTabletUtc ?? null;
+    const first = seenSentToTablet === undefined;
+    const fresh = sent !== null && sent !== seenSentToTablet;
+    seenSentToTablet = sent;
+    if (first || !fresh) return;
+    if (mode === "Independent") {
+      camera = { x: surface.view.centerX, y: surface.view.centerY, zoom: surface.view.zoom };
+      localHiddenLayers = null;
+      localSelectionId = surface.view.selectionId ?? null;
+    }
+
+    showNotice(`The desktop sent its view of ${surface.mapName}.`, "ok");
   }
 
   async function loadArtwork(sha) {
@@ -1783,7 +2015,7 @@
 
   function beginLive() {
     const session = live;
-    $("surface").style.display = "";
+    showSurface(true);
     // #407: "the map is the surface... everything else is a strip around it" was the stated
     // intent, but the pairing card kept its full section — heading, "Paired as…" text and an
     // Unpair button — permanently above the map, pushing it (and everything below it) off the
@@ -1820,7 +2052,7 @@
     confirmedMode = "Follow";
     pending.clear();
     await forgetSession();
-    $("surface").style.display = "none";
+    showSurface(false);
     $("pairing").hidden = false;
     $("unpairHeader").hidden = true;
     renderLiveStatus();
@@ -1848,7 +2080,7 @@
       if (event.data?.type !== "live" || event.data.tabId === tabId || !live) return;
       if (event.data.sessionId !== live.sessionId) return;
       live = null;
-      $("surface").style.display = "none";
+      showSurface(false);
       setStage("pairingIdle", "This tablet is open in another tab. Reload this one to use it here instead.");
       renderLiveStatus();
     };
@@ -2847,6 +3079,14 @@
   });
 
   window.addEventListener("resize", () => drawMap());
+  // A layout change (the controls folding, a notice, the attribution wrapping) resizes the map
+  // without resizing the window.
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => drawMap()).observe($("mapWrap"));
+  $("lootClose").addEventListener("click", () => { $("lootSheet").hidden = true; });
+  $("lootOpen").addEventListener("click", () => { if (live?.surface?.loot) renderLoot(live.surface.loot); });
+  $("panelToggle").addEventListener("click", () =>
+    setPanelHidden(!document.body.classList.contains("panel-hidden")));
+  try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
 
   // ---------------------------------------------------------------------------------------
   // UI wiring.
@@ -2913,6 +3153,10 @@
     mapId: live?.surface?.mapId ?? null,
     objectsCount: (live?.surface?.objects ?? []).length,
     objectKinds: (live?.surface?.objects ?? []).map((item) => item.kind),
+    surfaceView: live?.surface?.view ?? null,
+    notice: $("commandNotice").hidden ? null : $("commandNotice").textContent,
+    lootOpen: !$("lootSheet").hidden,
+    lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
   });
 
   setStage("pairingIdle");

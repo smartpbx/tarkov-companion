@@ -373,6 +373,17 @@ public sealed partial class V2ShellViewModel
             : V2ShellText.Format("V2.Shell.Intel.Range", CultureInfo.CurrentCulture, Roubles(low), Roubles(high))
         : string.Empty;
 
+    public bool IntelHasSevenDayHistory => _intelResult?.Prices?.SevenDayHistory is not null;
+    public string IntelSevenDayLabel => V2ShellText.Get("V2.Shell.Intel.Last7Days");
+    public string IntelSevenDayRange => _intelResult?.Prices?.SevenDayHistory is { } history
+        ? V2ShellText.Format(
+            "V2.Shell.Intel.HistoryRange",
+            CultureInfo.CurrentCulture,
+            Roubles(history.LowRoubles),
+            Roubles(history.AverageRoubles),
+            Roubles(history.HighRoubles))
+        : string.Empty;
+
     // Package 33 (#287): "what is it worth" also asks for a per-slot value and the flea fee.
     public string IntelPerSlotHeading => V2ShellText.Get("V2.Shell.Intel.PerSlotHeading");
     public bool HasIntelPerSlotValue => _intelResult is { Kind: not V2IntelKind.Unknown, Width: > 0, Height: > 0 } result &&
@@ -572,6 +583,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelBestSaleLabel), nameof(IntelHasPrices), nameof(IntelHasNoPrices), nameof(IntelFleaPriceLabel),
             nameof(IntelPriceUpdatedLabel), nameof(IntelHasTraderPrice), nameof(IntelTraderPriceLabel),
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
+            nameof(IntelHasSevenDayHistory), nameof(IntelSevenDayLabel), nameof(IntelSevenDayRange),
             nameof(HasIntelPerSlotValue), nameof(IntelPerSlotValueLabel), nameof(IntelFeeLabel),
             nameof(IntelKeepQuestLines), nameof(IntelKeepHideoutLines), nameof(HasIntelKeepDetail), nameof(ShowsIntelKeepEmpty),
             nameof(IntelIsKey), nameof(IntelIsAmmo), nameof(IntelKeyMapLabel), nameof(IntelKeyLocks),
@@ -586,6 +598,8 @@ public sealed partial class V2ShellViewModel
         {
             OnPropertyChanged(property);
         }
+
+        SyncIntelCompare();
     }
 
     private static bool MatchesKind(string category, V2IntelKindFilter kind) => kind switch

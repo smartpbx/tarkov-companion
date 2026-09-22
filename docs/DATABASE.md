@@ -26,6 +26,7 @@ The executable does this through `IRuntimeDataStore.InitializeAsync` before it e
 - `0011_v2_data_platform.sql` introduces content-addressed raw bodies, atomic dataset publications, frozen profile/outbox stores, observed inventory and raid-field evidence, craft history, planning and model snapshots, retention/recovery state, and scheduled maintenance evidence.
 - `0016_restore_task_objective_items.sql` puts back the `task_objective_items` rows that `0013` deleted on upgrade (it dropped the parent table with foreign keys on, and the child cascaded). The rows are rebuilt from `quest_objective_item_targets` exactly as a tasks sync writes them; a table that already has rows is left alone. `0013` itself is unchanged, because an applied migration is never edited.
 - `0017_raid_soft_delete.sql` adds a nullable `raids.deleted_utc`. Debrief's delete marks it instead of removing the row, so `ListAsync` (which excludes a marked row) and the per-map stats it feeds already read as gone, and a one-press undo can clear it back to `NULL`. It is hard-deleted only once another delete starts or the app restarts, both of which mean the undo that covered it can no longer be pressed.
+- `0018_stash_review_commands.sql` keeps stash identity and quantity corrections, unknown markings, and discard/review intent in an append-only command log. Opening a snapshot reloads its commands, so pending review survives an app restart without rewriting the captured evidence.
 
 Never edit an applied migration. Add a monotonically numbered migration instead.
 

@@ -28,6 +28,7 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     private const string SourceKey = "json.tarkov.dev/items";
     private const string AmmoPropertiesType = "ItemPropertiesAmmo";
     private const string WeaponPropertiesType = "ItemPropertiesWeapon";
+    private const string PresetPropertiesType = "ItemPropertiesPreset";
 
     // Ammunition below the speed of sound at sea level is what the game treats as subsonic.
     private const double SpeedOfSoundMetresPerSecond = 343;
@@ -319,9 +320,14 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
                         properties?.RootElement,
                         UpstreamProvenance(reader.IsDBNull(9)
                             ? DateTimeOffset.UnixEpoch
-                            : ParseTimestamp(reader.GetString(9))))));
+                            : ParseTimestamp(reader.GetString(9)))),
+                    string.Equals(propertiesType, PresetPropertiesType, StringComparison.Ordinal)
+                        ? ReadString(properties?.RootElement, "baseItem")
+                        : null));
             }
         }
+
+        rows = InheritFromPresetBases(rows);
 
         var parents = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         foreach (var row in rows)
@@ -643,6 +649,47 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     private static DataProvenance UpstreamProvenance(DateTimeOffset sourceUpdatedUtc) =>
         new(SourceKey, sourceUpdatedUtc, sourceUpdatedUtc, Confidence: UpstreamFact);
 
+    /// <summary>
+    /// A weapon preset ("M4A1 2k17 NY") takes its kind, caliber and accepted rounds from the
+    /// weapon it is built on.
+    /// </summary>
+    /// <remarks>
+    /// The catalog files a preset as category Unknown with only ergonomics, recoil and a
+    /// <c>baseItem</c>, so Loadout listed every built gun as "Unknown · No caliber recorded" and the
+    /// ammunition check had nothing to compare. The preset is that weapon with parts on, so its
+    /// caliber is the base weapon's; its own price and weight are kept, because those are the
+    /// build's. A preset whose base is not in the catalog is left as it was.
+    /// </remarks>
+    private static List<LoadoutRow> InheritFromPresetBases(List<LoadoutRow> rows)
+    {
+        var byId = new Dictionary<string, LoadoutRow>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            byId[row.Id] = row;
+        }
+
+        var result = new List<LoadoutRow>(rows.Count);
+        foreach (var row in rows)
+        {
+            if (row.PresetBaseItemId is { } baseId &&
+                byId.TryGetValue(baseId, out var baseRow) &&
+                baseRow.PresetBaseItemId is null)
+            {
+                result.Add(row with
+                {
+                    Category = row.Category == ItemCategory.Unknown ? baseRow.Category : row.Category,
+                    Caliber = row.Caliber ?? baseRow.Caliber,
+                    AllowedAmmoItemIds = row.AllowedAmmoItemIds.Count > 0 ? row.AllowedAmmoItemIds : baseRow.AllowedAmmoItemIds,
+                });
+                continue;
+            }
+
+            result.Add(row);
+        }
+
+        return result;
+    }
+
     private sealed record LoadoutRow(
         string Id,
         string Name,
@@ -651,7 +698,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
         double? WeightKg,
         string? Caliber,
         IReadOnlyList<string> AllowedAmmoItemIds,
-        GearFacts? Gear);
+        GearFacts? Gear,
+        string? PresetBaseItemId = null);
 
     private sealed record KeyLocks(IReadOnlyList<string> LockIds, IReadOnlyList<string> MapIds);
 }

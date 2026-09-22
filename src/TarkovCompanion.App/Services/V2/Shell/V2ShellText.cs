@@ -77,7 +77,7 @@ public static class V2ShellText
         ["V2.Setup.Section.Diagnostics"] = "Diagnostics",
         // V2 rough package 43 (#314): the notifications section.
         ["V2.Setup.Section.Notifications"] = "Notifications",
-        ["V2.Setup.Notifications.Intro"] = "The only five things this will interrupt you for.",
+        ["V2.Setup.Notifications.Intro"] = "The only six things this will interrupt you for.",
         ["V2.Setup.Notifications.RaidNote"] = "Only squadmate marks reach you mid-raid. The rest wait until it ends.",
         ["V2.Setup.Notifications.TestLabel"] = "Test this",
         ["V2.Setup.GameProfile.ScreenshotFolderLabel"] = "Screenshot folder",
@@ -661,6 +661,8 @@ public static class V2ShellText
         ["V2.Shell.Intel.Days"] = "{0} days ago",
         ["V2.Shell.Intel.BestTrader"] = "Best trader",
         ["V2.Shell.Intel.Last24Hours"] = "Last 24 hours",
+        ["V2.Shell.Intel.Last7Days"] = "Last 7 days",
+        ["V2.Shell.Intel.HistoryRange"] = "low {0} · avg {1} · high {2}",
         ["V2.Shell.Intel.Range"] = "{0} – {1}",
         ["V2.Shell.Intel.RangeWithAverage"] = "{0} – {1} · avg {2}",
         ["V2.Shell.Intel.Sources"] = "Where to sell",

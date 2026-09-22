@@ -18,6 +18,15 @@ public sealed partial class V2ShellViewModel
 {
     private LootAutoReturnPolicy _lootAutoReturn = null!;
     private bool _lootAutoReturnNavigationInFlight;
+    private SetupLootScanViewModel? _lootScanSettings;
+
+    /// <summary>
+    /// [#572] Setup's "Show loot results on the tablet only", while a tablet is paired: the
+    /// result goes to the tablet and the desktop is left on whatever it was showing (the map).
+    /// </summary>
+    internal bool LootGoesToTabletOnly =>
+        _lootScanSettings?.TabletOnly == true &&
+        _companionPairing?.Devices.Any(device => device.CanRevoke) == true;
 
     private bool IsInRaid => _runtime.Current.Raid.State == RaidLifecycleState.InRaid;
 
@@ -53,6 +62,7 @@ public sealed partial class V2ShellViewModel
             return;
         }
 
+        _lootScanSettings = settings;
         LootScanProgress = settings.Progress;
         OnPropertyChanged(nameof(LootScanProgress));
         SetLootAutoReturnTimeout(settings.Timeout);
@@ -110,7 +120,7 @@ public sealed partial class V2ShellViewModel
     {
         void Apply()
         {
-            if (Router.Current.Location.Route == V2Routes.Loot)
+            if (Router.Current.Location.Route == V2Routes.Loot || LootGoesToTabletOnly)
             {
                 return;
             }
@@ -154,6 +164,12 @@ public sealed partial class V2ShellViewModel
 
         result.StayToggled -= LootAutoReturnStayToggled;
         result.StayToggled += LootAutoReturnStayToggled;
+        if (LootGoesToTabletOnly)
+        {
+            // The result is held for the Loot page, which the player can still open by hand.
+            PushLootAutoReturnState();
+            return;
+        }
 
         _lootAutoReturnNavigationInFlight = true;
         try

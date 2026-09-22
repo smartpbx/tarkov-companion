@@ -40,8 +40,31 @@ public sealed class KeyVerdictChipViewModel : BindableViewModel
 }
 
 /// <summary>One key row: the verdict, then the four facts that decided it.</summary>
-public sealed record KeyListRowViewModel(KeyRowViewModel Key, bool IsSelected, ICommand SelectCommand)
+/// <remarks>
+/// [#453] Selection changes in place. The list used to be built again, every row of it, whenever
+/// it was read and whenever a key was picked, and the view drew all of those rows again.
+/// </remarks>
+public sealed class KeyListRowViewModel : BindableViewModel
 {
+    private bool _isSelected;
+
+    public KeyListRowViewModel(KeyRowViewModel key, bool isSelected, ICommand selectCommand)
+    {
+        Key = key;
+        _isSelected = isSelected;
+        SelectCommand = selectCommand;
+    }
+
+    public KeyRowViewModel Key { get; }
+
+    public ICommand SelectCommand { get; }
+
+    public bool IsSelected
+    {
+        get => _isSelected;
+        internal set => SetProperty(ref _isSelected, value);
+    }
+
     public string Name => Key.Name;
 
     public string VerdictLabel => Key.VerdictLabel;
@@ -79,6 +102,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     private readonly KeysPageViewModel _page;
     private readonly Action<string>? _openItem;
     private KeyVerdictFilter _filter;
+    private IReadOnlyList<KeyListRowViewModel>? _rows;
 
     public KeysWorkspaceViewModel(KeysPageViewModel page, Action<string>? openItem = null)
     {
@@ -130,18 +154,24 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         }
     }
 
+    /// <summary>The rows under the verdict chip, built once per key list and chip.</summary>
     public IReadOnlyList<KeyListRowViewModel> Keys
     {
         get
         {
-            var selected = _page.Selected;
-            return
-            [
-                .. Narrow(_page.Keys, Filter).Select(key => new KeyListRowViewModel(
-                    key,
-                    ReferenceEquals(key, selected),
-                    new DelegateCommand(() => _page.Selected = key))),
-            ];
+            if (_rows is null)
+            {
+                var selected = _page.Selected;
+                _rows =
+                [
+                    .. Narrow(_page.Keys, Filter).Select(key => new KeyListRowViewModel(
+                        key,
+                        ReferenceEquals(key, selected),
+                        new DelegateCommand(() => _page.Selected = key))),
+                ];
+            }
+
+            return _rows;
         }
     }
 
@@ -238,6 +268,7 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
 
     private void RaiseKeys()
     {
+        _rows = null;
         OnPropertyChanged(nameof(Keys));
         OnPropertyChanged(nameof(HasKeys));
         OnPropertyChanged(nameof(ShowsNoKeys));
@@ -255,7 +286,15 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
                 EnsureSelection();
                 break;
             case nameof(KeysPageViewModel.Selected):
-                RaiseKeys();
+                if (_rows is not null)
+                {
+                    var selected = _page.Selected;
+                    foreach (var row in _rows)
+                    {
+                        row.IsSelected = ReferenceEquals(row.Key, selected);
+                    }
+                }
+
                 foreach (var name in new[]
                 {
                     nameof(HasSelectedKey), nameof(ShowsNoSelectedKey), nameof(SelectedName), nameof(SelectedVerdict),

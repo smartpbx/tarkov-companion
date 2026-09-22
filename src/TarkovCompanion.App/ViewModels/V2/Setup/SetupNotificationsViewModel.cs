@@ -77,6 +77,9 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
     private readonly NotificationBridge? _bridge;
     private readonly Func<bool> _trayIsAvailable;
     private bool _showsPopup;
+    private bool _quietHours;
+    private int _quietFromHour;
+    private int _quietToHour;
 
     public SetupNotificationsViewModel(NotificationBridge? bridge, Func<bool>? trayIsAvailable = null)
     {
@@ -85,6 +88,9 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
         _trayIsAvailable = trayIsAvailable ?? (static () => false);
         var settings = bridge?.Settings ?? NotificationSettings.Default;
         _showsPopup = settings.ShowsDesktopPopup;
+        _quietHours = settings.QuietHours;
+        _quietFromHour = Math.Clamp(settings.QuietFromHour, 0, 23);
+        _quietToHour = Math.Clamp(settings.QuietToHour, 0, 23);
         Rows =
         [
             .. NotificationSamples.All.Select(kind => new SetupNotificationRowViewModel(
@@ -94,6 +100,11 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
                 Test)),
         ];
         TogglePopupCommand = new DelegateCommand(() => _ = SetPopupAsync(!ShowsPopup));
+        ToggleQuietHoursCommand = new DelegateCommand(() =>
+        {
+            QuietHours = !QuietHours;
+            _ = SaveQuietHoursAsync();
+        });
     }
 
     public IReadOnlyList<SetupNotificationRowViewModel> Rows { get; }
@@ -120,6 +131,52 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
         "Off by default. The tray icon and its count never cover the game.";
 
     public ICommand TogglePopupCommand { get; }
+
+    public string QuietHoursTitle => "Quiet hours";
+
+    public string QuietHoursDescription => "No pop-up between these hours. The tray still counts.";
+
+    /// <summary>Whether the pop-up keeps quiet between the two hours below.</summary>
+    public bool QuietHours
+    {
+        get => _quietHours;
+        private set => SetProperty(ref _quietHours, value);
+    }
+
+    /// <summary>"00:00" to "23:00", indexed by the hour.</summary>
+    public IReadOnlyList<string> HourChoices { get; } =
+        [.. Enumerable.Range(0, 24).Select(hour => hour.ToString("00", System.Globalization.CultureInfo.InvariantCulture) + ":00")];
+
+    /// <summary>The hour quiet hours start, as an index into <see cref="HourChoices"/>.</summary>
+    public int QuietFromHour
+    {
+        get => _quietFromHour;
+        set
+        {
+            if (value is >= 0 and <= 23 && SetProperty(ref _quietFromHour, value))
+            {
+                _ = SaveQuietHoursAsync();
+            }
+        }
+    }
+
+    /// <summary>The hour quiet hours end, as an index into <see cref="HourChoices"/>.</summary>
+    public int QuietToHour
+    {
+        get => _quietToHour;
+        set
+        {
+            if (value is >= 0 and <= 23 && SetProperty(ref _quietToHour, value))
+            {
+                _ = SaveQuietHoursAsync();
+            }
+        }
+    }
+
+    public ICommand ToggleQuietHoursCommand { get; }
+
+    private Task SaveQuietHoursAsync() =>
+        _bridge?.SetQuietHoursAsync(QuietHours, QuietFromHour, QuietToHour, CancellationToken.None) ?? Task.CompletedTask;
 
     private Task SetEnabledAsync(NotificationKind kind, bool enabled) =>
         _bridge?.SetEnabledAsync(kind, enabled, CancellationToken.None) ?? Task.CompletedTask;

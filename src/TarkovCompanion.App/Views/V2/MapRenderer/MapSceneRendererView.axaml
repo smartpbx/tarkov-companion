@@ -445,6 +445,78 @@
       <Setter Property="Padding" Value="10,0" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
     </Style>
+    <!-- [#573] A potential loot spawn: smaller and lighter than an extract or a pin, tinted by
+         value tier (High: Info, Exceptional: Warning), drawn under the place names. -->
+    <Style Selector="Border.v2-map-loot-chip">
+      <Setter Property="Width" Value="20" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="Opacity" Value="0.8" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Path.v2-map-loot-glyph">
+      <Setter Property="Width" Value="10" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="StrokeThickness" Value="1.4" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-map-loot-chip.high">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
+      <Setter Property="Opacity" Value="0.9" />
+    </Style>
+    <Style Selector="Border.v2-map-loot-chip.high Path.v2-map-loot-glyph">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
+    <Style Selector="Border.v2-map-loot-chip.exceptional">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="Border.v2-map-loot-chip.exceptional Path.v2-map-loot-glyph">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-loot:pointerover Border.v2-map-loot-chip">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="ToggleButton.v2-map-loot:checked Border.v2-map-loot-chip">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="CornerRadius" Value="13" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
+    <!-- "+N": the spawns in this area not drawn yet at this zoom. Quieter than the marks. -->
+    <Style Selector="Border.v2-map-loot-badge">
+      <Setter Property="MinWidth" Value="24" />
+      <Setter Property="Height" Value="20" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="5,0" />
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Opacity" Value="0.85" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.v2-map-loot-badge TextBlock">
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.v2-map-loot-badge-button:pointerover Border.v2-map-loot-badge">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+      <Setter Property="Opacity" Value="1" />
+    </Style>
   </UserControl.Styles>
 
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" x:Name="RendererScroll">
@@ -594,6 +666,74 @@
                                        TeamStroke="{DynamicResource V2.Brush.Info}"
                                        Fill="{DynamicResource V2.Brush.Info}" />
 
+            <!-- [#573] Potential loot spawns, under the place names: context, not a destination.
+                 The most valuable first, more as the plan is zoomed in (MapLootRanking), each a
+                 small light disc tinted by its value tier; "+N" badges count the rest per area and
+                 zoom in on it when pressed. -->
+            <ItemsControl ItemsSource="{Binding LootMarkers}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <ToggleButton Classes="v2-map-marker v2-map-loot" Theme="{StaticResource V2.MapMarkTheme}"
+                                IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                IsVisible="{Binding IsShownOnPlan}"
+                                RenderTransformOrigin="50%,50%"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding AutomationName}"
+                                AutomationProperties.HelpText="{Binding Detail}"
+                                Command="{Binding SelectCommand}"
+                                ToolTip.Tip="{Binding Label}">
+                    <ToggleButton.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
+                        <RotateTransform Angle="{Binding MarkerUprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </ToggleButton.RenderTransform>
+                    <Panel Width="44" Height="44">
+                      <Border Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                              CornerRadius="{Binding HitCornerRadius}" />
+                      <Border Classes="v2-map-loot-chip" Classes.exceptional="{Binding IsLootExceptional}"
+                              Classes.high="{Binding IsLootHigh}" IsHitTestVisible="False">
+                        <Path Classes="v2-map-loot-glyph" Data="{DynamicResource V2.Icon.Gem}" />
+                      </Border>
+                    </Panel>
+                  </ToggleButton>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <ItemsControl ItemsSource="{Binding LootBadges}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <Button Classes="v2-map-marker v2-map-loot-badge-button" Theme="{StaticResource V2.MapMarkTheme}"
+                          IsVisible="{Binding IsShownOnPlan}"
+                          RenderTransformOrigin="50%,50%"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding AutomationName}"
+                          Command="{Binding SelectCommand}"
+                          ToolTip.Tip="Zoom in for more loot here">
+                    <Button.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
+                        <RotateTransform Angle="{Binding MarkerUprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </Button.RenderTransform>
+                    <Panel Width="44" Height="44">
+                      <Border Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                              CornerRadius="{Binding HitCornerRadius}" />
+                      <Border Classes="v2-map-loot-badge" IsHitTestVisible="False">
+                        <TextBlock Text="{Binding MarkerGlyph}" />
+                      </Border>
+                    </Panel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <!-- V2 rough package 22: place names, written on the plan like V1's "Place names"
                  layer. Text rather than markers, never hit-testable: a street name is not a
                  thing you click. -->
@@ -642,6 +782,7 @@
                                 Classes.offer-not-offered="{Binding IsKnownNotOffered}"
                                 Classes.offer-unknown="{Binding IsOfferUnknown}"
                                 IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                IsVisible="{Binding IsShownOnPlan}"
                                 Opacity="{Binding MarkerOpacity}"
                                 RenderTransformOrigin="50%,50%"
                                 AutomationProperties.AutomationId="{Binding AutomationId}"
@@ -708,6 +849,10 @@
                                takes the pointer: not the 44px box, most of which is below the tip. -->
                           <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
                                 IsVisible="{Binding IsWaypointMark}" Data="{DynamicResource V2.Icon.PinRound}" />
+                          <!-- [#573] A round target on the head, never under 32 screen pixels, for a pin
+                               drawn small at fit zoom. -->
+                          <Ellipse Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                                   HorizontalAlignment="Center" VerticalAlignment="Top" Margin="{Binding PinHeadHitMargin}" />
                           <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
                                 IsVisible="{Binding IsObjectiveMark}" Data="{DynamicResource V2.Icon.PinShield}" />
                           <Path Classes="v2-map-pin-round"
@@ -755,7 +900,9 @@
                       <Panel.RenderTransform>
                         <TranslateTransform X="{Binding PinOffsetX}" Y="{Binding PinOffsetY}" />
                       </Panel.RenderTransform>
-                      <Border Classes="v2-map-mark-hit" />
+                      <!-- [#573] Round, and never under 32 screen pixels however small the mark is drawn. -->
+                      <Border Classes="v2-map-mark-hit" Width="{Binding HitExtent}" Height="{Binding HitExtent}"
+                              CornerRadius="{Binding HitCornerRadius}" />
                       <!-- An extract (or the transit two-arrow) is a round badge at two-thirds of
                            every other chip's size by default, and back to that size once selected
                            — six of them used to bury a whole building at fit zoom. -->
@@ -831,6 +978,42 @@
                           AutomationProperties.Name="{Binding AutomationName}"
                           AutomationProperties.HelpText="{Binding Detail}"
                           Command="{Binding SelectCommand}">
+                    <Button.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />
+                        <RotateTransform Angle="{Binding MarkerUprightDegrees}" />
+                        <TranslateTransform X="{Binding AnchorLeft}" Y="{Binding AnchorTop}" />
+                      </TransformGroup>
+                    </Button.RenderTransform>
+                    <Panel>
+                      <Border Classes="v2-map-mark-hit" />
+                      <Border Classes="v2-map-marker-chip" IsHitTestVisible="False">
+                        <Grid Width="40" Height="40">
+                          <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     Text="{Binding MarkerGlyph}" />
+                        </Grid>
+                      </Border>
+                    </Panel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- [#573] A dense spot's count badge: shown while the plan is zoomed out, pressing it
+                 zooms in on the spot, where its marks fan out and read on their own. -->
+            <ItemsControl ItemsSource="{Binding StackMarkers}"
+                          Width="{Binding CanvasWidth}" Height="{Binding CanvasHeight}">
+              <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
+                  <Button Classes="v2-map-marker cluster" Theme="{StaticResource V2.MapMarkTheme}"
+                          RenderTransformOrigin="50%,50%"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding AutomationName}"
+                          AutomationProperties.HelpText="{Binding Detail}"
+                          Command="{Binding SelectCommand}"
+                          IsVisible="{Binding IsShownOnPlan}"
+                          ToolTip.Tip="{Binding Label}">
                     <Button.RenderTransform>
                       <TransformGroup>
                         <ScaleTransform ScaleX="{Binding MarkerInverseZoom}" ScaleY="{Binding MarkerInverseZoom}" />

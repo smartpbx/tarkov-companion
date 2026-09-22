@@ -21,6 +21,7 @@ public static class NotificationSamples
         NotificationKind.DataRefreshFailed => "The game-data refresh fails, naming what did not answer.",
         NotificationKind.UpdateReady => "A new build has downloaded and is waiting to be installed.",
         NotificationKind.RelayUnreachable => "The squad relay stops answering while sharing is on.",
+        NotificationKind.FleaSold => "A flea offer sells.",
         _ => string.Empty,
     };
 
@@ -32,6 +33,7 @@ public static class NotificationSamples
         NotificationKind.DataRefreshFailed => "Data refresh failed",
         NotificationKind.UpdateReady => "Update ready",
         NotificationKind.RelayUnreachable => "Relay unreachable",
+        NotificationKind.FleaSold => "Flea offer sold",
         _ => string.Empty,
     };
 
@@ -71,6 +73,12 @@ public static class NotificationSamples
             "Sharing is on but the relay stopped answering. (Test)",
             1,
             nowUtc),
+        NotificationKind.FleaSold => new(
+            kind,
+            "2 flea offers sold",
+            "3 items. Intel › Flea lists them. (Test)",
+            2,
+            nowUtc),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -79,6 +87,7 @@ public static class NotificationSamples
     [
         NotificationKind.SquadMark,
         NotificationKind.DebriefReady,
+        NotificationKind.FleaSold,
         NotificationKind.RelayUnreachable,
         NotificationKind.DataRefreshFailed,
         NotificationKind.UpdateReady,

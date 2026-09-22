@@ -358,7 +358,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 {
     private readonly IStashSnapshotStore _store;
     private readonly StashScanWorkflow _workflow;
-    private readonly InMemoryStashReviewCommandSink _reviewCommands;
+    private readonly IStashReviewCommandSink _reviewCommands;
     private readonly IItemFactCatalog _catalog;
     private readonly IRuntimeStateStore _runtime;
     private readonly TimeProvider _clock;
@@ -389,7 +389,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     public StashScanWorkspaceViewModel(
         IStashSnapshotStore store,
         StashScanWorkflow workflow,
-        InMemoryStashReviewCommandSink reviewCommands,
+        IStashReviewCommandSink reviewCommands,
         IItemFactCatalog catalog,
         IRuntimeStateStore runtime,
         TimeProvider? clock = null,
@@ -892,7 +892,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         await BuildItemBreakdownAsync(record, cancellationToken).ConfigureAwait(true);
         await OverlayScanProgressAsync(cancellationToken).ConfigureAwait(true);
         PendingCorrections = record.Recognition.Result.Value is { } recognized
-            ? ReviewCommandsFor(recognized.SnapshotId)
+            ? await ReviewCommandsForAsync(recognized.SnapshotId, cancellationToken).ConfigureAwait(true)
             : [];
         Snapshots = Snapshots
             .Select(row => row with { IsSelected = row.SnapshotId == snapshotId })
@@ -1003,7 +1003,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         try
         {
             await _workflow.ReviewAsync(command, CancellationToken.None).ConfigureAwait(true);
-            Status = "Correction recorded for this session.";
+            Status = "Correction saved.";
         }
         catch (InvalidOperationException exception)
         {
@@ -1013,7 +1013,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
         if (SelectedRecognitionSnapshotId is { } snapshotId)
         {
-            PendingCorrections = ReviewCommandsFor(snapshotId);
+            PendingCorrections = await ReviewCommandsForAsync(snapshotId, CancellationToken.None).ConfigureAwait(true);
             OnPropertyChanged(nameof(PendingCorrections));
             OnPropertyChanged(nameof(HasPendingCorrections));
         }
@@ -1026,8 +1026,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </summary>
     private string? SelectedRecognitionSnapshotId => _selected?.Recognition.Result.Value?.SnapshotId;
 
-    private IReadOnlyList<StashReviewCommandRowViewModel> ReviewCommandsFor(string snapshotId) =>
-        _reviewCommands.List(snapshotId)
+    private async Task<IReadOnlyList<StashReviewCommandRowViewModel>> ReviewCommandsForAsync(
+        string snapshotId,
+        CancellationToken cancellationToken) =>
+        (await _reviewCommands.ListAsync(snapshotId, cancellationToken).ConfigureAwait(true))
             .Select(command => new StashReviewCommandRowViewModel(
                 command.Action.ToString(),
                 string.Join(", ", command.TargetItemKeys),
