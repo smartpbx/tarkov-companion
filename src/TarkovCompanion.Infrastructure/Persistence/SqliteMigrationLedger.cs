@@ -36,6 +36,7 @@ public static class SqliteMigrationLedger
         new("0015_flea_market_settings", false, "Published flea listing fee rates"),
         new("0016_restore_task_objective_items", false, "Put back the quest item needs 0013 deleted"),
         new("0017_raid_soft_delete", false, "Soft-delete column on raids, for Debrief's delete-with-undo"),
+        new("0018_stash_review_commands", false, "Durable append-only stash review commands"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>

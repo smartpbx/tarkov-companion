@@ -621,5 +621,14 @@ public sealed class StashScanWorkflowTests
             _commands.Add(command);
             return Task.CompletedTask;
         }
+
+        public Task<IReadOnlyList<StashReviewCommand>> ListAsync(
+            string snapshotId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<StashReviewCommand>>(
+                _commands.Where(command => command.SnapshotId == snapshotId).ToArray());
+        }
     }
 }

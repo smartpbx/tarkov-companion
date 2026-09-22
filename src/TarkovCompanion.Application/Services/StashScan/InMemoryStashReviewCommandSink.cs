@@ -29,16 +29,19 @@ public sealed class InMemoryStashReviewCommandSink : IStashReviewCommandSink
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<StashReviewCommand> List(string snapshotId)
+    public Task<IReadOnlyList<StashReviewCommand>> ListAsync(
+        string snapshotId,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!_bySnapshot.TryGetValue(snapshotId, out var commands))
         {
-            return [];
+            return Task.FromResult<IReadOnlyList<StashReviewCommand>>([]);
         }
 
         lock (commands)
         {
-            return commands.ToArray();
+            return Task.FromResult<IReadOnlyList<StashReviewCommand>>(commands.ToArray());
         }
     }
 }
