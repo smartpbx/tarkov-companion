@@ -1901,12 +1901,14 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         {
             case nameof(RaidPageViewModel.Clock):
                 OnPropertyChanged(nameof(RaidPhaseLabel));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 Corrections.ShowClock(_raid.Clock);
                 break;
             case nameof(RaidPageViewModel.TimeLeft):
                 OnPropertyChanged(nameof(TimeLeft));
                 OnPropertyChanged(nameof(RaidPhaseLabel));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 // The raid clock ticks once a second, which is the only clock this page has. The
                 // plan changes with it exactly once per screenshot: when the marker turns from
                 // fresh to "from an older screenshot".
@@ -1927,6 +1929,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             case nameof(RaidPageViewModel.TimeLeftDetail):
                 OnPropertyChanged(nameof(TimeLeftDetail));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
+                OnPropertyChanged(nameof(ExtractClockSummary));
                 break;
             case nameof(RaidPageViewModel.Extracts):
                 OnPropertyChanged(nameof(Extracts));
@@ -1973,6 +1976,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _seenRaid = raid;
         _seenGroup = group;
         OnPropertyChanged(nameof(RaidPhaseLabel));
+        OnPropertyChanged(nameof(ExtractClockSummary));
         _rebuildRequest.Request();
     }
 
@@ -1982,6 +1986,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private void CorrectionsChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(RaidPhaseLabel));
+        OnPropertyChanged(nameof(ExtractClockSummary));
         _rebuildRequest.Request();
     }
 

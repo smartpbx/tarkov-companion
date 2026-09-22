@@ -171,6 +171,10 @@ unchanged. It follows the raid's current map, offers a manual map picker over `M
 catalog, and reuses `RaidPageViewModel` for the timer and extract panel rather than recomputing
 either.
 
+The shell and Extract options card share one live countdown and name its basis. A scav join time is
+never treated as the raid start, so scav time stays unknown until a screenshot clock or hand entry
+supplies it.
+
 Local pings and waypoints are stored as `RaidMark` rows (`Core`'s `MapMarkState` payload plus a
 kind and timestamp) in `Config/raid-marks.json` via `IRaidMarkStore`, kept deliberately
 shaped like `TarkovCompanion.CompanionProtocol`'s own `MapMark` so a paired-device sync can adapt
