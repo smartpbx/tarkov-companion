@@ -1,3 +1,4 @@
+using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.LootSpawns;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -52,6 +53,7 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private LootSpawnSourceBundle? _lastKnownGood;
     private LootSpawnSourceRefreshOutcome? _lastRefreshOutcome;
+    private ReboundSnapshot? _rebound;
 
     public HighValueLootRuntimeSource(
         ILootSpawnSourcePublicationStore publicationStore,
@@ -135,7 +137,14 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         ArgumentNullException.ThrowIfNull(request);
         var snapshot = LastKnownGood?.Snapshots.SingleOrDefault(candidate =>
             string.Equals(candidate.MapId, request.MapId, StringComparison.Ordinal));
-        return _layerService.Build(new(
+        var rebound = snapshot is not null &&
+                      !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal);
+        if (rebound)
+        {
+            snapshot = Rebind(snapshot!, request.TransformVersion);
+        }
+
+        var result = _layerService.Build(new(
             request.MapId,
             request.TransformVersion,
             request.MapBounds,
@@ -143,7 +152,86 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             request.Filter,
             snapshot,
             request.FloorIds), cancellationToken);
+        return rebound ? MarkMaybeStale(result) : result;
     }
+
+    /// <summary>
+    /// [Issue 563] A publication projected under another revision of this map's catalog variant
+    /// (the catalog refreshed and the loot import has not yet caught up, or the other way round)
+    /// is still drawn, labelled as possibly misplaced, rather than refused outright: a refused
+    /// snapshot left "High-value loot only" with an empty map and no hint why. Positions outside
+    /// the current plan are still dropped by the layer's own bounds check.
+    /// </summary>
+    private LootSpawnSnapshot Rebind(LootSpawnSnapshot snapshot, string transformVersion)
+    {
+        var cached = Volatile.Read(ref _rebound);
+        if (cached is not null &&
+            ReferenceEquals(cached.Source, snapshot) &&
+            string.Equals(cached.Snapshot.TransformVersion, transformVersion, StringComparison.Ordinal))
+        {
+            return cached.Snapshot;
+        }
+
+        var records = snapshot.Records.Select(record => new LootSpawnRecord(
+                record.SpawnId,
+                record.MapId,
+                record.Label,
+                record.Location,
+                record.PoolKind,
+                record.Candidates,
+                record.SpawnProbability,
+                record.RespawnBehavior,
+                record.DatasetVersion,
+                transformVersion,
+                record.Status,
+                record.Provenance,
+                record.AccessNote))
+            .ToArray();
+        var copy = new LootSpawnSnapshot(
+            snapshot.SnapshotId,
+            snapshot.DatasetVersion,
+            snapshot.MapId,
+            transformVersion,
+            snapshot.GeneratedUtc,
+            snapshot.Status,
+            snapshot.Coverage,
+            snapshot.Provenance,
+            records);
+        Volatile.Write(ref _rebound, new ReboundSnapshot(snapshot, copy));
+        return copy;
+    }
+
+    private static HighValueLootLayerResult MarkMaybeStale(HighValueLootLayerResult result)
+    {
+        if (result.Status.Completeness is ResultCompleteness.Unavailable or ResultCompleteness.Unknown)
+        {
+            return result;
+        }
+
+        const string Suffix = " · Map changed, positions may be off";
+        var legend = result.CompactLegend.Length + Suffix.Length <= 256
+            ? result.CompactLegend + Suffix
+            : result.CompactLegend;
+        return new(
+            result.Layer,
+            result.MapId,
+            result.TransformVersion,
+            result.AppliedFilter,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Stale, "loot-spawns.transform-stale"),
+            legend,
+            result.DataThroughUtc,
+            result.Coverage,
+            result.Objects,
+            result.Entries,
+            result.Diagnostics
+                .Append(new HighValueLootDiagnostic(
+                    HighValueLootDiagnosticKind.SnapshotMismatch,
+                    "snapshot.transform-stale",
+                    "The loot-spawn data was projected for an earlier revision of this map; positions may be off until the next loot refresh."))
+                .ToArray());
+    }
+
+    private sealed record ReboundSnapshot(LootSpawnSnapshot Source, LootSpawnSnapshot Snapshot);
 }
 
 /// <summary>

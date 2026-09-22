@@ -2096,7 +2096,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var variant = model.Variant;
         var selectedFloor = model.SelectedFloor;
         var nowUtc = _timeProvider.GetUtcNow();
-        var transformVersion = variant.Key;
+        // [Issue 563] The identity the loot publication was projected under, not the bare
+        // variant key: with the key, every snapshot was refused as "Transform mismatch".
+        var transformVersion = LootSpawnTransformIdentity.For(model.Location.Id, variant);
 
         // [V2 rough package 23] Two kinds of artwork, one background asset. A map drawn from PNG
         // tiles (Customs is, by default) has no single picture to hand the renderer, so V1's own

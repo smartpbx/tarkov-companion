@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 
@@ -132,6 +133,9 @@ public readonly record struct MapSceneAssetId
 
 public readonly record struct MapScenePoint
 {
+    // [Issue 563] Without this the serializer uses the struct's implicit parameterless
+    // constructor, cannot set the get-only X and Y, and reads every persisted point as (0, 0).
+    [JsonConstructor]
     public MapScenePoint(double x, double y)
     {
         if (!double.IsFinite(x) || !double.IsFinite(y))

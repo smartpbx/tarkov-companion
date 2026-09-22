@@ -41,6 +41,10 @@ public sealed class DurableLootSpawnPublicationStoreTests : IDisposable
         Assert.Equal(expected.Snapshots[0].Coverage, snapshot.Coverage);
         Assert.Equal(expected.Coverage[0], Assert.Single(actual.Coverage));
         Assert.Equal(["item-a", "item-b"], Assert.Single(snapshot.Records).Candidates.Select(value => value.ItemId));
+        // [Issue 563] Every point used to come back as (0, 0): the serializer built the struct
+        // through its implicit parameterless constructor and could not set the get-only X and Y,
+        // so every spawn read from a restart was "outside the map bounds" and none was drawn.
+        Assert.Equal(new MapScenePoint(10, 20), Assert.Single(Assert.Single(snapshot.Records).Location.GeometryPoints!));
     }
 
     [Fact]

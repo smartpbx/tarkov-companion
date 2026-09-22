@@ -642,12 +642,19 @@ public sealed record HighValueLootFilter
 
     public IReadOnlyList<string> Categories { get; }
 
+    /// <remarks>
+    /// [Issue 563] Measured against a real json.tarkov.dev publication, the old default (30-minute
+    /// price age, 0.5 minimum confidence) refused every spawn: the feed is unscored, so no source
+    /// ever reached 0.5, and prices are stamped at import, which a durable head outlives by hours
+    /// or days. A confidence threshold only means something for scored evidence, so the default
+    /// asks for none; a week-old price still ranks a spawn, and the legend shows the data date.
+    /// </remarks>
     public static HighValueLootFilter Default { get; } = new(
         LootSpawnValueBasis.BestNet,
         LootSpawnValueThresholds.Default,
-        TimeSpan.FromMinutes(30),
+        TimeSpan.FromDays(7),
         TimeSpan.FromDays(90),
-        0.50);
+        0);
 
     private static ReadOnlyCollection<string> CopyFilter(IReadOnlyList<string>? values, string parameterName)
     {

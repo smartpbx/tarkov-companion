@@ -174,14 +174,16 @@ public sealed class HighValueLootLayerServiceTests
         Assert.Null(entry.MinimumValue);
         Assert.Null(entry.MaximumValue);
         Assert.Contains(entry.MissingFacts, fact =>
-            fact.Contains("both required", StringComparison.OrdinalIgnoreCase));
+            fact.Contains("No current trustworthy flea or trader value", StringComparison.Ordinal));
         Assert.Equal("quest.current", Assert.Single(entry.ProfileNeeds).Code);
         Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
     }
 
     [Fact]
-    public void Asymmetric_best_net_evidence_remains_indeterminate_instead_of_becoming_an_exact_low_value()
+    public void A_lone_trader_value_ranks_the_spawn_as_a_lower_bound_and_says_so()
     {
+        // [Issue 563] Requiring both markets hid every item the flea market bans, and with the
+        // real feed (no flea fee) every item at all.
         var need = new LootSpawnProfileNeed(
             LootSpawnProfileNeedKind.CurrentQuest,
             "quest.current",
@@ -200,11 +202,48 @@ public sealed class HighValueLootLayerServiceTests
 
         var entry = Assert.Single(Build(Snapshot([Spawn("asymmetric-best-net", [candidate])])).Entries);
 
-        Assert.Null(entry.MinimumValue);
-        Assert.Null(entry.MaximumValue);
-        Assert.False(entry.IsValueRangeComplete);
+        Assert.Equal(10_000, entry.MinimumValue);
+        Assert.Equal(10_000, entry.MaximumValue);
         Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
-        Assert.Contains(entry.MissingFacts, fact => fact.Contains("both required", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entry.MissingFacts, fact => fact.Contains("lower bound", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void The_real_feed_shape_flea_price_without_a_fee_ranks_under_the_default_filter()
+    {
+        // [Issue 563] What json.tarkov.dev actually publishes: a flea price, a trader price, no
+        // fee (so no flea net) and an unscored source a day old. The default filter used to refuse
+        // it three times over (confidence, 30-minute price age, flea net required).
+        var dayOld = new EvidenceProvenance(
+            EvidenceSourceClass.PublicStructuredData,
+            "fixture://items",
+            Now.AddDays(-1),
+            EvidenceConfidence.Unscored,
+            new ProducerIdentity("loot-spawn-fixture", "1"));
+        var candidate = new LootSpawnCandidate(
+            "ledx",
+            "LEDX",
+            "Medical",
+            Complete<long?>("flea-gross", 900_000, dayOld),
+            Unknown<long?>("flea-net"),
+            Complete<long?>("trader", 400_000, dayOld),
+            Complete<int?>("squares", 1, dayOld),
+            []);
+        var spawn = Spawn("real-shape", [candidate], provenance: dayOld);
+
+        var result = new HighValueLootLayerService().Build(new(
+            "customs",
+            "transform-1",
+            new MapSceneBounds(0, 0, 100, 100),
+            Now,
+            HighValueLootFilter.Default,
+            Snapshot([spawn], provenance: dayOld),
+            ["ground"]));
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal(900_000, entry.MaximumValue);
+        Assert.Single(result.Objects);
+        Assert.Contains(entry.MissingFacts, fact => fact.Contains("Flea fee is unknown", StringComparison.Ordinal));
     }
 
     [Fact]

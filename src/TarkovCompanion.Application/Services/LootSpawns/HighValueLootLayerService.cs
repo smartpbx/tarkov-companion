@@ -825,17 +825,32 @@ public sealed class HighValueLootLayerService
         ISet<string> missing)
     {
         var flea = Reliable(candidate.FleaNetRoubles, request, request.Filter.MaximumPriceAge);
-        var trader = Reliable(candidate.BestTraderRoubles, request, request.Filter.MaximumPriceAge);
-        // A lone value is only a lower bound on best net. Treating it as exact can hide a spawn
-        // when the missing market is actually worth more than the source that remains.
-        if (flea is null || trader is null)
+        if (flea is null &&
+            candidate.FleaNetRoubles.Value is null &&
+            candidate.FleaNetRoubles.Candidates.Count == 0 &&
+            Reliable(candidate.FleaGrossRoubles, request, request.Filter.MaximumPriceAge) is { } gross)
         {
-            missing.Add(
-                "A current trustworthy flea-net value and trader value are both required to rank exact best net.");
+            // [Issue 563] json.tarkov.dev publishes the flea price but not the fee, so flea net is
+            // never known for a real publication. Requiring it hid every spawn on every map.
+            missing.Add("Flea fee is unknown; the flea price before the fee is used.");
+            flea = gross;
+        }
+
+        var trader = Reliable(candidate.BestTraderRoubles, request, request.Filter.MaximumPriceAge);
+        if (flea is null && trader is null)
+        {
+            missing.Add("No current trustworthy flea or trader value.");
             return null;
         }
 
-        return Math.Max(flea.Value, trader.Value);
+        // One market alone is a lower bound: enough to rank a spawn as at least that valuable
+        // (an item banned from the flea market has only its trader price), never to hide one.
+        if (flea is null || trader is null)
+        {
+            missing.Add("Only one market's value is known; the value is a lower bound.");
+        }
+
+        return Math.Max(flea ?? long.MinValue, trader ?? long.MinValue);
     }
 
     private static long? PerSquare(
