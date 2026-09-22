@@ -167,6 +167,31 @@ whole through `OffInterfaceThread.Run`. Measure with the render tool's `--ui-sta
 `--ui-stalls-before-show` to leave first layout out of it): startup's longest dispatcher turn went
 from 2.3-3.1 s to 0.3-0.9 s over three runs each, headless, on a box at load 9.
 
+## The Raid page froze with a squad sharing (#453, build 2.0.1353)
+
+Clayton's log from 2.0.1353 has 175 `ui-hang-recovered` records, all on `#/raid`, 5 to 237 s each,
+recurring every few seconds whenever three squadmates were sharing. Each member's exchange
+answered as soon as any other member published, so the relay answered about three times a second
+(the client's 300 ms rate bound). Every answer rebuilt the Raid scene, and every rebuild handed the
+view new arrays of every marker, place name and extract row: an ItemsControl given a new array
+builds all of its controls again. That work ran above input priority, so clicks waited behind it.
+
+Now markers and place names are `ReconciledList`s changed entry by entry (a marker that draws the
+same keeps its instance), extract rows and correction choices are kept when they read the same,
+and the rebuild runs behind input and at most every 250 ms (`PacedDispatch`). Reproduce with the
+render tool: `--route raid --map shoreline --raid-demo --raid-soak 90 --raid-soak-group-ms 300
+--ui-stalls 100` publishes three moving squadmates every 300 ms and a screenshot every 20 s, and
+prints how long a job posted at input priority waited (what the hang watchdog measures).
+
+| Shoreline, 3 squadmates, exchange every 300 ms, headless | Before | After |
+| --- | --- | --- |
+| Interface thread busy (includes headless drawing, about 16%) | 88-90% | 33-44% |
+| Longest wait for an input-priority job | 301-1,055 ms | 71-120 ms |
+| Input jobs that waited over 100 ms | 300 of 309 | 2 of 4,870 |
+
+`--stall-tour` walks every route and action and prints a table; `--memory-tour N` switches maps N
+times and prints memory after a forced collection every ten.
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

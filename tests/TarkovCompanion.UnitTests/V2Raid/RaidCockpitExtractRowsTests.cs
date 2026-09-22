@@ -83,6 +83,24 @@ public sealed class RaidCockpitExtractRowsTests
         row.SelectCommand.Execute(null);
     }
 
+    [Fact]
+    public void Rows_built_again_from_the_same_extracts_read_the_same_and_a_changed_offer_does_not()
+    {
+        // [#453] The cockpit keeps the list it shows when a rebuild's rows read the same, so the
+        // panel does not rebuild every row's controls three times a second.
+        MapSceneObject[] Objects(MapSceneOfferState ruaf) =>
+        [
+            Object("a", MapSceneObjectKind.Extract, "ZB-1011", MapFeatureFaction.Pmc, MapSceneOfferState.NotOffered),
+            Object("c", MapSceneObjectKind.Extract, "RUAF Roadblock", MapFeatureFaction.Shared, ruaf),
+        ];
+
+        var shown = RaidCockpitViewModel.BuildExtractRows(Objects(MapSceneOfferState.Unknown));
+
+        Assert.True(RaidExtractRowViewModel.ReadSame(shown, RaidCockpitViewModel.BuildExtractRows(Objects(MapSceneOfferState.Unknown))));
+        Assert.False(RaidExtractRowViewModel.ReadSame(shown, RaidCockpitViewModel.BuildExtractRows(Objects(MapSceneOfferState.Offered))));
+        Assert.False(RaidExtractRowViewModel.ReadSame(shown, [shown[0]]));
+    }
+
     private static MapSceneObject Object(
         string id,
         MapSceneObjectKind kind,

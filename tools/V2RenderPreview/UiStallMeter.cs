@@ -19,6 +19,7 @@ namespace TarkovCompanion.V2RenderPreview;
 internal static class UiStallMeter
 {
     private static readonly List<(double Milliseconds, string Doing)> Stalls = [];
+    private static readonly List<(string Phase, int Count, double Longest)> Summary = [];
     private static double _busyMilliseconds;
     private static double _longest;
     private static int _turns;
@@ -91,10 +92,22 @@ internal static class UiStallMeter
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {milliseconds,7:0} ms  {doing}"));
         }
 
+        Summary.Add((phase, Stalls.Count, _longest));
         Stalls.Clear();
         _busyMilliseconds = 0;
         _longest = 0;
         _turns = 0;
         _startedTimestamp = Stopwatch.GetTimestamp();
+    }
+
+    /// <summary>One row per reported phase: the table <c>--stall-tour</c> exists to print.</summary>
+    public static void PrintSummary()
+    {
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| Route or action | Longest UI turn (ms) | Turns over {ThresholdMilliseconds:0} ms |"));
+        Console.WriteLine("| --- | ---: | ---: |");
+        foreach (var (phase, count, longest) in Summary)
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| {phase} | {longest:0} | {count} |"));
+        }
     }
 }

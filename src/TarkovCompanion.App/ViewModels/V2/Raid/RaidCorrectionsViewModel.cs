@@ -154,12 +154,17 @@ public sealed class RaidCorrectionsViewModel : BindableViewModel
     {
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
         _extractNames = extractNames ?? [];
-        ExtractChoices.Clear();
-        if (IsInRaid)
+        // [#453] Only when a choice would read differently: this runs on every scene rebuild, and
+        // clearing and refilling the list built every row's controls again each time.
+        var choices = IsInRaid
+            ? _extractNames.Select(name => (name, MapViewModel.IsOfferedMarker(name, raid.ActiveExtracts))).ToArray()
+            : [];
+        if (!ExtractChoices.Select(choice => (choice.Name, choice.IsOffered)).SequenceEqual(choices))
         {
-            foreach (var name in _extractNames)
+            ExtractChoices.Clear();
+            foreach (var (name, offered) in choices)
             {
-                ExtractChoices.Add(new(name, MapViewModel.IsOfferedMarker(name, raid.ActiveExtracts), ToggleExtract));
+                ExtractChoices.Add(new(name, offered, ToggleExtract));
             }
         }
 
