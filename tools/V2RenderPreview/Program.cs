@@ -375,6 +375,27 @@ internal static class Program
                 UiStallMeter.Report($"navigate to {route}");
             }
 
+            // [#572] --loot-timing-demo: one finished loot scan (Setup > Diagnostics' timing) and one
+            // still running (the Loot page's progress line), through the app's own stage timeline.
+            if (args.Contains("--loot-timing-demo"))
+            {
+                var timeline = services.GetRequiredService<TarkovCompanion.Application.Services.CaptureSessions.ICaptureStageTimeline>();
+                var seen = DateTimeOffset.UtcNow.AddSeconds(-20);
+                var done = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
+                timeline.Begin(done, seen);
+                foreach (var (stage, ms) in new[] { ("settle_wait", 310d), ("context_ocr", 142d), ("grid_and_icon_matching", 118d), ("grid_reconstruct", 21d), ("profile_lookup", 9d), ("recommendation", 34d), ("decide", 6d) })
+                {
+                    timeline.Mark(done, stage, TimeSpan.FromMilliseconds(ms));
+                }
+
+                timeline.Complete(done, seen.AddMilliseconds(702));
+                var running = TarkovCompanion.Application.Services.CaptureSessions.CaptureCorrelationId.New();
+                timeline.Begin(running, DateTimeOffset.UtcNow);
+                timeline.Mark(running, "settle_wait", TimeSpan.FromMilliseconds(300));
+                timeline.Mark(running, "context_ocr", TimeSpan.FromMilliseconds(140));
+                Pump(10);
+            }
+
             // Package 29 (parity): Setup is one route with sections inside it, so a render names the
             // section the same way its tab does ("progress", "privacy", "diagnostics", ...).
             if (shell?.SetupWorkspace is { } setup && StringOption(args, "--setup-section") is { } sectionName)

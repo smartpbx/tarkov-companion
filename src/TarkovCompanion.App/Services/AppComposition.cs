@@ -980,7 +980,12 @@ public static class AppComposition
             // [#292/#309] The report a player reads before it is sent, and the send of exactly that text.
             new SetupReportViewModel(
                 () => provider.GetRequiredService<MainWindowViewModel>().Settings.BuildReport(),
-                (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token))));
+                (report, token) => provider.GetRequiredService<MainWindowViewModel>().Settings.SendReviewedReportAsync(report, token)),
+            new SetupLootScanViewModel(
+                provider.GetService<IWorkspaceLayoutStore>(),
+                provider.GetService<ICaptureStageTimeline>(),
+                action => Avalonia.Threading.Dispatcher.UIThread.Post(action),
+                provider.GetRequiredService<TimeProvider>())));
         // [#292 task 2] "Reset this section", "Reset everything", export and import. The same
         // three stores the sections themselves already read/write, never a fourth of its own.
         services.AddSingleton(provider => new SetupSettingsAdminViewModel(
