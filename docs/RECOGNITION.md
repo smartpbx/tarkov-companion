@@ -311,8 +311,8 @@ numbers showed were broken. How each one works now:
   only as the fallback when a reference's pixels cannot be read.
   `IconPixelDescriptor`, a 16-pixel-a-cell colour picture compared by normalised correlation
   against every reference of the footprint's shape, decides: at least 0.85 and 0.04 clear of the
-  next item, or the cell is refused with its lookalikes attached. A named item carries that score as its evidence confidence. Rotated items
-  are refused for now. `IconReferenceIndex` keeps the reference list in memory between scans.
+  next item, or the cell is refused with its lookalikes attached. A named item carries that score as its evidence confidence. A non-square footprint
+  is also compared turned a quarter each way. `IconReferenceIndex` keeps the reference list in memory between scans.
 
 `IconEvidenceIndexer` fills the icon evidence cache (#355) from the catalog's grid images after
 each sync, on this machine only, as ADR 0007 allows. Until it has run, every cell is refused.
@@ -354,21 +354,13 @@ Two things #273 asks for, and the limb and gear-slot reading #305 asks for, are 
 was looked at against the real frames first, and in each case the frames are too few or the
 wrong screen. What they do show is measured in `docs/research/EFT_SCREENSHOT_FACTS.md`.
 
-- **The carried grid.** The carried panel is a scrolling column of separate grids (rig pouches,
-  pockets, special slots, backpack), and a rig and a backpack look alike to a line detector;
-  the text header is what tells them apart. The nine frames hold one backpack in one scroll
-  position, six times, and no raid. A reader tuned on that has been tested on nothing, and one
-  that mistook the rig for the bag would claim fits that do not exist. The header anchor cannot
-  be measured on the build host either: the packaged OCR provider is Windows only. Whoever
-  writes the reader has a second job: the Loot Scan planner answers LEAVE when a carried grid
-  has no room, which is only true of a whole read. The panel cut the measured bag's last row
-  and the rig and pockets would be unread, so "no room" from such a read has to be a review.
-  *Wanted:* in-raid loot screens with a container open; at least three different backpacks and
-  two rigs; the carried panel scrolled and unscrolled; a full bag and a part-full one; 1920x1080
-  as well as 3840x1080; and an OCR run on Windows over them for the headers.
-- **Rotated items.** All 360 labelled items sit in the catalog's own footprint, so there is no
-  rotated item to measure against. *Wanted:* any stash or container frame with rotated items,
-  labelled.
+- **The carried grid.** Built 2026-09-22 for the in-raid Gear screen; see "The in-raid Gear
+  screen" below. Still wanted: at least three different backpacks and two rigs, a multi-grid
+  backpack, the carried column scrolled, a part-full bag, 1920x1080, and an OCR run on Windows
+  over the headers.
+- **Rotated items.** Matched since 2026-09-22 (a non-square footprint is also compared turned a
+  quarter each way). One real rotated item so far, an RSP-30 flare: its colour twins are within
+  the margin, so it is refused with the right item on top. *Wanted:* more rotated items, labelled.
 - **Limb health (#305).** The in-raid HUD silhouette is refused on measurement (its outline peaks
   at 83). The Gear tab draws no limb health. *Wanted:* the HEALTH tab, healthy and with genuine
   injuries, a blacked limb, and over a dark and a bright scene; and one in-raid HUD frame of a
@@ -383,8 +375,40 @@ wrong screen. What they do show is measured in `docs/research/EFT_SCREENSHOT_FAC
   been measured. *Wanted:* an OCR run on Windows over these same nine frames, which needs no
   new screenshots.
 
-Wired into `LootScanCaptureHandoff` (`VisibleLoot` surface only - the Loot screen's second,
-carried-inventory panel needs its own region split nothing attempts yet) and
+### The in-raid Gear screen (2026-09-22)
+
+Three real 3840x1080 in-raid Gear screens (2026-09-20, `/root/orca/incoming/loot-2026-09-20`,
+never committed): A, a wooden ammo box open beside a full Duffle; B, an unsearched Duffle with a
+tooltip over the carried backpack; C, a scav's own inventory with no loot open.
+
+- **What was wrong.** The general line detector returned an 11x6 lattice across the rig, pockets
+  and backpack on A, and a 3x2 corner of the pouch as "loot" on C. No backpack was read at all,
+  so every take was "TAKE?".
+- **`GearScreenLayoutReader`.** Every grid on this screen has its own one-pixel frame, grey
+  (88, 93, 96), with near-black outside it; the lines between cells are darker. A grid is a top
+  and bottom frame run of the same start and length, a whole number of 63-pixel cells apart,
+  with the left frame drawn between them. It found every grid whose frame is in view on all
+  three frames (14, 12, 13), none spurious, in 11 to 27 ms. Sections come from the layout:
+  loot right of the carried column, pockets on the slot column, the rig above them, the
+  backpack in the first group below when it starts where its header puts it (44 pixels below
+  the pockets on A and B), otherwise "other" (C's pouch). A tooltip over a frame hides that
+  grid (B's backpack), and the scan then says the carried grid is unread.
+- **Loot.** A: the 3x3 box, one 1x1 footprint, named right (7.62x39 SP ammo pack, 0.905). B and
+  C: no loot lattice, where the old path read carried grids as loot.
+- **Backpack.** A: 4x3 at the exact phase, 7 footprints, all 7 the right shape. Named 1 (Poxeram,
+  0.938), refused 6, none wrong. The true item is on top for 5 of the 6 refused: XCEL 0.802 and
+  Hot Rod 0.834 under the 0.85 floor, the Rotor 43 at 0.674 with two variants near, the rotated
+  RSP-30 beside its colour twins. The M-LOK rail and Kobra mount score under 0.6.
+- **Lattice score.** A Gear-screen lattice carries the share of its frame that was drawn as
+  its evidence score. The planner acts only on scored evidence, and an unscored lattice made
+  every carried grid "capacity unavailable".
+- Only the backpack's largest grid is planned against; the rig and pockets are found and not
+  used. `RealGearScreenMeasurementTests` reports all of this per cell against hand labels kept
+  beside the screenshots; `RealLootFrameEndToEndTests` runs A through the capture session,
+  pipeline, handoff and planner.
+
+Wired into `LootScanCaptureHandoff` (the loot grid on `CaptureAnalysis.Grid`, the backpack on
+`CaptureAnalysis.CarriedGrid`) and
 `StashScanCaptureHandoff` (see `docs/STASH_SCAN.md`). `LootScanRecommendationSource` hands each
 named item to the decision engine with what the companion holds: prices and the flea fee, the
 profile's pins and item rules, outstanding quest and hideout needs, and the raid phase and risk.

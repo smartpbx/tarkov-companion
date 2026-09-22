@@ -335,9 +335,8 @@ public sealed record CaptureAnalysis(
     // Additive and defaulted: every existing producer and consumer predates it, and a capture
     // whose screen holds no single item legitimately identifies nothing.
     IReadOnlyList<CaptureIdentifiedItem>? Identified = null,
-    // The player's own backpack or rig where the same frame showed it and something measured it.
-    // Nothing in the shipped pipeline does yet (it needs the loot screen's second panel told
-    // apart from the first); the Loot Scan plans a fit against it whenever it is present.
+    // The player's own backpack where the same frame showed it: the in-raid Gear screen's
+    // backpack grid, found by GearScreenLayoutReader. The Loot Scan plans a fit against it.
     GridReconstructionRequest? CarriedGrid = null,
     // The visible rows of a flea screen, where the frame was one. V1 parsed these and reduced
     // them to a count; V2 never parsed them at all.

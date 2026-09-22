@@ -117,6 +117,7 @@ public sealed class GridPixelReconstructionBuilder(
     // [V2 rough package 40] The stash is the one surface whose lattice shape is known in advance.
     private readonly StashPanelLatticeDetector _stashLattice = new();
     private readonly StashFootprintReader _stashFootprints = new();
+    private readonly GearScreenLayoutReader _gearScreen = new();
 
     public async Task<GridReconstructionRequest> BuildAsync(
         CapturedImage image,
@@ -134,11 +135,76 @@ public sealed class GridPixelReconstructionBuilder(
             return new(surface, null, []);
         }
 
+        if (surface == InventoryGridSurface.VisibleLoot &&
+            _gearScreen.Read(image, cancellationToken) is { } gear &&
+            gear.In(GearGridSection.Pockets).Any())
+        {
+            // The in-raid Gear screen: its loot is the grid on the loot side, and a Gear screen
+            // with no loot grid open (an unsearched container, or the player's own inventory)
+            // has no loot to read. The general detector picked carried grids on both.
+            return gear.Largest(GearGridSection.Loot) is { } loot
+                ? await BuildFromSpecAsync(image, surface, loot.Lattice, stashSpec: false, observedUtc, options, cancellationToken, loot.FrameShare)
+                    .ConfigureAwait(false)
+                : new(surface, null, []);
+        }
+
         var stashSpec = surface == InventoryGridSurface.Stash ? _stashLattice.Detect(image, cancellationToken) : null;
         var spec = stashSpec
             ?? _gridDetector.Detect(image, cancellationToken)
             ?? DetectInCenteredSafeArea(image, cancellationToken);
-        if (spec is null || BuildLattice(spec, observedUtc) is not { } lattice)
+        return spec is null
+            ? new(surface, null, [])
+            : await BuildFromSpecAsync(image, surface, spec, stashSpec is not null, observedUtc, options, cancellationToken)
+                .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The player's backpack as the in-raid Gear screen shows it beside the loot, or null where
+    /// the frame is not that screen or shows no backpack grid.
+    /// </summary>
+    /// <remarks>
+    /// Only the backpack's largest grid is returned: the planner fits loot into one lattice, and
+    /// the backpack is where loot goes. The rig and pockets are found by the same reader
+    /// (<see cref="GearScreenLayoutReader"/>) and not planned against.
+    /// </remarks>
+    public async Task<GridReconstructionRequest?> BuildCarriedAsync(
+        CapturedImage image,
+        DateTimeOffset observedUtc,
+        GridPixelReconstructionOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        options ??= GridPixelReconstructionOptions.Default;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CapturedImagePixels.ExceedsPixelCeiling(image) ||
+            _gearScreen.Read(image, cancellationToken)?.Largest(GearGridSection.Backpack) is not { } backpack)
+        {
+            return null;
+        }
+
+        return await BuildFromSpecAsync(
+                image,
+                InventoryGridSurface.CarriedInventory,
+                backpack.Lattice,
+                stashSpec: false,
+                observedUtc,
+                options,
+                cancellationToken,
+                backpack.FrameShare)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<GridReconstructionRequest> BuildFromSpecAsync(
+        CapturedImage image,
+        InventoryGridSurface surface,
+        ContainerGridSpec spec,
+        bool stashSpec,
+        DateTimeOffset observedUtc,
+        GridPixelReconstructionOptions options,
+        CancellationToken cancellationToken,
+        double? latticeScore = null)
+    {
+        if (BuildLattice(spec, observedUtc, latticeScore) is not { } lattice)
         {
             return new(surface, null, []);
         }
@@ -149,7 +215,7 @@ public sealed class GridPixelReconstructionBuilder(
         // package 37 made border-aware for the same underlying reason, since two items side by
         // side are told apart by the border the game draws between them and not by a gap that a
         // packed grid never has.
-        var footprints = stashSpec is not null
+        var footprints = stashSpec
             ? _stashFootprints.Read(image, spec, cancellationToken)
                 .Select(footprint => new Footprint(footprint.Row, footprint.Column, footprint.Width, footprint.Height))
                 .ToList()
@@ -239,7 +305,12 @@ public sealed class GridPixelReconstructionBuilder(
         return spec is null ? null : spec with { Bounds = spec.Bounds with { X = spec.Bounds.X + offsetX } };
     }
 
-    private static DetectedGridLattice? BuildLattice(ContainerGridSpec spec, DateTimeOffset observedUtc)
+    /// <param name="score">
+    /// How much of a drawn frame bore the lattice out, where a reader measured it. The planner
+    /// acts only on scored evidence, so a carried grid with an unscored lattice could never be
+    /// planned against: its rows and columns were refused as unreliable.
+    /// </param>
+    private static DetectedGridLattice? BuildLattice(ContainerGridSpec spec, DateTimeOffset observedUtc, double? score = null)
     {
         if (spec.Columns < 1 || spec.Rows < 1 ||
             spec.Columns > GridGeometry.MaxColumns || spec.Rows > GridGeometry.MaxRows ||
@@ -262,7 +333,9 @@ public sealed class GridPixelReconstructionBuilder(
             EvidenceSourceClass.GameWrittenScreenshot,
             "recognition.grid.lattice",
             observedUtc,
-            EvidenceConfidence.Unscored,
+            score is { } measured
+                ? new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, Math.Clamp(measured, 0, 1))
+                : EvidenceConfidence.Unscored,
             Producer);
         var status = new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "grid.lattice.detected");
         var bounds = new EvidenceRegion(spec.Bounds.X, spec.Bounds.Y, width, height, EvidenceCoordinateSpace.SourcePixels);
@@ -481,9 +554,11 @@ public sealed class GridPixelReconstructionBuilder(
     /// Shortlists references by difference hash, then lets the pixels decide.
     /// </summary>
     /// <remarks>
-    /// Only references drawn at the footprint's own orientation are compared. A rotated item is
-    /// drawn rotated, and a reference picture turned on its side has not been tried against
-    /// anything real yet, so a rotated item is refused rather than matched by its hash alone.
+    /// A footprint that is not square is also compared, turned a quarter each way, with the
+    /// references of the other shape: the game draws a rotated item's picture on its side. The
+    /// first real rotated item (an RSP-30 flare lying 2x1 in a backpack, 2026-09-20) was refused
+    /// because nothing of its own shape was ever compared. Both orientations compete in one
+    /// ranking, so the margin still has to clear the best of either.
     /// </remarks>
     private async Task<IconMatch> MatchAsync(
         CapturedImage cropped,
@@ -518,7 +593,23 @@ public sealed class GridPixelReconstructionBuilder(
         var scores = new Dictionary<string, (IconReference Reference, double Score)>(StringComparer.Ordinal);
         if (described is not null)
         {
-            foreach (var reference in shaped)
+            await ScoreAsync(described, shaped).ConfigureAwait(false);
+        }
+
+        if (footprint.Width != footprint.Height && references.OfShape(footprint.Height, footprint.Width) is { Count: > 0 } turned)
+        {
+            foreach (var clockwise in new[] { true, false })
+            {
+                if (IconPixelDescriptor.Create(Rotate(cropped, clockwise), footprint.Height, footprint.Width) is { } rotated)
+                {
+                    await ScoreAsync(rotated, turned).ConfigureAwait(false);
+                }
+            }
+        }
+
+        async Task ScoreAsync(IconPixelDescriptor query, IReadOnlyList<IconReference> candidates)
+        {
+            foreach (var reference in candidates)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (await references.DescribeAsync(reference, cancellationToken).ConfigureAwait(false) is not { } descriptor)
@@ -526,7 +617,7 @@ public sealed class GridPixelReconstructionBuilder(
                     continue;
                 }
 
-                var score = described.Correlate(descriptor);
+                var score = query.Correlate(descriptor);
                 if (!scores.TryGetValue(reference.Definition.Id, out var best) || score > best.Score)
                 {
                     scores[reference.Definition.Id] = (reference, score);
@@ -656,6 +747,29 @@ public sealed class GridPixelReconstructionBuilder(
         var text = string.Concat(result.Lines.Select(line => line.Text));
         var match = Regex.Match(text, @"\d{1,4}");
         return match.Success && int.TryParse(match.Value, out var quantity) && quantity > 0 ? quantity : null;
+    }
+
+    /// <summary>The picture turned a quarter clockwise, or anticlockwise.</summary>
+    private static CapturedImage Rotate(CapturedImage image, bool clockwise)
+    {
+        var bytesPerPixel = CapturedImagePixels.BytesPerPixel(image.Format);
+        var width = image.Height;
+        var height = image.Width;
+        var stride = width * bytesPerPixel;
+        var buffer = new byte[stride * height];
+        var source = image.Pixels.Span;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var sourceX = clockwise ? y : image.Width - 1 - y;
+                var sourceY = clockwise ? image.Height - 1 - x : x;
+                source.Slice((sourceY * image.Stride) + (sourceX * bytesPerPixel), bytesPerPixel)
+                    .CopyTo(buffer.AsSpan((y * stride) + (x * bytesPerPixel), bytesPerPixel));
+            }
+        }
+
+        return new CapturedImage(buffer, width, height, stride, image.Format, image.CapturedUtc, "grid-cell-rotated");
     }
 
     private static CapturedImage Crop(CapturedImage image, EvidenceRegion region)

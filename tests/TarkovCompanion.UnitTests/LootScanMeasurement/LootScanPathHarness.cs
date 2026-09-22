@@ -21,7 +21,10 @@ namespace TarkovCompanion.UnitTests.LootScanMeasurement;
 /// the frame is declared a loot screen here the way a player confirming the review prompt would.
 /// Everything after that is the shipped code.
 /// </remarks>
-internal sealed class LootScanPathHarness(GridPixelReconstructionBuilder builder, LootScanCaptureHandoff handoff)
+internal sealed class LootScanPathHarness(
+    GridPixelReconstructionBuilder builder,
+    LootScanCaptureHandoff handoff,
+    ICaptureSessionPipeline? shippedPipeline = null)
 {
     private static readonly WorkspaceOrigin Origin = new(
         new(Guid.Parse("37000000-0000-4000-8000-000000000001")),
@@ -37,7 +40,8 @@ internal sealed class LootScanPathHarness(GridPixelReconstructionBuilder builder
         // Observed at the instant the decision is evaluated. The session clock below is advanced
         // to make the coordinator progress, and evidence stamped from it would be in the
         // decision service's future, which it rightly refuses.
-        var pipeline = new BuilderPipeline(builder, new ManualTimeProvider(nowUtc));
+        var builderPipeline = new BuilderPipeline(builder, new ManualTimeProvider(nowUtc));
+        var pipeline = shippedPipeline ?? builderPipeline;
         LootScanResult? evaluated = null;
         void OnEvaluated(object? sender, LootScanResult result) => evaluated = result;
         handoff.LootScanEvaluated += OnEvaluated;
@@ -80,7 +84,7 @@ internal sealed class LootScanPathHarness(GridPixelReconstructionBuilder builder
                 await Task.Delay(1);
             }
 
-            return (pipeline.LastGrid, evaluated);
+            return (builderPipeline.LastGrid, evaluated);
         }
         finally
         {

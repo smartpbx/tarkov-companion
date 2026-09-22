@@ -54,6 +54,7 @@ internal static class ScanFrame
             : new FileIconEvidenceCache(new FileIconEvidenceCacheOptions(iconCacheDirectory) { MaximumEntries = 8192 });
         var builder = new GridPixelReconstructionBuilder(cache, items, services.GetRequiredService<IOcrEngine>());
         var grid = await builder.BuildAsync(image, InventoryGridSurface.VisibleLoot, clock.GetUtcNow());
+        var carried = await builder.BuildCarriedAsync(image, clock.GetUtcNow());
 
         var profiles = services.GetRequiredService<IProfileRuntimeContextService>();
         var profile = profiles.Current.ActiveProfile
@@ -86,7 +87,10 @@ internal static class ScanFrame
                 1,
                 Convert.ToHexStringLower(SHA256.HashData(image.Pixels.Span)),
                 "desktop",
-                grid),
+                grid)
+            {
+                CarriedGrid = carried,
+            },
             profile,
             CancellationToken.None), controls);
     }
