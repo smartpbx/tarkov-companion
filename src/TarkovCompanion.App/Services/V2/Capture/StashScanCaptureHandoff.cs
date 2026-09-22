@@ -36,7 +36,8 @@ public sealed class StashScanCaptureHandoff(
     StashScanWorkflow workflow,
     TimeProvider? timeProvider = null,
     ILogger<StashScanCaptureHandoff>? logger = null,
-    GuidedStashScanService? guidedScan = null) : ICaptureResultHandoff
+    GuidedStashScanService? guidedScan = null,
+    StashScanCaptureStatus? captureStatus = null) : ICaptureResultHandoff
 {
     private readonly IProfileRuntimeContextService _profileContext =
         profileContext ?? throw new ArgumentNullException(nameof(profileContext));
@@ -65,6 +66,7 @@ public sealed class StashScanCaptureHandoff(
         if (snapshot.ActiveProfile is not { } profile)
         {
             _logger.LogInformation("Skipped a stash scan because no active profile is selected yet.");
+            captureStatus?.ReportNoActiveProfile();
             return CaptureHandoffResult.Accepted;
         }
 

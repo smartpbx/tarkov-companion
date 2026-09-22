@@ -1738,6 +1738,13 @@ internal static class Program
                 Pump(20);
             }
 
+            if (shell is not null && args.Contains("--stash-no-profile-skip-demo"))
+            {
+                var captureStatus = services.GetRequiredService<TarkovCompanion.App.Services.V2.Capture.StashScanCaptureStatus>();
+                captureStatus.ReportNoActiveProfile();
+                Pump(20);
+            }
+
             // Package 40: the guided full-stash scan, driven through the composed services from
             // painted screenshots. "mid" stops after two of three screens; "complete" finishes;
             // "unnamed" is the application as it ships, where no tile can be named yet.

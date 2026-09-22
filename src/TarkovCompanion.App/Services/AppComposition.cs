@@ -721,6 +721,7 @@ public static class AppComposition
         services.AddSingleton<StashLayoutAligner>();
         services.AddSingleton<StashReconstructionProjector>();
         services.AddSingleton<StashOwnedCountsApplier>();
+        services.AddSingleton<StashScanCaptureStatus>();
         services.AddSingleton<IGuidedStashScanPendingStore>(provider => new JsonFileGuidedStashScanStore(
             Path.Combine(paths.Config, "stash-scan-in-progress.json"),
             provider.GetService<Microsoft.Extensions.Logging.ILogger<JsonFileGuidedStashScanStore>>()));

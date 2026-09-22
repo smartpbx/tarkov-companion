@@ -374,6 +374,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly GuidedStashScanArming? _arming;
     private readonly IProfileRuntimeContextService? _profileContext;
     private readonly StashPlanSource? _planSource;
+    private readonly StashScanCaptureStatus? _captureStatus;
     private bool _isSorted;
     private bool _sortFailed;
     private readonly StashReconstructionProjector _projector = new();
@@ -401,7 +402,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         GuidedStashScanArming? arming = null,
         IProfileRuntimeContextService? profileContext = null,
         StashPlanSource? planSource = null,
-        AppDataPaths? paths = null)
+        AppDataPaths? paths = null,
+        StashScanCaptureStatus? captureStatus = null)
     {
         _planSource = planSource;
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -416,6 +418,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _guidedScan = guidedScan;
         _arming = arming;
         _profileContext = profileContext;
+        _captureStatus = captureStatus;
         if (_guidedScan is not null)
         {
             _guidedScan.Changed += OnGuidedScanChanged;
@@ -424,6 +427,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         if (_arming is not null)
         {
             _arming.Changed += OnGuidedScanChanged;
+        }
+
+        if (_captureStatus is not null)
+        {
+            _captureStatus.Changed += OnCaptureStatusChanged;
         }
 
         FinishScanCommand = new AsyncDelegateCommand(FinishScanAsync);
@@ -793,6 +801,20 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _ = ShowScanProgressAsync();
     }
 
+    private void OnCaptureStatusChanged(object? sender, EventArgs eventArgs)
+    {
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => OnCaptureStatusChanged(sender, eventArgs));
+            return;
+        }
+
+        if (_captureStatus?.LastMessage is { } message)
+        {
+            Status = message;
+        }
+    }
+
     private async Task ShowScanProgressAsync()
     {
         await OverlayScanProgressAsync(CancellationToken.None).ConfigureAwait(true);
@@ -817,7 +839,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         if (scope is null)
         {
             Snapshots = [];
-            Status = "No profile is loaded yet, so there is no stash scope to browse.";
+            Status = _captureStatus?.LastMessage
+                ?? "No profile is loaded yet, so there is no stash scope to browse.";
             RaiseAll();
             return;
         }

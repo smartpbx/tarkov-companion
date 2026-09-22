@@ -83,16 +83,19 @@ public sealed class StashScanCaptureHandoffTests
         using var profiles = new ProfileContextService(new MemoryProfileStore(), new ProfileClock(Now));
         using var runtime = new ProfileRuntimeContextService(profiles);
         await runtime.InitializeAsync(CancellationToken.None);
+        var captureStatus = new StashScanCaptureStatus();
         var handoff = new StashScanCaptureHandoff(
             runtime,
             new InventoryGridReconstructor(),
-            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()));
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()),
+            captureStatus: captureStatus);
 
         await using var harness = new Harness(handoff, RecognizedContext.Stash, ScanIntent.Stash, RealStashGrid());
         var receipt = await harness.CaptureAsync();
 
         Assert.Equal(CaptureQueueDisposition.Accepted, receipt.Disposition);
         Assert.Null(store.Saved);
+        Assert.Equal(StashScanCaptureStatus.NoActiveProfileMessage, captureStatus.LastMessage);
     }
 
     [Fact]
