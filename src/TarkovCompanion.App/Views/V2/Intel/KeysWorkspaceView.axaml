@@ -53,12 +53,23 @@
                        AutomationProperties.LiveSetting="Polite" />
           </StackPanel>
 
-          <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="2">
+          <!-- [#453] Virtualised: several hundred keys drawn at once held the interface thread for
+               over half a second on the first visit. Only the rows in view are built. -->
+          <Panel Grid.Row="2">
               <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                          IsVisible="{Binding ShowsNoKeys}" Text="{Binding NoKeysLabel}"
-                         TextWrapping="Wrap" Margin="2,8" />
+                         TextWrapping="Wrap" Margin="2,8" VerticalAlignment="Top" />
               <ItemsControl ItemsSource="{Binding Keys}" IsVisible="{Binding HasKeys}">
+                <ItemsControl.Template>
+                  <ControlTemplate>
+                    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                      <ItemsPresenter ItemsPanel="{TemplateBinding ItemsPanel}" />
+                    </ScrollViewer>
+                  </ControlTemplate>
+                </ItemsControl.Template>
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:KeyListRowViewModel">
                     <Button Classes="v2-target v2-intel-row" Classes.selected="{Binding IsSelected}"
@@ -82,8 +93,7 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
-            </StackPanel>
-          </ScrollViewer>
+          </Panel>
         </Grid>
       </Border>
     </Grid>

@@ -62,6 +62,22 @@ public sealed class KeysWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task PickingAKeyMovesTheSelectionWithoutBuildingTheListAgain()
+    {
+        // [#453] Each pick used to build every row again, and the view drew them all again.
+        var (_, workspace) = await LoadedAsync();
+        await WaitUntilAsync(() => workspace.HasSelectedKey);
+        var rows = workspace.Keys;
+        var other = rows.First(row => !row.IsSelected);
+
+        other.SelectCommand.Execute(null);
+
+        Assert.Same(rows, workspace.Keys);
+        Assert.True(other.IsSelected);
+        Assert.Single(workspace.Keys, key => key.IsSelected);
+    }
+
+    [Fact]
     public async Task AChipThatHidesEveryKeySaysSoAndTheUnfilteredCountSurvives()
     {
         var (_, workspace) = await LoadedAsync();
