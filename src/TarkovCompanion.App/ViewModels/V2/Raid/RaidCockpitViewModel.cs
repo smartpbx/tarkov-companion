@@ -430,6 +430,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _handDone = handDone;
         _profiles = profiles;
         _layout = layout;
+        Cards = new(layout);
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -477,6 +478,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _raid.PropertyChanged += RaidPropertyChanged;
         Corrections = new(_raid.Corrections, _timeProvider);
         Corrections.ShowClock(_raid.Clock);
+        AttachCardState();
         _raid.Corrections.Changed += CorrectionsChanged;
         _stateStore.Changed += RuntimeStateChanged;
         _marks.Changed += MarksChanged;
@@ -2414,6 +2416,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
             renderer.PropertyChanged += RendererPropertyChanged;
             Renderer = renderer;
+            WatchLootAvailability(renderer);
             OnPropertyChanged(nameof(Renderer));
         }
         else
@@ -2719,6 +2722,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         if (e.PropertyName == nameof(MapSceneRendererViewModel.SelectedObject))
         {
             SyncExtractSelection();
+            RevealSelectedExtract();
             OnPropertyChanged(nameof(ShowsSelectedExtract));
             OnPropertyChanged(nameof(SelectedExtractEstimate));
             OnPropertyChanged(nameof(HasSelectedExtractEstimate));
@@ -3367,6 +3371,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             Renderer.HighValueLootFilterRequested -= HighValueLootFilterRequested;
             Renderer.HighValueLootRefreshRequested -= HighValueLootRefreshRequested;
             Renderer = null;
+            WatchLootAvailability(null);
             OnPropertyChanged(nameof(Renderer));
             OnPropertyChanged(nameof(HasRenderer));
         }
