@@ -450,8 +450,12 @@ session `/admin/relay/claim` returned:
 and from then on both sides exchange `OpaqueRelayFrame`s the same way:
 
     POST /v2/companion/relay/frames        (publish one frame)
-    GET  /v2/companion/relay/frames?after=<deliveryId>
+    GET  /v2/companion/relay/frames?after=<deliveryId>[&wait=<seconds>]
     POST /v2/companion/relay/frames/{deliveryId}/ack
+
+A frame read that names `wait` (#604) is held until a frame is queued (at most 20 s, 256 held
+reads), acknowledges everything through its own `after`, and is answered with
+`X-Relay-Frames-Held: 1`; a reader that names no `wait` is answered and acknowledges as before.
 
 Bearer headers rather than a cookie, because the caller is always a native `HttpClient` the
 desktop or tablet code sets explicitly, never a browser attaching an ambient credential — so CSRF,

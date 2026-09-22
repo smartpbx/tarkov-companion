@@ -140,6 +140,8 @@ public sealed class RelayLinkMapSurfaceTests
         using var disk = new DesktopDisk();
         using var tablet = new TabletSimulator(relay.Origin, clock);
         await using var desktop = await DesktopRun.StartAsync(disk, relay.Origin, clock);
+        // Its own reader would drain the queue as fast as the tablet fills it (#604).
+        desktop.Bridge.ReadsOnItsOwn = false;
         await desktop.ClaimAsync();
         await desktop.PairAsync(tablet, "Raid tablet");
         await tablet.ReadAsync();

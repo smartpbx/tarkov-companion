@@ -40,6 +40,22 @@ public sealed class OpaqueRelayFrameHub
     private readonly TimeProvider _timeProvider;
     private readonly Lock _gate = new();
     private readonly Dictionary<DeviceSessionId, RecipientQueue> _queues = [];
+    private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _waiting;
+    private long _wakeGeneration;
+
+    /// <summary>The longest a frame read is held, whatever the caller asked for.</summary>
+    /// <remarks>
+    /// [#604] The same twenty seconds <c>RelayMapSurfaceStore.MaximumWait</c> and the group
+    /// exchange use, for the same reason: well inside Kestrel's keep-alive.
+    /// </remarks>
+    public static readonly TimeSpan MaximumWait = TimeSpan.FromSeconds(20);
+
+    /// <summary>How many frame reads may be held at once; past it a read is answered at once.</summary>
+    public const int MaximumConcurrentWaits = 256;
+
+    /// <summary>How many frame reads are being held right now, for <c>/health</c>.</summary>
+    public int WaitingCount => Volatile.Read(ref _waiting);
 
     public OpaqueRelayFrameHub(RelayDeviceRegistry registry, TimeProvider timeProvider)
     {
@@ -160,6 +176,11 @@ public sealed class OpaqueRelayFrameHub
                 queue.QueuedBytes += frameBytes;
                 enqueued++;
             }
+
+            if (enqueued > 0)
+            {
+                SwapCore().TrySetResult();
+            }
         }
 
         return enqueued == 0
@@ -206,6 +227,87 @@ public sealed class OpaqueRelayFrameHub
                 afterDeliveryId > queue.LastIssuedDeliveryId,
                 now);
         }
+    }
+
+    /// <summary>
+    /// Reads after <paramref name="afterDeliveryId"/>, holding the read until there is something
+    /// to answer or <paramref name="wait"/> runs out.
+    /// </summary>
+    /// <remarks>
+    /// [#604] The desktop read its queue every two seconds, so a tablet in Control moved the desk
+    /// in two-second jumps. A held read comes back the moment a frame is queued. "Something to
+    /// answer" is a frame, a queue that needs a reconnect, or <see cref="Wake"/> (a returning
+    /// tablet's resume ticket, which rides on the owner's read). Re-authorised on every turn, the
+    /// same as <c>RelayMapSurfaceStore.WaitAsync</c>.
+    /// </remarks>
+    public async Task<RelayFrameBatch> WaitAsync(
+        RelayPrincipal principal,
+        long afterDeliveryId,
+        TimeSpan wait,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+        var batch = Read(principal, afterDeliveryId);
+        if (wait <= TimeSpan.Zero || batch.Frames.Count > 0 || batch.RequiresReconnect)
+        {
+            return batch;
+        }
+
+        if (Interlocked.Increment(ref _waiting) > MaximumConcurrentWaits)
+        {
+            Interlocked.Decrement(ref _waiting);
+            return batch;
+        }
+
+        var woken = Interlocked.Read(ref _wakeGeneration);
+        using var expiry = new CancellationTokenSource(wait > MaximumWait ? MaximumWait : wait, _timeProvider);
+        using var hold = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, expiry.Token);
+        try
+        {
+            while (true)
+            {
+                // Taken before the read, so a frame queued between the two is waited on, not missed.
+                Task changed;
+                lock (_gate)
+                {
+                    changed = _changed.Task;
+                }
+
+                batch = Read(principal, afterDeliveryId);
+                if (batch.Frames.Count > 0 || batch.RequiresReconnect || hold.IsCancellationRequested ||
+                    Interlocked.Read(ref _wakeGeneration) != woken)
+                {
+                    return batch;
+                }
+
+                await changed.WaitAsync(hold.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return Read(principal, afterDeliveryId);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _waiting);
+        }
+    }
+
+    /// <summary>Answers every held read now, with whatever it would read.</summary>
+    public void Wake()
+    {
+        Interlocked.Increment(ref _wakeGeneration);
+        lock (_gate)
+        {
+            SwapCore().TrySetResult();
+        }
+    }
+
+    private TaskCompletionSource SwapCore()
+    {
+        var woken = _changed;
+        _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        return woken;
     }
 
     public RelayAcknowledgementResult Acknowledge(RelayPrincipal principal, long deliveryId)
@@ -261,6 +363,7 @@ public sealed class OpaqueRelayFrameHub
             queue.QueuedBytes = 0;
             queue.LastAcknowledgedDeliveryId = queue.LastIssuedDeliveryId;
             queue.RequiresReconnect = false;
+            SwapCore().TrySetResult();
             return RelayAcknowledgementResult.Permit;
         }
     }

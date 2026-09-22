@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Devices;
@@ -73,6 +74,9 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private int _artworkHeight;
     private bool _applyingRemoteView;
     private bool _disposed;
+    private WorkspaceProjection? _remoteTarget;
+    private int _remotePosted;
+    private DesktopViewportEase? _ease;
 
     public TabletMapSurfacePublisher(
         RaidCockpitViewModel cockpit,
@@ -225,12 +229,20 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     /// </summary>
     private async Task PushDesktopWorkspaceAsync(MapSceneSnapshot scene, CancellationToken cancellationToken)
     {
-        if (_bridge is null || _applyingRemoteView)
+        if (_bridge is null || _applyingRemoteView || _ease?.IsMoving == true)
         {
             return;
         }
 
         var canonical = _authority.Snapshot.CanonicalState;
+        // [#604] A tablet holding Control is driving this map. The desk pushing its own camera
+        // back as a new revision would race every move the tablet streams (each names the
+        // revision after the last) and throw the tablet's drag back to wherever the desk was.
+        if (canonical.DeviceModes.ControlLease is not null)
+        {
+            return;
+        }
+
         var current = canonical.Workspace.Projection;
         var mapId = scene.LocationId;
         var floorId = scene.View.SelectedFloorId;
@@ -355,7 +367,34 @@ public sealed class TabletMapSurfacePublisher : IDisposable
     private const int MaximumSearchResults = 12;
 
     /// <summary>A paired device holding a control lease has moved the map; the desktop follows it.</summary>
-    private async void OnDesktopWorkspaceRequested(WorkspaceProjection projection)
+    /// <remarks>
+    /// [#604] Raised on the relay reader's thread. Only the newest move is kept, and at most one
+    /// apply is queued on the UI thread at a time, so a burst of moves costs one apply there.
+    /// </remarks>
+    private void OnDesktopWorkspaceRequested(WorkspaceProjection projection)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _remoteTarget, projection);
+        if (Interlocked.Exchange(ref _remotePosted, 1) == 0)
+        {
+            Dispatcher.UIThread.Post(ApplyLatestRemoteWorkspace, DispatcherPriority.Input);
+        }
+    }
+
+    private void ApplyLatestRemoteWorkspace()
+    {
+        Interlocked.Exchange(ref _remotePosted, 0);
+        if (Interlocked.Exchange(ref _remoteTarget, null) is { } projection)
+        {
+            ApplyRemoteWorkspace(projection);
+        }
+    }
+
+    private async void ApplyRemoteWorkspace(WorkspaceProjection projection)
     {
         if (_disposed || _cockpit.Renderer is not { } renderer || projection.Viewport is not { } viewport)
         {
@@ -388,7 +427,9 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 renderer.SelectFloor(projection.FloorId);
             }
 
-            renderer.FocusOn(new MapScenePoint(viewport.Center.X, viewport.Center.Z), viewport.Zoom);
+            // [#604] Eased, and exactly: FocusOn only ever zoomed in.
+            _ease ??= new DesktopViewportEase(_clock);
+            _ease.MoveTo(renderer, new EasedCamera(viewport.Center.X, viewport.Center.Z, viewport.Zoom));
             if (projection.Selection is { Kind: WorkspaceSelectionKind.Landmark or WorkspaceSelectionKind.Objective } selection)
             {
                 renderer.SelectObject(new MapSceneObjectId(selection.ReferenceId));
@@ -398,9 +439,16 @@ public sealed class TabletMapSurfacePublisher : IDisposable
                 renderer.ClearSelection();
             }
 
+            // Only the layers that differ: every call is a view change of its own, and a streamed
+            // drag would otherwise re-send every layer's switch with every move.
+            var visible = ActiveLayers(renderer.Scene).ToHashSet(StringComparer.Ordinal);
             foreach (var layer in renderer.Scene.Layers)
             {
-                renderer.SetLayerVisibility(layer.Id, projection.ActiveLayers.Contains(layer.Id.Value));
+                var wanted = projection.ActiveLayers.Contains(layer.Id.Value);
+                if (wanted != visible.Contains(layer.Id.Value))
+                {
+                    renderer.SetLayerVisibility(layer.Id, wanted);
+                }
             }
         }
         finally
@@ -477,6 +525,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
         }
 
         _disposed = true;
+        _ease?.Dispose();
         _cockpit.SceneRebuilt -= OnSceneRebuilt;
         if (_bridge is not null)
         {

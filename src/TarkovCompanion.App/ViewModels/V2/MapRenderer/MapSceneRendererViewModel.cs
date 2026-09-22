@@ -1337,6 +1337,25 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             Camera: Clamp(new(point.X, point.Y, zoom, camera.BearingDegrees, camera.PitchDegrees))));
     }
 
+    /// <summary>
+    /// [#604] Puts the camera exactly here, zooming out as well as in. What a paired tablet in
+    /// Control drives: <see cref="FocusOn"/> only ever zooms in, so a tablet's zoom-out never
+    /// reached the desk.
+    /// </summary>
+    public void ShowCamera(MapScenePoint point, double zoom)
+    {
+        if (!double.IsFinite(point.X) || !double.IsFinite(point.Y) || !double.IsFinite(zoom) || zoom <= 0)
+        {
+            return;
+        }
+
+        var camera = _scene.View.Camera;
+        _isFitted = false;
+        Request(new(
+            MapSceneViewChangeKind.SetCamera,
+            Camera: Clamp(new(point.X, point.Y, Math.Clamp(zoom, MinimumZoom, MaximumZoom), camera.BearingDegrees, camera.PitchDegrees))));
+    }
+
     /// <summary>[V2 rough package 22] Turns the whole plan, V1's "270°" control.</summary>
     public void SetBearing(double degrees)
     {

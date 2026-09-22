@@ -176,6 +176,48 @@ public sealed class OpaqueRelayFrameHubTests
         Assert.Empty(hub.Read(owner, batch.Frames[^1].DeliveryId).Frames);
     }
 
+    // --- #604: a held read comes back the moment a frame is queued ----------------------------
+
+    [Fact]
+    public async Task AHeldReadReturnsTheMomentAFrameIsQueued()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var member = await AddDeviceAsync(context, owner, "held", DeviceAuthorizationRole.Member);
+        var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
+
+        var held = hub.WaitAsync(owner, 0, TimeSpan.FromSeconds(15), CancellationToken.None);
+        await Task.Delay(100);
+        Assert.False(held.IsCompleted);
+        Assert.Equal(1, hub.WaitingCount);
+        Assert.True((await hub.PublishAsync(
+            member.Principal,
+            RelaySecurityTestFactory.Frame(member.Principal, context.Clock.UtcNow, 1))).Accepted);
+
+        var batch = await held.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(batch.Frames);
+        Assert.Equal(0, hub.WaitingCount);
+    }
+
+    [Fact]
+    public async Task AHeldReadWithNothingToSayReturnsEmptyWhenItsWaitRunsOutOrItIsWoken()
+    {
+        using var context = await RelaySecurityTestFactory.BootstrapAsync();
+        var owner = await context.AuthenticateOwnerAsync();
+        var hub = new OpaqueRelayFrameHub(context.Registry, context.Clock);
+
+        var expired = await hub.WaitAsync(owner, 0, TimeSpan.FromMilliseconds(150), CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Empty(expired.Frames);
+        Assert.False(expired.RequiresReconnect);
+
+        // A resume ticket rides on the owner's read, so opening one lets a held read go.
+        var held = hub.WaitAsync(owner, 0, TimeSpan.FromSeconds(15), CancellationToken.None);
+        await Task.Delay(100);
+        hub.Wake();
+        Assert.Empty((await held.WaitAsync(TimeSpan.FromSeconds(5))).Frames);
+    }
+
     [Fact]
     public async Task MissingOrFutureDeliveryCursorRequiresReconnect()
     {
