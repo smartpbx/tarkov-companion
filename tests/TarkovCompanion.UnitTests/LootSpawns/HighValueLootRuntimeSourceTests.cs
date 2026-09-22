@@ -147,6 +147,42 @@ public sealed class HighValueLootRuntimeSourceTests
         Assert.Equal(ResultCompleteness.Unavailable, result.Status.Completeness);
     }
 
+    [Fact]
+    public async Task The_same_request_within_a_minute_gets_the_same_layer_and_anything_else_a_new_one()
+    {
+        // [#657] The Raid map asks again on every squad position; answering with the same result
+        // is what lets the map keep its loot markers instead of rebuilding them.
+        var second = Bundle(Now.AddMinutes(10), "generation-two");
+        var refresh = new StubRefresh
+        {
+            Result = new(LootSpawnSourceImportDisposition.Published, second, second, []),
+        };
+        var source = Source(new MemoryStore(Bundle(Now, "generation-one")), refresh);
+        await source.InitializeAsync(CancellationToken.None);
+        var at = Now.AddMinutes(1);
+
+        var built = source.Build(Request(at));
+
+        Assert.Same(built, source.Build(Request(at.AddSeconds(59))));
+        Assert.Same(built, source.Build(Request(at) with { FloorIds = ["ground"] }));
+        var later = source.Build(Request(at.AddSeconds(60)));
+        Assert.NotSame(built, later);
+        Assert.NotSame(later, source.Build(Request(at.AddSeconds(60)) with { MapBounds = new MapSceneBounds(0, 0, 50, 50) }));
+        var floors = source.Build(Request(at.AddSeconds(60)) with { FloorIds = ["ground", "roof"] });
+        var narrow = new HighValueLootFilter(LootSpawnValueBasis.BestNet, LootSpawnValueThresholds.Default, TimeSpan.FromDays(1), TimeSpan.FromDays(90), 0);
+        var filtered = source.Build(Request(at.AddSeconds(60)) with { FloorIds = ["ground", "roof"], Filter = narrow });
+        Assert.NotSame(floors, filtered);
+        // The player's filter and the default one, asked for in turn, are both kept.
+        Assert.Same(floors, source.Build(Request(at.AddSeconds(61)) with { FloorIds = ["ground", "roof"] }));
+        Assert.Same(filtered, source.Build(Request(at.AddSeconds(61)) with { FloorIds = ["ground", "roof"], Filter = narrow }));
+        var head = source.Build(Request(at.AddSeconds(60)));
+        Assert.NotSame(head, source.Build(Request(at.AddSeconds(59))));
+
+        var beforeRefresh = source.Build(Request(at.AddSeconds(59)));
+        await source.RefreshAsync(force: false, CancellationToken.None);
+        Assert.NotSame(beforeRefresh, source.Build(Request(at.AddSeconds(59))));
+    }
+
     private static HighValueLootRuntimeSource Source(
         ILootSpawnSourcePublicationStore store,
         ILootSpawnSourceRefreshService refresh) => new(

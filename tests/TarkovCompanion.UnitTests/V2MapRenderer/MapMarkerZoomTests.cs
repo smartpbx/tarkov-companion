@@ -169,8 +169,9 @@ public sealed class MapLootRankingTests
         renderer.ViewChangeRequested += change => renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, change).Scene);
 
         Assert.Empty(renderer.PointMarkers);
-        Assert.Equal(60, renderer.LootMarkers.Count);
-        Assert.Equal(MapLootRanking.TopAtFit, renderer.LootMarkers.Count(marker => marker.IsShownOnPlan));
+        // Only what is drawn is in the list the view builds controls for.
+        Assert.Equal(MapLootRanking.TopAtFit, renderer.LootMarkers.Count);
+        Assert.All(renderer.LootMarkers, marker => Assert.True(marker.IsShownOnPlan));
         Assert.Equal(40, renderer.LootBadges.Where(badge => badge.IsShownOnPlan).Sum(badge => badge.HiddenLootCount));
         Assert.All(renderer.LootBadges, badge => Assert.StartsWith("+", badge.MarkerGlyph, StringComparison.Ordinal));
 
