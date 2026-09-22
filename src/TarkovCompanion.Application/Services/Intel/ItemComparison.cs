@@ -99,6 +99,7 @@ public static class ItemComparisonBuilder
 
     private static IEnumerable<ItemComparisonRow> AmmoRows(IReadOnlyList<ItemComparisonFacts> items)
     {
+        yield return Texts("Caliber", items, item => item.Intel.Ammo?.Caliber);
         yield return Numbers("Damage", ComparisonDirection.Higher, items, item => item.Intel.Ammo?.Damage, Whole);
         yield return Numbers("Penetration", ComparisonDirection.Higher, items, item => item.Intel.Ammo?.Penetration, Whole);
         yield return Numbers("Armor damage", ComparisonDirection.Higher, items, item => item.Intel.Ammo?.ArmorDamagePercent,

@@ -1226,7 +1226,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             new(StashPlanGroup.Review, "Review", Count(items, StashPlanGroup.Review), IsWired: true),
         ];
         AmmoSummary = ammoRounds
-            .Select(entry => new StashAmmoSummaryRowViewModel(entry.Key, entry.Value.Rounds, entry.Value.Stacks))
+            .Select(entry => new StashAmmoSummaryRowViewModel(
+                CaliberText.Describe(entry.Key),
+                entry.Value.Rounds,
+                entry.Value.Stacks))
             .OrderBy(row => row.Caliber, StringComparer.Ordinal)
             .ToArray();
         KeySummary = keyOccurrences

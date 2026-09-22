@@ -147,7 +147,7 @@ public sealed class LoadoutIntelligenceService
             !CaliberKey.Matches(weapon.Caliber, ammo.Caliber))
         {
             findings.Issue(
-                $"{ammo.Name} ({CaliberText.Describe(ammo.Caliber)}) does not match {weapon.Name} ({CaliberText.Describe(weapon.Caliber)}).",
+                $"{ammo.Name} ({CaliberText.Describe(ammo.Caliber, ammo.Name)}) does not match {weapon.Name} ({CaliberText.Describe(weapon.Caliber, weapon.Name)}).",
                 "A weapon fires only its own caliber. The catalog lists a caliber for both and they differ, so this weapon cannot use this ammunition.");
         }
     }
@@ -175,7 +175,7 @@ public sealed class LoadoutIntelligenceService
                 !CaliberKey.Matches(magazine.Caliber, ammo.Caliber))
             {
                 findings.Issue(
-                    $"{magazine.Name} does not accept {CaliberText.Describe(ammo.Caliber)} ammunition.",
+                    $"{magazine.Name} does not accept {CaliberText.Describe(ammo.Caliber, ammo.Name)} ammunition.",
                     "A magazine holds one caliber. The catalog gives this magazine's caliber and the selected round's, and they differ.");
             }
         }

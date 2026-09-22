@@ -529,20 +529,26 @@
             <StackPanel Spacing="10">
               <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding IntelBallisticsHeading}" />
               <TextBlock Classes="v2-label" IsVisible="{Binding IntelHasNoAmmoFacts}" Text="{Binding IntelAmmoUnknownLabel}" />
-              <Grid ColumnDefinitions="*,*,*" IsVisible="{Binding IntelHasAmmoFacts}">
-                <StackPanel Grid.Column="0" Spacing="2">
-                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoDamage}" />
-                  <TextBlock Classes="v2-label" Text="{Binding IntelDamageLabel}" />
+              <StackPanel Spacing="8" IsVisible="{Binding IntelHasAmmoFacts}">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoCaliber}" />
+                  <TextBlock Classes="v2-label" Text="Caliber" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Spacing="2">
-                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoPenetration}" />
-                  <TextBlock Classes="v2-label" Text="{Binding IntelPenetrationLabel}" />
-                </StackPanel>
-                <StackPanel Grid.Column="2" Spacing="2">
-                  <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoTier}" />
-                  <TextBlock Classes="v2-label" Text="{Binding IntelTierLabel}" />
-                </StackPanel>
-              </Grid>
+                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="12">
+                  <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoDamage}" />
+                    <TextBlock Classes="v2-label" Text="{Binding IntelDamageLabel}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoPenetration}" />
+                    <TextBlock Classes="v2-label" Text="{Binding IntelPenetrationLabel}" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock Classes="v2-intel-price" Text="{Binding IntelAmmoTier}" />
+                    <TextBlock Classes="v2-label" Text="{Binding IntelTierLabel}" />
+                  </StackPanel>
+                </Grid>
+              </StackPanel>
               <TextBlock Classes="v2-body" IsVisible="{Binding IntelHasAmmoFacts}" Text="{Binding IntelAmmoAdvice}" TextWrapping="Wrap" />
               <StackPanel Spacing="6" IsVisible="{Binding IntelHasAmmoFacts}">
                 <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding IntelArmorClassesHeading}" />

@@ -22,6 +22,7 @@ public sealed class ItemComparisonTests
         Assert.Equal([true, false], Best(table, "Damage"));
         Assert.Equal([false, true], Best(table, "Penetration"));
         Assert.Equal([true, false], Best(table, "Flea price"));
+        Assert.Equal(["5.56x45mm NATO", "5.56x45mm NATO"], Texts(table, "Caliber"));
         Assert.Equal(["Class 3", "Class 5"], Texts(table, "Beats armor"));
         Assert.Equal([false, true], Best(table, "Beats armor"));
     }
@@ -170,7 +171,8 @@ public sealed class ItemComparisonTests
         Dictionary<int, ArmorEffectiveness>? ratings = null) =>
         new(
             new V2ItemIntelResult(V2IntelKind.Ammo, id, id, id, null, ItemCategory.Ammunition, 1, 1, true,
-                Ammo: new V2IntelAmmoFacts(damage, penetration, "B", ratings ?? new() { [2] = ArmorEffectiveness.Good }, string.Empty),
+                Ammo: new V2IntelAmmoFacts(damage, penetration, "B", ratings ?? new() { [2] = ArmorEffectiveness.Good }, string.Empty,
+                    Caliber: "5.56x45mm NATO"),
                 Prices: Prices(flea)),
             Gear: null,
             WeightKg: 0.01);

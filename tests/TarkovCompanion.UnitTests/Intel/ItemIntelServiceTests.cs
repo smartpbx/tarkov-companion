@@ -226,8 +226,8 @@ public sealed class ItemIntelServiceTests
     [Fact]
     public async Task AmmoItemReportsDamagePenetrationAndTier()
     {
-        var item = Item("item-ammo", "M995", ItemCategory.Ammunition);
-        var stats = new AmmoStats("item-ammo", "7.62x51", 60, 55, null, null, 1, null, null, null, false, false, Provenance);
+        var item = Item("item-ammo", "5.56x45mm M995", ItemCategory.Ammunition);
+        var stats = new AmmoStats("item-ammo", "Caliber556x45NATO", 60, 55, null, null, 1, null, null, null, false, false, Provenance);
         var factCatalog = new FakeItemFactCatalog { AmmoStats = [stats] };
 
         var service = new ItemIntelService(
@@ -241,6 +241,9 @@ public sealed class ItemIntelServiceTests
         Assert.NotNull(result.Ammo);
         Assert.Equal(60, result.Ammo!.Damage);
         Assert.Equal(55, result.Ammo.Penetration);
+        Assert.Equal("5.56x45mm NATO", result.Ammo.Caliber);
+        Assert.Contains("for 5.56x45mm NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
+        Assert.DoesNotContain("Caliber556x45NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
         Assert.False(string.IsNullOrWhiteSpace(result.Ammo.Tier));
     }
 

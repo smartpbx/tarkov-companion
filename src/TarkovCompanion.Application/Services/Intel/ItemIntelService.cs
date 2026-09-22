@@ -55,7 +55,8 @@ public sealed record V2IntelAmmoFacts(
     string PracticalAdvice,
     int? ArmorDamagePercent = null,
     double? FragmentationChance = null,
-    double? VelocityMetresPerSecond = null);
+    double? VelocityMetresPerSecond = null,
+    string Caliber = "Unknown caliber");
 
 /// <summary>One trader's buy-back price, as the catalog names the trader.</summary>
 public sealed record V2IntelTraderPrice(string TraderName, long ValueRoubles);
@@ -216,7 +217,8 @@ public sealed class ItemIntelService(
                 intelligence.PracticalAdvice,
                 intelligence.Stats.ArmorDamagePercent,
                 intelligence.Stats.FragmentationChance,
-                intelligence.Stats.VelocityMetresPerSecond);
+                intelligence.Stats.VelocityMetresPerSecond,
+                CaliberText.Describe(intelligence.Stats.Caliber, item.Name));
         return Base(V2IntelKind.Ammo, item, value) with { Ammo = ammo };
     }
 

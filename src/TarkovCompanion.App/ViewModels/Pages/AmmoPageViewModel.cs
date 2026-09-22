@@ -247,12 +247,20 @@ public sealed class AmmoPageViewModel : PageViewModel
             var packs = await _catalog.GetAmmoPacksAsync(cancellationToken).ConfigureAwait(true);
             _intelligence = new AmmoIntelligenceService(stats, packs);
 
-            _allCalibers = stats
-                .GroupBy(stat => stat.Caliber, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new AmmoCaliberViewModel(
+            var calibers = new List<AmmoCaliberViewModel>();
+            foreach (var group in stats.GroupBy(stat => stat.Caliber, StringComparer.OrdinalIgnoreCase))
+            {
+                // One catalog round is enough to recover a future caliber's player-facing prefix.
+                // Known conventional names stay centralized in CaliberText.
+                var sample = group.First();
+                var sampleName = await ResolveNameAsync(sample.ItemId, cancellationToken).ConfigureAwait(true);
+                calibers.Add(new(
                     group.Key,
-                    DescribeCaliber(group.Key),
-                    $"{Count(group.Count())} round(s) · best penetration {Count(group.Max(stat => stat.Penetration))}"))
+                    CaliberText.Describe(group.Key, sampleName),
+                    $"{Count(group.Count())} round(s) · best penetration {Count(group.Max(stat => stat.Penetration))}"));
+            }
+
+            _allCalibers = calibers
                 .OrderBy(caliber => caliber.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
 
@@ -446,9 +454,6 @@ public sealed class AmmoPageViewModel : PageViewModel
 
         return traits.Count == 0 ? "No extra traits are recorded." : string.Join(" · ", traits);
     }
-
-    /// <summary>See <see cref="CaliberText"/>.</summary>
-    private static string DescribeCaliber(string caliber) => CaliberText.Describe(caliber);
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 
