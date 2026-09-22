@@ -95,6 +95,20 @@ public sealed class ProfileScopedPlayerProfileServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ACompletedSavePublishesTheNewProfile()
+    {
+        await SeedLegacyProfileAsync(level: 30, completedTask: "task-legacy");
+        PlayerProfile? changed = null;
+        _service.Changed += profile => changed = profile;
+        var profile = await _service.GetActiveAsync(default);
+
+        await _service.SaveAsync(profile with { Level = 42 }, default);
+
+        Assert.NotNull(changed);
+        Assert.Equal(42, changed!.Level);
+    }
+
+    [Fact]
     public async Task AnUnreadableWorkspaceFallsBackForNowAndIsAskedAgainNextCall()
     {
         await SeedLegacyProfileAsync(level: 30, completedTask: "task-legacy");

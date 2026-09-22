@@ -157,6 +157,26 @@ public sealed class KeysWorkspaceViewModelTests
 public sealed class FleaWorkspaceViewModelTests
 {
     [Fact]
+    public async Task OneStoredObservationIsDescribedAsOnePriceNotASevenDayRange()
+    {
+        var gpu = Item("gpu", "Graphics card", "GPU");
+        var repository = new FakeItemRepository(gpu)
+        {
+            Price = new ItemPriceSnapshot(322_222, [], null, null, null, Provenance),
+        };
+        var page = new FleaPageViewModel(
+            new RepositorySearch(repository),
+            repository,
+            new FixedHistory(new PriceHistoryPoint(DateTimeOffset.UtcNow, 322_222, 100_000, "sync")));
+        page.Apply(V2ShellTestData.Snapshot().WithData(DataAvailability.Current, 10, DateTimeOffset.UnixEpoch));
+        page.SearchQuery = "graphics";
+
+        await page.SearchAsync();
+
+        Assert.Equal("1 price so far", Assert.Single(page.Results).SevenDayBand);
+    }
+
+    [Fact]
     public async Task ALookupFillsTheRowsAndTheOnlyHitOpensWithItsHistory()
     {
         var gpu = Item("gpu", "Graphics card", "GPU");

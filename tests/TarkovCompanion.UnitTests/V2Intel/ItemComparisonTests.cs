@@ -93,6 +93,24 @@ public sealed class ItemComparisonTests
     }
 
     [Fact]
+    public void NeededUsesTheSameNamedQuestRowsAsTheIntelHeadline()
+    {
+        var overReported = Key("dorm", 10, 1, null) with
+        {
+            Intel = Key("dorm", 10, 1, null).Intel with
+            {
+                Value = new V2IntelValueFacts(1, "Flea", 225, 0, 0, OutstandingItems: 225),
+                Keep = new V2IntelKeepFacts([], []),
+            },
+        };
+
+        var table = ItemComparisonBuilder.Build([overReported]);
+
+        Assert.Equal(["Not needed"], Texts(table, "Needed"));
+        Assert.Equal(0, V2IntelNeed.Remaining(overReported.Intel));
+    }
+
+    [Fact]
     public void MixedKindsCompareAsItems()
     {
         var table = ItemComparisonBuilder.Build([Ammo("a", 50, 30, 100), Key("k", 10, 5_000, null)]);

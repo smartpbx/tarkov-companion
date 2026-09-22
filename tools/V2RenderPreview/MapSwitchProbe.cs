@@ -6,12 +6,14 @@ using Avalonia.Headless;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 
 namespace TarkovCompanion.V2RenderPreview;
 
 /// <summary>
 /// <c>--then-map</c>: change map inside one run, the way a player does, and say what was drawn and when.
+/// <c>--map-switch-memory</c> adds a forced-GC memory row after every change.
 /// </summary>
 /// <remarks>
 /// A render of one map cannot show the fault reported on build 11, where Factory opened stretched
@@ -36,8 +38,20 @@ internal static class MapSwitchProbe
 
     private static int _stepNumber;
 
-    public static void Run(Window window, MainWindowViewModel viewModel, RaidCockpitViewModel raid, string steps)
+    public static void Run(
+        Window window,
+        MainWindowViewModel viewModel,
+        RaidCockpitViewModel raid,
+        string steps,
+        bool measureMemory = false)
     {
+        if (measureMemory)
+        {
+            Console.WriteLine("[map-memory] step\tmap\tmanaged MiB\tprivate MiB\tSkia cache MiB\tdecoded tiles\ttile MiB");
+            ReportMemory(0, raid.Renderer?.Scene.LocationId ?? "initial", viewModel.Map);
+        }
+
+        var stepNumber = 0;
         foreach (var step in steps.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var parts = step.Split(':', 2);
@@ -58,7 +72,29 @@ internal static class MapSwitchProbe
                 Time($"choose {artwork} on {mapId}", window, viewModel, raid, mapId, () => raid.ToggleArtworkCommand.Execute(null));
                 ReportDrawnRectangle(window, raid, mapId);
             }
+
+            if (measureMemory)
+            {
+                ReportMemory(++stepNumber, mapId, viewModel.Map);
+            }
         }
+    }
+
+    /// <summary>Forces finalizers and a compacting generation-two collection twice before measuring.</summary>
+    private static void ReportMemory(int step, string mapId, MapViewModel map)
+    {
+        for (var pass = 0; pass < 2; pass++)
+        {
+            GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+
+        var managedBytes = GC.GetTotalMemory(forceFullCollection: true);
+        using var process = Process.GetCurrentProcess();
+        process.Refresh();
+        Console.WriteLine(string.Create(
+            Invariant,
+            $"[map-memory] {step}\t{mapId}\t{managedBytes / 1048576.0:F1}\t{process.PrivateMemorySize64 / 1048576.0:F1}\t{SkiaSharp.SKGraphics.GetResourceCacheTotalBytesUsed() / 1048576.0:F1}\t{map.DecodedTileCacheCount}\t{map.DecodedTileCacheBytes / 1048576.0:F1}"));
     }
 
     /// <summary>

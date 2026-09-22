@@ -48,9 +48,20 @@
 
     
 
-    <Panel IsVisible="{Binding IsOverviewSelected}">
+    <StackPanel Classes="v2-stack" IsVisible="{Binding IsOverviewSelected}">
+      <Border Classes="v2-card v2-setup-section" IsVisible="{Binding ShowsQuestSyncOffer}">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+          <StackPanel Spacing="3">
+            <TextBlock Classes="v2-heading-3" Text="Bring in your active quests" />
+            <TextBlock Classes="v2-label" Text="Use TASKS screenshots to start progress tracking." />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="v2-target primary" Content="Sync quests"
+                  Command="{Binding OpenQuestSyncCommand}"
+                  AutomationProperties.AutomationId="v2-quest-sync-offer" />
+        </Grid>
+      </Border>
       <setup:V2HomeOverviewView DataContext="{Binding Overview}" />
-    </Panel>
+    </StackPanel>
 
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsGameProfileSelected}">
       <StackPanel Classes="v2-stack">
@@ -155,6 +166,9 @@
          stay together, as they do in V1. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsProgressSelected}">
       <StackPanel Classes="v2-stack">
+        <Panel IsVisible="{Binding HasQuestSync}">
+          <setup:QuestScreenshotSyncView DataContext="{Binding QuestSync}" />
+        </Panel>
         <TextBlock Classes="v2-body" Text="{Binding ExchangeTitle}" />
         <TextBlock Classes="v2-label" Text="{Binding ExchangeNote}" TextWrapping="Wrap" />
         <TextBox Classes="v2-field-input" Text="{Binding Settings.Quests.ExchangePath}"

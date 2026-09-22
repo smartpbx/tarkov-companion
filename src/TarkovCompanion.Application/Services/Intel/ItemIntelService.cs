@@ -233,7 +233,7 @@ public sealed class ItemIntelService(
             ? null
             : new V2IntelKeyFacts(
                 match.MapId,
-                match.Locks,
+                V2IntelLockNames.Resolve(match.Locks, item.Name, item.Id),
                 match.MaximumUses,
                 match.AcquisitionCostRoubles,
                 await NameOfMapAsync(match.MapId, cancellationToken).ConfigureAwait(false));

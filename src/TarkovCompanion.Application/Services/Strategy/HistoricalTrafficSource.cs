@@ -215,7 +215,10 @@ public sealed class HistoricalTrafficSource
                 return new RaidClockReading(clock, RaidClockBasis.ObservedOnExtractScreen, readUtc.ToUniversalTime());
             }
 
-            if (raid.StartedUtc is { } started && duration is { } total && started <= nowUtc)
+            if (raid.StartedUtc is { } started &&
+                duration is { } total &&
+                started <= nowUtc &&
+                RaidTimer.CanCountFromStart(raid.Side))
             {
                 var remaining = total - (nowUtc - started);
                 return new RaidClockReading(

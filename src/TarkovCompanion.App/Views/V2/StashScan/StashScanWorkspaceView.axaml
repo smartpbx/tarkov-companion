@@ -159,13 +159,13 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.stash-tile-name">
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="LineHeight" Value="12" />
-      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="14" />
+      <Setter Property="TextWrapping" Value="NoWrap" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
     </Style>
     <Style Selector="TextBlock.stash-tile-tag">
-      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="HorizontalAlignment" Value="Left" />
       <Setter Property="VerticalAlignment" Value="Bottom" />
@@ -175,7 +175,7 @@
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.stash-tile-detail">
-      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Right" />
       <Setter Property="VerticalAlignment" Value="Bottom" />

@@ -162,6 +162,49 @@ public sealed class ItemIntelServiceTests
     }
 
     [Fact]
+    public async Task KeyItemNamesOpaqueMapLocksFromTheCatalogItem()
+    {
+        var item = Item("59387a4986f77401cc236e62", "Dorm room 114 key", ItemCategory.Key);
+        var factCatalog = new FakeItemFactCatalog
+        {
+            KeyFacts =
+            [
+                new KeyFacts(
+                    item.Id,
+                    "customs",
+                    null,
+                    ["56f40101d2720b2a4d8b45d6:8704276c597deea822ffc2a2335d23dab552c0d3"],
+                    [],
+                    null,
+                    0,
+                    0,
+                    false,
+                    0,
+                    Provenance),
+            ],
+        };
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            factCatalog);
+
+        var key = (await service.GetAsync(item.Id, CancellationToken.None)).Key!;
+
+        Assert.Equal(["Dorm room 114"], key.Locks);
+    }
+
+    [Fact]
+    public void AnOpaqueLockWithNoCatalogNameNeverLeaksItsIdentifier()
+    {
+        var names = V2IntelLockNames.Resolve(
+            ["56f40101d2720b2a4d8b45d6:8704276c597deea822ffc2a2335d23dab552c0d3"],
+            "59387a4986f77401cc236e62",
+            "59387a4986f77401cc236e62");
+
+        Assert.Equal(["Unknown lock"], names);
+    }
+
+    [Fact]
     public async Task KeyItemCarriesUsesCostAndTheMapsName()
     {
         var item = Item("item-key", "Dorm 114 key", ItemCategory.Key);
@@ -240,6 +283,8 @@ public sealed class ItemIntelServiceTests
         Assert.Equal(V2IntelKind.Ammo, result.Kind);
         Assert.NotNull(result.Ammo);
         Assert.Equal(60, result.Ammo!.Damage);
+        Assert.Contains("for 556x45NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
+        Assert.DoesNotContain("Caliber556x45NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
         Assert.Equal(55, result.Ammo.Penetration);
         Assert.Equal("5.56x45mm NATO", result.Ammo.Caliber);
         Assert.Contains("for 5.56x45mm NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);

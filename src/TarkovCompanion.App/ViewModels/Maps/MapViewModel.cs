@@ -1363,15 +1363,22 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly MapMarkerScale _markerScale = new();
     private IReadOnlyList<MapTileViewModel> _tiles = [];
 
-    /// <summary>Decoded tiles kept across map changes, so going back to a map is not a second load.</summary>
+    internal const long DecodedTileCacheCapacityBytes = 128L * 1024 * 1024;
+
+    /// <summary>Decoded tiles kept across map changes, so going back to a recent map is not a second load.</summary>
     /// <remarks>
-    /// 192 MB is three photographed maps (a map is up to 256 tiles of 256 pixels, 67 MB decoded).
-    /// The tiles of the map on screen are never evicted, whatever the budget says.
+    /// 128 MB is two maximum-size sharp tile sets (256 tiles of 256 pixels, 64 MB each). The
+    /// coarse underlay can make the map on screen exceed the budget temporarily; those tiles are
+    /// protected until the next map replaces them, then the LRU returns to its bound.
     /// </remarks>
     private readonly BoundedLruCache<string, DecodedTile> _decodedTiles = new(
-        192L * 1024 * 1024,
+        DecodedTileCacheCapacityBytes,
         tile => (long)tile.Image.PixelSize.Width * tile.Image.PixelSize.Height * 4,
         tile => ReleaseLater([tile.Image]));
+
+    internal long DecodedTileCacheBytes => _decodedTiles.Bytes;
+
+    internal int DecodedTileCacheCount => _decodedTiles.Count;
 
     private sealed record DecodedTile(string LocalPath, Bitmap Image, bool HasArtwork, bool Offline);
 
@@ -1393,6 +1400,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
+    private IReadOnlyList<NearbySpawn> _nearbySpawnAreas = [];
     private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
     private IReadOnlyList<ExtractPanelViewModel> _extractPanel = [];
     private IReadOnlyList<SpawnThreatViewModel> _spawnThreats = [];
@@ -4642,6 +4650,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasSpawnPanel => SpawnPanel.Count > 0;
 
+    /// <summary>The grouped, side-filtered areas behind the rows, in world coordinates.</summary>
+    /// <remarks>
+    /// [Issue 664] V2 projects these same areas onto its scene during the opening of a PMC raid.
+    /// Exposing the result keeps its marker filter on the exact grouping and metre-based radius
+    /// used by the panel instead of trying to recover metres from plan pixels.
+    /// </remarks>
+    public IReadOnlyList<NearbySpawn> NearbySpawnAreas => _nearbySpawnAreas;
+
     /// <summary>
     /// What the list is anchored to, said plainly.
     /// </summary>
@@ -4790,6 +4806,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_mapFeatures.Count == 0 || _playerTrailPositions.Count == 0)
         {
+            _nearbySpawnAreas = [];
             SpawnPanel = [];
             SpawnThreats = [];
             SpawnPanelDetail = string.Empty;
@@ -4802,6 +4819,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             anchor.Position,
             _playerPosition?.Position,
             _side);
+        _nearbySpawnAreas = near;
         UpdateSpawnThreats(near, anchor);
         SpawnPanel = near
             .Select(spawn => new SpawnPanelViewModel(

@@ -14,6 +14,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Stash;
 using TarkovCompanion.Core.Common;
 
@@ -1121,7 +1122,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         _reconstruction = reconstruction;
         var ammoByItemId = _ammoByItemId ?? new Dictionary<string, AmmoStats>(StringComparer.Ordinal);
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
-        var wikiUriByItemId = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var definitionsByItemId = new Dictionary<string, ItemDefinition?>(StringComparer.Ordinal);
 
         var sorted = await SortAsync(reconstruction, ammoByItemId, keyFactsByItemId, cancellationToken).ConfigureAwait(true);
         var plannedByKey = sorted?.Plan.Items.ToDictionary(item => item.ItemKey, StringComparer.Ordinal);
@@ -1139,14 +1140,14 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             foreach (var tile in container.Tiles)
             {
                 var canonicalId = tile.ItemId;
-                var displayName = tile.DisplayName
+                var definition = await ItemDefinitionForAsync(canonicalId, definitionsByItemId, cancellationToken).ConfigureAwait(true);
+                var displayName = tile.DisplayName ?? definition?.Name
                     ?? (tile.CandidateNames.Count > 0 ? $"{tile.CandidateNames[0]}?" : "Unknown item");
 
-                // A one-cell tile has room for about six characters, and "Unknown" is seven.
-                var tileName = tile.IsKnown || tile.CandidateNames.Count > 0 ? displayName : "?";
+                var tileName = TileName(tile, definition, displayName);
                 var quantity = tile.Quantity ?? 1;
 
-                var wikiUri = await WikiUriForAsync(canonicalId, wikiUriByItemId, cancellationToken).ConfigureAwait(true);
+                var wikiUri = definition?.WikiUri;
                 var bare = new StashItemRowViewModel(
                     tile.ItemKey,
                     displayName,
@@ -1293,9 +1294,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private async Task<string?> WikiUriForAsync(
+    private async Task<ItemDefinition?> ItemDefinitionForAsync(
         string? canonicalId,
-        Dictionary<string, string?> cache,
+        Dictionary<string, ItemDefinition?> cache,
         CancellationToken cancellationToken)
     {
         if (canonicalId is null || _itemRepository is null)
@@ -1309,8 +1310,21 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         var definition = await _itemRepository.GetAsync(canonicalId, cancellationToken).ConfigureAwait(true);
-        cache[canonicalId] = definition?.WikiUri;
-        return definition?.WikiUri;
+        cache[canonicalId] = definition;
+        return definition;
+    }
+
+    /// <summary>One-square game tiles use short names; larger footprints have room for the full name.</summary>
+    internal static string TileName(StashReconstructedTile tile, ItemDefinition? definition, string displayName)
+    {
+        if (!tile.IsKnown && tile.CandidateNames.Count == 0)
+        {
+            return "?";
+        }
+
+        return tile.Width == 1 && tile.Height == 1 && !string.IsNullOrWhiteSpace(definition?.ShortName)
+            ? definition.ShortName
+            : displayName;
     }
 
     private static int Count(IReadOnlyList<StashItemRowViewModel> rows, StashPlanGroup group) =>

@@ -303,8 +303,7 @@ public sealed partial class V2ShellViewModel
     // the same source that list is built from. Hideout stays on Value, which this render evidence
     // shows is not the broken half. Reported to Clayton; not fixed here (outside Intel's owned
     // paths).
-    public int IntelKeepCount =>
-        (_intelResult?.Keep?.Quests.Sum(row => row.Remaining ?? 0) ?? 0) + (_intelResult?.Value?.HideoutCount ?? 0);
+    public int IntelKeepCount => V2IntelNeed.Remaining(_intelResult);
     public bool IntelIsNeeded => IntelKeepCount > 0 || _intelResult?.Keep?.Quests.Count > 0;
     public string IntelVerdictHeadline => !IntelHasResult
         ? string.Empty
@@ -376,12 +375,14 @@ public sealed partial class V2ShellViewModel
     public bool IntelHasSevenDayHistory => _intelResult?.Prices?.SevenDayHistory is not null;
     public string IntelSevenDayLabel => V2ShellText.Get("V2.Shell.Intel.Last7Days");
     public string IntelSevenDayRange => _intelResult?.Prices?.SevenDayHistory is { } history
-        ? V2ShellText.Format(
-            "V2.Shell.Intel.HistoryRange",
-            CultureInfo.CurrentCulture,
-            Roubles(history.LowRoubles),
-            Roubles(history.AverageRoubles),
-            Roubles(history.HighRoubles))
+        ? history.ObservationCount < 2
+            ? "1 price so far"
+            : V2ShellText.Format(
+                "V2.Shell.Intel.HistoryRange",
+                CultureInfo.CurrentCulture,
+                Roubles(history.LowRoubles),
+                Roubles(history.AverageRoubles),
+                Roubles(history.HighRoubles))
         : string.Empty;
 
     // Package 33 (#287): "what is it worth" also asks for a per-slot value and the flea fee.
@@ -486,7 +487,7 @@ public sealed partial class V2ShellViewModel
     public bool IntelIsKey => _intelResult?.Kind == V2IntelKind.Key;
     public bool IntelIsAmmo => _intelResult?.Kind == V2IntelKind.Ammo;
     public string IntelOpensHeading => V2ShellText.Get("V2.Shell.Intel.Opens");
-    public string IntelKeyMapLabel => _intelResult?.Key?.MapId ?? V2ShellText.Get("V2.Shell.Intel.OpensUnknown");
+    public string IntelKeyMapLabel => _intelResult?.Key?.MapName ?? V2ShellText.Get("V2.Shell.Intel.OpensUnknown");
     public IReadOnlyList<string> IntelKeyLocks => _intelResult?.Key?.Locks ?? [];
     public string IntelBallisticsHeading => V2ShellText.Get("V2.Shell.Intel.Ballistics");
     public bool IntelHasAmmoFacts => _intelResult?.Ammo is not null;
