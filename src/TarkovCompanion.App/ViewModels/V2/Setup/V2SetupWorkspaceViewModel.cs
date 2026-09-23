@@ -2,6 +2,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.V2.Setup;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
@@ -187,6 +188,15 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public QuestScreenshotSyncViewModel? QuestSync { get; private set; }
 
     public bool HasQuestSync => QuestSync is not null;
+
+    /// <summary>The relay clock warning, shared verbatim with Team &gt; Tablet.</summary>
+    public CompanionPairingViewModel? Pairing { get; private set; }
+
+    public void AttachPairing(CompanionPairingViewModel pairing)
+    {
+        Pairing = pairing ?? throw new ArgumentNullException(nameof(pairing));
+        OnPropertyChanged(nameof(Pairing));
+    }
 
     public bool ShowsQuestSyncOffer => QuestSync?.ShowEmptyOffer == true;
 

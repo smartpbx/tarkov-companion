@@ -401,6 +401,9 @@ The claim is kept (2026-09-20, #289). The session the relay issues is stored in 
 protected secret store (DPAPI, beside the TarkovTracker token) and picked back up at startup, so the
 panel reads claimed after a restart with nothing typed; "Forget this relay" drops it.
 
+The desktop measures the relay's HTTP `Date` header, names clock skew in Team and Diagnostics, and
+retries a refused registration after 30 s, 1 m, 2 m, 4 m, then every 5 m (#704).
+
 The admin key is typed once per machine, not once per day (2026-09-20, #289). A session still lives
 twelve hours and an owner two idle, and the owner-recovery rule is unchanged for anybody holding
 only the admin key: it never replaces an owner the relay still counts as live. What the relay can

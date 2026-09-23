@@ -431,6 +431,16 @@
                 <TextBlock Classes="v2-label" Text="{Binding PairingUnavailableReason}"
                            IsVisible="{Binding !CanPairDevice}" TextWrapping="Wrap" />
 
+                <Border Classes="v2-team-row" IsVisible="{Binding Pairing.HasClockSkewNotice}"
+                        AutomationProperties.AutomationId="v2-team-clock-skew">
+                  <StackPanel Spacing="4">
+                    <TextBlock Classes="v2-body v2-team-warning-text" TextWrapping="Wrap"
+                               Text="{Binding Pairing.ClockSkewNotice}" />
+                    <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                               Text="{Binding Pairing.ClockSkewHelp}" />
+                  </StackPanel>
+                </Border>
+
                 <!-- V2 rough package 48 (#290, #292): pairing lives here now, not in a popout
                      window. [#553] There is no claim step and no admin key: this desktop
                      registers itself on the relay with the group key, and these two lines say

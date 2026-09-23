@@ -23,6 +23,7 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Personalization;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Devices;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.App.Views;
@@ -130,6 +131,11 @@ internal static class Program
                 HttpMessageHandler: MapSwitchProbe.SlowNetwork(IntOption(args, "--slow-network", 0)),
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
+
+            if (args.Contains("--clock-skew-demo"))
+            {
+                services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400);
+            }
 
             if (StringOption(args, "--quest-region") is { } questScreenshot)
             {
