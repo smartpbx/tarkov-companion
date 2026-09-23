@@ -3528,6 +3528,10 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public bool IsObjectiveMark => Icon == MapSceneMarkerIcon.Objective;
     public bool IsPinMark => IsWaypointMark || IsObjectiveMark;
 
+    /// <summary>[#307] A route step number riding on this pin's corner; empty when there is none.</summary>
+    public string PinBadge => IsPinMark ? Style?.Badge ?? string.Empty : string.Empty;
+    public bool HasPinBadge => PinBadge.Length > 0;
+
     /// <summary>A ping is a transient pulse, drawn at its own point, never a pin.</summary>
     public bool IsPingMark => Icon == MapSceneMarkerIcon.Ping;
 
@@ -3951,6 +3955,8 @@ public sealed class MapSceneRendererGeometryViewModel
     public double? ThicknessHint => Style?.LineThickness;
 
     public double OpacityHint => Style?.Opacity ?? 1;
+
+    public bool IsDashedHint => Style?.Dashed ?? false;
 }
 
 /// <summary>
@@ -3961,11 +3967,16 @@ public sealed class MapSceneRendererGeometryViewModel
 /// neither — two devices drawing the same scene are free to draw it their own way. A host that
 /// does have an opinion (the Raid cockpit gives each squadmate their own colour and draws last
 /// week's paths faintly) says so here instead of smuggling it into a label or an object kind.
+/// <c>Dashed</c> and <c>Badge</c> are the objective route's (#307): the plan line is dashed so it
+/// never reads as one of the solid extract routes, and a route stop that is already an objective's
+/// pin puts its step number on that pin as a small badge instead of a second pin on top of it.
 /// </remarks>
 public readonly record struct MapSceneObjectStyle(
     string? Color = null,
     double? LineThickness = null,
-    double? Opacity = null);
+    double? Opacity = null,
+    bool Dashed = false,
+    string? Badge = null);
 
 /// <summary>
 /// [V2 rough package 22] One place name written on the plan, V1's <c>MapPlaceNameViewModel</c>.

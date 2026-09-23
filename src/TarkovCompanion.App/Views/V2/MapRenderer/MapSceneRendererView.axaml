@@ -95,7 +95,7 @@
                          HorizontalAlignment="Center" VerticalAlignment="Top" Margin="{Binding PinHeadHitMargin}" />
                 <Path Classes="v2-map-mark-hit" Margin="-4" Stretch="Fill"
                       IsVisible="{Binding IsObjectiveMark}" Data="{DynamicResource V2.Icon.PinShield}" />
-                <Path Classes="v2-map-pin-round"
+                <Path Classes="v2-map-pin-round" Classes.hinted="{Binding HasColorHint}"
                       IsVisible="{Binding IsWaypointMark}"
                       Width="{Binding PinWidth}" Height="{Binding PinHeight}"
                       Stretch="Fill" Data="{DynamicResource V2.Icon.PinRound}" />
@@ -111,6 +111,11 @@
                            IsVisible="{Binding ShowsPinLetter}" Text="{Binding PinLabel}" />
                 <Path Classes="v2-map-pin-check" Margin="{Binding PinCheckMargin}"
                       IsVisible="{Binding IsCompletedObjective}" Data="{DynamicResource V2.Icon.Tick}" />
+                <!-- [#307] The objective route's step number on this objective's own pin, at its
+                     corner, instead of a second numbered pin on top of the letter. -->
+                <Border Classes="v2-map-pin-badge" IsVisible="{Binding HasPinBadge}">
+                  <TextBlock Classes="v2-map-pin-badge-text" Text="{Binding PinBadge}" />
+                </Border>
               </Panel>
             </Canvas>
           </Panel>
@@ -481,6 +486,31 @@
       <Setter Property="Fill" Value="{DynamicResource V2.Brush.Action}" />
       <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Canvas}" />
       <Setter Property="StrokeThickness" Value="1.5" />
+    </Style>
+    <!-- [#307] A pin the host coloured: the objective route's numbered stops, in the same plan
+         gold as its dashed line and as Debrief's planned route. -->
+    <Style Selector="Path.v2-map-pin-round.hinted">
+      <Setter Property="Fill" Value="{Binding ColorHintBrush, DataType=vm:MapSceneRendererObjectViewModel}" />
+    </Style>
+    <Style Selector="Border.v2-map-pin-badge">
+      <Setter Property="Background" Value="#F1C75B" />
+      <Setter Property="BorderBrush" Value="#15191C" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="MinWidth" Value="16" />
+      <Setter Property="MinHeight" Value="16" />
+      <Setter Property="Padding" Value="3,0" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="VerticalAlignment" Value="Top" />
+      <Setter Property="Margin" Value="0,-6,-9,0" />
+      <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="TextBlock.v2-map-pin-badge-text">
+      <Setter Property="Foreground" Value="#15191C" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Path.v2-map-pin-shield">
       <Setter Property="Fill" Value="{DynamicResource V2.Brush.Warning}" />

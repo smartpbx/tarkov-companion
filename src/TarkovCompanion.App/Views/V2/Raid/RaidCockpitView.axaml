@@ -358,7 +358,8 @@
                the tooltip and the accessible help text now, and are already on the Raid plan card.
                The phase switch and the heat legend are a press away in the Layers menu, under
                "Modelled traffic" — the strip is one row and has no room for both. -->
-          <Border Grid.Column="2" Classes="v2-raid-chip" VerticalAlignment="Center" MaxWidth="210"
+          <!-- [#307] One line at 100% text, wrapping only at larger text: see TrafficChipWidthConverter. -->
+          <Border Grid.Column="2" Classes="v2-raid-chip" VerticalAlignment="Center"
                   IsVisible="{Binding ShowsTrafficBanner}"
                   BorderBrush="{DynamicResource V2.Brush.Warning}"
                   ToolTip.Tip="{Binding TrafficBannerTooltip}"
@@ -367,7 +368,8 @@
                   AutomationProperties.Name="{Binding TrafficBannerTitle}"
                   AutomationProperties.HelpText="{Binding TrafficBannerTooltip}">
             <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
-                       Text="{Binding TrafficBannerTitle}" TextWrapping="Wrap" />
+                       Text="{Binding TrafficBannerTitle}" TextWrapping="Wrap"
+                       MaxWidth="{Binding $self.FontSize, Converter={x:Static raid:TrafficChipWidthConverter.Instance}}" />
           </Border>
           <!-- #675 made Follow adjustable, but three full strip controls took enough width from
                the presentation WrapPanel to add a second strip row at 1920x1080. Keep the common
@@ -753,6 +755,13 @@
                                 Command="{Binding ToggleShowCompletedObjectivesCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objectives-show-completed"
                                 ToolTip.Tip="Show objectives already marked done, dimmed with a check" />
+                  <!-- [#307] The objective route opened from Plan follows the plan while shown. -->
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Hide route"
+                                IsVisible="{Binding HasObjectiveRoute}"
+                                IsChecked="{Binding ObjectiveRouteHidden, Mode=OneWay}"
+                                Command="{Binding ToggleObjectiveRouteCommand}"
+                                AutomationProperties.AutomationId="v2-raid-objective-route-hide"
+                                ToolTip.Tip="Hide the objective route from Plan" />
                 </WrapPanel>
   
                 <!-- [Issue 379] After "Place on map" the next right-click on bare map is this objective's
