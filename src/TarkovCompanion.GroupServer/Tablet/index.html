@@ -123,6 +123,7 @@
   body.live #surface { padding: 8px; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
   #surfaceBar .modes { margin-bottom: 4px; }
   #surfaceBar #modeNote { margin: 0; }
+  #surfaceBar #keyboardHelp { margin: 2px 0 0; }
   #mapColumn { display: flex; flex-direction: column; min-height: 0; }
   #mapWrap { flex: 1 1 auto; min-height: 0; }
   body.live #map { height: calc(100svh - 190px); min-height: 300px; }
@@ -246,6 +247,7 @@
         <button type="button" data-intent="Flea">Flea</button>
       </div>
       <p class="quiet" id="modeNote">Following the desktop's map.</p>
+      <p class="quiet" id="keyboardHelp">Keys: arrows pan · +/- zoom · F follow · 1–5 workspaces</p>
     </div>
     <!-- The map is the surface: it takes the height the screen has. Floors and the desktop's
          answers sit on it rather than above it, where they used to push it off a landscape
@@ -3312,6 +3314,55 @@
     camera = fitCamera();
     drawMap();
     sendNavigate();
+  });
+
+  // A tablet keyboard and a desktop browser get the same map controls without making text
+  // fields unusable. Arrow distance is a fixed screen-sized step, converted through the live
+  // projection so zooming in also makes keyboard panning finer.
+  const KEY_WORKSPACES = ["Raid", "Intel", "Plan", "Team", "Debrief"];
+  window.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      const view = localCamera();
+      const project = projection();
+      if (!view || !project) return;
+      event.preventDefault();
+      const step = 64 * Math.min(2, window.devicePixelRatio || 1) / project.scale;
+      if (event.key === "ArrowLeft") view.x -= step;
+      if (event.key === "ArrowRight") view.x += step;
+      if (event.key === "ArrowUp") view.y -= step;
+      if (event.key === "ArrowDown") view.y += step;
+      drawMap();
+      sendNavigate();
+      return;
+    }
+
+    if (["+", "=", "Add"].includes(event.key)) {
+      event.preventDefault();
+      zoomBy(1.3);
+      return;
+    }
+
+    if (["-", "Subtract"].includes(event.key)) {
+      event.preventDefault();
+      zoomBy(1 / 1.3);
+      return;
+    }
+
+    if (event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      if (mode !== "Follow") requestMode("Follow");
+      return;
+    }
+
+    const workspaceIndex = Number(event.key) - 1;
+    if (mode === "Control" && Number.isInteger(workspaceIndex) && KEY_WORKSPACES[workspaceIndex]) {
+      event.preventDefault();
+      switchWorkspace(KEY_WORKSPACES[workspaceIndex]);
+    }
   });
 
   window.addEventListener("resize", () => drawMap());
