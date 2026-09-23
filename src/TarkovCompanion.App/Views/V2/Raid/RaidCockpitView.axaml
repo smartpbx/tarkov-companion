@@ -312,7 +312,7 @@
         <!-- One row, left to right: the raid clock, how the plan is presented and which floor is
              read, then what the map follows, how it is drawn, and what is on it.
              Everything that used to float over the plan's corners is here, so the plan is clear. -->
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="14">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
           <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
             <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
@@ -344,22 +344,40 @@
             <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
                        Text="{Binding TrafficBannerTitle}" />
           </Border>
+          <!-- #675 made Follow adjustable, but three full strip controls took enough width from
+               the presentation WrapPanel to add a second strip row at 1920x1080. Keep the common
+               toggle at its original width and put the two step targets behind the adjacent,
+               state-labelled selector. The commands and automation IDs stay directly reachable. -->
           <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-            <Button Classes="v2-target v2-raid-follow-step" Content="−"
-                    Command="{Binding DecreaseFollowZoomCommand}"
-                    AutomationProperties.AutomationId="v2-raid-follow-zoom-out"
-                    AutomationProperties.Name="Zoom Follow out"
-                    ToolTip.Tip="Zoom Follow out" />
-            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="{Binding FollowLabel}"
+            <ToggleButton Classes="v2-target v2-raid-strip-toggle" Content="Follow"
                           IsChecked="{Binding FollowsPlayer, Mode=OneWay}"
                           Command="{Binding ToggleFollowCommand}"
                           AutomationProperties.AutomationId="v2-raid-follow"
+                          AutomationProperties.Name="{Binding FollowLabel}"
                           ToolTip.Tip="Move the map to you when you take a screenshot" />
-            <Button Classes="v2-target v2-raid-follow-step" Content="+"
-                    Command="{Binding IncreaseFollowZoomCommand}"
-                    AutomationProperties.AutomationId="v2-raid-follow-zoom-in"
-                    AutomationProperties.Name="Zoom Follow in"
-                    ToolTip.Tip="Zoom Follow in" />
+            <Button Classes="v2-target v2-raid-follow-step" Content="{Binding FollowZoomLabel}"
+                    AutomationProperties.AutomationId="v2-raid-follow-zoom"
+                    AutomationProperties.Name="{Binding FollowLabel}"
+                    ToolTip.Tip="Change Follow zoom">
+              <Button.Flyout>
+                <Flyout Placement="Top">
+                  <StackPanel Orientation="Horizontal" Spacing="4">
+                    <Button Classes="v2-target v2-raid-follow-step" Content="−"
+                            Command="{Binding DecreaseFollowZoomCommand}"
+                            AutomationProperties.AutomationId="v2-raid-follow-zoom-out"
+                            AutomationProperties.Name="Zoom Follow out"
+                            ToolTip.Tip="Zoom Follow out" />
+                    <TextBlock Classes="v2-label" MinWidth="32" TextAlignment="Center"
+                               VerticalAlignment="Center" Text="{Binding FollowZoomLabel}" />
+                    <Button Classes="v2-target v2-raid-follow-step" Content="+"
+                            Command="{Binding IncreaseFollowZoomCommand}"
+                            AutomationProperties.AutomationId="v2-raid-follow-zoom-in"
+                            AutomationProperties.Name="Zoom Follow in"
+                            ToolTip.Tip="Zoom Follow in" />
+                  </StackPanel>
+                </Flyout>
+              </Button.Flyout>
+            </Button>
           </StackPanel>
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
