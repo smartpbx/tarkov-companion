@@ -160,11 +160,14 @@ internal static class Program
             }
 
             var services = AppComposition.Build(options);
-            var app = new App(services);
+            // [#279] Developer mode only: a seeded gallery scene and its readiness answer.
+            var galleryReadiness = options.DeveloperMode && options.GalleryScene is not null ? new GalleryReadiness() : null;
+            var app = new App(services) { GalleryReadiness = galleryReadiness };
             var diagnosticChannel = DiagnosticCommandChannel.Start(
                 options.DeveloperMode,
                 options.DiagnosticChannelPath,
-                services.GetRequiredService<IRuntimeScanUseCase>());
+                services.GetRequiredService<IRuntimeScanUseCase>(),
+                readiness: galleryReadiness);
             // #599: how this process gets out of the updater's way. Set here because this is the
             // only place that holds everything a hand-over has to stop.
             if (services.GetService<VelopackUpdateGateway>() is { } updates)
