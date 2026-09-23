@@ -56,7 +56,18 @@ internal static class SyntheticFixtureLoader
     public static IReadOnlyList<SyntheticScene> LoadScenes()
     {
         var root = FindRepositoryRoot();
-        var json = File.ReadAllText(Path.Combine(root, "fixtures", "recognition", "synthetic-scenes.json"));
+        return Load(root, "synthetic-scenes.json");
+    }
+
+    public static IReadOnlyList<SyntheticScene> LoadTaskContextScenes()
+    {
+        var root = FindRepositoryRoot();
+        return Load(root, "tasks-context-scenes.json");
+    }
+
+    private static IReadOnlyList<SyntheticScene> Load(string root, string name)
+    {
+        var json = File.ReadAllText(Path.Combine(root, "fixtures", "recognition", name));
         return JsonSerializer.Deserialize<IReadOnlyList<SyntheticScene>>(
                    json,
                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })

@@ -63,9 +63,10 @@ public sealed class RecognitionService : IRecognitionService
             };
         }
 
-        if (context == ScanContext.ExtractList)
+        if (context is ScanContext.ExtractList or ScanContext.QuestTasks)
         {
-            return new RecognitionResult(context, [], image.CapturedUtc, degraded ?? "extract_context")
+            var contextCode = context == ScanContext.ExtractList ? "extract_context" : "quest_tasks_context";
+            return new RecognitionResult(context, [], image.CapturedUtc, degraded ?? contextCode)
             {
                 Detail = detail,
                 Hud = hud,
