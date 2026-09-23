@@ -165,6 +165,7 @@ public sealed class SetupProfilesTests
             var profiles = Assert.IsType<ProfileScopedPlayerProfileService>(services.GetRequiredService<IPlayerProfileService>());
             var view = Assert.IsType<SetupProfilesViewModel>(shell.SetupWorkspace!.Profiles);
             var firstProfile = await profiles.GetActiveAsync(default);
+            var staleRuntime = services.GetRequiredService<IRuntimeStateStore>().Current;
 
             view.NewName = "PvE alt";
             view.SelectedMode = view.Modes.Single(mode => mode.Mode == ProfileGameMode.Pve);
@@ -185,10 +186,31 @@ public sealed class SetupProfilesTests
 
             // An ordinary progress-file save does not publish another runtime snapshot. Setup's
             // summary follows the profile save itself so the level changes immediately.
-            await profiles.SaveAsync(active with { Level = 42 }, default);
-            await WaitUntilAsync(() => legacy.Settings.ProfileContext.Contains("level 42", StringComparison.Ordinal));
-            legacy.Settings.Apply(services.GetRequiredService<IRuntimeStateStore>().Current);
+            var summaryChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            legacy.Settings.PropertyChanged += OnSettingsChanged;
+            try
+            {
+                await profiles.SaveAsync(active with { Level = 42 }, default);
+                await summaryChanged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                legacy.Settings.PropertyChanged -= OnSettingsChanged;
+            }
+
+            // A catalog refresh started before the switch may still publish the old profile.
+            // It must not replace the newer progress signal for the profile active now.
+            legacy.Settings.Apply(staleRuntime);
             Assert.Contains("PvE alt · level 42", legacy.Settings.ProfileContext, StringComparison.Ordinal);
+
+            void OnSettingsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(SettingsPageViewModel.ProfileContext) &&
+                    legacy.Settings.ProfileContext.Contains("PvE alt · level 42", StringComparison.Ordinal))
+                {
+                    summaryChanged.TrySetResult();
+                }
+            }
         }
         finally
         {
@@ -203,16 +225,6 @@ public sealed class SetupProfilesTests
                 }
             }
         }
-    }
-
-    private static async Task WaitUntilAsync(Func<bool> condition)
-    {
-        for (var attempt = 0; attempt < 200 && !condition(); attempt++)
-        {
-            await Task.Delay(10);
-        }
-
-        Assert.True(condition());
     }
 
     private sealed class Fixture : IDisposable
