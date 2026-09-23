@@ -20,6 +20,7 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 using TarkovCompanion.Core.Domain.Events;
+using TarkovCompanion.Core.Domain.Planning;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -140,8 +141,14 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
-    /// <summary>What the quest is doing when it is not being played: available now, locked and why, completed, failed.</summary>
-    public string StatusLabel => PlanQuestRules.DescribeStatus(Task, _owner is null ? null : _owner.TaskNameOrNull);
+    public string StateLabel => PlanQuestRules.StateLabel(_owner.StateFor(Task).State);
+
+    public string StateDetail => PlanQuestRules.StateDetail(_owner.StateFor(Task));
+
+    public bool HasStateDetail => StateDetail.Length > 0;
+
+    /// <summary>The facts behind a blocked, future or unknown state.</summary>
+    public string StatusLabel => StateDetail;
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
@@ -555,6 +562,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     private readonly EventRuleService? _eventRuleService;
     private ActiveEventRules _activeEventRules = ActiveEventRules.Empty;
     private string _eventRuleSummary = string.Empty;
+    private IReadOnlyDictionary<string, QuestStatePlan> _questStates =
+        new Dictionary<string, QuestStatePlan>(StringComparer.Ordinal);
 
     public PlanWorkspaceViewModel(
         IPlayerProfileService profileService,
@@ -1259,7 +1268,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             Filter,
             QuestsPageViewModel.SearchTerms(SearchText),
             SelectedTrader.TraderId,
-            _searchableText);
+            _searchableText,
+            _questStates);
         UiActivity.Step("plan:bucketed");
         // Keeps whatever the last pass built and this one still wants; Groups only changes when
         // the result set does, so an unchanged list is not re-bound and not redrawn.
@@ -1524,6 +1534,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     {
         _playerLevel = level;
         OnPropertyChanged(nameof(PlayerLevel));
+        _questStates = _board is null
+            ? new Dictionary<string, QuestStatePlan>(StringComparer.Ordinal)
+            : QuestStatePlanner.Plan(_board.Tasks, traderLevels, TaskNameOrNull);
         var named = _board is null
             ? []
             : _board.Tasks
@@ -2007,7 +2020,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         PlanQuestFilter filter,
         IReadOnlyList<string> searchTerms,
         string? traderId,
-        Func<QuestSummaryReadModel, string>? searchableText)
+        Func<QuestSummaryReadModel, string>? searchableText,
+        IReadOnlyDictionary<string, QuestStatePlan>? questStates = null)
     {
         ArgumentNullException.ThrowIfNull(tasks);
         ArgumentNullException.ThrowIfNull(searchTerms);
@@ -2015,7 +2029,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         var entries = new List<PlanObjectiveBucketEntry>();
         foreach (var task in tasks)
         {
-            if (!PlanQuestRules.Includes(task, filter) ||
+            if (!PlanQuestRules.Includes(task, filter, questStates?.GetValueOrDefault(task.TaskId)) ||
                 (traderId is not null && !string.Equals(task.TraderId, traderId, StringComparison.OrdinalIgnoreCase)) ||
                 (searchTerms.Count > 0 &&
                  !QuestsPageViewModel.MatchesEveryTerm(searchableText?.Invoke(task) ?? task.Name, searchTerms)))
@@ -2120,6 +2134,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
         return cached.Names.GetValueOrDefault(taskId);
     }
+
+    internal QuestStatePlan StateFor(QuestSummaryReadModel task) =>
+        _questStates.GetValueOrDefault(task.TaskId) ??
+        QuestStatePlanner.Derive(task, new Dictionary<string, int>(), TaskNameOrNull);
 
     private string NameOfMap(string mapId)
     {

@@ -113,6 +113,12 @@ public sealed record QuestObjectiveDefinition(
     string RawSourceJson)
 {
     public bool IsUnsupported => Kind == QuestObjectiveKind.Unsupported;
+
+    /// <summary>The trader named by a trader-level objective, where this objective is one.</summary>
+    public string? RequiredTraderId { get; init; }
+
+    /// <summary>The loyalty level named by a trader-level objective, where this objective is one.</summary>
+    public int? RequiredTraderLevel { get; init; }
 }
 
 public sealed record QuestTaskDefinition(
