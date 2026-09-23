@@ -187,9 +187,16 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         string type,
         DateTimeOffset timestampUtc,
         string payloadJson,
-        CancellationToken cancellationToken) =>
-        Task.FromException(new NotSupportedException(
-            "Raid history accepts closed typed commands only; generic event JSON cannot enter the outbox."));
+        CancellationToken cancellationToken)
+    {
+        // A Debrief tag is a bounded manual correction, not captured game evidence. It writes
+        // straight through for the same reason CorrectAsync does, while every other generic type
+        // remains refused by this privacy boundary.
+        return string.Equals(type, "tag", StringComparison.Ordinal)
+            ? _inner.RecordEventAsync(raidId, type, timestampUtc, payloadJson, cancellationToken)
+            : Task.FromException(new NotSupportedException(
+                "Raid history accepts closed typed commands only; generic event JSON cannot enter the outbox."));
+    }
 
     public Task EndAsync(
         Guid raidId,
