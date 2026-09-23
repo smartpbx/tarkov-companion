@@ -3,6 +3,7 @@
   "sources": [
     "EFT Wiki The Lab revision 2026-08-16",
     "EFT Wiki Reserve revision 2026-09-06",
+    "EFT Wiki Customs revision 2026-08-21",
     "EFT Wiki Interchange revision 2026-09-15"
   ],
   "overrides": {
@@ -28,7 +29,15 @@
         }
       ]
     },
+    "customs": {
+      "ZB-013": [
+        { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ]
+    },
     "interchange": {
+      "Saferoom Exfil": [
+        { "kind": "Items", "items": ["Object #11SR keycard"] }
+      ],
       "Path to River (Flare)": [
         { "kind": "Items", "items": ["Green flare"] }
       ]

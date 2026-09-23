@@ -53,8 +53,8 @@ public sealed record MapExtractCondition(
 
 /// <summary>The catalog-backed and checked supplemental things needed to use one extract.</summary>
 /// <remarks>
-/// Switches are already in activation order. Empty and false values mean the catalog did not
-/// state that requirement; they are not a promise that the game has no other condition.
+/// Switches come only from the reviewed override table and are already in player-action order.
+/// Empty and false values are not a promise that the game has no other condition.
 /// </remarks>
 public sealed record MapExtractRequirements(
     IReadOnlyList<MapSwitch> SwitchChain,

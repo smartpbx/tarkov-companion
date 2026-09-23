@@ -10,7 +10,7 @@ namespace TarkovCompanion.UnitTests;
 public sealed class MapExtractRequirementReaderTests
 {
     [Fact]
-    public void LabsElevatorChainIsPutInActivationOrder()
+    public void CatalogExtractSwitchLinksAreIgnored()
     {
         using var map = JsonDocument.Parse(Labs);
         var switches = MapExtractRequirementReader.ReadSwitches(map.RootElement);
@@ -18,12 +18,8 @@ public sealed class MapExtractRequirementReaderTests
             map.RootElement.GetProperty("extracts")[0],
             switches);
 
-        Assert.Equal(
-            ["Med Elevator Power Button", "Med Elevator Call Button", "Med Elevator Extract Button"],
-            requirements.SwitchChain.Select(item => item.Name));
-        Assert.Equal(
-            "Needs power: Med Elevator Power Button, then Med Elevator Call Button, then Med Elevator Extract Button",
-            MapExtractRequirementReader.Describe(requirements));
+        Assert.Empty(requirements.SwitchChain);
+        Assert.Empty(MapExtractRequirementReader.Describe(requirements));
     }
 
     [Fact]
@@ -56,6 +52,24 @@ public sealed class MapExtractRequirementReaderTests
         Assert.Equal(
             ["Med Elevator Power Button", "Med Elevator Call Button", "Med Elevator Extract Button"],
             medical.ExtractRequirements!.SwitchChain.Select(item => item.Name));
+
+        Assert.Equal(6, features.Count(feature => feature.Kind == MapFeatureKind.Switch));
+    }
+
+    [Fact]
+    public async Task CustomsUsesOnlyTheReviewedZb013SwitchLink()
+    {
+        var features = await ReadFeaturesAsync("customs", CustomsOverrideMap);
+
+        var ruaf = Assert.Single(features, feature => feature.Name == "RUAF Roadblock");
+        Assert.Null(ruaf.ExtractRequirements);
+        Assert.DoesNotContain("power", ruaf.Detail ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+
+        var zb013 = Assert.Single(features, feature => feature.Name == "ZB-013");
+        Assert.Equal(["ZB-013 Power Switch"], zb013.ExtractRequirements!.SwitchChain.Select(item => item.Name));
+        Assert.Contains("Factory emergency exit key", zb013.Detail, StringComparison.Ordinal);
+
+        Assert.Single(features, feature => feature.Kind == MapFeatureKind.Switch);
     }
 
     [Fact]
@@ -104,11 +118,22 @@ public sealed class MapExtractRequirementReaderTests
     {
         var features = await ReadFeaturesAsync("interchange", InterchangeOverrideMap);
 
+        var saferoom = Assert.Single(features, feature => feature.Name == "Saferoom Exfil");
+        Assert.Equal(
+            ["Mall Main Power Switch", "Saferoom Exfil Unlock Switch", "Saferoom Exfil Switch"],
+            saferoom.ExtractRequirements!.SwitchChain.Select(item => item.Name));
+        Assert.Equal(
+            ["Object #11SR keycard"],
+            Assert.Single(saferoom.ExtractRequirements.Conditions).Items);
+        Assert.Contains("Bring Object #11SR keycard", saferoom.Detail, StringComparison.Ordinal);
+
         var river = Assert.Single(features, feature => feature.Name == "Path to River (Flare)");
         var items = Assert.Single(river.ExtractRequirements!.Conditions);
         Assert.Equal(MapExtractConditionKind.Items, items.Kind);
         Assert.Equal(["Green flare"], items.Items);
         Assert.Contains("Bring Green flare", river.Detail, StringComparison.Ordinal);
+
+        Assert.Equal(3, features.Count(feature => feature.Kind == MapFeatureKind.Switch));
     }
 
     [Fact]
@@ -151,6 +176,22 @@ public sealed class MapExtractRequirementReaderTests
           {"id":"fa1f22e776e4724582eb1dbb18ae864a9303cc5a","name":"D-2 Door Switch","switchType":"Close","activatedBy":"9cad024bc31223f02f7296c3cb1834c5f6fa2fe2",
            "activates":[],"position":{"x":-117.449867,"y":-16.9842987,"z":168.546936}}
         ]}
+        """;
+
+    private const string CustomsOverrideMap = """
+        {
+          "id":"customs","name":"Customs","normalizedName":"customs",
+          "switches":[
+            {"id":"ae4bdfc1fc5b30100701158b56ae4d20840e0550","name":"ZB-013 Power Switch","switchType":"Open","activatedBy":false,
+             "activates":[],"position":{"x":352.2,"y":2.6,"z":-40.8}}
+          ],
+          "extracts":[
+            {"id":"ruaf","name":"RUAF Roadblock","faction":"shared","position":{"x":1.0,"y":2.0,"z":3.0},
+             "switch":"ae4bdfc1fc5b30100701158b56ae4d20840e0550","switches":["ae4bdfc1fc5b30100701158b56ae4d20840e0550"]},
+            {"id":"zb013","name":"ZB-013","faction":"pmc","position":{"x":300.0,"y":-2.0,"z":-30.0},
+             "switch":"ae4bdfc1fc5b30100701158b56ae4d20840e0550","switches":["ae4bdfc1fc5b30100701158b56ae4d20840e0550"]}
+          ]
+        }
         """;
 
     private const string LabsOverrideMap = """
@@ -204,8 +245,17 @@ public sealed class MapExtractRequirementReaderTests
 
     private const string InterchangeOverrideMap = """
         {
-          "id":"interchange","name":"Interchange","normalizedName":"interchange","switches":[],
+          "id":"interchange","name":"Interchange","normalizedName":"interchange",
+          "switches":[
+            {"id":"b6ebc39ee29cb6659334df309194b696bbfef555","name":"Mall Main Power Switch","switchType":"Close","activatedBy":false,
+             "activates":[],"position":{"x":1.0,"y":2.0,"z":3.0}},
+            {"id":"5173fd12df8e7445613e130233e235a94d94b70d","name":"Saferoom Exfil Unlock Switch","switchType":"Open","activatedBy":false,
+             "activates":[],"position":{"x":4.0,"y":5.0,"z":6.0}},
+            {"id":"42d13e53ae13417e3ee1dab2606e9b2fa4ff6147","name":"Saferoom Exfil Switch","switchType":"Close","activatedBy":false,
+             "activates":[],"position":{"x":7.0,"y":8.0,"z":9.0}}
+          ],
           "extracts":[
+            {"id":"saferoom","name":"Saferoom Exfil","faction":"pmc","position":{"x":5.0,"y":0.0,"z":5.0},"switch":false,"switches":[]},
             {"id":"river","name":"Path to River (Flare)","faction":"pmc","position":{"x":10.0,"y":0.0,"z":10.0},"switch":false,"switches":[]}
           ]
         }

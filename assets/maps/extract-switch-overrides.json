@@ -3,6 +3,8 @@
   "sources": [
     "EFT Wiki The Lab revision 2026-08-16",
     "EFT Wiki Reserve revision 2026-09-06",
+    "EFT Wiki Customs revision 2026-08-21",
+    "EFT Wiki Interchange revision 2026-09-15",
     "timesaver.gg patch 1.0.5"
   ],
   "overrides": {
@@ -30,8 +32,7 @@
       ],
       "Sewage Conduit": [
         "a948c3ba250ffcaaa508230d0b3392bf09cb6964"
-      ],
-      "Ventilation Shaft": []
+      ]
     },
     "reserve": {
       "D-2": [
@@ -40,6 +41,18 @@
       ],
       "Bunker Hermetic Door": [
         "2c4a9ff1d031afefbd0965b189f58e3834cdb367"
+      ]
+    },
+    "customs": {
+      "ZB-013": [
+        "ae4bdfc1fc5b30100701158b56ae4d20840e0550"
+      ]
+    },
+    "interchange": {
+      "Saferoom Exfil": [
+        "b6ebc39ee29cb6659334df309194b696bbfef555",
+        "5173fd12df8e7445613e130233e235a94d94b70d",
+        "42d13e53ae13417e3ee1dab2606e9b2fa4ff6147"
       ]
     }
   }

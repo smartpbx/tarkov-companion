@@ -4,11 +4,11 @@ using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
-/// <summary>Reads extract requirements and the switch graph from one map catalog payload.</summary>
+/// <summary>Reads catalog-backed extract requirements and the map's switch graph.</summary>
 /// <remarks>
-/// The map feed publishes an extract's switch ids in reverse or arbitrary order on some maps.
-/// Ordering follows only explicit graph edges (<c>activatedBy</c> and <c>activates</c>), never
-/// names. Broken or missing edges retain the payload order rather than inventing a route.
+/// Catalog extract-to-switch links are not evidence: Customs copies ZB-013's switch onto every
+/// extract and Labs copies one elevator chain onto every extract. Switches remain available as
+/// map features, but only the separately reviewed override table may attach them to an extract.
 /// </remarks>
 internal static class MapExtractRequirementReader
 {
@@ -59,21 +59,10 @@ internal static class MapExtractRequirementReader
         Func<string, string?>? itemName = null)
     {
         ArgumentNullException.ThrowIfNull(switches);
-        var ids = ReadSwitchIds(extract);
-        var chain = Order(ids.Select(id => switches.GetValueOrDefault(id)).OfType<MapSwitch>().ToArray()).ToList();
-        // The singular field is the control directly attached to the exit. Some real payloads
-        // omit its graph edge, but still include it first in the plural list. It is the last
-        // action after every explicitly ordered prerequisite, not an invented dependency.
-        if (ReadIdentifier(extract, "switch") is { } finalId && chain.Count > 1 &&
-            chain.FirstOrDefault(item => item.Id == finalId) is { } final)
-        {
-            chain.Remove(final);
-            chain.Add(final);
-        }
         var transfer = ReadTransfer(extract, itemName);
         var name = ReadText(extract, "name") ?? string.Empty;
         return new(
-            chain,
+            [],
             transfer,
             name.Contains("co-op", StringComparison.OrdinalIgnoreCase) ||
                 name.Contains("coop", StringComparison.OrdinalIgnoreCase),
@@ -200,26 +189,6 @@ internal static class MapExtractRequirementReader
         }
 
         return string.Join(" · ", parts);
-    }
-
-    private static IReadOnlyList<string> ReadSwitchIds(JsonElement extract)
-    {
-        var ids = new List<string>();
-        if (extract.TryGetProperty("switches", out var switches) && switches.ValueKind == JsonValueKind.Array)
-        {
-            ids.AddRange(switches.EnumerateArray()
-                .Where(value => value.ValueKind == JsonValueKind.String)
-                .Select(value => value.GetString())
-                .OfType<string>()
-                .Where(value => value.Length > 0));
-        }
-
-        if (ReadIdentifier(extract, "switch") is { } single && !ids.Contains(single, StringComparer.Ordinal))
-        {
-            ids.Add(single);
-        }
-
-        return ids.Distinct(StringComparer.Ordinal).ToArray();
     }
 
     private static MapExtractTransfer? ReadTransfer(JsonElement extract, Func<string, string?>? itemName)
