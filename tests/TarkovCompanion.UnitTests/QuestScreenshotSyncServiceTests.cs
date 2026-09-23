@@ -1,4 +1,6 @@
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Setup;
 using TarkovCompanion.Core.Abstractions;
@@ -7,6 +9,7 @@ using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -128,6 +131,71 @@ public sealed class QuestScreenshotSyncServiceTests
         Assert.False(viewModel.ShowEmptyOffer);
     }
 
+    [Fact]
+    public async Task PassiveOfferOpensWithTheExactBurstPreloadedAndStillWritesNothing()
+    {
+        var fixture = Fixture();
+        var images = new StubImages();
+        var bursts = new QuestScreenshotBurstCollector();
+        var runtime = Runtime();
+        V2RouteId? navigated = null;
+        var viewModel = new QuestScreenshotSyncViewModel(
+            fixture.Service,
+            images,
+            () => "unused",
+            TimeProvider.System,
+            bursts,
+            runtime);
+        var workspace = new V2SetupWorkspaceViewModel(null, null, null, route => navigated = route);
+        workspace.AttachQuestSync(viewModel);
+        bursts.Observe("tasks-1.png", DateTimeOffset.UnixEpoch, raidActive: false);
+        bursts.Observe("tasks-2.png", DateTimeOffset.UnixEpoch.AddSeconds(30), raidActive: false);
+
+        Assert.True(viewModel.ShowsPassiveOffer);
+        Assert.Equal("Quest list seen · 2 screenshots", viewModel.PassiveOfferText);
+        await Assert.IsType<AsyncDelegateCommand>(viewModel.ReviewPassiveOfferCommand).ExecuteAsync();
+
+        Assert.Equal(V2Routes.Setup, navigated);
+        Assert.True(workspace.IsProgressSelected);
+        Assert.Equal(["tasks-1.png", "tasks-2.png"], images.Paths);
+        Assert.True(viewModel.HasPreview);
+        Assert.Equal("Read 2 screenshots · fixture OCR", viewModel.Status);
+        Assert.False(viewModel.ShowsPassiveOffer);
+        Assert.Empty(fixture.Commands.Calls);
+    }
+
+    [Fact]
+    public void ExistingOfferIsHiddenAsSoonAsARaidStarts()
+    {
+        var fixture = Fixture();
+        var bursts = new QuestScreenshotBurstCollector();
+        var runtime = Runtime();
+        var viewModel = new QuestScreenshotSyncViewModel(
+            fixture.Service,
+            new StubImages(),
+            () => "unused",
+            TimeProvider.System,
+            bursts,
+            runtime);
+        bursts.Observe("tasks.png", DateTimeOffset.UnixEpoch, raidActive: false);
+        Assert.True(viewModel.ShowsPassiveOffer);
+
+        runtime.Update(current => current with
+        {
+            Raid = current.Raid with { State = RaidLifecycleState.InRaid },
+        });
+
+        Assert.False(viewModel.ShowsPassiveOffer);
+    }
+
+    private static RuntimeStateStore Runtime() => new(new RuntimeOptions(
+        DemoMode: false,
+        Offline: true,
+        GameMode: GameMode.Regular,
+        Language: "en",
+        DataFreshFor: TimeSpan.FromHours(9),
+        RefreshTimeout: TimeSpan.FromMinutes(5)));
+
     private static TestFixture Fixture(IQuestTaskColumnRegionDetector? detector = null)
     {
         var catalog = Catalog(
@@ -191,10 +259,15 @@ public sealed class QuestScreenshotSyncServiceTests
 
     private sealed class StubImages : IQuestScreenshotImageSource
     {
+        public List<string> Paths { get; } = [];
+
         public Task<QuestScreenshotImageLoad> LoadFilesAsync(
             IReadOnlyCollection<string> paths,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new QuestScreenshotImageLoad([Image("tasks")], 0));
+            CancellationToken cancellationToken)
+        {
+            Paths.AddRange(paths);
+            return Task.FromResult(new QuestScreenshotImageLoad(paths.Select(Image).ToArray(), 0));
+        }
 
         public Task<QuestScreenshotImageLoad> LoadRecentAsync(
             string? screenshotRoot,

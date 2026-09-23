@@ -193,6 +193,11 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
     public void AttachQuestSync(QuestScreenshotSyncViewModel questSync)
     {
         QuestSync = questSync ?? throw new ArgumentNullException(nameof(questSync));
+        QuestSync.OpenPassiveReview = () =>
+        {
+            _navigate(V2Routes.Setup);
+            Select(V2SetupSection.Progress);
+        };
         OnPropertyChanged(nameof(QuestSync));
         OnPropertyChanged(nameof(HasQuestSync));
         QuestSync.PropertyChanged += (_, eventArgs) =>
