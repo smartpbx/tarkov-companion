@@ -220,6 +220,7 @@ public static class AppComposition
         // Hidden from the unread-table sweep by its DELETE blind spot until that was fixed.
         services.AddSingleton<SqliteBarterCatalog>();
         services.AddSingleton<IBarterCatalog>(provider => provider.GetRequiredService<SqliteBarterCatalog>());
+        services.AddSingleton<IItemCashOfferCatalog, SqliteItemCashOfferCatalog>();
         // Cost and yield history used to have a write API only. Keep the normalized definition
         // and its bounded economics history behind one production read contract.
         services.AddSingleton<SqliteCraftPlanningCatalog>();
@@ -495,6 +496,7 @@ public static class AppComposition
         // service already exist; this is the first caller to read them together for a single
         // item id instead of a whole legacy page.
         services.AddSingleton<IItemIntelService, ItemIntelService>();
+        services.AddSingleton<IItemAcquisitionService, ItemAcquisitionService>();
         // Package 33 (#287, the lookup half): the Intel landing page's four real sections need
         // only what is already registered above, plus the catalog's own value ranking.
         services.AddSingleton<IHighValueItemCatalog, SqliteHighValueItemCatalog>();

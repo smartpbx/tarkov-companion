@@ -7,6 +7,7 @@ using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Intelligence.Gear;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Loadouts;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -110,6 +111,18 @@ public sealed record LoadoutPresetViewModel(
 /// <summary>One row of the side-by-side comparison: a measure, both values, and the difference.</summary>
 public sealed record LoadoutComparisonRowViewModel(string Measure, string Current, string Other, string Difference);
 
+/// <summary>One same-slot replacement and the trader source the active profile can or cannot use.</summary>
+public sealed record LoadoutAlternativeViewModel(
+    string Name,
+    string Detail,
+    string Source,
+    string Requirement,
+    bool IsObtainable,
+    ICommand ChooseCommand)
+{
+    public double Opacity => IsObtainable ? 1 : 0.52;
+}
+
 /// <summary>
 /// Prices, weighs and sanity-checks a kit the player assembles by hand.
 /// </summary>
@@ -176,6 +189,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private readonly TimeProvider _clock;
     private readonly Dictionary<LoadoutSlot, List<AssignedItem>> _selection = [];
     private readonly AllergyWarningService? _allergies;
+    private readonly IItemAcquisitionService? _acquisitions;
     private IReadOnlyDictionary<string, string> _allergyWarnings = new Dictionary<string, string>(StringComparer.Ordinal);
 
     private IReadOnlyList<LoadoutItemFacts> _factList = [];
@@ -206,6 +220,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
     private IReadOnlyList<LoadoutSlotTileViewModel> _slotBoard = [];
     private IReadOnlyList<LoadoutPresetViewModel> _presetRows = [];
     private IReadOnlyList<LoadoutComparisonRowViewModel> _comparison = [];
+    private IReadOnlyList<LoadoutAlternativeViewModel> _alternatives = [];
+    private string _alternativesStatus = "Assign an item to see obtainable alternatives.";
     private string _presetName = string.Empty;
     private string _presetStatus = "No kit saved yet.";
     private string _budgetInput = string.Empty;
@@ -222,7 +238,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
         IItemRepository itemRepository,
         ILoadoutPresetStore? presets = null,
         TimeProvider? clock = null,
-        AllergyWarningService? allergies = null)
+        AllergyWarningService? allergies = null,
+        IItemAcquisitionService? acquisitions = null)
         : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
@@ -230,6 +247,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         _itemRepository = itemRepository;
         _presets = presets;
         _allergies = allergies;
+        _acquisitions = acquisitions;
         _clock = clock ?? TimeProvider.System;
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         EvaluateCommand = new AsyncDelegateCommand(EvaluateAsync);
@@ -275,6 +293,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             if (value is not null && SetProperty(ref _selectedSlot, value))
             {
                 RefreshSlotBoard();
+                _ = RefreshAlternativesAsync(CancellationToken.None);
                 if (Results.Count > 0 && !string.IsNullOrWhiteSpace(SearchQuery))
                 {
                     // The list on screen was filtered for the slot just left.
@@ -401,6 +420,26 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     public bool HasComparison => Comparison.Count > 0;
 
+    public IReadOnlyList<LoadoutAlternativeViewModel> Alternatives
+    {
+        get => _alternatives;
+        private set
+        {
+            if (SetProperty(ref _alternatives, value))
+            {
+                OnPropertyChanged(nameof(HasAlternatives));
+            }
+        }
+    }
+
+    public bool HasAlternatives => Alternatives.Count > 0;
+
+    public string AlternativesStatus
+    {
+        get => _alternativesStatus;
+        private set => SetProperty(ref _alternativesStatus, value);
+    }
+
     /// <summary>The name a Save press will use.</summary>
     public string PresetName
     {
@@ -467,6 +506,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         _factList = [];
         _facts = NoFacts;
         _loadoutService = null;
+        Alternatives = [];
         if (snapshot.Data.ItemCount == 0)
         {
             Results = [];
@@ -954,6 +994,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
         RefreshAssignments();
         AssignmentStatus = $"{SlotOptions.First(option => option.Slot == slot).Name} is empty again.";
+        _ = RefreshAlternativesAsync(CancellationToken.None);
     }
 
     private async Task AssignAsync(string itemId, CancellationToken cancellationToken)
@@ -990,6 +1031,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             items.Add(new(itemId, name, $"{category} · {DescribeCost(facts)} · {DescribeWeight(facts)}{DescribeGear(facts)}"));
             await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
             RefreshAssignments();
+            await RefreshAlternativesAsync(cancellationToken).ConfigureAwait(true);
             AssignmentStatus = slot.AllowsMany
                 ? $"Added {name} to {slot.Name}."
                 : $"{slot.Name} is now {name}.";
@@ -1040,6 +1082,71 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
         RefreshAssignments();
         AssignmentStatus = $"Removed {removed.Name}.";
+        _ = RefreshAlternativesAsync(CancellationToken.None);
+    }
+
+    private async Task RefreshAlternativesAsync(CancellationToken cancellationToken)
+    {
+        if (_acquisitions is null)
+        {
+            Alternatives = [];
+            AlternativesStatus = "No acquisition catalog is available.";
+            return;
+        }
+
+        try
+        {
+            var facts = await EnsureFactsAsync(cancellationToken).ConfigureAwait(true);
+            var slot = SelectedSlot.Slot;
+            var assigned = _selection.GetValueOrDefault(slot)?.Select(item => item.ItemId)
+                .ToHashSet(StringComparer.Ordinal) ?? [];
+            if (assigned.Count == 0)
+            {
+                Alternatives = [];
+                AlternativesStatus = "Assign an item to see obtainable alternatives.";
+                return;
+            }
+
+            var currentCost = assigned.Select(id => facts.GetValueOrDefault(id)?.ApproximateCostRoubles)
+                .FirstOrDefault(cost => cost is not null);
+            var candidates = _factList
+                .Where(fact => !assigned.Contains(fact.ItemId) && LoadoutSlotRules.Fits(slot, fact.Category))
+                .OrderBy(fact => currentCost is { } cost && fact.ApproximateCostRoubles is { } candidateCost
+                    ? Math.Abs(candidateCost - cost)
+                    : long.MaxValue)
+                .ThenBy(fact => fact.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Take(160)
+                .ToArray();
+            var byId = candidates.ToDictionary(fact => fact.ItemId, StringComparer.Ordinal);
+            var sources = await _acquisitions.GetAsync(byId.Keys.ToArray(), cancellationToken).ConfigureAwait(true);
+
+            Alternatives = sources
+                .Where(row => byId.ContainsKey(row.Offer.ItemId))
+                .Take(8)
+                .Select(row =>
+                {
+                    var fact = byId[row.Offer.ItemId];
+                    var source = row.Offer.Kind == ItemAcquisitionKind.Cash && row.Offer.PriceRoubles is { } price
+                        ? $"{row.Offer.TraderName} · {Roubles(price)}"
+                        : $"{row.Offer.TraderName} · barter";
+                    return new LoadoutAlternativeViewModel(
+                        fact.Name,
+                        $"{DescribeCost(fact)} · {DescribeWeight(fact)}{DescribeGear(fact)}",
+                        source,
+                        row.Availability.RequirementLabel,
+                        row.Availability.IsObtainable,
+                        new AsyncDelegateCommand(() => AssignAsync(fact.ItemId, CancellationToken.None)));
+                })
+                .ToArray();
+            AlternativesStatus = Alternatives.Count == 0
+                ? "No trader alternatives are recorded for this slot."
+                : $"{Alternatives.Count} alternatives · available now first";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Alternatives = [];
+            AlternativesStatus = $"Alternatives unavailable · {exception.Message}";
+        }
     }
 
     private void RefreshAssignments()

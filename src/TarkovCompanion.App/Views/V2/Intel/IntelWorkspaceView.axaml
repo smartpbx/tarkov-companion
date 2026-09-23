@@ -509,6 +509,32 @@
           </Border>
           </Border>
 
+          <Border Classes="v2-intel-section" IsVisible="{Binding IntelHasResult}"
+                  AutomationProperties.AutomationId="v2-intel-where-to-buy">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2"
+                         Text="{Binding IntelWhereToBuyHeading}" />
+              <TextBlock Classes="v2-label" IsVisible="{Binding !HasIntelAcquisitionSources}"
+                         Text="{Binding IntelNoAcquisitionSourcesLabel}" />
+              <ItemsControl ItemsSource="{Binding IntelAcquisitionSources}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2IntelAcquisitionSourceViewModel">
+                    <Border Classes="v2-intel-fact" Opacity="{Binding Opacity}">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel Spacing="2">
+                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Source}" />
+                          <TextBlock Classes="v2-label" Text="{Binding Requirement}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Cost}"
+                                   TextWrapping="Wrap" HorizontalAlignment="Right" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
           <!-- What a key opens. -->
           <Border Classes="v2-intel-section" IsVisible="{Binding IntelIsKey}">
             <StackPanel Spacing="8">

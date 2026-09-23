@@ -147,7 +147,8 @@ public sealed record V2ItemIntelResult(
     string Description = "",
     V2IntelPriceFacts? Prices = null,
     V2IntelKeepFacts? Keep = null,
-    V2ItemRecommendation? Recommendation = null)
+    V2ItemRecommendation? Recommendation = null,
+    IReadOnlyList<ProfiledItemAcquisition>? Acquisitions = null)
 {
     public static V2ItemIntelResult NotFound(string itemId) =>
         new(V2IntelKind.Unknown, itemId, itemId, itemId, null, ItemCategory.Unknown, 0, 0, false);
@@ -185,7 +186,8 @@ public sealed class ItemIntelService(
     IRequirementCatalog? requirements = null,
     IItemMarketFactSource? marketFacts = null,
     IPriceHistoryService? priceHistory = null,
-    IItemRecommendationAdvisor? recommendations = null) : IItemIntelService
+    IItemRecommendationAdvisor? recommendations = null,
+    IItemAcquisitionService? acquisitions = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -204,6 +206,9 @@ public sealed class ItemIntelService(
         var recommendation = recommendations is null
             ? null
             : await recommendations.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var acquisitionRows = acquisitions is null
+            ? null
+            : await acquisitions.GetAsync([itemId], cancellationToken).ConfigureAwait(false);
 
         return item.Category switch
         {
@@ -211,7 +216,14 @@ public sealed class ItemIntelService(
                 await BuildAmmoAsync(item, value, cancellationToken).ConfigureAwait(false),
             ItemCategory.Key => await BuildKeyAsync(item, value, cancellationToken).ConfigureAwait(false),
             _ => Base(V2IntelKind.Item, item, value),
-        } with { Description = item.Description, Prices = prices, Keep = keep, Recommendation = recommendation };
+        } with
+        {
+            Description = item.Description,
+            Prices = prices,
+            Keep = keep,
+            Recommendation = recommendation,
+            Acquisitions = acquisitionRows,
+        };
     }
 
     public async Task<ItemComparisonFacts> GetComparisonFactsAsync(string itemId, CancellationToken cancellationToken)
