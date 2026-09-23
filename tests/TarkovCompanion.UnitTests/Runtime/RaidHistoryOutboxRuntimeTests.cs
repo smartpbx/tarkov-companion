@@ -228,6 +228,22 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task Bounded_manual_debrief_events_write_straight_through_without_opening_the_generic_boundary()
+    {
+        var history = new RecordingHistory();
+        await using var outbox = new RaidHistoryOutbox(history, timeProvider: new ManualTimeProvider(Epoch));
+        var raidId = Guid.NewGuid();
+        var correction = new RaidScanCorrection("scan:42", true, Epoch).ToPayload();
+
+        await outbox.RecordEventAsync(raidId, "tag", Epoch, "{\"tag\":\"Tasks\",\"present\":true}", default);
+        await outbox.RecordEventAsync(raidId, RaidScanCorrection.EventType, Epoch, correction, default);
+
+        Assert.Equal(["tag", RaidScanCorrection.EventType], history.Types);
+        Assert.Equal(2, history.Payloads.Count);
+        Assert.Empty(await outbox.Store.ListAsync(default));
+    }
+
+    [Fact]
     public async Task APositionTravelsWithoutItsScreenshotFilename()
     {
         var history = new RecordingHistory();

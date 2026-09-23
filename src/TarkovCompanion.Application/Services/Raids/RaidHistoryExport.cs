@@ -30,11 +30,16 @@ public sealed record RaidScanFact(
     long? ValuePerSlotRoubles,
     string? Recommendation)
 {
+    /// <summary>The append-only raid event that owns this scan; stable across reloads.</summary>
+    public string Id { get; init; } = string.Empty;
+
     public RaidFactKind IdentityKind => Recognised ? RaidFactKind.Inferred : RaidFactKind.Unknown;
 
     public RaidFactKind ValueKind => ValueRoubles is null ? RaidFactKind.Unknown : RaidFactKind.Estimated;
 
-    public static RaidScanFact? TryParse(string payload)
+    public static RaidScanFact? TryParse(string payload) => TryParse(string.Empty, payload);
+
+    public static RaidScanFact? TryParse(string id, string payload)
     {
         try
         {
@@ -61,7 +66,10 @@ public sealed record RaidScanFact(
                     : null,
                 Long(root, "ValueRoubles"),
                 Long(root, "ValuePerSlotRoubles"),
-                Text(root, "Recommendation"));
+                Text(root, "Recommendation"))
+            {
+                Id = id,
+            };
         }
         catch (JsonException)
         {

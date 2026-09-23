@@ -272,6 +272,36 @@ public sealed class SqliteRaidHistoryService(
         return payloads;
     }
 
+    public async Task<IReadOnlyList<RaidHistoryEvent>> ListEventsAsync(
+        Guid raidId,
+        string type,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, payload_json
+            FROM raid_events
+            WHERE raid_id = $raidId AND type = $type
+            ORDER BY timestamp_utc, id;
+            """;
+        command.Parameters.AddWithValue("$raidId", raidId.ToString("D"));
+        command.Parameters.AddWithValue("$type", type);
+
+        var events = new List<RaidHistoryEvent>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(1))
+            {
+                events.Add(new(RaidHistoryEvent.StoredId(raidId, reader.GetInt64(0)), reader.GetString(1)));
+            }
+        }
+
+        return events;
+    }
+
     public async Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
         string mapId,
         int limit,
@@ -691,12 +721,13 @@ public sealed class SqliteRaidHistoryService(
         var raids = await ListAsync(cancellationToken).ConfigureAwait(false);
         var scans = new Dictionary<Guid, List<RaidScanFact>>();
         var corrections = new Dictionary<Guid, List<string>>();
+        var scanCorrections = new Dictionary<Guid, List<string>>();
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT raid_id, type, payload_json
+            SELECT raid_id, id, type, payload_json
             FROM raid_events
-            WHERE type IN ('scan', 'correction') AND payload_json IS NOT NULL
+            WHERE type IN ('scan', 'correction', 'scan-correction') AND payload_json IS NOT NULL
             ORDER BY timestamp_utc, id;
             """;
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -708,12 +739,17 @@ public sealed class SqliteRaidHistoryService(
                     continue;
                 }
 
-                var payload = reader.GetString(2);
-                if (reader.GetString(1) == RaidCorrection.EventType)
+                var payload = reader.GetString(3);
+                var type = reader.GetString(2);
+                if (type == RaidCorrection.EventType)
                 {
                     (corrections.TryGetValue(raidId, out var list) ? list : corrections[raidId] = []).Add(payload);
                 }
-                else if (RaidScanFact.TryParse(payload) is { } scan)
+                else if (type == RaidScanCorrection.EventType)
+                {
+                    (scanCorrections.TryGetValue(raidId, out var list) ? list : scanCorrections[raidId] = []).Add(payload);
+                }
+                else if (RaidScanFact.TryParse(RaidHistoryEvent.StoredId(raidId, reader.GetInt64(1)), payload) is { } scan)
                 {
                     (scans.TryGetValue(raidId, out var list) ? list : scans[raidId] = []).Add(scan);
                 }
@@ -735,15 +771,22 @@ public sealed class SqliteRaidHistoryService(
             }
         }
 
+        var wrongScanIds = scanCorrections.ToDictionary(
+            entry => entry.Key,
+            entry => RaidScanCorrection.WrongScanIds(entry.Value));
+
         return
         [
             .. raids.Select(raid => new RaidExportRecord(
                 raid,
                 RaidFactRules.Classify(raid, RaidCorrection.ParseAll(corrections.GetValueOrDefault(raid.Id, []))),
-                scans.GetValueOrDefault(raid.Id, []),
+                [.. scans.GetValueOrDefault(raid.Id, []).Where(scan =>
+                    !wrongScanIds.GetValueOrDefault(raid.Id, EmptyWrongScanIds).Contains(scan.Id))],
                 manual.GetValueOrDefault(raid.Id))),
         ];
     }
+
+    private static readonly IReadOnlySet<string> EmptyWrongScanIds = new HashSet<string>(StringComparer.Ordinal);
 
     private static void BindRaid(SqliteCommand command, RaidHistoryEntry raid)
     {

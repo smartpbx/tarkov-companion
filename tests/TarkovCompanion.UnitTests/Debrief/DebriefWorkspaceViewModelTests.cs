@@ -453,6 +453,30 @@ public sealed class DebriefWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task Marking_a_scan_wrong_keeps_the_row_but_removes_it_from_totals_and_can_be_restored()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        service.SeedEvent(RaidId, "scan", JsonSerializer.Serialize(new ScanExecutionResult(
+            true, true, "item-gpu", "Graphics card", 12_000, 12_000, "Take", new(0.93), Started.AddMinutes(5), "screenshot", "detail")));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths(), new FixedClock(Started.AddHours(1)));
+
+        await viewModel.LoadAsync();
+        var scanId = Assert.Single(viewModel.SelectedScans).ScanId;
+        await viewModel.CorrectScanAsync(scanId, isWrong: true);
+
+        var wrong = Assert.Single(viewModel.SelectedScans);
+        Assert.True(wrong.IsWrong);
+        Assert.Equal("0 scans · 0 recognised · 1 marked wrong", viewModel.SelectedScanSummary);
+        Assert.Single(await service.ListEventPayloadsAsync(RaidId, RaidScanCorrection.EventType, CancellationToken.None));
+
+        await viewModel.CorrectScanAsync(scanId, isWrong: false);
+
+        Assert.False(Assert.Single(viewModel.SelectedScans).IsWrong);
+        Assert.Equal("1 scan · 1 recognised", viewModel.SelectedScanSummary);
+    }
+
+    [Fact]
     public async Task A_raid_with_no_scans_says_so_and_a_screenshot_distance_is_labelled_an_estimate()
     {
         var service = new FakeRaidHistoryService();

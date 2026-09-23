@@ -63,6 +63,18 @@ public sealed record DebriefScanRowViewModel(
     public bool HasValue => ValueLabel.Length > 0;
 
     public bool HasDetail => DetailLabel.Length > 0;
+
+    public string ScanId { get; init; } = string.Empty;
+
+    public bool IsWrong { get; init; }
+
+    public string CorrectionLabel => IsWrong ? "Marked wrong" : string.Empty;
+
+    public bool HasCorrection => IsWrong;
+
+    public string CorrectionActionLabel => IsWrong ? "Restore" : "Wrong";
+
+    public ICommand? CorrectionCommand { get; init; }
 }
 
 /// <summary>A raid's trail, handed to the shell to draw on the Raid map (V1's "Watch it").</summary>
@@ -1280,13 +1292,21 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     /// <summary>What was scanned while this raid was open, and how much of it named an item.</summary>
     private async Task LoadScansAsync(Guid raidId, CancellationToken cancellationToken)
     {
-        var payloads = await _raidHistoryService
-            .ListEventPayloadsAsync(raidId, "scan", cancellationToken)
+        var events = await _raidHistoryService
+            .ListEventsAsync(raidId, "scan", cancellationToken)
             .ConfigureAwait(true);
-        var scans = payloads.Select(RaidScanFact.TryParse).OfType<RaidScanFact>().OrderBy(scan => scan.ObservedUtc).ToArray();
+        var scans = events
+            .Select(stored => RaidScanFact.TryParse(stored.Id, stored.PayloadJson))
+            .OfType<RaidScanFact>()
+            .OrderBy(scan => scan.ObservedUtc)
+            .ToArray();
+        var wrongScanIds = RaidScanCorrection.WrongScanIds(await _raidHistoryService
+            .ListEventPayloadsAsync(raidId, RaidScanCorrection.EventType, cancellationToken)
+            .ConfigureAwait(true));
         var rows = new List<DebriefScanRowViewModel>(scans.Length);
         foreach (var scan in scans)
         {
+            var isWrong = wrongScanIds.Contains(scan.Id);
             var itemName = scan.Recognised
                 ? scan.ItemName ?? (scan.ItemId is null ? "Item" : await ResolveItemNameAsync(scan.ItemId, cancellationToken).ConfigureAwait(true))
                 : scan.IsAvailable ? "Nothing recognised" : "Scan unavailable";
@@ -1309,17 +1329,43 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     ? string.Create(CultureInfo.CurrentCulture, $"≈ {roubles:N0} roubles")
                     : string.Empty,
                 scan.ValueKind.Label(),
-                string.Join(" · ", detail)));
+                string.Join(" · ", detail))
+            {
+                ScanId = scan.Id,
+                IsWrong = isWrong,
+                CorrectionCommand = new AsyncDelegateCommand(() => CorrectScanAsync(scan.Id, !isWrong)),
+            });
         }
 
         SelectedScans = rows;
-        var recognised = scans.Count(scan => scan.Recognised);
-        var unavailable = scans.Count(scan => !scan.IsAvailable);
+        var counted = scans.Where(scan => !wrongScanIds.Contains(scan.Id)).ToArray();
+        var wrongCount = scans.Length - counted.Length;
+        var recognised = counted.Count(scan => scan.Recognised);
+        var unavailable = counted.Count(scan => !scan.IsAvailable);
         SelectedScanSummary = scans.Length == 0
             ? "No scans during this raid."
             : string.Create(
                 CultureInfo.CurrentCulture,
-                $"{CountLabel(scans.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}");
+                $"{CountLabel(counted.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}{(wrongCount > 0 ? $" · {wrongCount:N0} marked wrong" : string.Empty)}");
+    }
+
+    internal async Task CorrectScanAsync(string scanId, bool isWrong)
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        var correctedUtc = _clock.GetUtcNow().ToUniversalTime();
+        await _raidHistoryService.RecordEventAsync(
+            _selected.Id,
+            RaidScanCorrection.EventType,
+            correctedUtc,
+            new RaidScanCorrection(scanId, isWrong, correctedUtc).ToPayload(),
+            CancellationToken.None).ConfigureAwait(true);
+        await LoadScansAsync(_selected.Id, CancellationToken.None).ConfigureAwait(true);
+        Status = isWrong ? "Scan marked wrong; totals updated." : "Scan restored to totals.";
+        RaiseAll();
     }
 
     /// <summary>What sold on the flea while this raid was open, counted per item.</summary>
