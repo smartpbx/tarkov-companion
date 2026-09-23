@@ -149,6 +149,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     // without the desktop's paired-device authority. The one caller of it, "manage-pairing",
     // no-ops when it is null.
     private readonly CompanionPairingViewModel? _companionPairing;
+    private QuestScreenshotSyncViewModel? _questSync;
 
     public V2ShellViewModel(
         AppCommandLine options,
@@ -241,6 +242,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (questSync is not null && SetupWorkspace is not null)
         {
             SetupWorkspace.AttachQuestSync(questSync);
+            _questSync = questSync;
+            _questSync.PropertyChanged += QuestSyncPropertyChanged;
         }
 
         if (preferences is not null && SetupWorkspace is not null)
@@ -574,6 +577,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public IReadOnlyList<V2ShellSuggestionFilterViewModel> SuggestionFilters { get; }
     public IReadOnlyList<V2BrowseCategoryViewModel> BrowseCategories { get; }
     public string AppName => V2ShellText.Get("V2.Shell.AppName");
+    public bool ShowsQuestScreenshotOffer => _questSync?.ShowsPassiveOffer == true;
+    public string QuestScreenshotOfferText => _questSync?.PassiveOfferText ?? string.Empty;
+    public ICommand? ReviewQuestScreenshotOfferCommand => _questSync?.ReviewPassiveOfferCommand;
+    public ICommand? DismissQuestScreenshotOfferCommand => _questSync?.DismissPassiveOfferCommand;
     public string AppTag => V2ShellText.Get("V2.Shell.Tag");
     public string ProvisionalLabel => V2ShellText.Get("V2.Shell.Provisional");
     public string VariantName => V2ShellText.Get(Variant.NameKey);
@@ -2030,6 +2037,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _legacyApply.Request();
     }
 
+    private void QuestSyncPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is nameof(QuestScreenshotSyncViewModel.ShowsPassiveOffer)
+            or nameof(QuestScreenshotSyncViewModel.PassiveOfferText))
+        {
+            OnPropertyChanged(nameof(ShowsQuestScreenshotOffer));
+            OnPropertyChanged(nameof(QuestScreenshotOfferText));
+        }
+    }
+
     /// <summary>Rejects the preview-to-window-title notification from its own context feed.</summary>
     /// <remarks>
     /// The preview raises Title, its legacy host forwards that as WindowTitle, and this shell also
@@ -3409,6 +3426,10 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         _headerTimer?.Dispose();
         _headerTimer = null;
         _runtime.Changed -= RuntimeChanged;
+        if (_questSync is not null)
+        {
+            _questSync.PropertyChanged -= QuestSyncPropertyChanged;
+        }
         UnwireRaidClock();
         UnwireLootAutoReturn();
         Router.Navigated -= RouterNavigated;

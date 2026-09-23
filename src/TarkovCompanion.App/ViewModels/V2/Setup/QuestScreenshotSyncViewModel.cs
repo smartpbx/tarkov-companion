@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Setup;
 
@@ -88,6 +90,9 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
     private readonly IQuestScreenshotImageSource _images;
     private readonly Func<string?> _screenshotRoot;
     private readonly TimeProvider _clock;
+    private readonly QuestScreenshotBurstCollector? _burstOffers;
+    private readonly IRuntimeStateStore? _runtime;
+    private readonly SynchronizationContext? _uiContext;
     private QuestHistoryInferencePreview? _history;
     private bool _hasPreview;
     private bool _showEmptyOffer;
@@ -98,17 +103,33 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
         QuestScreenshotSyncService sync,
         IQuestScreenshotImageSource images,
         Func<string?> screenshotRoot,
-        TimeProvider clock)
+        TimeProvider clock,
+        QuestScreenshotBurstCollector? burstOffers = null,
+        IRuntimeStateStore? runtime = null)
     {
         _sync = sync ?? throw new ArgumentNullException(nameof(sync));
         _images = images ?? throw new ArgumentNullException(nameof(images));
         _screenshotRoot = screenshotRoot ?? throw new ArgumentNullException(nameof(screenshotRoot));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _burstOffers = burstOffers;
+        _runtime = runtime;
+        _uiContext = SynchronizationContext.Current;
         PickCommand = new AsyncDelegateCommand(PickAsync);
         RecentCommand = new AsyncDelegateCommand(RecentAsync);
         ApplyCommand = new AsyncDelegateCommand(ApplyAsync);
         CancelCommand = new DelegateCommand(Cancel);
         DismissOfferCommand = new DelegateCommand(() => ShowEmptyOffer = false);
+        ReviewPassiveOfferCommand = new AsyncDelegateCommand(ReviewPassiveOfferAsync);
+        DismissPassiveOfferCommand = new DelegateCommand(() => _burstOffers?.DismissCurrent());
+        if (_burstOffers is not null)
+        {
+            _burstOffers.Changed += PassiveOfferChanged;
+        }
+
+        if (_runtime is not null)
+        {
+            _runtime.Changed += PassiveOfferChanged;
+        }
     }
 
     public ObservableCollection<QuestScreenshotLineViewModel> Matched { get; } = [];
@@ -125,6 +146,24 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
     public ICommand ApplyCommand { get; }
     public ICommand CancelCommand { get; }
     public ICommand DismissOfferCommand { get; }
+    public ICommand ReviewPassiveOfferCommand { get; }
+    public ICommand DismissPassiveOfferCommand { get; }
+
+    /// <summary>Attached by Setup because only the shell knows how to open its Progress section.</summary>
+    public Action OpenPassiveReview { get; set; } = () => { };
+
+    public bool ShowsPassiveOffer =>
+        _burstOffers?.Current.IsVisible == true &&
+        _runtime?.Current.Raid.State is not (RaidLifecycleState.LoadingRaid or RaidLifecycleState.InRaid);
+
+    public string PassiveOfferText
+    {
+        get
+        {
+            var count = _burstOffers?.Current.ScreenshotCount ?? 0;
+            return $"Quest list seen · {count} screenshot{(count == 1 ? string.Empty : "s")}";
+        }
+    }
 
     public bool HasPreview
     {
@@ -179,6 +218,13 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
             ocrEngine: "fixture OCR",
             CancellationToken.None));
 
+    public Task LoadPassiveFixtureAsync(int imageCount, IEnumerable<string> ocrLines) =>
+        LoadPreviewAsync(_sync.AnalyzeLinesAsync(
+            ocrLines,
+            imageCount,
+            "fixture OCR",
+            CancellationToken.None));
+
     internal async Task RefreshHistoryAsync()
     {
         _history = await _sync.PreviewSelectionAsync(ConfirmedTaskIds(), CancellationToken.None).ConfigureAwait(true);
@@ -209,6 +255,37 @@ public sealed class QuestScreenshotSyncViewModel : BindableViewModel
             _clock.GetUtcNow().AddMinutes(-RecentMinutes),
             CancellationToken.None).ConfigureAwait(true);
         await AnalyzeLoadedAsync(loaded).ConfigureAwait(true);
+    }
+
+    private async Task ReviewPassiveOfferAsync()
+    {
+        var offer = _burstOffers?.TakeForReview();
+        if (offer is not { IsVisible: true })
+        {
+            return;
+        }
+
+        OpenPassiveReview();
+        Status = $"Reading {offer.ScreenshotCount} screenshot{(offer.ScreenshotCount == 1 ? string.Empty : "s")}…";
+        var loaded = await _images.LoadFilesAsync(offer.Paths, CancellationToken.None).ConfigureAwait(true);
+        await AnalyzeLoadedAsync(loaded).ConfigureAwait(true);
+    }
+
+    private void PassiveOfferChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_uiContext is not null && !ReferenceEquals(SynchronizationContext.Current, _uiContext))
+        {
+            _uiContext.Post(static state => ((QuestScreenshotSyncViewModel)state!).NotifyPassiveOffer(), this);
+            return;
+        }
+
+        NotifyPassiveOffer();
+    }
+
+    private void NotifyPassiveOffer()
+    {
+        OnPropertyChanged(nameof(ShowsPassiveOffer));
+        OnPropertyChanged(nameof(PassiveOfferText));
     }
 
     private async Task AnalyzeLoadedAsync(QuestScreenshotImageLoad loaded)

@@ -558,6 +558,7 @@ public static class AppComposition
         services.AddSingleton<QuestListMatcher>();
         services.AddSingleton<QuestListMatchMerger>();
         services.AddSingleton<QuestHistoryInference>();
+        services.AddSingleton<QuestScreenshotBurstCollector>();
         services.AddSingleton<QuestScreenshotSyncService>();
         services.AddSingleton<IQuestScreenshotImageSource, QuestScreenshotImageSource>();
         services.AddSingleton<IQuestTaskColumnRegionDetector, QuestTaskColumnRegionDetector>();
@@ -565,7 +566,9 @@ public static class AppComposition
             provider.GetRequiredService<QuestScreenshotSyncService>(),
             provider.GetRequiredService<IQuestScreenshotImageSource>(),
             () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
-            timeProvider));
+            timeProvider,
+            provider.GetRequiredService<QuestScreenshotBurstCollector>(),
+            provider.GetRequiredService<IRuntimeStateStore>()));
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
         services.AddSingleton<FleaSaleStateService>();

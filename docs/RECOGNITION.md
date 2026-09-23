@@ -119,6 +119,7 @@ provider.
 
 TASKS recognition uses hand-transcribed 2026-09-22 player frames: list pages require the
 STORY/SIDE/OPERATIONAL tabs plus table headers, while STORY chapters require objective headings.
+Outside a raid, recognised TASKS files form a two-minute burst and raise one review-only sync offer.
 
 A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan, for
 every context a scan dispatches to. The merged candidate set carries the degradation of whichever
