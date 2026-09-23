@@ -65,17 +65,30 @@ public sealed class GearScreenLayoutReaderTests
     }
 
     [Fact]
-    public void AGridWithAHiddenFrameIsNotReported()
+    public void ABackpackWithATooltipAcrossItsTopFrameIsRecoveredFromItsLattice()
     {
-        // A tooltip over the backpack's top edge: that grid is unread, not guessed.
+        // A tooltip over the backpack's top edge leaves the cell lattice and side edge to recover.
         var frame = new Painter();
         PaintCarried(frame, pocketsTop: 418, backpackTop: 528);
         frame.Fill(1700, 520, 500, 20, 30);
 
         var layout = new GearScreenLayoutReader().Read(frame.Image());
 
-        Assert.Empty(layout!.In(GearGridSection.Backpack));
+        var backpack = Assert.Single(layout!.In(GearGridSection.Backpack));
+        Assert.Equal((4, 3), (backpack.Columns, backpack.Rows));
         Assert.Equal(4, layout.In(GearGridSection.Pockets).Count());
+    }
+
+    [Fact]
+    public void ABackpackAtTheBottomOfTheScreenIsStillReported()
+    {
+        var frame = new Painter();
+        PaintCarried(frame, pocketsTop: 784, backpackTop: 888);
+
+        var layout = new GearScreenLayoutReader().Read(frame.Image());
+
+        var backpack = Assert.Single(layout!.In(GearGridSection.Backpack));
+        Assert.Equal((4, 3), (backpack.Columns, backpack.Rows));
     }
 
     [Fact]
@@ -137,12 +150,12 @@ public sealed class GearScreenLayoutReaderTests
             Fill(x + 1, y + 1, width - 2, height - 2, 24);
             for (var column = 1; column < columns; column++)
             {
-                Fill(x + 1 + (63 * column), y + 1, 1, height - 2, 40);
+                Fill(x + 1 + (63 * column), y + 1, 1, height - 2, 45);
             }
 
             for (var row = 1; row < rows; row++)
             {
-                Fill(x + 1, y + 1 + (63 * row), width - 2, 1, 40);
+                Fill(x + 1, y + 1 + (63 * row), width - 2, 1, 45);
             }
 
             Line(x, y, width, horizontal: true);

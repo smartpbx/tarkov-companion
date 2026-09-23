@@ -57,8 +57,11 @@ public sealed record GearScreenLayout(int Pitch, IReadOnlyList<GearGrid> Grids)
 /// darker (luminance 35 to 80). So a grid is found as a top and a bottom frame run of the same
 /// start and length, a whole number of cells apart, with the left frame drawn between them. The
 /// equipment slot boxes beside each container are drawn with the same grey on top and bottom and
-/// none on the left, and are not grids. On the three frames this found every grid whose frame is
-/// in view: 14, 12 and 13 grids, none spurious. A tooltip over a frame hides that grid.
+/// none on the left, and are not grids. On the original three frames this found every unobscured
+/// grid: 14, 12 and 13 grids, none spurious. Eleven later real frames exposed four backpack
+/// misses: a tooltip, packed contents and a low panel hid an outer edge. Backpack recovery now
+/// measures the pitch-aligned right edge inside the known backpack column, with a scoped lattice
+/// fallback when the tooltip hides it.
 /// </para>
 /// <para>
 /// Which grid is which comes from the layout, measured on the same frames. The interface is a
@@ -83,11 +86,15 @@ public sealed class GearScreenLayoutReader
     private const int FrameChromaMaximum = 16;
     private const double MinimumLeftEdgeShare = 0.75;
 
+    // More than five-sixths: a complete five-row edge followed by an undrawn sixth row must not
+    // turn a packed 5x5 bag into 5x6 merely because the quick-use bar has a parallel ridge.
+    private const double MinimumRecoveredEdgeShare = 0.85;
+
     /// <summary>Interface pixels, on a 1920-wide 16:9 interface.</summary>
     private const double SearchLeft = 600;
     private const double SlotColumnLeft = 656;
     private const double LootPanelLeft = 1240;
-    private const double SearchBottomShare = 0.9;
+    private const double SearchBottomShare = 1;
 
     /// <summary>Largest gap, in interface pixels, between two grids of one container.</summary>
     private const double ContainerGap = 12;
@@ -165,7 +172,179 @@ public sealed class GearScreenLayoutReader
             grids.AddRange(below[index].Select(box => box.As(section, pitch)));
         }
 
+        if (!grids.Any(grid => grid.Section == GearGridSection.Backpack) &&
+            RecoverBackpack(image, firstPocket, pocketsBottom, lootLeft, pitch, scale, cancellationToken) is { } recovered)
+        {
+            grids.Add(recovered);
+        }
+
         return new(pitch, grids);
+    }
+
+    /// <summary>
+    /// Recovers a backpack from its cell lattice when a tooltip or packed items hide its outer
+    /// frame. The search is confined to the backpack's measured column and must begin where the
+    /// backpack header can put it, so a pouch below an empty backpack slot cannot substitute.
+    /// </summary>
+    private static GearGrid? RecoverBackpack(
+        CapturedImage image,
+        Box firstPocket,
+        int pocketsBottom,
+        int lootLeft,
+        int pitch,
+        double scale,
+        CancellationToken cancellationToken)
+    {
+        var outerLeft = firstPocket.X + (int)Math.Round(132 * scale);
+        var maximumTopOffset = (int)Math.Round(BackpackOffsetMaximum * scale);
+        var candidates = new List<GearGrid>();
+        for (var columns = 2; outerLeft + (columns * pitch) + 1 < lootLeft; columns++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rightEdge = outerLeft + (columns * pitch) + 1;
+            for (var end = pocketsBottom; end < image.Height; end++)
+            {
+                if (!IsVerticalRidgeAround(image, rightEdge, end))
+                {
+                    continue;
+                }
+
+                for (var rows = 2; rows <= GridGeometryLimits.MaxRows; rows++)
+                {
+                    var frameTop = end - (rows * pitch) - 2;
+                    if (frameTop < pocketsBottom || frameTop - pocketsBottom > maximumTopOffset)
+                    {
+                        continue;
+                    }
+
+                    var frame = new PixelRect(outerLeft, frameTop, (columns * pitch) + 2, (rows * pitch) + 2);
+                    var share = VerticalRidgeShare(image, rightEdge, frameTop, end);
+                    if (share >= MinimumRecoveredEdgeShare)
+                    {
+                        candidates.Add(new(GearGridSection.Backpack, frame, columns, rows, pitch, share));
+                    }
+                }
+            }
+        }
+
+        return candidates
+            .OrderByDescending(candidate => candidate.Cells)
+            .ThenByDescending(candidate => candidate.FrameShare)
+            .FirstOrDefault()
+            ?? RecoverBackpackFromLattice(
+                image,
+                outerLeft,
+                pocketsBottom,
+                lootLeft,
+                pitch,
+                scale,
+                cancellationToken);
+    }
+
+    private static GearGrid? RecoverBackpackFromLattice(
+        CapturedImage image,
+        int outerLeft,
+        int pocketsBottom,
+        int lootLeft,
+        int pitch,
+        double scale,
+        CancellationToken cancellationToken)
+    {
+        var cropLeft = Math.Clamp(outerLeft, 0, image.Width);
+        var cropTop = Math.Clamp(pocketsBottom, 0, image.Height);
+        var cropRight = Math.Clamp(lootLeft, cropLeft, image.Width);
+        if (cropRight - cropLeft < pitch * 2 || image.Height - cropTop < pitch * 2)
+        {
+            return null;
+        }
+
+        var crop = Crop(image, cropLeft, cropTop, cropRight - cropLeft, image.Height - cropTop);
+        if (new ContainerGridDetector().DetectKnownPitch(crop, pitch, cancellationToken) is not { } lattice ||
+            lattice.Columns < 2 || lattice.Rows < 2)
+        {
+            return null;
+        }
+
+        var latticeX = cropLeft + lattice.Bounds.X;
+        var latticeY = cropTop + lattice.Bounds.Y;
+        var columns = lattice.Columns;
+        var rows = lattice.Rows;
+        var expectedLatticeLeft = outerLeft + 1;
+        var tolerance = Math.Max(2, (int)Math.Round(3 * scale));
+        for (var missing = 0; latticeX - expectedLatticeLeft > tolerance && missing < 2; missing++)
+        {
+            latticeX -= pitch;
+            columns++;
+        }
+
+        var maximumTopOffset = (int)Math.Round(BackpackOffsetMaximum * scale);
+        for (var missing = 0; latticeY - pocketsBottom > maximumTopOffset && missing < 2; missing++)
+        {
+            latticeY -= pitch;
+            rows++;
+        }
+
+        if (Math.Abs(latticeX - expectedLatticeLeft) > tolerance ||
+            latticeY < pocketsBottom || latticeY - pocketsBottom > maximumTopOffset ||
+            latticeX + (columns * pitch) > lootLeft || latticeY + (rows * pitch) > image.Height)
+        {
+            return null;
+        }
+
+        var frame = new PixelRect(latticeX - 1, latticeY - 1, (columns * pitch) + 2, (rows * pitch) + 2);
+        var frameShare = LeftEdgeShare(image, frame.X, frame.Y, frame.Y + frame.Height - 1);
+        return new(GearGridSection.Backpack, frame, columns, rows, pitch, frameShare);
+    }
+
+    private static CapturedImage Crop(CapturedImage image, int x, int y, int width, int height)
+    {
+        var bytesPerPixel = CapturedImagePixels.BytesPerPixel(image.Format);
+        var stride = width * bytesPerPixel;
+        var buffer = new byte[stride * height];
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset = ((y + row) * image.Stride) + (x * bytesPerPixel);
+            image.Pixels.Span.Slice(sourceOffset, stride).CopyTo(buffer.AsSpan(row * stride, stride));
+        }
+
+        return new CapturedImage(buffer, width, height, stride, image.Format, image.CapturedUtc, "gear-backpack-crop");
+    }
+
+    private static double VerticalRidgeShare(CapturedImage image, int x, int top, int bottom)
+    {
+        var drawn = 0;
+        for (var y = top; y <= bottom; y++)
+        {
+            if (IsVerticalRidgeAround(image, x, y))
+            {
+                drawn++;
+            }
+        }
+
+        return drawn / (double)(bottom - top + 1);
+    }
+
+    private static bool IsVerticalRidgeAround(CapturedImage image, int x, int y)
+    {
+        for (var offset = -1; offset <= 1; offset++)
+        {
+            var axis = x + offset;
+            if (axis < 2 || axis >= image.Width - 2)
+            {
+                continue;
+            }
+
+            var value = CapturedImagePixels.GetLuminance(image, axis, y);
+            var before = CapturedImagePixels.GetLuminance(image, axis - 2, y);
+            var after = CapturedImagePixels.GetLuminance(image, axis + 2, y);
+            if ((value - before >= ContainerGridDetector.RidgeContrast && value - after >= ContainerGridDetector.RidgeContrast) ||
+                (before - value >= ContainerGridDetector.RidgeContrast && after - value >= ContainerGridDetector.RidgeContrast))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static List<List<Box>> Group(IEnumerable<Box> boxes, int gap)
