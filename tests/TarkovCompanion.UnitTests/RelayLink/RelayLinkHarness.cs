@@ -889,9 +889,7 @@ internal sealed class LinkMarkStore : IRaidMarkStore
 
     public IReadOnlyList<RaidMark> Marks => _marks;
 
-#pragma warning disable CS0067 // nothing in these tests listens for a local change
     public event Action? Changed;
-#pragma warning restore CS0067
 
     public Task LoadAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
@@ -899,16 +897,58 @@ internal sealed class LinkMarkStore : IRaidMarkStore
     {
         var mark = new RaidMark(Guid.NewGuid(), kind, new MapMarkState(mapId, floorId, x, y, label, null), DateTimeOffset.UtcNow);
         _marks.Add(mark);
+        Changed?.Invoke();
         return Task.FromResult(mark);
     }
 
-    public Task MoveAsync(Guid id, double x, double y, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task MoveAsync(Guid id, double x, double y, CancellationToken cancellationToken = default)
+    {
+        var index = _marks.FindIndex(mark => mark.Id == id);
+        if (index >= 0)
+        {
+            var mark = _marks[index];
+            _marks[index] = mark with
+            {
+                State = new MapMarkState(
+                    mark.State.MapId,
+                    mark.State.FloorId,
+                    x,
+                    y,
+                    mark.State.Label,
+                    mark.State.ExpiresUtc),
+            };
+            Changed?.Invoke();
+        }
 
-    public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        return Task.CompletedTask;
+    }
+
+    public Task RenameAsync(Guid id, string? label, CancellationToken cancellationToken = default)
+    {
+        var index = _marks.FindIndex(mark => mark.Id == id);
+        if (index >= 0)
+        {
+            var mark = _marks[index];
+            _marks[index] = mark with
+            {
+                State = new MapMarkState(
+                    mark.State.MapId,
+                    mark.State.FloorId,
+                    mark.State.X,
+                    mark.State.Y,
+                    label,
+                    mark.State.ExpiresUtc),
+            };
+            Changed?.Invoke();
+        }
+
+        return Task.CompletedTask;
+    }
 
     public Task RemoveAsync(Guid id, CancellationToken cancellationToken = default)
     {
         _marks.RemoveAll(mark => mark.Id == id);
+        Changed?.Invoke();
         return Task.CompletedTask;
     }
 }
