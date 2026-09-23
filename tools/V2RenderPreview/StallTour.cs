@@ -107,6 +107,13 @@ internal static class StallTour
 
         }
 
+        // [#270] What a player writes, not only what a page reads: with --hold-db-write each of
+        // these waits behind another writer, and must do its waiting off the interface thread.
+        if (Wants("writes"))
+        {
+            Writes(shell, plan, services);
+        }
+
         foreach (var route in new[] { "team", "team/group", "team/tablet" }.Where(_ => Wants("team")))
         {
             Step($"navigate {route}", () => Navigate(shell, route));
@@ -163,6 +170,48 @@ internal static class StallTour
         }
 
         UiStallMeter.PrintSummary();
+    }
+
+    /// <summary>Pins, counts and station levels: the writes a player makes from Plan.</summary>
+    private static void Writes(V2ShellViewModel shell, PlanWorkspaceViewModel plan, IServiceProvider services)
+    {
+        Navigate(shell, "plan");
+        plan.Filter = PlanQuestFilter.All;
+        Pump();
+        var row = plan.Groups.SelectMany(group => group.Objectives).FirstOrDefault(objective => objective.CanChangeCount)
+            ?? plan.Groups.SelectMany(group => group.Objectives).FirstOrDefault();
+        if (row is null)
+        {
+            Console.Error.WriteLine("writes: Plan has no objective to write to.");
+        }
+        else
+        {
+            var objectiveId = row.Objective.ObjectiveId;
+            PlanObjectiveRowViewModel Current() => plan.Groups.SelectMany(group => group.Objectives)
+                .FirstOrDefault(objective => objective.Objective.ObjectiveId == objectiveId) ?? row;
+            Step("write: pin objective", () => Current().TogglePinObjectiveCommand.Execute(null));
+            Step("write: unpin objective", () => Current().TogglePinObjectiveCommand.Execute(null));
+            if (row.CanChangeCount)
+            {
+                Step("write: count +1", () => Current().IncrementCountCommand.Execute(null));
+                Step("write: count -1", () => Current().DecrementCountCommand.Execute(null));
+            }
+        }
+
+        var hideout = services.GetRequiredService<HideoutWorkspaceViewModel>();
+        Navigate(shell, "plan/hideout");
+        Pump();
+        if (hideout.Stations.FirstOrDefault(station => station.MaximumLevel > station.BuiltLevel) is { } station)
+        {
+            station.SelectCommand.Execute(null);
+            Pump();
+            Step($"write: raise {station.Name}", () => hideout.RaiseLevelCommand.Execute(null));
+            Step($"write: lower {station.Name}", () => hideout.LowerLevelCommand.Execute(null));
+        }
+        else
+        {
+            Console.Error.WriteLine("writes: Hideout has no station to raise.");
+        }
     }
 
     /// <summary>
@@ -345,6 +394,7 @@ internal static class StallTour
 
         Pump();
         UiStallMeter.Report(name);
+        DbWaitProbe.Tally(name);
     }
 
     /// <summary>[#678] How many marks the map just built controls for, and how many of them show.</summary>

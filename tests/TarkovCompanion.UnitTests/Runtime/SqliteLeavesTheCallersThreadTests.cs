@@ -50,6 +50,31 @@ public sealed class SqliteLeavesTheCallersThreadTests : IDisposable
         Assert.NotEqual(callerThread, workThread);
     }
 
+    /// <summary>
+    /// #270: the open usually finishes on the pool before the caller reaches its <c>await</c> only
+    /// when the caller is preempted, which a loaded player's machine does all the time. An await on a
+    /// finished task continues inline, so the queries after it used to run on the interface thread.
+    /// The pause here stands in for the preemption, deterministically.
+    /// </summary>
+    [Fact]
+    public async Task AnOpenThatFinishedBeforeTheCallerAwaitedItStillLeavesTheInterfaceThread()
+    {
+        var factory = new SqliteConnectionFactory(new(Path.Combine(_directory, "preempted.db")));
+        var callerThread = 0;
+        var workThread = 0;
+        Task? pending = null;
+
+        RunOnADedicatedThread(() =>
+        {
+            callerThread = Environment.CurrentManagedThreadId;
+            pending = PreemptedRepositoryReadAsync(factory, thread => workThread = thread);
+        });
+
+        await pending!.WaitAsync(TimeSpan.FromSeconds(20));
+        Assert.NotEqual(0, workThread);
+        Assert.NotEqual(callerThread, workThread);
+    }
+
     [Fact]
     public async Task AWriteQueuedBehindAnotherWriterGivesTheInterfaceThreadBackAtOnce()
     {
@@ -97,10 +122,86 @@ public sealed class SqliteLeavesTheCallersThreadTests : IDisposable
         Assert.Equal(1L, await read.ExecuteScalarAsync());
     }
 
+    [Fact]
+    public async Task TheGuardNamesAStatementRunOnTheInterfaceThreadAndNotOneThatHopped()
+    {
+        var factory = new SqliteConnectionFactory(new(Path.Combine(_directory, "guard.db")));
+        var reports = new List<string>();
+        var interfaceThread = -1;
+        SqliteInterfaceThreadGuard.Enable(
+            () => Environment.CurrentManagedThreadId == Volatile.Read(ref interfaceThread),
+            message =>
+            {
+                lock (reports)
+                {
+                    reports.Add(message);
+                }
+            });
+        try
+        {
+            // Opened elsewhere and used here: the shape of a connection held open across calls.
+            await using var held = await factory.OpenAsync(CancellationToken.None);
+            Task? hopped = null;
+            RunOnADedicatedThread(() =>
+            {
+                Volatile.Write(ref interfaceThread, Environment.CurrentManagedThreadId);
+                using var command = held.CreateCommand();
+                command.CommandText = "SELECT 42 AS on_the_interface_thread;";
+                command.ExecuteScalar();
+                hopped = RepositoryShapedReadAsync(factory, _ => { });
+            });
+            await hopped!.WaitAsync(TimeSpan.FromSeconds(20));
+
+            string only;
+            lock (reports)
+            {
+                only = Assert.Single(reports);
+            }
+
+            Assert.Contains("SELECT 42 AS on_the_interface_thread;", only, StringComparison.Ordinal);
+            Assert.Equal(1, SqliteInterfaceThreadGuard.StatementsOnInterfaceThread);
+        }
+        finally
+        {
+            SqliteInterfaceThreadGuard.Disable();
+        }
+    }
+
+    [Fact]
+    public void TheGuardReportsAStatementOnceAndThenAtMostOncePerIntervalWithACount()
+    {
+        SqliteInterfaceThreadGuard.Enable(() => false, _ => { });
+        try
+        {
+            var start = Stopwatch.GetTimestamp();
+            var later = start + (long)(Stopwatch.Frequency * (SqliteInterfaceThreadGuard.ReportInterval.TotalSeconds + 1));
+            Assert.Equal(0, SqliteInterfaceThreadGuard.Admit("SELECT 1;", start));
+            Assert.Equal(-1, SqliteInterfaceThreadGuard.Admit("SELECT 1;", start + 1));
+            Assert.Equal(-1, SqliteInterfaceThreadGuard.Admit("SELECT 1;", start + 2));
+            Assert.Equal(0, SqliteInterfaceThreadGuard.Admit("SELECT 2;", start + 3));
+            Assert.Equal(2, SqliteInterfaceThreadGuard.Admit("SELECT 1;", later));
+        }
+        finally
+        {
+            SqliteInterfaceThreadGuard.Disable();
+        }
+    }
+
     /// <summary>The shape every repository has: open first, awaited without the context, then query.</summary>
     private static async Task RepositoryShapedReadAsync(SqliteConnectionFactory factory, Action<int> ranOn)
     {
         await using var connection = await factory.OpenAsync(CancellationToken.None).ConfigureAwait(false);
+        ranOn(Environment.CurrentManagedThreadId);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT 1;";
+        await command.ExecuteScalarAsync().ConfigureAwait(false);
+    }
+
+    private static async Task PreemptedRepositoryReadAsync(SqliteConnectionFactory factory, Action<int> ranOn)
+    {
+        var opening = factory.OpenAsync(CancellationToken.None);
+        Thread.Sleep(TimeSpan.FromMilliseconds(500));
+        await using var connection = await opening.ConfigureAwait(false);
         ranOn(Environment.CurrentManagedThreadId);
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT 1;";

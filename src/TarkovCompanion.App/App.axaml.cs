@@ -46,6 +46,8 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // last time rather than the default repainted a moment later.
             ApplyStoredAppearance();
             LoadStoredRecommendationPolicy();
+            // [#270] Debug builds, or TARKOV_DB_THREAD_GUARD=1: log any SQLite statement run on this thread.
+            DatabaseThreadGuard.StartIfWanted();
 
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             _mainViewModel = viewModel;
