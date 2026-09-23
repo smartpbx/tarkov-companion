@@ -68,7 +68,26 @@ public sealed class RelayDesktopRegistrationRouteTests
         var replayed = await relay.PostRegistrationAsync(body, GroupKeyOfTheRoom);
 
         Assert.Equal(HttpStatusCode.BadRequest, replayed.StatusCode);
-        Assert.Contains("challenge-rejected", await replayed.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Equal("\"challenge-rejected\"", await replayed.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task AClockSkewRefusalCarriesTheSignedServerMinusClaimOffset()
+    {
+        await using var relay = await Relay.StartAsync();
+        using var signer = new Signer();
+        var desktopFourHoursFast = relay.UtcNow.AddHours(4);
+
+        var response = await relay.PostRegistrationAsync(
+            await relay.BuildRegistrationAsync(signer, desktopFourHoursFast),
+            GroupKeyOfTheRoom);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var refusal = JsonSerializer.Deserialize<RelayClockSkewRefusal>(
+            await response.Content.ReadAsStringAsync(),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.Equal("clock-skew", refusal?.Code);
+        Assert.Equal(-14_400, refusal?.OffsetSeconds);
     }
 
     private sealed class Relay : IAsyncDisposable
@@ -91,6 +110,8 @@ public sealed class RelayDesktopRegistrationRouteTests
         public HttpClient Client { get; }
 
         public RelayDeviceRegistry Legacy { get; }
+
+        public DateTimeOffset UtcNow => _clock.UtcNow;
 
         public static async Task<Relay> StartAsync()
         {
@@ -118,12 +139,14 @@ public sealed class RelayDesktopRegistrationRouteTests
             return new Relay(app, recovery, clock, legacy, new HttpClient { BaseAddress = new Uri(address.TrimEnd('/') + "/") });
         }
 
-        public async Task<byte[]> BuildRegistrationAsync(IDesktopIdentitySigner signer)
+        public async Task<byte[]> BuildRegistrationAsync(
+            IDesktopIdentitySigner signer,
+            DateTimeOffset? claimUtc = null)
         {
             using var asked = await Client.PostAsync("v2/companion/relay/possession/challenge", null);
             var nonce = JsonSerializer.Deserialize<JsonElement>(await asked.Content.ReadAsStringAsync())
                 .GetProperty("nonceBase64Url").GetString()!;
-            return DesktopRelayOwnerClaim.Build(signer, _deviceId, _clock.UtcNow, nonce).ToJsonBody();
+            return DesktopRelayOwnerClaim.Build(signer, _deviceId, claimUtc ?? _clock.UtcNow, nonce).ToJsonBody();
         }
 
         public async Task<HttpResponseMessage> RegisterAsync(IDesktopIdentitySigner signer, string? groupKey, string? adminKey = null) =>
