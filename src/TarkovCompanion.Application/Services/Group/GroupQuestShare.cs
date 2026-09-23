@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
 
@@ -17,7 +18,19 @@ namespace TarkovCompanion.Application.Services.Group;
 public sealed record SharedQuests(IReadOnlyList<string> Names, IReadOnlyList<string> TaskIds)
 {
     public static SharedQuests None { get; } = new([], []);
+
+    /// <summary>
+    /// [#780] The objectives still open on the active quests, by id, with the count where one is
+    /// recorded. Ids and counts only: the receiver names them and places them from its own catalog.
+    /// </summary>
+    public IReadOnlyList<SharedObjective> Objectives { get; init; } = [];
 }
+
+/// <summary>[#780] One open objective of an active quest, as a squadmate's companion needs it.</summary>
+/// <param name="TaskId">The quest, by catalog id.</param>
+/// <param name="ObjectiveId">The objective, by catalog id.</param>
+/// <param name="Count">How many of the target are done, where a count is recorded.</param>
+public sealed record SharedObjective(string TaskId, string ObjectiveId, decimal? Count);
 
 /// <summary>
 /// What the player is working on, for the group to see.
@@ -32,15 +45,56 @@ public sealed record SharedQuests(IReadOnlyList<string> Names, IReadOnlyList<str
 /// actually doing and a squad reads the first two lines of this. Completed and failed quests
 /// are not shared: the question a group asks is "what are you on", not "what have you done".
 ///
-/// Read at most once a minute. The publish loop runs every few seconds and quest progress
-/// changes a handful of times a raid, so asking the database on every exchange would be
+/// Read at most every <see cref="RereadAfter"/>. The publish loop runs every few seconds and quest
+/// progress changes a handful of times a raid, so asking the database on every exchange would be
 /// hundreds of queries for an answer that almost never differs.
+///
+/// [#780] Change-driven as well: the game's log recording a quest, or the player marking an
+/// objective done, calls <see cref="Invalidate"/>, and the group session sends at once rather
+/// than on the next re-read. Edits made on the Plan page have no event yet and ride the re-read.
 /// </remarks>
-public sealed class GroupQuestShare(
-    IPlayerProfileService profiles,
-    IQuestReadService quests,
-    TimeProvider? timeProvider = null)
+public sealed class GroupQuestShare
 {
+    private readonly IPlayerProfileService profiles;
+    private readonly IQuestReadService quests;
+    private readonly IHandDoneObjectiveStore? _handDone;
+
+    public GroupQuestShare(
+        IPlayerProfileService profiles,
+        IQuestReadService quests,
+        TimeProvider? timeProvider = null,
+        // Optional so the tests and any composition without them still build; with them the
+        // share re-reads the moment the game or the player changes a quest.
+        IHandDoneObjectiveStore? handDone = null,
+        QuestLogProgressService? questLog = null)
+    {
+        this.profiles = profiles;
+        this.quests = quests;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _handDone = handDone;
+        if (handDone is not null)
+        {
+            handDone.Changed += Invalidate;
+        }
+
+        if (questLog is not null)
+        {
+            questLog.Changed += (_, _) => Invalidate();
+        }
+    }
+
+    /// <summary>
+    /// [#780] Raised when what this shares may have changed, so the group session can send now.
+    /// </summary>
+    public event Action? Changed;
+
+    /// <summary>Forgets the cached answer, so the next exchange reads the board again.</summary>
+    public void Invalidate()
+    {
+        _readUtc = DateTimeOffset.MinValue;
+        Changed?.Invoke();
+    }
+
     /// <summary>How many names are worth sending, which is what fits in a squadmate's panel.</summary>
     private const int Maximum = 5;
 
@@ -53,9 +107,15 @@ public sealed class GroupQuestShare(
     /// </remarks>
     private const int MaximumIds = 40;
 
-    private static readonly TimeSpan RereadAfter = TimeSpan.FromMinutes(1);
+    /// <summary>
+    /// [#780] How many open objectives are worth sending: the relay refuses more than sixty, and
+    /// sixty at about seventy bytes each keeps a member's publish well inside its 32 KB bound.
+    /// </summary>
+    internal const int MaximumObjectives = 60;
 
-    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private static readonly TimeSpan RereadAfter = TimeSpan.FromSeconds(20);
+
+    private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SharedQuests _shared = SharedQuests.None;
     private DateTimeOffset _readUtc = DateTimeOffset.MinValue;
@@ -79,7 +139,11 @@ public sealed class GroupQuestShare(
             var profile = await profiles.GetActiveAsync(cancellationToken).ConfigureAwait(false);
             var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
             var board = await quests.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(false);
-            _shared = Choose(board.Tasks);
+            var handDone = (_handDone?.Entries ?? [])
+                .Where(mark => mark.ProfileId == profile.Id)
+                .Select(mark => mark.ObjectiveId)
+                .ToHashSet(StringComparer.Ordinal);
+            _shared = Choose(board.Tasks, handDone);
             _readUtc = _timeProvider.GetUtcNow();
             return _shared;
         }
@@ -102,7 +166,7 @@ public sealed class GroupQuestShare(
     /// their companion counts. Two orderings would let the panel say one thing and the map
     /// rank another, off the same exchange.
     /// </remarks>
-    private static SharedQuests Choose(IReadOnlyList<QuestSummaryReadModel> tasks)
+    public static SharedQuests Choose(IReadOnlyList<QuestSummaryReadModel> tasks, IReadOnlySet<string>? handDone = null)
     {
         var chosen = tasks
             .Where(task => task.IsPinned || task.RecordedState == RecordedTaskState.Active)
@@ -112,6 +176,21 @@ public sealed class GroupQuestShare(
             .ToArray();
         return new(
             [.. chosen.Take(Maximum).Select(task => task.Name)],
-            [.. chosen.Select(task => task.TaskId)]);
+            [.. chosen.Select(task => task.TaskId)])
+        {
+            // [#780] Only an active quest's open objectives: a pinned quest the player has not
+            // started has nothing to help with yet. Done means recorded complete or marked done
+            // by hand, the same two things that take an objective off the player's own map.
+            Objectives =
+            [
+                .. chosen
+                    .Where(task => task.RecordedState == RecordedTaskState.Active)
+                    .SelectMany(task => task.Objectives
+                        .Where(objective => objective.RecordedState != RecordedObjectiveState.Completed &&
+                            handDone?.Contains(objective.ObjectiveId) != true)
+                        .Select(objective => new SharedObjective(task.TaskId, objective.ObjectiveId, objective.RecordedCount)))
+                    .Take(MaximumObjectives),
+            ],
+        };
     }
 }

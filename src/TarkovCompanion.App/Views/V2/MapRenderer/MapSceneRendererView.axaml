@@ -103,12 +103,21 @@
                      size once selected — see MapSceneRendererObjectViewModel.PinScale. -->
                 <Path Classes="v2-map-pin-shield" Classes.placed="{Binding IsUserPlacedMark}"
                       Classes.completed="{Binding IsCompletedObjective}"
-                      IsVisible="{Binding IsObjectiveMark}"
+                      IsVisible="{Binding IsFilledObjective}"
+                      Width="{Binding PinWidth}" Height="{Binding PinHeight}"
+                      Stretch="Fill" Data="{DynamicResource V2.Icon.PinShield}" />
+                <!-- [#780] A squadmate's objective: outlined in their colour on the canvas, half
+                     size, their initial inside — quieter than the player's own filled shields. -->
+                <Path Classes="v2-map-pin-shield v2-map-pin-squad" Stroke="{Binding ColorHintBrush}"
+                      IsVisible="{Binding IsOutlinedObjective}"
                       Width="{Binding PinWidth}" Height="{Binding PinHeight}"
                       Stretch="Fill" Data="{DynamicResource V2.Icon.PinShield}" />
                 <TextBlock Classes="v2-map-pin-label" Margin="{Binding PinLabelMargin}"
                            FontSize="{Binding PinLabelFontSize}"
-                           IsVisible="{Binding ShowsPinLetter}" Text="{Binding PinLabel}" />
+                           IsVisible="{Binding ShowsFilledPinLetter}" Text="{Binding PinLabel}" />
+                <TextBlock Classes="v2-map-pin-label" Margin="{Binding PinLabelMargin}"
+                           FontSize="{Binding PinLabelFontSize}" Foreground="{Binding ColorHintBrush}"
+                           IsVisible="{Binding ShowsOutlinedPinLetter}" Text="{Binding PinLabel}" />
                 <Path Classes="v2-map-pin-check" Margin="{Binding PinCheckMargin}"
                       IsVisible="{Binding IsCompletedObjective}" Data="{DynamicResource V2.Icon.Tick}" />
                 <!-- [#307] The objective route's step number on this objective's own pin, at its
@@ -528,6 +537,11 @@
     <!-- A quest objective still on the map after its own step is done: dimmed, its letter
          replaced by a check (TextBlock.v2-map-pin-label/Path.v2-map-pin-check below), rather than
          looking exactly like one still outstanding. -->
+    <Style Selector="Path.v2-map-pin-shield.v2-map-pin-squad">
+      <Setter Property="Fill" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="StrokeThickness" Value="2" />
+      <Setter Property="Opacity" Value="0.9" />
+    </Style>
     <Style Selector="Path.v2-map-pin-shield.completed">
       <Setter Property="Opacity" Value="0.45" />
     </Style>

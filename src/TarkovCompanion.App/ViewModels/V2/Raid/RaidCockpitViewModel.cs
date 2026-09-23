@@ -12,6 +12,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
+using TarkovCompanion.App.ViewModels.V2.Team;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
@@ -477,9 +478,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         IPlayerProfileService? profiles = null,
         // A chosen suggested route belongs to the raid, so Debrief can compare the plan with
         // later screenshot evidence. Optional keeps galleries and isolated map fixtures inert.
-        IRaidHistoryService? raidHistory = null)
+        IRaidHistoryService? raidHistory = null,
+        // [#780] Squadmates' open objectives, for the Objectives card's "Squad" toggle.
+        SquadQuestFeed? squadQuests = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
+        AttachSquadQuests(squadQuests);
         _pictures = new(ReleasePicture);
         _raid = raid ?? throw new ArgumentNullException(nameof(raid));
         _stateStore = stateStore ?? throw new ArgumentNullException(nameof(stateStore));
@@ -2555,6 +2559,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         UiActivity.Step("raid:traffic");
         var routes = BuildRouteLayers(model, transformVersion, raidSnapshot);
         UiActivity.Step("raid:routes");
+        // [#780] Squadmates' objectives, after the player's own so theirs are never drawn twice.
+        var squadObjectives = BuildSquadObjectives(model, nowUtc);
         var objectiveRoute = ObjectiveRouteFor(model);
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
@@ -2563,7 +2569,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
             .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects)
-            .Concat(objectiveRoute?.Objects ?? []).ToArray();
+            .Concat(objectiveRoute?.Objects ?? []).Concat(squadObjectives).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
@@ -2937,6 +2943,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             : null;
         OnPropertyChanged(nameof(QuestObjectives));
         OnPropertyChanged(nameof(HasQuestObjectives));
+        OnPropertyChanged(nameof(HasObjectivesCard));
         OnPropertyChanged(nameof(QuestObjectiveSummary));
         OnPropertyChanged(nameof(SelectedObjective));
         OnPropertyChanged(nameof(HasSelectedObjective));
@@ -3142,7 +3149,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
     /// <summary>How this cockpit wants one object drawn; see <see cref="MapSceneObjectStyle"/>.</summary>
     private MapSceneObjectStyle? StyleFor(MapSceneObject item) =>
-        _objectiveRouteStyles.TryGetValue(item.Id, out var planned) ? planned
+        _objectiveRouteStyles.TryGetValue(item.Id, out var planned)
+            ? _squadStyles.TryGetValue(item.Id, out var squadPin) ? planned with { Color = squadPin.Color, Outlined = true } : planned
+        : _squadStyles.TryGetValue(item.Id, out var squad) ? squad
         : _objectStyles.TryGetValue(item.Id, out var style) ? style
         : _routeStyles.TryGetValue(item.Id, out var route) ? route
         // [Issue 573] A co-op extract at "Dim" is drawn faded, so it never competes for attention

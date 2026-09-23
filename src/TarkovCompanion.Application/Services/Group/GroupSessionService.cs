@@ -182,7 +182,26 @@ public sealed class GroupSessionService : IAsyncDisposable
         // Subscribed before the loop starts, so the first position of a raid is a change this
         // notices rather than one it discovers on the next tick.
         _stateStore.Changed += RuntimeStateChanged;
+        if (_quests is not null)
+        {
+            _quests.Changed += QuestsChanged;
+        }
+
         _worker = Task.Run(() => RunAsync(_stopping.Token));
+    }
+
+    /// <summary>
+    /// [#780] A quest or objective changed: the group hears now, not on the next tick.
+    /// </summary>
+    /// <remarks>
+    /// Change-driven like a position: the hold is cut short and the next exchange carries the new
+    /// list. Nothing is sent when nothing changed, and the relay wakes the others only when what
+    /// this member says differs from what it said last.
+    /// </remarks>
+    private void QuestsChanged()
+    {
+        Interlocked.Increment(ref _localChanges);
+        Interrupt();
     }
 
     /// <summary>
@@ -878,6 +897,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             // a squadmate to read and ids are for their companion to place, and tonight's map
             // is a question about where the group's lists overlap rather than what they say.
             QuestIds = sharedQuests.TaskIds,
+            // [#780] The open objectives of those quests, by id, with a count where one is kept.
+            Objectives = [.. sharedQuests.Objectives.Select(objective =>
+                new ObjectiveDto(objective.TaskId, objective.ObjectiveId) { Count = objective.Count })],
             // Published because a map with floors cannot place somebody without it, and the
             // waypoints beside them have carried one from the beginning.
             Y = position?.Position.Y,
@@ -1000,6 +1022,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Quests ?? [])
     {
         QuestIds = member.QuestIds ?? [],
+        // [#780] Absent from a companion or relay that predates it, which reads as no objectives.
+        Objectives = [.. (member.Objectives ?? [])
+            .Where(objective => objective is { TaskId.Length: > 0, ObjectiveId.Length: > 0 })
+            .Select(objective => new GroupObjectiveView(objective.TaskId, objective.ObjectiveId, objective.Count))],
         // The relay's own measure of how long since it heard from them, which is the only
         // honest one: a member's own report cannot say how long ago it arrived.
         Since = member.SinceSeconds is { } quiet ? TimeSpan.FromSeconds(quiet) : null,
@@ -1273,6 +1299,10 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         _disposed = true;
         _stateStore.Changed -= RuntimeStateChanged;
+        if (_quests is not null)
+        {
+            _quests.Changed -= QuestsChanged;
+        }
         // Said out loud rather than left to time out. DELETE /state/{name} has been served
         // since the relay was written and called by nothing, so a member who closed the
         // application stayed on everybody else's map for the full three-minute lifetime,
@@ -1364,6 +1394,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         [JsonPropertyName("y")]
         public double? Y { get; init; }
 
+        /// <summary>[#780] The open objectives of their active quests, absent from clients that predate it.</summary>
+        [JsonPropertyName("objectives")]
+        public IReadOnlyList<ObjectiveDto>? Objectives { get; init; }
+
         /// <summary>What this member's game said about everybody else in their party.</summary>
         [JsonPropertyName("observed")]
         public IReadOnlyList<ObservedKitDto>? Observed { get; init; }
@@ -1385,6 +1419,14 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         [JsonPropertyName("raidClockAge")]
         public double? RaidClockAgeSeconds { get; init; }
+    }
+
+    private sealed record ObjectiveDto(
+        [property: JsonPropertyName("task")] string TaskId,
+        [property: JsonPropertyName("id")] string ObjectiveId)
+    {
+        [JsonPropertyName("count")]
+        public decimal? Count { get; init; }
     }
 
     private sealed record TrailPointDto(

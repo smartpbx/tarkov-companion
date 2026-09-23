@@ -166,7 +166,46 @@ public sealed class GroupPageViewModel : PageViewModel
     public bool SharesQuests
     {
         get => _sharesQuests;
-        set => SetProperty(ref _sharesQuests, value);
+        set
+        {
+            if (SetProperty(ref _sharesQuests, value))
+            {
+                OnPropertyChanged(nameof(SyncsSquadQuests));
+            }
+        }
+    }
+
+    /// <summary>
+    /// [#780] Setup &gt; Team &amp; Devices' opt-out: the same setting as <see cref="SharesQuests"/>,
+    /// saved the moment it is flipped rather than with the rest of the group form.
+    /// </summary>
+    public bool SyncsSquadQuests
+    {
+        get => _sharesQuests;
+        set
+        {
+            if (value == _sharesQuests)
+            {
+                return;
+            }
+
+            SharesQuests = value;
+            _ = SaveSquadQuestsAsync(value);
+        }
+    }
+
+    private async Task SaveSquadQuestsAsync(bool value)
+    {
+        try
+        {
+            var stored = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(true);
+            await _settings.SaveAsync(stored with { SharesQuests = value }, CancellationToken.None).ConfigureAwait(true);
+            SaveStatus = value ? "Saved · quests sync with your squad" : "Saved · quests stay on this PC";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            SaveStatus = $"Couldn't save: {exception.Message}";
+        }
     }
 
     /// <summary>Reads the stored settings into the form, once, at startup.</summary>

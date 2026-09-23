@@ -107,7 +107,7 @@ public sealed partial class RaidCockpitViewModel
         _objectiveRoute = new(model.Location.Id, origin, route);
         _objectiveRouteOpened = true;
         OnPropertyChanged(nameof(HasObjectiveRoute));
-        Follower.SetStops(model.Location.Id, [.. route.Steps.Select(step =>
+        RememberPlanRouteStops(model.Location.Id, [.. route.Steps.Select(step =>
             new ObjectiveRouteStop(step.ObjectiveId, step.Label, step.At) { FloorIds = step.FloorIds })]);
         Follower.SetOrigin(origin);
         ObjectiveRouteHidden = false;
@@ -120,7 +120,8 @@ public sealed partial class RaidCockpitViewModel
     {
         if (_objectiveRouteOpened)
         {
-            Follower.SetStops(locationId, stops);
+            // [#780] Through the squad's stops, which "Route squad" may add to Plan's.
+            RememberPlanRouteStops(locationId, stops);
         }
     }
 
@@ -156,7 +157,7 @@ public sealed partial class RaidCockpitViewModel
             _timeProvider.GetUtcNow(),
             // With the objectives layer switched off there are no pins to number, so every stop
             // gets its own gold pin again.
-            QuestPinsShown() ? ObjectiveRoutePins(_questScene) : null);
+            QuestPinsShown() ? [.. ObjectiveRoutePins(_questScene), .. SquadRoutePins()] : null);
         var styles = new Dictionary<MapSceneObjectId, MapSceneObjectStyle>();
         foreach (var item in scene.Objects)
         {

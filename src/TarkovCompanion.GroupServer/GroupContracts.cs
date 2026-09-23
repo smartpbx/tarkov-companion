@@ -123,6 +123,17 @@ public sealed record GroupMemberState(
             return "A quest id list may carry at most forty ids of 64 characters or fewer.";
         }
 
+        // [#780] Open objectives: ids and a count, nothing else. Sixty keeps a member's publish
+        // well inside the 32 KB body bound; a count outside any quest's range is made up.
+        if (Objectives is { } objectives && (objectives.Count > 60 || objectives.Any(objective =>
+                objective is null ||
+                string.IsNullOrWhiteSpace(objective.TaskId) || objective.TaskId.Length > 64 ||
+                string.IsNullOrWhiteSpace(objective.ObjectiveId) || objective.ObjectiveId.Length > 64 ||
+                objective.Count is < 0 or > 1_000_000)))
+        {
+            return "An objective list may carry at most sixty objectives, by ids of 64 characters or fewer.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -147,6 +158,18 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("questIds")]
     public IReadOnlyList<string> QuestIds { get; init; } = [];
+
+    /// <summary>
+    /// [#780] The open objectives of this member's active quests, by id, with a count where kept.
+    /// </summary>
+    /// <remarks>
+    /// Ids and a number only, resolved against each receiver's own catalog like
+    /// <see cref="QuestIds"/>, so nothing from the sender's profile beyond what they are working on
+    /// crosses the relay. An init property: a client that predates it neither sends it nor reads
+    /// it, and a relay that predates it drops it, which a receiver reads as "no objectives".
+    /// </remarks>
+    [JsonPropertyName("objectives")]
+    public IReadOnlyList<GroupObjectiveState> Objectives { get; init; } = [];
 
     /// <summary>How high this member is standing, where their screenshot said.</summary>
     /// <remarks>
@@ -248,6 +271,18 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("trail")]
     public IReadOnlyList<GroupTrailPoint> Trail { get; init; } = [];
+}
+
+/// <summary>[#780] One open objective a member is working on.</summary>
+/// <param name="TaskId">The quest, by catalog id.</param>
+/// <param name="ObjectiveId">The objective, by catalog id.</param>
+public sealed record GroupObjectiveState(
+    [property: JsonPropertyName("task")] string TaskId,
+    [property: JsonPropertyName("id")] string ObjectiveId)
+{
+    /// <summary>How many of the objective's target are done, where the sender keeps a count.</summary>
+    [JsonPropertyName("count")]
+    public decimal? Count { get; init; }
 }
 
 /// <summary>One place a member has been, and how long ago they were there.</summary>

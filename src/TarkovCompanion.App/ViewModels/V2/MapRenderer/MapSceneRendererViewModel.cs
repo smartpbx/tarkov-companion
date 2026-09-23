@@ -3574,7 +3574,23 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public double PinWidth => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.Width * PinScale;
     public double PinHeight => TarkovCompanion.App.Views.V2.MapRenderer.MapPinGeometry.Height * PinScale;
 
-    private double PinScale => IsObjectiveMark && !IsSelected ? QuestPinShrink : 1.0;
+    private double PinScale => IsObjectiveMark && !IsSelected
+        ? IsOutlinedObjective ? SquadPinShrink : QuestPinShrink
+        : 1.0;
+
+    /// <summary>[#780] A squadmate's objective: drawn outlined in their colour, not filled.</summary>
+    public bool IsOutlinedObjective => IsObjectiveMark && Style?.Outlined == true && ColorHintBrush is not null;
+
+    /// <summary>[#780] The player's own objective: the filled shield (everything not outlined).</summary>
+    public bool IsFilledObjective => IsObjectiveMark && !IsOutlinedObjective;
+
+    /// <summary>[#780] The own letter shows on a filled shield; a squadmate's in their colour.</summary>
+    public bool ShowsFilledPinLetter => ShowsPinLetter && !IsOutlinedObjective;
+
+    public bool ShowsOutlinedPinLetter => ShowsPinLetter && IsOutlinedObjective;
+
+    /// <summary>[#780] Half size: quieter than the player's own two-thirds pins.</summary>
+    internal const double SquadPinShrink = 0.5;
 
     /// <summary>Two-thirds, the amount issue 573 asked a quest pin (and an extract badge) to shrink to.</summary>
     internal const double QuestPinShrink = 2.0 / 3.0;
@@ -3976,7 +3992,10 @@ public readonly record struct MapSceneObjectStyle(
     double? LineThickness = null,
     double? Opacity = null,
     bool Dashed = false,
-    string? Badge = null);
+    string? Badge = null,
+    // [#780] A squadmate's objective: an outlined shield in their colour, smaller than the
+    // player's own, so it reads as "theirs" and never competes with the player's filled pins.
+    bool Outlined = false);
 
 /// <summary>
 /// [V2 rough package 22] One place name written on the plan, V1's <c>MapPlaceNameViewModel</c>.

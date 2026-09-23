@@ -27,7 +27,7 @@ using TarkovCompanion.Core.Domain.Raids;
 namespace TarkovCompanion.App.ViewModels.V2.Plan;
 
 /// <summary>One objective, under whichever map group(s) it belongs to.</summary>
-public sealed class PlanObjectiveRowViewModel : BindableViewModel
+public sealed partial class PlanObjectiveRowViewModel : BindableViewModel
 {
     private readonly PlanWorkspaceViewModel _owner;
     private bool? _hasMapPosition;
@@ -608,7 +608,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 /// Quests page already uses, and reuses the shared <see cref="MapViewModel"/> singleton to name
 /// maps and to move the Raid cockpit to one when asked.
 /// </remarks>
-public sealed class PlanWorkspaceViewModel : BindableViewModel
+public sealed partial class PlanWorkspaceViewModel : BindableViewModel
 {
     private const string AnyMapKey = "";
     internal const int GroupPageSize = 5;
@@ -709,9 +709,12 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         // #285: which foods and medicines the Events page records an allergy to.
         AllergyWarningService? allergies = null,
         EventRuleService? eventRuleService = null,
-        LearnModeSetting? learnMode = null)
+        LearnModeSetting? learnMode = null,
+        // [#780] "Squad has it too" on a quest a squadmate also has active. Optional like the rest.
+        TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed? squadQuests = null)
     {
         LearnMode = learnMode ?? new();
+        AttachSquadQuests(squadQuests);
         _allergies = allergies;
         _eventRuleService = eventRuleService;
         _paths = paths;

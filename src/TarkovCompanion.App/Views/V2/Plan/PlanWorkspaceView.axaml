@@ -420,6 +420,11 @@
                                       AutomationProperties.Name="Quest state">
                                 <TextBlock Classes="v2-label" Text="{Binding StateLabel}" />
                               </Border>
+                              <!-- [#780] A squadmate has this quest active too. -->
+                              <Border Classes="v2-plan-chip" IsVisible="{Binding HasSquadLabel}"
+                                      AutomationProperties.AutomationId="v2-plan-squad-has-it">
+                                <TextBlock Classes="v2-label" Text="{Binding SquadLabel}" />
+                              </Border>
                               <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="Wrap"
                                          IsVisible="{Binding HasMetadataLabel}" VerticalAlignment="Center" />
                               <!-- [Package 35] The quest's wiki page, where the quest is: a link out that opens the

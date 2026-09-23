@@ -733,7 +733,7 @@
 
           <!-- [Package 35] The objectives as the plan draws them: numbered like their markers, a
                selected one said in full, and the ones with no place on the map listed as having none. -->
-          <Border Classes="v2-card v2-raid-section" Padding="4" IsVisible="{Binding HasQuestObjectives}"
+          <Border Classes="v2-card v2-raid-section" Padding="4" IsVisible="{Binding HasObjectivesCard}"
                   AutomationProperties.AutomationId="v2-raid-objectives">
           <Expander Classes="v2-raid-expander" HorizontalAlignment="Stretch"
                     IsExpanded="{Binding Cards.Objectives.IsExpanded, Mode=TwoWay}">
@@ -762,7 +762,22 @@
                                 Command="{Binding ToggleObjectiveRouteCommand}"
                                 AutomationProperties.AutomationId="v2-raid-objective-route-hide"
                                 ToolTip.Tip="Hide the objective route from Plan" />
+                  <!-- [#780] Squadmates' open objectives on this map, outlined in their colour. -->
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Squad"
+                                IsVisible="{Binding HasSquadObjectivesHere}"
+                                IsChecked="{Binding ShowSquadObjectives, Mode=OneWay}"
+                                Command="{Binding ToggleSquadObjectivesCommand}"
+                                AutomationProperties.AutomationId="v2-raid-objectives-squad"
+                                ToolTip.Tip="Show squadmates' open objectives on this map" />
+                  <ToggleButton Classes="v2-target v2-raid-viewcontrol" Content="Route squad"
+                                IsVisible="{Binding CanRouteSquadStops}"
+                                IsChecked="{Binding RouteSquadStops, Mode=OneWay}"
+                                Command="{Binding ToggleRouteSquadStopsCommand}"
+                                AutomationProperties.AutomationId="v2-raid-objective-route-squad"
+                                ToolTip.Tip="Add squadmates' stops to the objective route" />
                 </WrapPanel>
+                <TextBlock Classes="v2-label" Text="{Binding SquadObjectiveSummary}"
+                           IsVisible="{Binding ShowsSquadObjectiveSummary}" TextWrapping="Wrap" />
   
                 <!-- [Issue 379] After "Place on map" the next right-click on bare map is this objective's
                      place, not a ping; this says so and lets the player back out. -->

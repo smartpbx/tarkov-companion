@@ -286,6 +286,12 @@
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsTeamDevicesSelected}">
       <StackPanel Classes="v2-stack">
         <TextBlock Classes="v2-body" Text="{Binding Group.Status}" />
+        <!-- [#780] On by default with group sharing: quest and objective ids only. -->
+        <ToggleSwitch IsChecked="{Binding Group.SyncsSquadQuests, Mode=TwoWay}"
+                      OnContent="Sync quests with squad" OffContent="Sync quests with squad"
+                      AutomationProperties.Name="Sync quests with squad"
+                      AutomationProperties.AutomationId="v2-setup-squad-quests" />
+        <TextBlock Classes="v2-label" Text="Sends quest and objective ids only." />
         <Button Classes="v2-target" HorizontalAlignment="Left"
                 AutomationProperties.AutomationId="v2-setup-open-team"
                 Content="{Binding OpenTeamLabel}" Command="{Binding OpenTeamCommand}" />
