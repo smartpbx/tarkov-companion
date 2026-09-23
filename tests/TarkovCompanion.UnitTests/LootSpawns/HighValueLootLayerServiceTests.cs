@@ -141,6 +141,30 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Overview_draws_every_position_while_specific_floors_keep_the_source_mapping()
+    {
+        var upper = Spawn(
+            "interchange-upper",
+            [Candidate("gpu", "Graphics card", 900_000)],
+            new LootSpawnLocation(LootSpawnPrecision.ExactPoint, [new(20, 30)], ["upper"]));
+        var unresolved = Spawn(
+            "interchange-unresolved",
+            [Candidate("ledx", "LEDX", 1_100_000)]);
+
+        var result = Build(
+            Snapshot([upper, unresolved]),
+            floorIds: ["base", "upper"],
+            overviewFloorIds: ["base"]);
+
+        Assert.Equal(["base", "upper"], result.Objects.Single(item => item.Label.Contains("upper", StringComparison.Ordinal)).FloorIds);
+        Assert.Equal(["base"], result.Objects.Single(item => item.Label.Contains("unresolved", StringComparison.Ordinal)).FloorIds);
+        Assert.All(result.Entries, entry => Assert.NotNull(entry.SceneObjectId));
+        Assert.Contains(result.Diagnostics, item =>
+            item.Kind == HighValueLootDiagnosticKind.FloorUnknown &&
+            item.SpawnId == unresolved.SpawnId);
+    }
+
+    [Fact]
     public void Positioned_spawn_with_unknown_floor_can_render_when_the_map_has_only_one_floor()
     {
         var spawn = Spawn(
@@ -1050,6 +1074,7 @@ public sealed class HighValueLootLayerServiceTests
         LootSpawnSnapshot snapshot,
         HighValueLootFilter? filter = null,
         IReadOnlyList<string>? floorIds = null,
+        IReadOnlyList<string>? overviewFloorIds = null,
         CancellationToken cancellationToken = default) => new HighValueLootLayerService().Build(new(
             "customs",
             "transform-1",
@@ -1057,7 +1082,8 @@ public sealed class HighValueLootLayerServiceTests
             Now,
             filter ?? Filter(),
             snapshot,
-            floorIds),
+            floorIds,
+            overviewFloorIds),
         cancellationToken);
 
     private static LootSpawnSnapshot Snapshot(

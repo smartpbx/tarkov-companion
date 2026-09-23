@@ -2435,7 +2435,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             planBounds,
             nowUtc,
             _lootFilter.Filter,
-            floorIds)));
+            floorIds,
+            LootSpawnFloorMap.OverviewFloorIds(model.Floors))));
 
         UiActivity.Step("raid:loot");
         var (marksLayer, markObjects) = BuildMarksLayer(_marks.Marks, model.Location.Id, nowUtc);
@@ -3107,7 +3108,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             _planBounds,
             _timeProvider.GetUtcNow(),
             request.State.Filter,
-            model.Floors.Select(floor => floor.Id).ToArray()));
+            model.Floors.Select(floor => floor.Id).ToArray(),
+            LootSpawnFloorMap.OverviewFloorIds(model.Floors)));
         var scene = ReplaceLootObjects(Renderer.Scene, result);
         Renderer.Present(scene, result, request.State, availableCategories: null);
     }

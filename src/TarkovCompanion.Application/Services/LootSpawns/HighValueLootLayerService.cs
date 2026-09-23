@@ -70,7 +70,8 @@ public sealed record HighValueLootLayerRequest
         DateTimeOffset evaluatedUtc,
         HighValueLootFilter filter,
         LootSpawnSnapshot? snapshot,
-        IReadOnlyList<string>? floorIds = null)
+        IReadOnlyList<string>? floorIds = null,
+        IReadOnlyList<string>? overviewFloorIds = null)
     {
         MapId = HighValueLootGuard.Required(mapId, nameof(mapId), 128);
         TransformVersion = HighValueLootGuard.Required(transformVersion, nameof(transformVersion), 128);
@@ -88,6 +89,15 @@ public sealed record HighValueLootLayerRequest
             MaximumDeclaredFloors,
             nameof(floorIds),
             96);
+        OverviewFloorIds = HighValueLootGuard.CopyStrings(
+            overviewFloorIds ?? [],
+            MaximumDeclaredFloors,
+            nameof(overviewFloorIds),
+            96);
+        if (OverviewFloorIds.Any(floor => !FloorIds.Contains(floor, StringComparer.OrdinalIgnoreCase)))
+        {
+            throw new ArgumentException("Overview floors must be declared by the selected map transform.", nameof(overviewFloorIds));
+        }
     }
 
     public string MapId { get; }
@@ -104,6 +114,9 @@ public sealed record HighValueLootLayerRequest
 
     /// <summary>The exact floor identities published by the selected, validated map transform.</summary>
     public IReadOnlyList<string> FloorIds { get; }
+
+    /// <summary>Catalog floor choices whose artwork is an unbounded overview rather than one height.</summary>
+    public IReadOnlyList<string> OverviewFloorIds { get; }
 }
 
 /// <summary>A list/table row backed by the same projection as the scene object.</summary>
@@ -216,7 +229,7 @@ public sealed record HighValueLootEntry
     /// <summary>The respawn fact only after the active age, confidence, status, and ambiguity checks.</summary>
     public string? ProjectedRespawnBehavior { get; }
 
-    /// <summary>Null for map-only knowledge and positions withheld because their floor is unresolved.</summary>
+    /// <summary>Null for map-only knowledge and positions withheld because no floor or overview can draw them.</summary>
     public MapSceneObjectId? SceneObjectId { get; }
 
     private static ReadOnlyCollection<T> Copy<T>(IReadOnlyList<T> values, int maximum, string parameterName)
@@ -496,7 +509,10 @@ public sealed class HighValueLootLayerService
                 continue;
             }
 
-            if (!FloorPasses(spawn, request.Filter, out var floorDiagnostic))
+            var renderFloorIds = LootSpawnFloorMap.RenderFloorIds(
+                spawn.Location.FloorIds,
+                request.OverviewFloorIds);
+            if (!FloorPasses(renderFloorIds, request.Filter, out var floorDiagnostic))
             {
                 diagnostics.Add(new(
                     floorDiagnostic!.Kind,
@@ -557,12 +573,14 @@ public sealed class HighValueLootLayerService
                 diagnostics.Add(new(
                     HighValueLootDiagnosticKind.FloorUnknown,
                     "spawn.floor-unknown",
-                    "The source did not resolve a floor, so its position remains list-only instead of appearing on every floor.",
+                    renderFloorIds.Count > 0
+                        ? "The source did not resolve a physical floor, so its position appears only on the map overview."
+                        : "The source did not resolve a floor, so its position remains list-only instead of appearing on every floor.",
                     spawn.SpawnId));
             }
 
             MapSceneObjectId? objectId = null;
-            if (!hasUnresolvedFloor && spawn.Location.Geometry is { } geometry)
+            if ((!hasUnresolvedFloor || renderFloorIds.Count > 0) && spawn.Location.Geometry is { } geometry)
             {
                 objectId = StableObjectId(snapshot, spawn);
                 objects.Add(new(
@@ -573,7 +591,7 @@ public sealed class HighValueLootLayerService
                     spawn.Label,
                     projection.Summary,
                     geometry,
-                    spawn.Location.FloorIds,
+                    renderFloorIds,
                     SceneProvenance(spawn.Provenance)));
             }
 
@@ -646,7 +664,9 @@ public sealed class HighValueLootLayerService
             request.FloorIds.Count > 1 &&
             spawn.Location.FloorIds.Count == 0)
         {
-            missing.Add("Floor is unresolved; the position is listed but is not drawn on floor views.");
+            missing.Add(request.OverviewFloorIds.Count > 0
+                ? "Physical floor is unresolved; the position is shown only on the map overview."
+                : "Floor is unresolved; the position is listed but is not drawn on floor views.");
         }
 
         var suppliedNeeds = new List<SourcedProfileNeed>();
@@ -1043,7 +1063,7 @@ public sealed class HighValueLootLayerService
     }
 
     private static bool FloorPasses(
-        LootSpawnRecord spawn,
+        IReadOnlyList<string> renderFloorIds,
         HighValueLootFilter filter,
         out HighValueLootDiagnostic? diagnostic)
     {
@@ -1053,7 +1073,7 @@ public sealed class HighValueLootLayerService
             return true;
         }
 
-        if (spawn.Location.FloorIds.Count == 0)
+        if (renderFloorIds.Count == 0)
         {
             diagnostic = new(
                 HighValueLootDiagnosticKind.FloorUnknown,
@@ -1062,7 +1082,7 @@ public sealed class HighValueLootLayerService
             return false;
         }
 
-        if (!spawn.Location.FloorIds.Contains(filter.FloorId, StringComparer.OrdinalIgnoreCase))
+        if (!renderFloorIds.Contains(filter.FloorId, StringComparer.OrdinalIgnoreCase))
         {
             diagnostic = new(
                 HighValueLootDiagnosticKind.FilteredOut,
