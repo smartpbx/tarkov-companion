@@ -27,6 +27,7 @@ internal static class UiStallMeter
     private static double _longestInputWait;
     private static Timer? _probe;
     private static long _probePosted;
+    private static readonly List<(double At, double Waited)> LongWaits = [];
 
     public static bool Enabled { get; private set; }
 
@@ -57,6 +58,12 @@ internal static class UiStallMeter
                 if (waited > _longestInputWait)
                 {
                     _longestInputWait = waited;
+                }
+
+                // [#678] When in the step the long waits began, to line up with a trace.
+                if (waited >= ThresholdMilliseconds)
+                {
+                    LongWaits.Add((Stopwatch.GetElapsedTime(_startedTimestamp, posted).TotalMilliseconds, waited));
                 }
             }, DispatcherPriority.Input);
         }, null, 10, 10);
@@ -129,6 +136,13 @@ internal static class UiStallMeter
         foreach (var (milliseconds, doing) in Stalls.OrderByDescending(stall => stall.Milliseconds).Take(15))
         {
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {milliseconds,7:0} ms  {doing}"));
+        }
+
+        if (LongWaits.Count > 0)
+        {
+            Console.WriteLine("  input waits over threshold (ms into step, ms waited): " + string.Join(", ",
+                LongWaits.Select(wait => string.Create(CultureInfo.InvariantCulture, $"{wait.At:0}+{wait.Waited:0}"))));
+            LongWaits.Clear();
         }
 
         Summary.Add((phase, Stalls.Count, _longest, _longestInputWait));
