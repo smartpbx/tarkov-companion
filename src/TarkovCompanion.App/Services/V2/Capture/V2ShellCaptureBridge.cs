@@ -50,6 +50,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly ManualImageIntake? _manualIntake;
     private readonly FleaCaptureHandoff? _fleaHandoff;
     private readonly CompositeCaptureResultHandoff? _captureRouting;
+    private readonly ILootScanRecognitionProgressSource? _lootRecognitionProgress;
     private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
@@ -60,6 +61,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private V2CaptureReview? _review;
     private V2CaptureAttention? _attention;
     private bool _disposed;
+    private CaptureCorrelationId? _latestLootRecognition;
 
     public V2ShellCaptureBridge(
         V2ShellViewModel shell,
@@ -72,8 +74,17 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ShellCaptureContextSource? contextSource = null,
         ManualImageIntake? manualIntake = null,
         FleaCaptureHandoff? fleaHandoff = null,
-        CompositeCaptureResultHandoff? captureRouting = null)
+        CompositeCaptureResultHandoff? captureRouting = null,
+        ILootScanRecognitionProgressSource? lootRecognitionProgress = null)
     {
+        _lootRecognitionProgress = lootRecognitionProgress;
+        if (lootRecognitionProgress is not null)
+        {
+            lootRecognitionProgress.LootRecognitionStarted += OnLootRecognitionStarted;
+            lootRecognitionProgress.LootItemMatched += OnLootItemMatched;
+            lootRecognitionProgress.LootRecognitionStopped += OnLootRecognitionStopped;
+        }
+
         _fleaHandoff = fleaHandoff;
         if (fleaHandoff is not null)
         {
@@ -452,40 +463,72 @@ public sealed class V2ShellCaptureBridge : IDisposable
     /// <summary>#572: the Loot page must show something long before the full result is ready.</summary>
     private void OnLootScanStarted(object? sender, EventArgs eventArgs) => _shell.ShowLootScanStarting();
 
+    private void OnLootRecognitionStarted(object? sender, LootScanRecognitionStarted started)
+    {
+        var viewModel = LootScanViewModel.CreateProgress(started, _lootScanControls);
+        lock (_gate)
+        {
+            _latestLootRecognition = started.CorrelationId;
+            _lootScan = viewModel;
+        }
+
+        _shell.ShowLootScanProgress(viewModel);
+    }
+
+    private void OnLootItemMatched(object? sender, LootScanItemMatched matched) =>
+        _shell.UpdateLootScanProgress(matched.CorrelationId, viewModel => viewModel.AddPending(matched));
+
+    private void OnLootRecognitionStopped(object? sender, LootScanRecognitionStopped stopped) =>
+        _shell.UpdateLootScanProgress(stopped.CorrelationId, viewModel => viewModel.StopProgress());
+
     private void OnLootScanEvaluated(object? sender, LootScanResult result)
     {
         // The same frame decided again, after a pin or a change of raid phase, keeps the player
         // on the item they were looking at instead of jumping back to the top of the list.
-        var previous = _lootScan;
-        var viewModel = new LootScanViewModel(
-            result,
-            controls: _lootScanControls,
-            select: previous is not null &&
-                    previous.Result.CaptureSessionId == result.CaptureSessionId &&
-                    string.Equals(previous.Result.ArtifactId, result.ArtifactId, StringComparison.Ordinal)
-                ? previous.SelectedDecision?.SourceAnchor
-                : null);
-        _lootScan = viewModel;
+        LootScanViewModel viewModel;
         lock (_gate)
         {
-            // The frame that reached handoff is the only capture this session's single-review
-            // lifecycle produces, so ordinal 0 names it without inventing a count.
-            _attention = null;
-            _review = new V2CaptureReview(
-                result.CaptureSessionId,
-                result.ArtifactId,
-                0,
-                ScanIntent.Loot,
-                null,
-                result.EvaluatedUtc,
-                $"{viewModel.TakeSummary}, {viewModel.SwapSummary}, {viewModel.LeaveSummary}, {viewModel.ReviewSummary}",
-                "Loot Scan decision",
-                false);
+            if (_latestLootRecognition is { } latest && latest != result.CorrelationId)
+            {
+                return;
+            }
+
+            var previous = _lootScan;
+            viewModel = previous is { IsProgressive: true } && previous.CorrelationId == result.CorrelationId
+                ? previous
+                : new LootScanViewModel(
+                    result,
+                    controls: _lootScanControls,
+                    select: previous is not null &&
+                            previous.Result.CaptureSessionId == result.CaptureSessionId &&
+                            string.Equals(previous.Result.ArtifactId, result.ArtifactId, StringComparison.Ordinal)
+                        ? previous.SelectedDecision?.SourceAnchor
+                        : null);
+            _lootScan = viewModel;
         }
 
-        _shell.ShowLootScanResult(viewModel);
-        LootScanShown?.Invoke(viewModel);
-        Push();
+        _shell.ApplyLootScanResult(viewModel, result, applied =>
+        {
+            lock (_gate)
+            {
+                // The frame that reached handoff is the only capture this session's single-review
+                // lifecycle produces, so ordinal 0 names it without inventing a count.
+                _attention = null;
+                _review = new V2CaptureReview(
+                    result.CaptureSessionId,
+                    result.ArtifactId,
+                    0,
+                    ScanIntent.Loot,
+                    null,
+                    result.EvaluatedUtc,
+                    $"{applied.TakeSummary}, {applied.SwapSummary}, {applied.LeaveSummary}, {applied.ReviewSummary}",
+                    "Loot Scan decision",
+                    false);
+            }
+
+            LootScanShown?.Invoke(applied);
+            Push();
+        });
     }
 
     /// <summary>#572: a Loot Scan result was handed to the shell; the paired tablet shows it too.</summary>
@@ -563,6 +606,13 @@ public sealed class V2ShellCaptureBridge : IDisposable
         if (_captureRouting is not null)
         {
             _captureRouting.NonLootIntentHandled -= OnNonLootIntentHandled;
+        }
+
+        if (_lootRecognitionProgress is not null)
+        {
+            _lootRecognitionProgress.LootRecognitionStarted -= OnLootRecognitionStarted;
+            _lootRecognitionProgress.LootItemMatched -= OnLootItemMatched;
+            _lootRecognitionProgress.LootRecognitionStopped -= OnLootRecognitionStopped;
         }
 
         _shell.ManualImageRequested -= OnManualImageRequested;

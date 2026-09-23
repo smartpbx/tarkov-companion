@@ -124,7 +124,8 @@ public sealed class GridPixelReconstructionBuilder(
         InventoryGridSurface surface,
         DateTimeOffset observedUtc,
         GridPixelReconstructionOptions? options = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<GridCellObservation>? matchedItemProgress = null)
     {
         ArgumentNullException.ThrowIfNull(image);
         options ??= GridPixelReconstructionOptions.Default;
@@ -143,7 +144,16 @@ public sealed class GridPixelReconstructionBuilder(
             // with no loot grid open (an unsearched container, or the player's own inventory)
             // has no loot to read. The general detector picked carried grids on both.
             return gear.Largest(GearGridSection.Loot) is { } loot
-                ? await BuildFromSpecAsync(image, surface, loot.Lattice, stashSpec: false, observedUtc, options, cancellationToken, loot.FrameShare)
+                ? await BuildFromSpecAsync(
+                        image,
+                        surface,
+                        loot.Lattice,
+                        stashSpec: false,
+                        observedUtc,
+                        options,
+                        cancellationToken,
+                        latticeScore: loot.FrameShare,
+                        matchedItemProgress: matchedItemProgress)
                     .ConfigureAwait(false)
                 : new(surface, null, []);
         }
@@ -163,7 +173,8 @@ public sealed class GridPixelReconstructionBuilder(
                     observedUtc,
                     options,
                     cancellationToken,
-                    verticalScrollPosition: scrollPosition)
+                    verticalScrollPosition: scrollPosition,
+                    matchedItemProgress: matchedItemProgress)
                 .ConfigureAwait(false);
     }
 
@@ -212,7 +223,8 @@ public sealed class GridPixelReconstructionBuilder(
         GridPixelReconstructionOptions options,
         CancellationToken cancellationToken,
         double? latticeScore = null,
-        double? verticalScrollPosition = null)
+        double? verticalScrollPosition = null,
+        IProgress<GridCellObservation>? matchedItemProgress = null)
     {
         if (BuildLattice(spec, observedUtc, latticeScore) is not { } lattice)
         {
@@ -274,7 +286,7 @@ public sealed class GridPixelReconstructionBuilder(
                 {
                     var footprint = footprints[index];
                     var bounds = FootprintBounds(lattice, footprint);
-                    observations[index] = await BuildObservationAsync(
+                    var observation = await BuildObservationAsync(
                             image,
                             footprint,
                             bounds,
@@ -284,6 +296,16 @@ public sealed class GridPixelReconstructionBuilder(
                             attemptsQuantityOcr[index],
                             cellCancellationToken)
                         .ConfigureAwait(false);
+                    observations[index] = observation;
+                    // A named cell is useful to the player immediately. Parallel matching finishes
+                    // out of grid order, so the final immutable request still uses the indexed
+                    // array while this optional stream reports each independent answer as it lands.
+                    // Unknown/lookalike cells wait for the final review result; "pending" must not
+                    // turn an unresolved identity into a name.
+                    if (surface == InventoryGridSurface.VisibleLoot && observation.Item.Value is not null)
+                    {
+                        matchedItemProgress?.Report(observation);
+                    }
                 })
             .ConfigureAwait(false);
 

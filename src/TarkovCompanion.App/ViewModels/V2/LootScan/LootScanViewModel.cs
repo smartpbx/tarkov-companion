@@ -1,7 +1,10 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.Views.V2.Primitives;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
@@ -24,6 +27,10 @@ public sealed class LootScanViewModel : BindableViewModel
     private LootScanVerdict? _filter;
     private LootScanDecisionViewModel? _selected;
     private readonly ILootScanWorkspaceControls? _controls;
+    private readonly ObservableCollection<LootScanDecisionViewModel> _decisions;
+    private LootScanResult _result;
+    private bool _isProgressive;
+    private bool _progressStopped;
 
     public LootScanViewModel(
         LootScanResult result,
@@ -31,9 +38,11 @@ public sealed class LootScanViewModel : BindableViewModel
         CultureInfo? culture = null,
         LootScanPresentationText? text = null,
         ILootScanWorkspaceControls? controls = null,
-        GridCellAddress? select = null)
+        GridCellAddress? select = null,
+        bool isProgressive = false)
     {
-        Result = result ?? throw new ArgumentNullException(nameof(result));
+        _result = result ?? throw new ArgumentNullException(nameof(result));
+        _isProgressive = isProgressive;
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
         _controls = controls;
@@ -55,7 +64,7 @@ public sealed class LootScanViewModel : BindableViewModel
         // Decided calls keep the planner's order. What could only be valued follows, dearest
         // square first, and what could not be read at all comes last: during a raid the top of
         // the list has to be the part worth acting on.
-        Decisions = result.Decisions
+        _decisions = new ObservableCollection<LootScanDecisionViewModel>(result.Decisions
             .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text, controls)
             {
                 SelectAction = Select,
@@ -66,7 +75,7 @@ public sealed class LootScanViewModel : BindableViewModel
             .ThenByDescending(entry => entry.Decision.IsReview ? entry.Decision.CatalogValuePerSquareRoubles ?? -1 : 0)
             .ThenBy(entry => entry.Index)
             .Select(entry => entry.Decision)
-            .ToArray();
+            .ToArray());
         Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
         PreviousPageCommand = new DelegateCommand(PreviousPage);
         NextPageCommand = new DelegateCommand(NextPage);
@@ -91,7 +100,38 @@ public sealed class LootScanViewModel : BindableViewModel
                Decisions.FirstOrDefault());
     }
 
-    public LootScanResult Result { get; }
+    public LootScanResult Result => _result;
+
+    public CaptureCorrelationId CorrelationId => Result.CorrelationId;
+
+    public bool IsProgressive => _isProgressive;
+
+    /// <summary>An empty, live page that accepts matched cells until its final decision arrives.</summary>
+    public static LootScanViewModel CreateProgress(
+        LootScanRecognitionStarted started,
+        ILootScanWorkspaceControls? controls = null,
+        CultureInfo? culture = null,
+        LootScanPresentationText? text = null)
+    {
+        ArgumentNullException.ThrowIfNull(started);
+        var focus = started.Context.InitiatingDevice ?? "desktop";
+        var result = new LootScanResult(
+            $"progress-{started.CorrelationId}",
+            started.SessionId,
+            started.CorrelationId,
+            started.Context,
+            started.ArtifactId,
+            started.DecodeRevision,
+            started.ContentSha256,
+            started.ContentSha256,
+            focus,
+            started.StartedUtc.ToUniversalTime(),
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current, "loot.recognition.running"),
+            [],
+            [],
+            []);
+        return new(result, culture: culture, text: text, controls: controls, isProgressive: true);
+    }
 
     /// <summary>Whether the raid phase and risk can be set from here.</summary>
     public bool HasControls => _controls is not null;
@@ -128,9 +168,9 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public string RiskLabel => _text.RiskLabel;
 
-    public IReadOnlyList<LootScanDecisionViewModel> Decisions { get; }
+    public IReadOnlyList<LootScanDecisionViewModel> Decisions => _decisions;
 
-    public IReadOnlyList<string> Issues { get; }
+    public IReadOnlyList<string> Issues { get; private set; }
 
     /// <summary>
     /// The cards drawn for the current page. Rendering every recognized grid item at once made a
@@ -154,7 +194,9 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public string Heading => _text.Heading;
 
-    public string StatusLabel => Result.Status.Freshness switch
+    public string StatusLabel => IsProgressive
+        ? (_progressStopped ? _text.StatusStopped : _text.StatusRecognising)
+        : Result.Status.Freshness switch
     {
         FreshnessState.Stale => _text.StatusStale,
         FreshnessState.Unknown => _text.StatusUnknown,
@@ -166,7 +208,9 @@ public sealed class LootScanViewModel : BindableViewModel
         },
     };
 
-    public string StatusDetail => Result.Status.Freshness switch
+    public string StatusDetail => IsProgressive
+        ? (_progressStopped ? _text.StatusDetailStopped : _text.StatusDetailRecognising)
+        : Result.Status.Freshness switch
     {
         FreshnessState.Stale => _text.StatusDetailStale,
         FreshnessState.Unknown => _text.StatusDetailUnknown,
@@ -229,13 +273,14 @@ public sealed class LootScanViewModel : BindableViewModel
     public bool HasDecisions => Decisions.Count > 0;
 
     public bool HasNoVisibleLoot =>
+        !IsProgressive &&
         Decisions.Count == 0 &&
         Result.Status.Completeness != ResultCompleteness.Unavailable &&
         Result.Issues.All(issue => issue.Kind is not (
             LootScanIssueKind.CaptureChanged or
             LootScanIssueKind.LootCoveragePartial));
 
-    public bool HasUnavailableResult => !HasDecisions && !HasNoVisibleLoot;
+    public bool HasUnavailableResult => !IsProgressive && !HasDecisions && !HasNoVisibleLoot;
 
     public bool HasIssues => Issues.Count > 0;
 
@@ -260,10 +305,12 @@ public sealed class LootScanViewModel : BindableViewModel
         ("items", FilteredDecisions.Count.ToString(_culture)));
 
     public bool IsComplete =>
+        !IsProgressive &&
         Result.Status.Completeness == ResultCompleteness.Complete &&
         Result.Status.Freshness == FreshnessState.Current;
 
     public bool IsPartial =>
+        IsProgressive ||
         Result.Status.Completeness == ResultCompleteness.Partial ||
         Result.Status.Freshness != FreshnessState.Current;
 
@@ -351,9 +398,9 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public LootScanVerdict? Filter => _filter;
 
-    public LootScanGridViewModel? LootGrid { get; }
+    public LootScanGridViewModel? LootGrid { get; private set; }
 
-    public LootScanGridViewModel? CarriedGrid { get; }
+    public LootScanGridViewModel? CarriedGrid { get; private set; }
 
     public bool HasLootGrid => LootGrid is not null;
 
@@ -382,6 +429,11 @@ public sealed class LootScanViewModel : BindableViewModel
                 .Where(part => part.Item2 > 0)
                 .Select(part => $"{part.Item1} {part.Item2.ToString(_culture)}");
             var summary = string.Join(" · ", parts);
+            if (IsProgressive && Decisions.Count > 0)
+            {
+                return Format(_text.PendingCountTemplate, ("count", Decisions.Count.ToString(_culture)));
+            }
+
             return summary.Length == 0 ? _text.NothingToDecide : summary;
         }
     }
@@ -400,7 +452,166 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public bool HasSelectedDecision => SelectedDecision is not null;
 
-    public string TimingSummary => Format(_text.AnalysedInTemplate, ("duration", TimingLabel));
+    public string TimingSummary => IsProgressive
+        ? _text.ProgressTiming
+        : Format(_text.AnalysedInTemplate, ("duration", TimingLabel));
+
+    /// <summary>Adds one named cell once. Events from a stopped or different scan are ignored.</summary>
+    public void AddPending(LootScanItemMatched matched)
+    {
+        ArgumentNullException.ThrowIfNull(matched);
+        if (!IsProgressive || _progressStopped || matched.CorrelationId != CorrelationId ||
+            matched.SessionId != Result.CaptureSessionId ||
+            !string.Equals(matched.ArtifactId, Result.ArtifactId, StringComparison.Ordinal) ||
+            matched.DecodeRevision != Result.DecodeRevision ||
+            matched.Cell.Item.Value is null ||
+            _decisions.Any(item => item.SourceAnchor == matched.Cell.Anchor))
+        {
+            return;
+        }
+
+        var pending = new LootScanDecision(
+            matched.Cell.Anchor,
+            matched.Cell.Item,
+            LootScanVerdict.Review,
+            [new LootScanReason("recognition.pending", _text.PendingReason)]);
+        var row = new LootScanDecisionViewModel(
+            pending,
+            Result.EvaluatedUtc,
+            openEvidence: null,
+            _culture,
+            _text,
+            _controls,
+            isPending: true)
+        {
+            SelectAction = Select,
+        };
+        _decisions.Add(row);
+        LootGrid = BuildLootGrid();
+        if (SelectedDecision is null)
+        {
+            Select(row);
+        }
+
+        RefreshDecisions();
+    }
+
+    /// <summary>
+    /// Reuses rows by grid anchor, updates them in place, then moves them into final planner order.
+    /// </summary>
+    public void Reconcile(LootScanResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.CorrelationId != CorrelationId || result.CaptureSessionId != Result.CaptureSessionId ||
+            !string.Equals(result.ArtifactId, Result.ArtifactId, StringComparison.Ordinal) ||
+            result.DecodeRevision != Result.DecodeRevision)
+        {
+            return;
+        }
+
+        var selectedAnchor = SelectedDecision?.SourceAnchor;
+        var byAnchor = _decisions.ToDictionary(item => item.SourceAnchor);
+        var ordered = result.Decisions
+            .Select((decision, index) =>
+            {
+                if (byAnchor.TryGetValue(decision.SourceAnchor, out var existing))
+                {
+                    existing.Update(decision, result.EvaluatedUtc);
+                    return (Decision: existing, Index: index);
+                }
+
+                return (Decision: new LootScanDecisionViewModel(decision, result.EvaluatedUtc, null, _culture, _text, _controls)
+                {
+                    SelectAction = Select,
+                }, Index: index);
+            })
+            .OrderBy(entry => entry.Decision.IsReview)
+            .ThenByDescending(entry => entry.Decision.IsAdvisedTake)
+            .ThenByDescending(entry => entry.Decision.IsReview ? entry.Decision.CatalogValuePerSquareRoubles ?? -1 : 0)
+            .ThenBy(entry => entry.Index)
+            .Select(entry => entry.Decision)
+            .ToArray();
+
+        for (var index = _decisions.Count - 1; index >= 0; index--)
+        {
+            if (!ordered.Contains(_decisions[index]))
+            {
+                _decisions.RemoveAt(index);
+            }
+        }
+
+        for (var index = 0; index < ordered.Length; index++)
+        {
+            var current = _decisions.IndexOf(ordered[index]);
+            if (current < 0)
+            {
+                _decisions.Insert(index, ordered[index]);
+            }
+            else if (current != index)
+            {
+                _decisions.Move(current, index);
+            }
+        }
+
+        _result = result;
+        _isProgressive = false;
+        _progressStopped = false;
+        Issues = result.Issues.Select(issue => issue.Explanation).Distinct(StringComparer.Ordinal).ToArray();
+        LootGrid = BuildLootGrid();
+        CarriedGrid = BuildCarriedGrid();
+        Select((selectedAnchor is { } anchor ? _decisions.FirstOrDefault(item => item.SourceAnchor == anchor) : null) ??
+               _decisions.FirstOrDefault(item => item.IsSwap) ??
+               _decisions.FirstOrDefault(item => item.IsTake) ??
+               _decisions.FirstOrDefault());
+        OnPropertyChanged(nameof(Result));
+        OnPropertyChanged(nameof(IsProgressive));
+        RefreshDecisions();
+    }
+
+    public void StopProgress()
+    {
+        if (!IsProgressive || _progressStopped)
+        {
+            return;
+        }
+
+        _progressStopped = true;
+        OnPropertyChanged(nameof(StatusLabel));
+        OnPropertyChanged(nameof(StatusDetail));
+        OnPropertyChanged(nameof(TimingSummary));
+    }
+
+    private void RefreshDecisions()
+    {
+        _pageIndex = Math.Min(_pageIndex, Math.Max(0, PageCount - 1));
+        foreach (var filter in Filters)
+        {
+            filter.Count = filter.Verdict switch
+            {
+                LootScanVerdict.Take => TakeCount,
+                LootScanVerdict.Swap => SwapCount,
+                LootScanVerdict.Leave => LeaveCount,
+                LootScanVerdict.Review => ReviewCount,
+                _ => Decisions.Count,
+            };
+        }
+
+        foreach (var property in new[]
+        {
+            nameof(StatusLabel), nameof(StatusDetail), nameof(TimingSummary), nameof(VisibleDecisions),
+            nameof(HasDecisions), nameof(HasNoVisibleLoot), nameof(HasUnavailableResult), nameof(LootItemsLabel),
+            nameof(TakeCount), nameof(SwapCount), nameof(LeaveCount), nameof(ReviewCount), nameof(TakeSummary),
+            nameof(SwapSummary), nameof(LeaveSummary), nameof(ReviewSummary), nameof(DecisionSummary),
+            nameof(PageCount), nameof(HasMultiplePages), nameof(HasPreviousPage), nameof(HasNextPage),
+            nameof(PageSummary), nameof(IsComplete), nameof(IsPartial), nameof(Issues), nameof(VisibleIssues),
+            nameof(HasIssues), nameof(HasHiddenIssues), nameof(HiddenIssuesLabel), nameof(LootGrid),
+            nameof(CarriedGrid), nameof(HasLootGrid), nameof(HasNoLootGrid), nameof(HasCarriedGrid),
+            nameof(HasNoCarriedGrid),
+        })
+        {
+            OnPropertyChanged(property);
+        }
+    }
 
     private IReadOnlyList<LootScanDecisionViewModel> FilteredDecisions => _filter is { } verdict
         ? Decisions.Where(item => item.Verdict == verdict).ToArray()
@@ -589,9 +800,11 @@ public sealed class LootScanViewModel : BindableViewModel
 
 public sealed class LootScanDecisionViewModel : BindableViewModel
 {
-    private readonly LootScanDecision _decision;
+    private LootScanDecision _decision;
     private readonly CultureInfo _culture;
     private readonly LootScanPresentationText _text;
+    private readonly bool _canOpenEvidence;
+    private bool _isPending;
 
     public LootScanDecisionViewModel(
         LootScanDecision decision,
@@ -599,12 +812,15 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         Action<LootScanDecision>? openEvidence,
         CultureInfo? culture = null,
         LootScanPresentationText? text = null,
-        ILootScanWorkspaceControls? controls = null)
+        ILootScanWorkspaceControls? controls = null,
+        bool isPending = false)
     {
         _decision = decision ?? throw new ArgumentNullException(nameof(decision));
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
         _controls = controls;
+        _isPending = isPending;
+        _canOpenEvidence = openEvidence is not null;
         TogglePinCommand = new DelegateCommand(() => Change(id => _controls!.SetPinnedAsync(id, !IsPinned)));
         ToggleWishlistCommand = new DelegateCommand(() => Change(id => _controls!.SetWishlistedAsync(id, !IsWishlisted)));
         ToggleAlwaysTakeCommand = new DelegateCommand(() => Change(id => _controls!.SetRuleAsync(
@@ -615,7 +831,6 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             IsAlwaysLeave ? LootScanItemRule.None : LootScanItemRule.AlwaysLeave)));
         EvaluatedUtc = evaluatedUtc;
         OpenEvidenceCommand = new DelegateCommand(() => openEvidence?.Invoke(_decision));
-        CanOpenEvidence = openEvidence is not null;
         SelectCommand = new DelegateCommand(() => SelectAction?.Invoke(this));
     }
 
@@ -624,7 +839,17 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     private string? ItemId => _decision.Item.Value?.CanonicalId.Value;
 
     /// <summary>A named item can be pinned, wished for or given a rule. A cell nobody named cannot.</summary>
-    public bool CanSetItemChoices => _controls is not null && ItemId is not null;
+    public bool CanSetItemChoices => !IsPending && _controls is not null && ItemId is not null;
+
+    public bool IsPending => _isPending;
+
+    internal void Update(LootScanDecision decision, DateTimeOffset evaluatedUtc)
+    {
+        _decision = decision ?? throw new ArgumentNullException(nameof(decision));
+        EvaluatedUtc = evaluatedUtc;
+        _isPending = false;
+        OnPropertyChanged(string.Empty);
+    }
 
     public bool IsPinned => ItemId is { } id && _controls?.IsPinned(id) == true;
 
@@ -689,6 +914,11 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     {
         get
         {
+            if (IsPending)
+            {
+                return _text.PendingReason;
+            }
+
             // A refusal says it is one. This used to fall through to "Value only", which read as
             // a reason to take an item nobody had identified.
             // What the Events page recorded outranks everything else the row could say: the
@@ -981,11 +1211,11 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         _ => "₽" + value.ToString(culture),
     };
 
-    public DateTimeOffset EvaluatedUtc { get; }
+    public DateTimeOffset EvaluatedUtc { get; private set; }
 
     public ICommand OpenEvidenceCommand { get; }
 
-    public bool CanOpenEvidence { get; }
+    public bool CanOpenEvidence => !IsPending && _canOpenEvidence;
 
     public string AutomationId => $"v2-loot-scan-{_decision.SourceAnchor.Row}-{_decision.SourceAnchor.Column}";
 
@@ -1002,7 +1232,9 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         }
     }
 
-    public string VerdictLabel => IsAdvisedTake ? _text.VerdictAdvisedTake : _decision.Verdict.ToString().ToUpperInvariant();
+    public string VerdictLabel => IsPending
+        ? _text.VerdictPending
+        : IsAdvisedTake ? _text.VerdictAdvisedTake : _decision.Verdict.ToString().ToUpperInvariant();
 
     public string AutomationSummary => Message(
         _text.AutomationSummaryTemplate,
@@ -1010,13 +1242,13 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         ("item", Name),
         ("reason", WhyLabel));
 
-    public bool IsTake => _decision.Verdict == LootScanVerdict.Take;
+    public bool IsTake => !IsPending && _decision.Verdict == LootScanVerdict.Take;
 
-    public bool IsSwap => _decision.Verdict == LootScanVerdict.Swap;
+    public bool IsSwap => !IsPending && _decision.Verdict == LootScanVerdict.Swap;
 
-    public bool IsLeave => _decision.Verdict == LootScanVerdict.Leave;
+    public bool IsLeave => !IsPending && _decision.Verdict == LootScanVerdict.Leave;
 
-    public bool IsReview => _decision.Verdict == LootScanVerdict.Review;
+    public bool IsReview => !IsPending && _decision.Verdict == LootScanVerdict.Review;
 
     /// <remarks>
     /// A decided call keeps the planner's sentences. A refusal gets one plain sentence instead:
@@ -1026,6 +1258,11 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     {
         get
         {
+            if (IsPending)
+            {
+                return _text.PendingReason;
+            }
+
             if (_decision.Verdict is LootScanVerdict.Take or LootScanVerdict.Swap)
             {
                 // The planner's sentence is about the fit. Why the item is wanted at all - the
@@ -1376,11 +1613,15 @@ public sealed record LootScanPresentationText
     public string StatusComplete { get; init; } = "Ready to review";
     public string StatusPartial { get; init; } = "Review needed";
     public string StatusUnavailable { get; init; } = "No usable result";
+    public string StatusRecognising { get; init; } = "Recognising loot";
+    public string StatusStopped { get; init; } = "Scan stopped";
     public string StatusDetailStale { get; init; } = "Retake or refresh the scan before relying on its recommendations.";
     public string StatusDetailUnknown { get; init; } = "The scan cannot prove when all supporting evidence was current.";
     public string StatusDetailComplete { get; init; } = "Every recommendation is tied to the reviewed screenshot and visible carried space.";
     public string StatusDetailPartial { get; init; } = "Uncertain cells stay visible and are never promoted into a take or swap.";
     public string StatusDetailUnavailable { get; init; } = "Retake the screenshot with both the loot and carried grid visible.";
+    public string StatusDetailRecognising { get; init; } = "Matched items appear while the rest of the grid is still being read.";
+    public string StatusDetailStopped { get; init; } = "This scan was cancelled or replaced before its decision finished.";
     public string CurrentCaptureContext { get; init; } = "Current capture context";
     public string CaptureTemplate { get; init; } = "Capture {correlation} • decode {revision}";
     public string MillisecondsTemplate { get; init; } = "{value} ms";
@@ -1443,9 +1684,11 @@ public sealed record LootScanPresentationText
     public string FilterLeave { get; init; } = "Leave";
     public string FilterReview { get; init; } = "Review";
     public string NothingToDecide { get; init; } = "Nothing to decide";
+    public string PendingCountTemplate { get; init; } = "{count} pending";
     public string OneItemTemplate { get; init; } = "{count} item";
     public string ItemsTemplate { get; init; } = "{count} items";
     public string AnalysedInTemplate { get; init; } = "Analysed in {duration}";
+    public string ProgressTiming { get; init; } = "Deciding as items arrive";
     public string ShortPerSquareTemplate { get; init; } = "{value} / sq";
     public string GivesUpTemplate { get; init; } = "gives up {value}";
     public string DropSummaryTemplate { get; init; } = "Drop {items} · {cost} given up";
@@ -1482,6 +1725,8 @@ public sealed record LootScanPresentationText
     public string WhyWorthItsSquares { get; init; } = "Worth the squares it takes.";
     public string ReasonWorthItsSquares { get; init; } = "Worth its squares";
     public string VerdictAdvisedTake { get; init; } = "TAKE?";
+    public string VerdictPending { get; init; } = "PENDING";
+    public string PendingReason { get; init; } = "Matched — decision pending";
     public string Pin { get; init; } = "Pin";
     public string Unpin { get; init; } = "Pinned";
     public string Wish { get; init; } = "Wishlist";
@@ -1544,7 +1789,19 @@ public sealed class LootScanFilterViewModel : BindableViewModel
 
     public string Label { get; }
 
-    public int Count { get; }
+    private int _count;
+
+    public int Count
+    {
+        get => _count;
+        internal set
+        {
+            if (SetProperty(ref _count, value))
+            {
+                OnPropertyChanged(nameof(CountLabel));
+            }
+        }
+    }
 
     public string CountLabel => Count.ToString(CultureInfo.CurrentCulture);
 
