@@ -1,0 +1,58 @@
+# Human-read ground truth for the eleven 3840x1080 carried-panel frames measured by C38.
+# Dimensions are columns x rows. Only grids whose complete cell area is visible are counted.
+# The labels follow the frame order in the two C33 real Gear reports; no private pixels live here.
+
+frame-01 scav-no-loot
+backpack: absent
+rig: 1x2, 1x2, 1x2, 1x2, 1x1, 1x1, 1x1, 1x1
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-02 pmc-unsearched-loot-tooltip
+backpack: 4x3
+rig: 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2
+pockets: 1x1, 1x1, 1x1, 1x1
+
+frame-03 pmc-ammo-box-loot
+backpack: 4x3
+rig: 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2
+pockets: 1x1, 1x1, 1x1, 1x1
+
+frame-04 csa-empty-backpack
+backpack: 5x5
+rig: 1x3, 1x2, 1x2, 1x3
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-05 csa-one-backpack-item
+backpack: 5x5
+rig: 1x3, 1x2, 1x2, 1x3
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-06 csa-foam-backpack
+backpack: 5x5
+rig: 1x3, 1x2, 1x2, 1x3
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-07 csa-body-loot
+backpack: 5x5
+rig: 1x3, 1x2, 1x2, 1x3
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-08 m2-rig-no-backpack
+backpack: absent
+rig: 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x1, 1x1, 2x1
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-09 thunderbolt-day-pack
+backpack: 4x5
+rig: 1x2, 1x2, 1x2, 1x2, 1x2, 1x2, 1x1, 1x2, 1x1
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-10 scrolled-thunderbolt-day-pack
+backpack: 4x5
+rig: 1x1
+pockets: 1x1, 1x2, 1x2, 1x1
+
+frame-11 health-tab-side-panel
+backpack: 4x5
+rig: none
+pockets: 1x1, 1x2, 1x2, 1x1
