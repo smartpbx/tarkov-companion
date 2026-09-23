@@ -1168,6 +1168,69 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Contains("late raid phase", tied.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(274)]
+    [InlineData(104729)]
+    [InlineData(20260922)]
+    public void SeededRandomizedInputsPreserveSafetyAndOrderingInvariants(int seed)
+    {
+        const int casesPerSeed = 96;
+        var random = new Random(seed);
+        var engine = new ExplainableRecommendationEngine();
+
+        for (var index = 0; index < casesPerSeed; index++)
+        {
+            var flea = random.NextInt64(1_000, 2_000_001);
+            var trader = random.NextInt64(1_000, 1_000_001);
+            var squares = random.Next(1, 17);
+
+            var pinned = engine.Evaluate(Request(
+                profile: Profile(pinned: true),
+                economics: Economics(fleaNet: flea, trader: trader, squares: squares))).Decision.Value!;
+            Assert.False(
+                IsSell(pinned.Action),
+                $"seed {seed}, case {index}: pinned item became {pinned.Action}");
+
+            var required = random.Next(1, 21);
+            var held = random.Next(required);
+            var heldFir = random.Next(held + 1);
+            var firNeeded = engine.Evaluate(Request(
+                profile: Profile(needs:
+                [
+                    Need($"fir-{index}", RecommendationNeedPurpose.Quest, 0, required, fir: true),
+                ]),
+                inventory: Inventory(held, heldFir),
+                candidateFoundInRaid: Complete<bool?>("candidate.fir", true),
+                economics: Economics(fleaNet: flea, trader: trader, squares: squares))).Decision.Value!;
+            Assert.False(
+                IsSell(firNeeded.Action),
+                $"seed {seed}, case {index}: needed FIR item became {firNeeded.Action}");
+
+            var needs = Enumerable.Range(0, random.Next(1, 13))
+                .Select(needIndex => RandomNeed(random, index, needIndex))
+                .ToArray();
+            var shuffled = needs.ToArray();
+            Shuffle(random, shuffled);
+            var totalHeld = random.Next(0, 8);
+            var inventory = Inventory(totalHeld, random.Next(totalHeld + 1));
+            var economics = Economics(fleaNet: flea, trader: trader, squares: squares);
+            var first = engine.Evaluate(Request(
+                profile: Profile(needs: needs),
+                inventory: inventory,
+                economics: economics)).Decision.Value!;
+            var reordered = engine.Evaluate(Request(
+                profile: Profile(needs: shuffled),
+                inventory: inventory,
+                economics: economics)).Decision.Value!;
+
+            Assert.Equal(first.Action, reordered.Action);
+            Assert.Equal(first.Summary, reordered.Summary);
+            Assert.Equal(
+                first.Reasons.Select(reason => (reason.Code, reason.Explanation, reason.Priority)),
+                reordered.Reasons.Select(reason => (reason.Code, reason.Explanation, reason.Priority)));
+        }
+    }
+
     [Fact]
     public void MaximumFirNeedSetKeepsDecisionLineageWithinTheFrozenBounds()
     {
@@ -1327,6 +1390,31 @@ public sealed class ExplainableRecommendationEngineTests
         fir,
         status ?? CompleteStatus,
         provenance ?? Provenance($"need-{id}"));
+
+    private static RecommendationNeed RandomNeed(Random random, int caseIndex, int needIndex)
+    {
+        var purpose = (RecommendationNeedPurpose)random.Next(
+            (int)RecommendationNeedPurpose.Quest,
+            (int)RecommendationNeedPurpose.SpecialistUtility + 1);
+        return Need(
+            $"random-{caseIndex:D3}-{needIndex:D2}",
+            purpose,
+            random.Next(0, 9),
+            random.Next(1, 8),
+            fir: purpose == RecommendationNeedPurpose.Quest && random.Next(2) == 0);
+    }
+
+    private static void Shuffle<T>(Random random, T[] values)
+    {
+        for (var index = values.Length - 1; index > 0; index--)
+        {
+            var other = random.Next(index + 1);
+            (values[index], values[other]) = (values[other], values[index]);
+        }
+    }
+
+    private static bool IsSell(V2Action action) =>
+        action is V2Action.SellOnFlea or V2Action.SellToTrader;
 
     private static RecommendationEconomics Economics(
         long? fleaNet = 100_000,
