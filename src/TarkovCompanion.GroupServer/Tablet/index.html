@@ -77,6 +77,8 @@
   .markEditor input { flex: 1 1 140px; }
   .markRow button { flex: none; min-height: 44px; }
   .markRow.moving { border-color: var(--cyan); }
+  .markRow.queued { border-color: rgba(199, 166, 107, .6); }
+  .queuedLabel { color: var(--ochre); }
   .markList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   .live-dot {
     width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px;
@@ -860,6 +862,8 @@
   // Requesting or changing a mode moves the buttons optimistically; a refusal has to put them back.
   const MODE_COMMAND_TYPES = new Set(["requestControl", "setInteractionMode"]);
   const FRAME_LIFETIME_MS = 60_000;
+  const OFFLINE_QUEUE_LIFETIME_MS = 15 * 60_000;
+  const OFFLINE_QUEUE_LIMIT = 64;
   const CONTROL_LEASE = "00:02:00";
   const KNOWN_WORKSPACES = ["Raid", "Intel", "Plan", "Team", "Debrief"];
   // #407: a short, fixed list — this page has no catalogue of its own to ask, and the desktop's
@@ -881,6 +885,10 @@
   // with the session) and its two traffic keys as non-extractable CryptoKeys. Never a group key,
   // an owner credential or the desktop's admin key: none of those ever reach this page.
   const SESSION_KEY = "session";
+  const OFFLINE_QUEUE_KEY = "offline-mark-actions";
+  let queuedMarks = [];
+  let offlineSendingId = null;
+  let offlineResyncRequested = false;
   // A sender sequence is this session's AES-GCM nonce, so a reload must never start again at
   // one. Sequences are reserved in blocks and the reservation is what is stored: whatever a
   // previous page may have used is below the number this page starts from.
@@ -1657,6 +1665,7 @@
         live.connected = live.desktopOnline;
         renderLiveStatus();
         renderSurface();
+        resumeOfflineQueue();
         return false;
       }
 
@@ -1694,6 +1703,7 @@
 
       renderLiveStatus();
       renderSurface();
+      resumeOfflineQueue();
       if (revision === null) {
         // An older relay. It answered, it just cannot hold, so keep the timer.
         live.mapRevision = null;
@@ -1827,6 +1837,7 @@
       channelId: assignment.relayChannelId.value,
       keyEpoch: assignment.keyEpoch,
       protocolVersion: assignment.protocolVersion,
+      desktopKeyId,
       tabletToDesktopKey,
       desktopToTabletKey,
       authorityEpoch: null,
@@ -1890,6 +1901,7 @@
     live.deviceName = ceremony.deviceName || "Tablet";
     await saveSession();
     await rememberDesktop(desktopKeyId, live.deviceName);
+    await restoreOfflineQueue();
     beginLive();
   }
 
@@ -2039,6 +2051,47 @@
     }, 15_000);
   }
 
+  function offlineQueueOwner() {
+    return live?.desktopKeyId || live?.sessionId || null;
+  }
+
+  async function persistOfflineQueue() {
+    const owner = offlineQueueOwner();
+    try {
+      if (!owner || queuedMarks.length === 0) {
+        await idbDelete(OFFLINE_QUEUE_KEY);
+      } else {
+        await idbSet(OFFLINE_QUEUE_KEY, { owner, actions: queuedMarks });
+      }
+    } catch {
+      // A private window keeps the in-memory queue for this page; it just cannot survive reload.
+    }
+  }
+
+  async function restoreOfflineQueue() {
+    let stored = null;
+    try {
+      stored = await idbGet(OFFLINE_QUEUE_KEY);
+    } catch {
+      stored = null;
+    }
+
+    const owner = offlineQueueOwner();
+    queuedMarks = stored?.owner === owner && Array.isArray(stored.actions)
+      ? stored.actions.filter((action) => Date.parse(action.expiresUtc) > Date.now()).slice(0, OFFLINE_QUEUE_LIMIT)
+      : [];
+    offlineSendingId = null;
+    offlineResyncRequested = false;
+    await persistOfflineQueue();
+  }
+
+  async function clearOfflineQueue() {
+    queuedMarks = [];
+    offlineSendingId = null;
+    offlineResyncRequested = false;
+    try { await idbDelete(OFFLINE_QUEUE_KEY); } catch { /* private window */ }
+  }
+
   async function saveSession() {
     if (!live?.credential) return;
     try {
@@ -2048,6 +2101,7 @@
         channelId: live.channelId,
         keyEpoch: live.keyEpoch,
         protocolVersion: live.protocolVersion,
+        desktopKeyId: live.desktopKeyId,
         sessionExpiresUtc: live.sessionExpiresUtc,
         tabletToDesktopKey: live.tabletToDesktopKey,
         desktopToTabletKey: live.desktopToTabletKey,
@@ -2095,6 +2149,7 @@
       channelId: stored.channelId,
       keyEpoch: stored.keyEpoch,
       protocolVersion: stored.protocolVersion,
+      desktopKeyId: stored.desktopKeyId ?? null,
       sessionExpiresUtc: stored.sessionExpiresUtc,
       tabletToDesktopKey: stored.tabletToDesktopKey,
       desktopToTabletKey: stored.desktopToTabletKey,
@@ -2117,6 +2172,7 @@
     };
     $("pairedName").textContent = live.deviceName;
     setStage("pairingDone");
+    await restoreOfflineQueue();
     renderMarks();
     beginLive();
     return true;
@@ -2170,6 +2226,7 @@
     renderLiveStatus();
     if (unpaired) {
       clearTimeout(comeBackTimer);
+      await clearOfflineQueue();
       await idbDelete(PAIRED_KEY).catch(() => {});
       showRememberedDesktopActions(false);
       setStage("pairingIdle", message);
@@ -2225,6 +2282,8 @@
         }
 
         if (response.ok) {
+          live.relayError = false;
+          resumeOfflineQueue();
           const batch = await response.json();
           received = batch.frames.length;
           for (const envelope of batch.frames) {
@@ -2337,7 +2396,15 @@
       live.modesRevision = state.deviceModes.cursor.revision.value;
       live.captureRevision = state.captureIntent.cursor.revision.value;
       applyDeviceModes(state.deviceModes);
+      offlineResyncRequested = false;
+      reconcileOfflineQueueWithCanonical();
+      if (offlineSendingId && queuedMarks.some((action) => action.commandId.value === offlineSendingId)) {
+        // The snapshot did not contain an uncertain send. Retrying its stable command id is
+        // idempotent if the original copy is merely late rather than lost.
+        offlineSendingId = null;
+      }
       renderMarks();
+      void flushOfflineQueue();
       return;
     }
 
@@ -2347,7 +2414,9 @@
     if (update.type === "marks") {
       live.marksRevision = update.state.cursor.revision.value;
       live.marks = update.state.marks;
+      reconcileOfflineQueueWithCanonical();
       renderMarks();
+      void flushOfflineQueue();
     } else if (update.type === "workspace") {
       // Never backwards: moves this tablet has streamed since are already counted (#604).
       live.workspaceRevision = Math.max(live.workspaceRevision, update.state.cursor.revision.value);
@@ -2429,7 +2498,10 @@
     const list = $("markList");
     list.replaceChildren();
     const marks = live?.marks ?? [];
-    if (marks.length === 0) {
+    const beforePrune = queuedMarks.length;
+    queuedMarks = queuedMarks.filter((action) => Date.parse(action.expiresUtc) > Date.now());
+    if (queuedMarks.length !== beforePrune) void persistOfflineQueue();
+    if (marks.length === 0 && queuedMarks.length === 0) {
       list.innerHTML = '<p class="empty">Nothing marked yet.</p>';
       drawMap();
       return;
@@ -2481,7 +2553,36 @@
       list.appendChild(row);
     }
 
+    for (const action of queuedMarks) {
+      const row = document.createElement("div");
+      row.className = "row markRow queued";
+      row.dataset.queuedMarkId = action.markId.value;
+      const info = document.createElement("div");
+      info.className = "markInfo";
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = action.mark.state.label || action.mark.kind;
+      const meta = document.createElement("div");
+      meta.className = "meta queuedLabel";
+      meta.textContent = `${action.mark.kind} · ${action.mark.state.mapId} · queued`;
+      info.append(name, meta);
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.disabled = offlineSendingId === action.commandId.value;
+      cancel.addEventListener("click", () => cancelQueuedMark(action.commandId.value));
+      row.append(info, cancel);
+      list.appendChild(row);
+    }
+
     drawMap();
+  }
+
+  async function cancelQueuedMark(commandId) {
+    queuedMarks = queuedMarks.filter((action) => action.commandId.value !== commandId);
+    if (offlineSendingId === commandId) offlineSendingId = null;
+    await persistOfflineQueue();
+    renderMarks();
   }
 
   async function sendCommand(command) {
@@ -2506,8 +2607,36 @@
 
     if (!response || !response.ok) {
       pending.settle(commandId);
+      if (await queueOfflineMark(command, response ? response.status : 0)) return;
       failedToSend(command, label, response ? response.status : 0);
     }
+  }
+
+  async function queueOfflineMark(command, status) {
+    if (command?.type !== "upsertMark" || command.expectedMarkRevision !== 0 ||
+        (status !== 0 && status < 500)) return false;
+    if (queuedMarks.some((action) => action.commandId.value === command.commandId.value)) return true;
+    if (queuedMarks.length >= OFFLINE_QUEUE_LIMIT) {
+      showNotice("The offline mark queue is full. Reconnect or cancel a queued mark.", "error", true);
+      return true;
+    }
+
+    const queuedUtc = command.issuedUtc;
+    queuedMarks.push({
+      commandId: command.commandId,
+      markId: command.markId,
+      expectedMarkRevision: 0,
+      mark: command.mark,
+      queuedUtc,
+      expiresUtc: new Date(Date.parse(queuedUtc) + OFFLINE_QUEUE_LIFETIME_MS).toISOString(),
+    });
+    live.relayError = true;
+    live.connected = false;
+    await persistOfflineQueue();
+    renderLiveStatus();
+    renderMarks();
+    showNotice("Mark queued · it will send when the relay reconnects.", "warn", true);
+    return true;
   }
 
   // [#570] A notice can carry a one-tap action (Follow's "switch to Independent"), not only a
@@ -2550,6 +2679,18 @@
     const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
     lastAcknowledgement = { commandId, disposition: result.disposition, label: entry.label };
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
+    const queued = queuedMarks.some((action) => action.commandId.value === commandId);
+    if (queued) {
+      if (result.applied || acknowledgement.code === "duplicate-command") {
+        void completeOfflineAction(commandId);
+      } else if (["RequiresPreview", "RequiresSnapshot"].includes(result.disposition)) {
+        offlineSendingId = null;
+        offlineResyncRequested = false;
+        resumeOfflineQueue();
+      } else {
+        void completeOfflineAction(commandId);
+      }
+    }
     if (result.applied) return;
     // [#604] A move that lost a revision race mid-drag has already been caught up by the state
     // above, and the next move goes out on it. Saying so twenty times a second helps nobody.
@@ -2635,6 +2776,89 @@
       lastDeliverySequence: { value: 0 },
       aggregateAcknowledgements: [],
     }).catch(() => {});
+  }
+
+  // A failed mark send is a draft until a fresh canonical snapshot arrives. That snapshot is
+  // the protocol's preview: it binds the queued action to this authority lifetime and the exact
+  // marks revision, so a concurrent desktop edit is rejected instead of overwritten.
+  function resumeOfflineQueue() {
+    if (!live?.credential || queuedMarks.length === 0 || offlineSendingId || offlineResyncRequested) return;
+    offlineResyncRequested = true;
+    requestResync();
+  }
+
+  function reconcileOfflineQueueWithCanonical() {
+    const appliedIds = new Set((live?.marks ?? []).map((mark) => mark.markId?.value));
+    const remaining = queuedMarks.filter((action) => !appliedIds.has(action.markId.value));
+    if (remaining.length !== queuedMarks.length) {
+      queuedMarks = remaining;
+      offlineSendingId = null;
+      void persistOfflineQueue();
+    }
+  }
+
+  async function completeOfflineAction(commandId) {
+    queuedMarks = queuedMarks.filter((action) => action.commandId.value !== commandId);
+    if (offlineSendingId === commandId) offlineSendingId = null;
+    await persistOfflineQueue();
+    renderMarks();
+    if (queuedMarks.length > 0) resumeOfflineQueue();
+  }
+
+  async function flushOfflineQueue() {
+    if (!live?.authorityEpoch || live.relayError || offlineSendingId || queuedMarks.length === 0) return;
+    reconcileOfflineQueueWithCanonical();
+    const action = queuedMarks.find((item) => Date.parse(item.expiresUtc) > Date.now());
+    if (!action) {
+      queuedMarks = [];
+      await persistOfflineQueue();
+      renderMarks();
+      return;
+    }
+
+    const previewedUtc = new Date().toISOString();
+    const command = {
+      type: "upsertMark",
+      commandId: action.commandId,
+      requestedRevision: { value: live.marksRevision + 1 },
+      issuedUtc: action.queuedUtc,
+      expiresUtc: action.expiresUtc,
+      offlineQueuePreview: {
+        queuedUtc: action.queuedUtc,
+        previewedUtc,
+        previewedAuthorityEpoch: { value: live.authorityEpoch },
+        previewedAggregateRevision: { value: live.marksRevision },
+      },
+      markId: action.markId,
+      expectedMarkRevision: action.expectedMarkRevision,
+      mark: action.mark,
+    };
+    offlineSendingId = action.commandId.value;
+    pending.track(offlineSendingId, CommandAcknowledgement.labelFor(command), Date.now(), command.type);
+    renderMarks();
+    let response = null;
+    try {
+      response = await sendSealed(RelayFrameCrypto.PAYLOAD_KIND.ClientCommandEnvelope, {
+        protocolVersion: live.protocolVersion,
+        sessionId: { value: live.sessionId },
+        authorityEpoch: { value: live.authorityEpoch },
+        clientSentUtc: previewedUtc,
+        command,
+      });
+    } catch {
+      response = null;
+    }
+
+    if (!response || !response.ok) {
+      pending.settle(offlineSendingId);
+      offlineSendingId = null;
+      offlineResyncRequested = false;
+      if (live) {
+        live.relayError = !response || response.status >= 500;
+        renderLiveStatus();
+        renderMarks();
+      }
+    }
   }
 
   const commandHeader = (revision) => {
@@ -3435,6 +3659,7 @@
     mode = "Follow";
     confirmedMode = "Follow";
     pending.clear();
+    await clearOfflineQueue();
     await forgetSession();
     await idbDelete(PAIRED_KEY).catch(() => {});
     showSurface(false);
@@ -3479,6 +3704,12 @@
       x: mark.state?.x ?? null,
       y: mark.state?.y ?? null,
     })),
+    queuedMarks: queuedMarks.map((action) => ({
+      commandId: action.commandId.value,
+      markId: action.markId.value,
+      label: action.mark.state.label,
+    })),
+    offlineSendingId,
     lastAcknowledgement,
     lootOpen: !$("lootSheet").hidden,
     lootRows: [...document.querySelectorAll("#lootRows .lootRow .lootName")].map((item) => item.textContent),
