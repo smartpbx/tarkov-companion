@@ -78,13 +78,16 @@ public sealed class FleaCaptureHandoff(
     IItemRepository items,
     IItemMarketFactSource? market = null,
     ILogger<FleaCaptureHandoff>? logger = null,
-    ExplainableRecommendationEngine? engine = null) : ICaptureResultHandoff
+    ExplainableRecommendationEngine? engine = null,
+    RecommendationPolicyService? policies = null) : ICaptureResultHandoff
 {
     private static readonly ProducerIdentity Producer = new("Tarkov Companion flea offer", "flea-offer-1");
 
     private readonly IItemRepository _items = items ?? throw new ArgumentNullException(nameof(items));
     private readonly ILogger<FleaCaptureHandoff> _logger = logger ?? NullLogger<FleaCaptureHandoff>.Instance;
     private readonly ExplainableRecommendationEngine _engine = engine ?? new ExplainableRecommendationEngine();
+
+    private ExplainableRecommendationEngine Engine => policies?.CreateEngine() ?? _engine;
 
     /// <summary>Raised when a capture held at least one legible flea row. Never raised otherwise.</summary>
     public event EventHandler<FleaScanResult>? ListingsRead;
@@ -252,7 +255,7 @@ public sealed class FleaCaptureHandoff(
             row,
             evaluatedUtc,
             ScreenshotProvenance(request, $"row/{rowIndex}/condition", row.Confidence.Value, evaluatedUtc));
-        var recommendation = _engine.EvaluateFleaOffer(
+        var recommendation = Engine.EvaluateFleaOffer(
             new FleaOfferRecommendationRequest(
                 $"flea-{request.ArtifactId}-{rowIndex}-{candidateIndex}",
                 Complete("offer.item", candidate.Candidate.CanonicalId, identity),
@@ -282,7 +285,7 @@ public sealed class FleaCaptureHandoff(
     {
         var provenance = ScreenshotProvenance(request, "item/unread", 0, evaluatedUtc);
         var unknown = UnknownEconomics(provenance);
-        var recommendation = _engine.EvaluateFleaOffer(new FleaOfferRecommendationRequest(
+        var recommendation = Engine.EvaluateFleaOffer(new FleaOfferRecommendationRequest(
             $"flea-{request.ArtifactId}-{rowIndex}-unread",
             Unknown<string>("offer.item", "identity.unread", provenance),
             evaluatedUtc,

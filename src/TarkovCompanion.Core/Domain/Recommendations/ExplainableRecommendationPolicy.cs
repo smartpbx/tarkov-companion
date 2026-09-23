@@ -241,6 +241,24 @@ public sealed record ExplainableRecommendationPolicy
 
     public RaidAdjustedLootThresholds LootThresholds { get; }
 
+    public ExplainableRecommendationPolicy WithHorizons(RecommendationHorizonSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var normalized = settings.Normalized();
+        return new(
+            RulesetVersion,
+            RecommendationHorizonSettings.Steps(normalized.Quest),
+            RecommendationHorizonSettings.Steps(normalized.Hideout),
+            MaximumInventoryAge,
+            MaximumPriceAge,
+            MaximumScarcityAge,
+            MaximumRaidContextAge,
+            MinimumEvidenceConfidence,
+            ValueBands,
+            MinimumScarcityToKeep,
+            LootThresholds);
+    }
+
     public int PriorityOf(ExplainableRecommendationRule rule) => rule switch
     {
         // A recorded allergic result is the one safety fact an override cannot weaken.

@@ -19,7 +19,8 @@ public sealed class ItemRecommendationAdvisor(
     IItemRepository items,
     IProfileRuntimeContextService profileContext,
     LootScanRecommendationSource facts,
-    TimeProvider? timeProvider = null) : IItemRecommendationAdvisor
+    TimeProvider? timeProvider = null,
+    RecommendationPolicyService? policies = null) : IItemRecommendationAdvisor
 {
     private static readonly ProducerIdentity Producer = new(
         "Tarkov Companion item card",
@@ -54,7 +55,7 @@ public sealed class ItemRecommendationAdvisor(
             profile.Context.Identity.Generation,
             profile.Context.Mode.ToString());
         var (rates, needs) = await _facts.ReadSharedFactsAsync(cancellationToken).ConfigureAwait(false);
-        var engine = new ExplainableRecommendationEngine();
+        var engine = policies?.CreateEngine() ?? new ExplainableRecommendationEngine();
         var results = new Dictionary<string, V2ItemRecommendation>(StringComparer.Ordinal);
         foreach (var itemId in itemIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal))
         {

@@ -26,6 +26,7 @@ public sealed class LootScanDecisionService
     private readonly TimeProvider _timeProvider;
     private readonly ExplainableRecommendationPolicy _policy;
     private readonly ExplainableRecommendationEngine _recommendationEngine;
+    private readonly RecommendationPolicyService? _configuredPolicy;
     private readonly int _maximumPlacementCellVisits;
     private readonly int _maximumRecommendationWorkVisits;
 
@@ -33,7 +34,8 @@ public sealed class LootScanDecisionService
         TimeProvider? timeProvider = null,
         ExplainableRecommendationPolicy? policy = null,
         int maximumPlacementCellVisits = LootScanPlannerLimits.MaximumPlacementCellVisits,
-        int maximumRecommendationWorkVisits = LootScanPlannerLimits.MaximumRecommendationWorkVisits)
+        int maximumRecommendationWorkVisits = LootScanPlannerLimits.MaximumRecommendationWorkVisits,
+        RecommendationPolicyService? configuredPolicy = null)
     {
         if (maximumPlacementCellVisits is < 1 or > LootScanPlannerLimits.MaximumPlacementCellVisits)
         {
@@ -48,6 +50,7 @@ public sealed class LootScanDecisionService
         _timeProvider = timeProvider ?? TimeProvider.System;
         _policy = policy ?? ExplainableRecommendationPolicy.Default;
         _recommendationEngine = new ExplainableRecommendationEngine(_policy);
+        _configuredPolicy = configuredPolicy;
         _maximumPlacementCellVisits = maximumPlacementCellVisits;
         _maximumRecommendationWorkVisits = maximumRecommendationWorkVisits;
     }
@@ -542,7 +545,8 @@ public sealed class LootScanDecisionService
                     request.CaptureSessionId,
                     context.RaidContext,
                     candidate.EventScope);
-                var recommendation = _recommendationEngine.Evaluate(engineRequest, cancellationToken);
+                var recommendation = (_configuredPolicy?.CreateEngine() ?? _recommendationEngine)
+                    .Evaluate(engineRequest, cancellationToken);
                 var gate = recommendation.CaptureSessionId == request.CaptureSessionId &&
                            string.Equals(
                                recommendation.RecommendationId,

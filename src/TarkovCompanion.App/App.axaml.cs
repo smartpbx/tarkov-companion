@@ -19,6 +19,7 @@ using TarkovCompanion.App.ViewModels.V2.Tablet;
 using TarkovCompanion.App.Views;
 using TarkovCompanion.App.Views.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Recommendations;
 
 namespace TarkovCompanion.App;
 
@@ -44,6 +45,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // first frame is already the theme, the text scale and the density that were chosen
             // last time rather than the default repainted a moment later.
             ApplyStoredAppearance();
+            LoadStoredRecommendationPolicy();
 
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             _mainViewModel = viewModel;
@@ -298,6 +300,21 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // Loaded before subscribing, so the first paint happens once rather than twice.
             applier.Apply(preferences.LoadAsync(CancellationToken.None).GetAwaiter().GetResult());
             preferences.Changed += (_, current) => applier.Apply(current);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>Loads the recommendation horizons before any engine-backed view model is built.</summary>
+    private void LoadStoredRecommendationPolicy()
+    {
+        try
+        {
+            services.GetService<RecommendationPolicyService>()?
+                .LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
