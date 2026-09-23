@@ -27,6 +27,7 @@ public sealed class LootScanViewModel : BindableViewModel
     private LootScanVerdict? _filter;
     private LootScanDecisionViewModel? _selected;
     private readonly ILootScanWorkspaceControls? _controls;
+    private readonly Func<string, Task>? _openWiki;
     private readonly ObservableCollection<LootScanDecisionViewModel> _decisions;
     private LootScanResult _result;
     private bool _isProgressive;
@@ -39,13 +40,15 @@ public sealed class LootScanViewModel : BindableViewModel
         LootScanPresentationText? text = null,
         ILootScanWorkspaceControls? controls = null,
         GridCellAddress? select = null,
-        bool isProgressive = false)
+        bool isProgressive = false,
+        Func<string, Task>? openWiki = null)
     {
         _result = result ?? throw new ArgumentNullException(nameof(result));
         _isProgressive = isProgressive;
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
         _controls = controls;
+        _openWiki = openWiki;
         PhaseChoices =
         [
             new(null, _text.PhaseCounted),
@@ -65,7 +68,8 @@ public sealed class LootScanViewModel : BindableViewModel
         // square first, and what could not be read at all comes last: during a raid the top of
         // the list has to be the part worth acting on.
         _decisions = new ObservableCollection<LootScanDecisionViewModel>(result.Decisions
-            .Select(decision => new LootScanDecisionViewModel(decision, result.EvaluatedUtc, openEvidence, _culture, _text, controls)
+            .Select(decision => new LootScanDecisionViewModel(
+                decision, result.EvaluatedUtc, openEvidence, _culture, _text, controls, openWiki: openWiki)
             {
                 SelectAction = Select,
             })
@@ -111,7 +115,8 @@ public sealed class LootScanViewModel : BindableViewModel
         LootScanRecognitionStarted started,
         ILootScanWorkspaceControls? controls = null,
         CultureInfo? culture = null,
-        LootScanPresentationText? text = null)
+        LootScanPresentationText? text = null,
+        Func<string, Task>? openWiki = null)
     {
         ArgumentNullException.ThrowIfNull(started);
         var focus = started.Context.InitiatingDevice ?? "desktop";
@@ -130,7 +135,7 @@ public sealed class LootScanViewModel : BindableViewModel
             [],
             [],
             []);
-        return new(result, culture: culture, text: text, controls: controls, isProgressive: true);
+        return new(result, culture: culture, text: text, controls: controls, isProgressive: true, openWiki: openWiki);
     }
 
     /// <summary>Whether the raid phase and risk can be set from here.</summary>
@@ -482,7 +487,8 @@ public sealed class LootScanViewModel : BindableViewModel
             _culture,
             _text,
             _controls,
-            isPending: true)
+            isPending: true,
+            openWiki: _openWiki)
         {
             SelectAction = Select,
         };
@@ -520,7 +526,8 @@ public sealed class LootScanViewModel : BindableViewModel
                     return (Decision: existing, Index: index);
                 }
 
-                return (Decision: new LootScanDecisionViewModel(decision, result.EvaluatedUtc, null, _culture, _text, _controls)
+                return (Decision: new LootScanDecisionViewModel(
+                    decision, result.EvaluatedUtc, null, _culture, _text, _controls, openWiki: _openWiki)
                 {
                     SelectAction = Select,
                 }, Index: index);
@@ -813,12 +820,14 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         CultureInfo? culture = null,
         LootScanPresentationText? text = null,
         ILootScanWorkspaceControls? controls = null,
-        bool isPending = false)
+        bool isPending = false,
+        Func<string, Task>? openWiki = null)
     {
         _decision = decision ?? throw new ArgumentNullException(nameof(decision));
         _culture = culture ?? CultureInfo.CurrentCulture;
         _text = text ?? LootScanPresentationText.Default;
         _controls = controls;
+        _openWiki = openWiki;
         _isPending = isPending;
         _canOpenEvidence = openEvidence is not null;
         TogglePinCommand = new DelegateCommand(() => Change(id => _controls!.SetPinnedAsync(id, !IsPinned)));
@@ -831,15 +840,22 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
             IsAlwaysLeave ? LootScanItemRule.None : LootScanItemRule.AlwaysLeave)));
         EvaluatedUtc = evaluatedUtc;
         OpenEvidenceCommand = new DelegateCommand(() => openEvidence?.Invoke(_decision));
+        OpenWikiCommand = new AsyncDelegateCommand(() =>
+            ItemId is { } itemId && _openWiki is not null ? _openWiki(itemId) : Task.CompletedTask);
         SelectCommand = new DelegateCommand(() => SelectAction?.Invoke(this));
     }
 
     private readonly ILootScanWorkspaceControls? _controls;
+    private readonly Func<string, Task>? _openWiki;
 
     private string? ItemId => _decision.Item.Value?.CanonicalId.Value;
 
     /// <summary>A named item can be pinned, wished for or given a rule. A cell nobody named cannot.</summary>
     public bool CanSetItemChoices => !IsPending && _controls is not null && ItemId is not null;
+
+    public bool CanOpenWiki => !IsPending && _openWiki is not null && ItemId is not null;
+
+    public ICommand OpenWikiCommand { get; }
 
     public bool IsPending => _isPending;
 

@@ -96,6 +96,9 @@ public sealed record TeamMarkRowViewModel(
     /// <summary>The map, who marked it and how long ago, on one line.</summary>
     public string Detail { get; init; } = string.Empty;
 
+    /// <summary>Explicit relay facts: author, lifetime, scope, and any state the snapshot carries.</summary>
+    public string MetadataLabel { get; init; } = string.Empty;
+
     public ICommand? RemoveCommand { get; init; }
 }
 
@@ -698,7 +701,12 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                     new RemovedMark(waypoint.MapId, new WorldPosition(waypoint.X, waypoint.Y, waypoint.Z), waypoint.Label, IsPing: false, name))),
                 Number = numbered.ToString(CultureInfo.CurrentCulture),
                 Title = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {numbered}" : waypoint.Label!,
-                Detail = JoinDetail(MapLabel(waypoint.MapId), reached ? $"by {waypoint.By} · reached by {waypoint.Reached}" : $"by {waypoint.By}", age),
+                Detail = JoinDetail(MapLabel(waypoint.MapId), age),
+                MetadataLabel = JoinDetail(
+                    reached ? $"By · {waypoint.By} · reached by {waypoint.Reached}" : $"By · {waypoint.By}",
+                    "TTL · until removed",
+                    "Scope · team",
+                    reconnecting ? "Offline snapshot" : string.Empty),
             });
         }
 
@@ -719,7 +727,12 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 RemoveCommand = new AsyncDelegateCommand(() => RemoveMarkAsync(
                     ping.Id,
                     new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, "Ping"))),
-                Detail = JoinDetail(MapLabel(ping.MapId), $"by {ping.By}", $"{GroupSessionService.Ago(elapsed)} ago"),
+                Detail = JoinDetail(MapLabel(ping.MapId), $"{GroupSessionService.Ago(elapsed)} ago"),
+                MetadataLabel = JoinDetail(
+                    $"By · {ping.By}",
+                    $"TTL · {(remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring")}",
+                    "Scope · team",
+                    reconnecting ? "Offline snapshot" : string.Empty),
             });
         }
 

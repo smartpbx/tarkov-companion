@@ -741,6 +741,7 @@
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
                             <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                             <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                           </StackPanel>
                           <Path Grid.Column="2" Classes="v2-icon v2-team-success" VerticalAlignment="Center"
                                 Data="{DynamicResource V2.Icon.Check}" IsVisible="{Binding IsReached}" />
@@ -758,7 +759,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                       <DataTemplate x:DataType="vm:TeamMarkRowViewModel">
-                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                           <Panel Width="30" Height="30">
                             <Path Classes="v2-icon v2-team-warning" HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Data="{DynamicResource V2.Icon.Target}" />
@@ -766,10 +767,9 @@
                           <StackPanel Grid.Column="1" Spacing="0" VerticalAlignment="Center">
                             <TextBlock Classes="v2-body v2-team-strong" Text="{Binding Title}" />
                             <TextBlock Classes="v2-label" Text="{Binding Detail}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Classes="v2-label" Text="{Binding MetadataLabel}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                           </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" VerticalAlignment="Center"
-                                     Text="{Binding RemainingLabel}" IsVisible="{Binding HasRemaining}" />
-                          <Button Grid.Column="3" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
+                          <Button Grid.Column="2" Classes="v2-team-icon" Command="{Binding RemoveCommand}"
                                   AutomationProperties.Name="Remove ping" ToolTip.Tip="Remove">
                             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
                           </Button>

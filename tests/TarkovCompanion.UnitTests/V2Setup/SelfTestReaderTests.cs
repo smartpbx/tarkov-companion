@@ -179,7 +179,9 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.True(reading.Parsed);
         Assert.True(reading.WasAlreadyThere);
         Assert.NotNull(reading.Age);
-        Assert.InRange(reading.Age!.Value.TotalMinutes, 2.5, 3.5);
+        // Since #727 the age comes from the game's file name, which carries whole minutes only,
+        // so a shot taken three minutes ago reads as three to four minutes old.
+        Assert.InRange(reading.Age!.Value.TotalMinutes, 2.5, 4.1);
         Assert.Equal(ScreenshotNameKind.InRaid, reading.NameKind);
     }
 

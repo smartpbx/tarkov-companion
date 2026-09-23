@@ -136,6 +136,8 @@
   <x:String x:Key="V2.String.LootScan.Backpack">Your backpack</x:String>
   <x:String x:Key="V2.String.LootScan.NoBackpack">Backpack not visible in this screenshot</x:String>
   <x:String x:Key="V2.String.LootScan.WhatToTake">What should I take?</x:String>
+  <x:String x:Key="V2.String.LootScan.Wiki">Wiki</x:String>
+  <x:String x:Key="V2.String.LootScan.OpenWiki">Open item wiki</x:String>
   <x:String x:Key="V2.String.Live.Polite">Background updates are announced here.</x:String>
   <x:String x:Key="V2.String.Live.Assertive">Refused or failed actions are announced here.</x:String>
   <x:String x:Key="V2.String.Template.StatusName">{availability}, {completeness}, {freshness}: {detail}</x:String>

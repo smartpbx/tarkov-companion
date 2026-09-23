@@ -4,7 +4,9 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.LootScan;
+using TarkovCompanion.Application.Services.Wiki;
 using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
@@ -51,6 +53,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly FleaCaptureHandoff? _fleaHandoff;
     private readonly CompositeCaptureResultHandoff? _captureRouting;
     private readonly ILootScanRecognitionProgressSource? _lootRecognitionProgress;
+    private readonly IItemIntelService? _itemIntel;
+    private readonly IWikiLinkOpener? _wikiOpener;
     private TarkovCompanion.App.ViewModels.V2.Intel.FleaScanViewModel? _fleaScan;
     private LootScanViewModel? _lootScan;
     private readonly Lock _gate = new();
@@ -75,8 +79,12 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ManualImageIntake? manualIntake = null,
         FleaCaptureHandoff? fleaHandoff = null,
         CompositeCaptureResultHandoff? captureRouting = null,
-        ILootScanRecognitionProgressSource? lootRecognitionProgress = null)
+        ILootScanRecognitionProgressSource? lootRecognitionProgress = null,
+        IItemIntelService? itemIntel = null,
+        IWikiLinkOpener? wikiOpener = null)
     {
+        _itemIntel = itemIntel;
+        _wikiOpener = wikiOpener;
         _lootRecognitionProgress = lootRecognitionProgress;
         if (lootRecognitionProgress is not null)
         {
@@ -465,7 +473,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
     private void OnLootRecognitionStarted(object? sender, LootScanRecognitionStarted started)
     {
-        var viewModel = LootScanViewModel.CreateProgress(started, _lootScanControls);
+        var viewModel = LootScanViewModel.CreateProgress(started, _lootScanControls, openWiki: WikiAction());
         lock (_gate)
         {
             _latestLootRecognition = started.CorrelationId;
@@ -499,6 +507,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
                 : new LootScanViewModel(
                     result,
                     controls: _lootScanControls,
+                    openWiki: WikiAction(),
                     select: previous is not null &&
                             previous.Result.CaptureSessionId == result.CaptureSessionId &&
                             string.Equals(previous.Result.ArtifactId, result.ArtifactId, StringComparison.Ordinal)
@@ -533,6 +542,22 @@ public sealed class V2ShellCaptureBridge : IDisposable
 
     /// <summary>#572: a Loot Scan result was handed to the shell; the paired tablet shows it too.</summary>
     public event Action<LootScanViewModel>? LootScanShown;
+
+    private Func<string, Task>? WikiAction() =>
+        _itemIntel is not null && _wikiOpener is not null ? OpenWikiAsync : null;
+
+    private async Task OpenWikiAsync(string itemId)
+    {
+        try
+        {
+            var intel = await _itemIntel!.GetAsync(itemId, CancellationToken.None);
+            _wikiOpener!.TryOpen(intel.WikiUri);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not open the catalog wiki link for loot item {ItemId}.", itemId);
+        }
+    }
 
     private void OnCaptureSessionsChanged(object? sender, EventArgs eventArgs) => Push();
 
