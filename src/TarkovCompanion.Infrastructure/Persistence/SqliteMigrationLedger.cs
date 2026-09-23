@@ -37,6 +37,7 @@ public static class SqliteMigrationLedger
         new("0016_restore_task_objective_items", false, "Put back the quest item needs 0013 deleted"),
         new("0017_raid_soft_delete", false, "Soft-delete column on raids, for Debrief's delete-with-undo"),
         new("0018_stash_review_commands", false, "Durable append-only stash review commands"),
+        new("0019_loot_scan_history", false, "Saved Loot Scan results with their ruleset version"),
     ];
 
     public static SqliteMigrationDefinition Get(string id) =>

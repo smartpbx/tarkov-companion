@@ -1,0 +1,76 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.LootScan.SavedLootScanView"
+             x:DataType="vm:LootScanHistoryViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.saved-verdict">
+      <Setter Property="FontWeight" Value="Bold" />
+      <Setter Property="MinWidth" Value="64" />
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    </Style>
+    <Style Selector="TextBlock.saved-verdict.take">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="TextBlock.saved-verdict.swap">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="TextBlock.saved-verdict.leave">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    </Style>
+    <Style Selector="TextBlock.saved-verdict.review">
+      <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Info}" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- #274: a saved scan reopened from "Last scans". It covers the live page and says it is saved:
+       the loot may be gone and prices have moved since, so it is never shown as a live result. -->
+  <Border IsVisible="{Binding IsOpen, FallbackValue=False}" Background="{DynamicResource V2.Brush.Canvas}"
+          AutomationProperties.AutomationId="v2-loot-scan-saved">
+    <Border Classes="v2-pane" Margin="16,4,16,16" MaxWidth="1100" HorizontalAlignment="Center" VerticalAlignment="Top"
+            DataContext="{Binding Opened}" x:DataType="vm:SavedLootScanDetailViewModel">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="v2-heading-2" Text="{Binding Heading, FallbackValue=''}" AutomationProperties.HeadingLevel="2" />
+            <TextBlock Classes="v2-label" Text="{Binding ContextLabel, FallbackValue=''}" />
+            <TextBlock Classes="v2-label" Text="{Binding RulesLabel, FallbackValue=''}"
+                       AutomationProperties.AutomationId="v2-loot-scan-saved-rules" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="v2-outline" VerticalAlignment="Top"
+                  Content="Back to live scan"
+                  Command="{Binding CloseCommand, FallbackValue={x:Null}}"
+                  AutomationProperties.AutomationId="v2-loot-scan-saved-close" />
+        </Grid>
+        <TextBlock Grid.Row="1" Classes="v2-label" Text="{Binding Notice, FallbackValue=''}" />
+        <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding Items, FallbackValue={x:Null}}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Spacing="6" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SavedLootScanItemViewModel">
+                <Border Classes="v2-section" Padding="12,8">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                    <TextBlock Classes="v2-body saved-verdict" VerticalAlignment="Top"
+                               Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
+                               Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
+                               Text="{Binding VerdictLabel}" />
+                    <StackPanel Grid.Column="1" Spacing="2">
+                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="v2-label" Text="{Binding DetailLabel}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Top"
+                               Text="{Binding ValueLabel}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+  </Border>
+</UserControl>

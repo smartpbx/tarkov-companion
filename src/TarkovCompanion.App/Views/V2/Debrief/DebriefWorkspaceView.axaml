@@ -514,6 +514,15 @@
                             </Border>
                           </StackPanel>
                           <TextBlock Classes="v2-label" Text="{Binding DetailLabel}" IsVisible="{Binding HasDetail}" />
+                          <!-- #274: a saved Loot Scan's calls, one line each. -->
+                          <ItemsControl ItemsSource="{Binding VerdictLines}" IsVisible="{Binding HasVerdictLines}"
+                                        Margin="0,2,0,0" AutomationProperties.AutomationId="v2-debrief-loot-verdicts">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="x:String">
+                                <TextBlock Classes="v2-debrief-muted" Text="{Binding}" TextTrimming="CharacterEllipsis" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Spacing="2" HorizontalAlignment="Right">
                           <TextBlock Classes="v2-debrief-muted" Text="{Binding TimeLabel}" HorizontalAlignment="Right" />

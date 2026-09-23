@@ -16,7 +16,8 @@
              xmlns:intelVm="using:TarkovCompanion.App.ViewModels.V2.Intel"
              xmlns:intelViews="using:TarkovCompanion.App.Views.V2.Intel"
              xmlns:prim="using:TarkovCompanion.App.Views.V2.Primitives"
-             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell">
+             xmlns:shellViews="using:TarkovCompanion.App.Views.V2.Shell"
+             xmlns:lootViews="using:TarkovCompanion.App.Views.V2.LootScan">
   <UserControl.DataTemplates>
     <DataTemplate DataType="{x:Type stashVm:StashScanWorkspaceViewModel}">
       <stashViews:StashScanWorkspaceView />
@@ -825,7 +826,12 @@
             <Button Classes="v2-outline" HorizontalAlignment="Center" Margin="0,6,0,0"
                     AutomationProperties.AutomationId="v2-loot-scan-start"
                     Content="{Binding LootScanActionLabel}" Command="{Binding ScanLootCommand}" />
+            <lootViews:LootScanHistoryListView Margin="0,18,0,0" MinWidth="360" DataContext="{Binding LootHistory}" />
           </StackPanel>
+          <!-- #274: a saved scan reopened from "Last scans", over the live page or the empty state. -->
+          <Panel Grid.Row="1" IsVisible="{Binding ShowsLootScan}">
+            <lootViews:SavedLootScanView DataContext="{Binding LootHistory}" />
+          </Panel>
           <ScrollViewer Grid.Row="1" IsVisible="{Binding ShowsSetupWorkspace}" HorizontalScrollBarVisibility="Disabled">
             <ContentControl Content="{Binding SetupWorkspace}" />
           </ScrollViewer>

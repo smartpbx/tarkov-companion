@@ -1828,6 +1828,11 @@ internal static class Program
                         CancellationToken.None));
                 }
 
+                if (args.Contains("--debrief-loot-demo"))
+                {
+                    LootHistoryDemo.SeedDebrief(services, seeded.Result, DrainUntilComplete, args.Contains("--debrief-loot-wrong"));
+                }
+
                 if (args.Contains("--debrief-route-demo"))
                 {
                     var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
@@ -1966,6 +1971,12 @@ internal static class Program
                         openWiki: _ => Task.CompletedTask));
                 }
                 Pump(20);
+            }
+
+            // #274: "Last scans" and a reopened saved scan. See LootHistoryDemo.
+            if (shell is not null && args.Contains("--loot-history-demo"))
+            {
+                LootHistoryDemo.RunLoot(services, shell, DrainUntilComplete, Pump, StringOption(args, "--loot-history-open"));
             }
 
             // [f920 capture] The same workspace decided by the composed application from a

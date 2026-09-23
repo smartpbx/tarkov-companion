@@ -48,6 +48,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private readonly IntelCaptureHandoff _intelHandoff;
     private readonly WorkspaceOrigin _origin;
     private readonly ILogger<V2ShellCaptureBridge> _logger;
+    private readonly LootScanHistoryViewModel? _lootHistory;
     private readonly ILootScanWorkspaceControls? _lootScanControls;
     private readonly ShellCaptureContextSource? _contextSource;
     private readonly ManualImageIntake? _manualIntake;
@@ -87,7 +88,8 @@ public sealed class V2ShellCaptureBridge : IDisposable
         ILootScanRecognitionProgressSource? lootRecognitionProgress = null,
         IItemIntelService? itemIntel = null,
         IWikiLinkOpener? wikiOpener = null,
-        RelayMarksBridge? relayBridge = null)
+        RelayMarksBridge? relayBridge = null,
+        LootScanHistoryViewModel? lootHistory = null)
     {
         _itemIntel = itemIntel;
         _wikiOpener = wikiOpener;
@@ -124,6 +126,11 @@ public sealed class V2ShellCaptureBridge : IDisposable
         _origin = origin ?? throw new ArgumentNullException(nameof(origin));
         _logger = logger ?? NullLogger<V2ShellCaptureBridge>.Instance;
         _relayBridge = relayBridge;
+        _lootHistory = lootHistory;
+        if (lootHistory is not null)
+        {
+            _shell.LootHistory = lootHistory;
+        }
 
         _shell.CaptureArmRequested += OnCaptureArmRequested;
         if (_relayBridge is not null)
@@ -637,6 +644,7 @@ public sealed class V2ShellCaptureBridge : IDisposable
     private void OnLootRecognitionStarted(object? sender, LootScanRecognitionStarted started)
     {
         var viewModel = LootScanViewModel.CreateProgress(started, _lootScanControls, openWiki: WikiAction());
+        viewModel.History = _lootHistory;
         lock (_gate)
         {
             _latestLootRecognition = started.CorrelationId;
@@ -679,8 +687,10 @@ public sealed class V2ShellCaptureBridge : IDisposable
             _lootScan = viewModel;
         }
 
+        viewModel.History = _lootHistory;
         _shell.ApplyLootScanResult(viewModel, result, applied =>
         {
+            _ = RecordLootScanAsync(applied);
             lock (_gate)
             {
                 // The frame that reached handoff is the only capture this session's single-review
@@ -701,6 +711,24 @@ public sealed class V2ShellCaptureBridge : IDisposable
             LootScanShown?.Invoke(applied);
             Push();
         });
+    }
+
+    /// <summary>#274: every completed scan the page shows is saved with its ruleset version.</summary>
+    private async Task RecordLootScanAsync(LootScanViewModel applied)
+    {
+        if (_lootHistory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _lootHistory.RecordAsync(applied).ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(exception, "Could not save a loot scan.");
+        }
     }
 
     /// <summary>#572: a Loot Scan result was handed to the shell; the paired tablet shows it too.</summary>

@@ -641,7 +641,8 @@ public sealed class SqliteRaidHistoryService(
         {
             command.Transaction = transaction;
             // raid_events, raid_positions and raid_extracts all cascade on delete (0001_initial.sql).
-            command.CommandText = "DELETE FROM raids WHERE id = $id;";
+            // loot_scans has no foreign key (0019), so a raid's saved loot scans go with it here.
+            command.CommandText = "DELETE FROM loot_scans WHERE raid_id = $id; DELETE FROM raids WHERE id = $id;";
             command.Parameters.Add("$id", SqliteType.Text);
             foreach (var raidId in toPurge)
             {

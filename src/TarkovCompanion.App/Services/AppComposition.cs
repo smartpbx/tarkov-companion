@@ -753,6 +753,8 @@ public static class AppComposition
         services.AddSingleton<IStashSnapshotStore>(provider => provider.GetRequiredService<SqliteStashSnapshotStore>());
         services.AddSingleton<SqliteStashReviewCommandStore>();
         services.AddSingleton<IStashReviewCommandSink>(provider => provider.GetRequiredService<SqliteStashReviewCommandStore>());
+        services.AddSingleton<ILootScanHistoryStore, TarkovCompanion.Infrastructure.Persistence.LootScan.SqliteLootScanHistoryStore>();
+        services.AddSingleton<TarkovCompanion.App.ViewModels.V2.LootScan.LootScanHistoryViewModel>();
         services.AddSingleton<StashScanWorkflow>();
         // [V2 rough package 40] The guided full-stash scan: several screenshots, one stash, and
         // the owned counts a finished scan feeds. Refs #283 #273.

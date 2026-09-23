@@ -108,6 +108,22 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public LootScanResult Result => _result;
 
+    /// <summary>"Last scans" (#274): this raid's saved scans, beside the live one.</summary>
+    public LootScanHistoryViewModel? History
+    {
+        get => _history;
+        set
+        {
+            if (!ReferenceEquals(_history, value))
+            {
+                _history = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    private LootScanHistoryViewModel? _history;
+
     public CaptureCorrelationId CorrelationId => Result.CorrelationId;
 
     public bool IsProgressive => _isProgressive;
@@ -923,6 +939,9 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
     private readonly Func<string, Task>? _openWiki;
 
     private string? ItemId => _decision.Item.Value?.CanonicalId.Value;
+
+    /// <summary>The call this row shows, for the saved copy of the scan (#274).</summary>
+    internal LootScanDecision Decision => _decision;
 
     /// <summary>A named item can be pinned, wished for or given a rule. A cell nobody named cannot.</summary>
     public bool CanSetItemChoices => !IsPending && _controls is not null && ItemId is not null;

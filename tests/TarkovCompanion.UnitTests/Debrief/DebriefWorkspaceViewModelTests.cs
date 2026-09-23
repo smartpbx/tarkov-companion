@@ -2,7 +2,9 @@ using System.Text.Json;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
+using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Workspaces;
@@ -330,6 +332,67 @@ public sealed class DebriefWorkspaceViewModelTests
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    /// <summary>
+    /// #274/#291: a saved Loot Scan is listed among the raid's scans with its calls and the rules
+    /// that made them, and "Wrong" takes it out of the totals and puts it back.
+    /// </summary>
+    [Fact]
+    public async Task A_saved_loot_scan_lists_its_calls_and_ruleset_and_can_be_marked_wrong()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(24), null, null));
+        var lootScans = new InMemoryLootScanHistory();
+        await lootScans.SaveAsync(new SavedLootScan(
+            "scan-274",
+            RaidId,
+            "customs",
+            Started.AddMinutes(7),
+            "recommendation-274.2",
+            IsComplete: true,
+            [
+                new("item-gpu", "Graphics card", LootScanVerdict.Take, "Place in rig, row 1, column 1", 300_000, 0.93, "Hideout"),
+                new("item-bolts", "Bolts", LootScanVerdict.Leave, string.Empty, 9_000, 0.8, "Value only"),
+            ]), CancellationToken.None);
+        var viewModel = new DebriefWorkspaceViewModel(
+            service, TestPaths(), new FixedClock(Started.AddHours(1)), lootScans: lootScans);
+
+        await viewModel.LoadAsync();
+
+        var row = Assert.Single(viewModel.SelectedScans);
+        Assert.Equal("1 take · 1 leave", row.ItemLabel);
+        Assert.Equal("Loot scan · Rules recommendation-274.2", row.DetailLabel);
+        Assert.Contains("300,000", row.ValueLabel, StringComparison.Ordinal);
+        Assert.Equal(["TAKE Graphics card · ₽300k", "LEAVE Bolts · ₽9k"], row.VerdictLines);
+        Assert.Equal("1 scan · 1 recognised", viewModel.SelectedScanSummary);
+
+        await viewModel.CorrectScanAsync(row.ScanId, isWrong: true);
+
+        Assert.True(Assert.Single(viewModel.SelectedScans).IsWrong);
+        Assert.Equal("0 scans · 0 recognised · 1 marked wrong", viewModel.SelectedScanSummary);
+
+        await viewModel.CorrectScanAsync(row.ScanId, isWrong: false);
+
+        Assert.False(Assert.Single(viewModel.SelectedScans).IsWrong);
+    }
+
+    private sealed class InMemoryLootScanHistory : ILootScanHistoryStore
+    {
+        private readonly List<SavedLootScan> _scans = [];
+
+        public Task SaveAsync(SavedLootScan scan, CancellationToken cancellationToken)
+        {
+            _scans.RemoveAll(existing => existing.ScanId == scan.ScanId);
+            _scans.Add(scan);
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<SavedLootScan>> ListForRaidAsync(Guid raidId, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<SavedLootScan>>(_scans.Where(scan => scan.RaidId == raidId).OrderBy(scan => scan.EvaluatedUtc).ToArray());
+
+        public Task<IReadOnlyList<SavedLootScan>> ListRecentAsync(int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<SavedLootScan>>(_scans.OrderByDescending(scan => scan.EvaluatedUtc).Take(limit).ToArray());
     }
 
     private static AppDataPaths TestPaths() => AppDataPaths.Resolve(

@@ -2,7 +2,8 @@
              x:DataType="vm:LootScanViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan"
+             xmlns:local="using:TarkovCompanion.App.Views.V2.LootScan">
   <UserControl.Resources>
     <!-- Fluent's Expander header is a solid dark slab; in the context panel it reads as a section row. -->
     <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="Transparent" />
@@ -505,7 +506,7 @@
 
     <!-- Context panel: one row per call, the totals, and why. -->
     <Border Grid.Column="1" Width="420" Classes="v2-context-panel">
-      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto" Margin="16,20,16,16" RowSpacing="12">
+      <Grid RowDefinitions="Auto,Auto,*,Auto,Auto,Auto,Auto" Margin="16,20,16,16" RowSpacing="12">
         <TextBlock Classes="v2-heading-2" Text="{DynamicResource V2.String.LootScan.WhatToTake}"
                    AutomationProperties.HeadingLevel="2" />
 
@@ -576,7 +577,10 @@
           </ItemsControl>
         </ScrollViewer>
 
-        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"
+        <!-- #274: this raid's saved scans; one reopens over the page as a saved result. -->
+        <local:LootScanHistoryListView Grid.Row="3" DataContext="{Binding History}" />
+
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8"
               IsVisible="{Binding HasMultiplePages}"
               AutomationProperties.Name="{DynamicResource V2.String.LootScan.PageControls}"
               AutomationProperties.AccessibilityView="Control">
@@ -593,7 +597,7 @@
                   AutomationProperties.AutomationId="v2-loot-scan-next-bottom" />
         </Grid>
 
-        <Border Grid.Row="4" Classes="v2-section v2-section-accent"
+        <Border Grid.Row="5" Classes="v2-section v2-section-accent"
                 AutomationProperties.Name="{DynamicResource V2.String.LootScan.Totals}"
                 AutomationProperties.AccessibilityView="Control">
           <StackPanel Orientation="Horizontal" Spacing="14">
@@ -602,7 +606,7 @@
           </StackPanel>
         </Border>
 
-        <Border Grid.Row="5" Classes="v2-section" IsVisible="{Binding HasIssues}"
+        <Border Grid.Row="6" Classes="v2-section" IsVisible="{Binding HasIssues}"
                 AutomationProperties.Name="{DynamicResource V2.String.LootScan.Limitations}"
                 AutomationProperties.AccessibilityView="Control">
           <Expander Classes="v2-why loot-expander"
