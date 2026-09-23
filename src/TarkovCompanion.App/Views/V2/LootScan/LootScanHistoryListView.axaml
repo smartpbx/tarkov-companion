@@ -1,0 +1,28 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.LootScan.LootScanHistoryListView"
+             x:DataType="vm:LootScanHistoryViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.LootScan">
+  <!-- #274: this raid's saved scans; one reopens over the page as a saved result. -->
+  <Border Classes="v2-section" IsVisible="{Binding HasRows, FallbackValue=False}"
+          AutomationProperties.AutomationId="v2-loot-scan-history">
+    <StackPanel Spacing="4">
+      <TextBlock Classes="v2-label" Text="{Binding Heading}" AutomationProperties.HeadingLevel="3" />
+      <ItemsControl ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:LootScanHistoryRowViewModel">
+            <Button Classes="v2-plain" Command="{Binding OpenCommand}" Padding="6,4"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                    AutomationProperties.Name="{Binding AutomationName}">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding TimeLabel}" />
+                <TextBlock Grid.Column="1" Classes="v2-body" VerticalAlignment="Center"
+                           Text="{Binding SummaryLabel}" TextTrimming="CharacterEllipsis" />
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </Border>
+</UserControl>

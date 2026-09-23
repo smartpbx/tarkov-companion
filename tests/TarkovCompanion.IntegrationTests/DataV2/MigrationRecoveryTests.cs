@@ -10,8 +10,8 @@ public sealed class MigrationRecoveryTests
     public async Task LedgerHasPairedUpgradeAndRollbackFixturesAndFreshDatabaseAppliesAll()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(18, SqliteMigrationLedger.Entries.Count);
-        Assert.Equal("0018_stash_review_commands", SqliteMigrationLedger.Entries[^1].Id);
+        Assert.Equal(19, SqliteMigrationLedger.Entries.Count);
+        Assert.Equal("0019_loot_scan_history", SqliteMigrationLedger.Entries[^1].Id);
         Assert.All(SqliteMigrationLedger.Entries, entry =>
         {
             var fixture = SqliteMigrationRunner.ReadFixture(entry.Id);
@@ -20,7 +20,7 @@ public sealed class MigrationRecoveryTests
             Assert.EndsWith(";", fixture.UpgradeSql.TrimEnd(), StringComparison.Ordinal);
             Assert.EndsWith(";", fixture.RollbackSql.TrimEnd(), StringComparison.Ordinal);
         });
-        Assert.Equal(18, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
+        Assert.Equal(19, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM schema_migrations;"));
 
         var latest = SqliteMigrationRunner.ReadFixture("0015_flea_market_settings").RollbackSql;
         await using (var latestConnection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
@@ -513,6 +513,7 @@ public sealed class MigrationRecoveryTests
         "0016_restore_task_objective_items" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'task_objective_items';",
         "0017_raid_soft_delete" => "SELECT COUNT(*) FROM pragma_table_info('raids') WHERE name = 'deleted_utc';",
         "0018_stash_review_commands" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'stash_review_commands';",
+        "0019_loot_scan_history" => "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'loot_scans';",
         _ => throw new ArgumentOutOfRangeException(nameof(migrationId)),
     };
 

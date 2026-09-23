@@ -512,7 +512,8 @@ public sealed class SqliteDataPlatformMaintenance(
               (SELECT COUNT(*) FROM observed_inventory_snapshots WHERE is_current = 0 AND recorded_utc < $cutoff) +
               (SELECT COUNT(*) FROM raid_field_history WHERE recorded_utc < $cutoff) +
               (SELECT COUNT(*) FROM craft_history WHERE recorded_utc < $cutoff) +
-              (SELECT COUNT(*) FROM model_snapshots WHERE generated_utc < $cutoff);
+              (SELECT COUNT(*) FROM model_snapshots WHERE generated_utc < $cutoff) +
+              (SELECT COUNT(*) FROM loot_scans WHERE evaluated_utc < $cutoff);
             """;
         command.Parameters.AddWithValue("$cutoff", Format(retainAfterUtc));
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
@@ -563,6 +564,8 @@ public sealed class SqliteDataPlatformMaintenance(
         affected += await ExecuteAsync(connection, transaction, "DELETE FROM raid_field_history WHERE recorded_utc < $cutoff;", cutoff, cancellationToken).ConfigureAwait(false);
         affected += await ExecuteAsync(connection, transaction, "DELETE FROM craft_history WHERE recorded_utc < $cutoff;", cutoff, cancellationToken).ConfigureAwait(false);
         affected += await ExecuteAsync(connection, transaction, "DELETE FROM model_snapshots WHERE generated_utc < $cutoff;", cutoff, cancellationToken).ConfigureAwait(false);
+        // #274: saved loot scans also keep their own 500-scan / 90-day bound on every save.
+        affected += await ExecuteAsync(connection, transaction, "DELETE FROM loot_scans WHERE evaluated_utc < $cutoff;", cutoff, cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(connection, transaction, """
             UPDATE dataset_publications
             SET previous_lkg_publication_id = NULL

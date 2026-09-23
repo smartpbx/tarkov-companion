@@ -3,6 +3,9 @@ using System.Globalization;
 using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
+using TarkovCompanion.Application.Services.LootScan;
+using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Workspaces;
@@ -75,6 +78,11 @@ public sealed record DebriefScanRowViewModel(
     public string CorrectionActionLabel => IsWrong ? "Restore" : "Wrong";
 
     public ICommand? CorrectionCommand { get; init; }
+
+    /// <summary>A saved Loot Scan's calls, one line each ("TAKE Graphics card · ₽300k"). #274.</summary>
+    public IReadOnlyList<string> VerdictLines { get; init; } = [];
+
+    public bool HasVerdictLines => VerdictLines.Count > 0;
 }
 
 /// <summary>A raid's trail, handed to the shell to draw on the Raid map (V1's "Watch it").</summary>
@@ -160,6 +168,7 @@ public sealed class DebriefFilterChipViewModel : BindableViewModel
 public sealed class DebriefWorkspaceViewModel : BindableViewModel
 {
     private readonly IRaidHistoryService _raidHistoryService;
+    private readonly ILootScanHistoryStore? _lootScans;
     private readonly AppDataPaths _paths;
     private readonly TimeProvider _clock;
     // Optional: naming what sold and which quest fired is a readability improvement over the
@@ -233,8 +242,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         IQuestCatalog? questCatalog = null,
         IPlayerProfileService? profileService = null,
         QuestTrackingOptions? questOptions = null,
-        IWorkspaceLayoutStore? layoutStore = null)
+        IWorkspaceLayoutStore? layoutStore = null,
+        ILootScanHistoryStore? lootScans = null)
     {
+        _lootScans = lootScans;
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
         _clock = clock ?? TimeProvider.System;
@@ -1343,7 +1354,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         var wrongScanIds = RaidScanCorrection.WrongScanIds(await _raidHistoryService
             .ListEventPayloadsAsync(raidId, RaidScanCorrection.EventType, cancellationToken)
             .ConfigureAwait(true));
-        var rows = new List<DebriefScanRowViewModel>(scans.Length);
+        var lootScans = _lootScans is null
+            ? []
+            : await _lootScans.ListForRaidAsync(raidId, cancellationToken).ConfigureAwait(true);
+        var rows = new List<(DateTimeOffset At, DebriefScanRowViewModel Row)>(scans.Length + lootScans.Count);
         foreach (var scan in scans)
         {
             var isWrong = wrongScanIds.Contains(scan.Id);
@@ -1361,7 +1375,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 detail.Add(recommendation);
             }
 
-            rows.Add(new(
+            rows.Add((scan.ObservedUtc, new(
                 LocalTime.ShortTime(scan.ObservedUtc),
                 itemName,
                 scan.IdentityKind.Label(),
@@ -1374,20 +1388,61 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 ScanId = scan.Id,
                 IsWrong = isWrong,
                 CorrectionCommand = new AsyncDelegateCommand(() => CorrectScanAsync(scan.Id, !isWrong)),
-            });
+            }));
         }
 
-        SelectedScans = rows;
+        foreach (var loot in lootScans)
+        {
+            rows.Add((loot.EvaluatedUtc, LootScanRow(loot, wrongScanIds.Contains(loot.CorrectionId))));
+        }
+
+        SelectedScans = rows.OrderBy(row => row.At).Select(row => row.Row).ToArray();
         var counted = scans.Where(scan => !wrongScanIds.Contains(scan.Id)).ToArray();
-        var wrongCount = scans.Length - counted.Length;
-        var recognised = counted.Count(scan => scan.Recognised);
+        var countedLoot = lootScans.Where(scan => !wrongScanIds.Contains(scan.CorrectionId)).ToArray();
+        var wrongCount = scans.Length - counted.Length + lootScans.Count - countedLoot.Length;
+        var recognised = counted.Count(scan => scan.Recognised) + countedLoot.Count(scan => scan.Items.Any(item => item.ItemId is not null));
         var unavailable = counted.Count(scan => !scan.IsAvailable);
-        SelectedScanSummary = scans.Length == 0
+        SelectedScanSummary = scans.Length + lootScans.Count == 0
             ? "No scans during this raid."
             : string.Create(
                 CultureInfo.CurrentCulture,
-                $"{CountLabel(counted.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}{(wrongCount > 0 ? $" · {wrongCount:N0} marked wrong" : string.Empty)}");
+                $"{CountLabel(counted.Length + countedLoot.Length, "scan")} · {recognised:N0} recognised{(unavailable > 0 ? $" · {unavailable:N0} unavailable" : string.Empty)}{(wrongCount > 0 ? $" · {wrongCount:N0} marked wrong" : string.Empty)}");
     }
+
+    /// <summary>
+    /// A saved Loot Scan (#274): its calls, its value as an estimate, and the rules that made it.
+    /// "Wrong" appends the same correction a screenshot scan gets, under the scan's own id.
+    /// </summary>
+    private DebriefScanRowViewModel LootScanRow(SavedLootScan loot, bool isWrong)
+    {
+        var culture = CultureInfo.CurrentCulture;
+        var taken = loot.TakenValueRoubles;
+        return new DebriefScanRowViewModel(
+            LocalTime.ShortTime(loot.EvaluatedUtc),
+            LootScanHistoryViewModel.Summary(loot, culture),
+            RaidFactKind.Inferred.Label(),
+            taken > 0 ? string.Create(culture, $"≈ {taken:N0} roubles taken") : string.Empty,
+            RaidFactKind.Estimated.Label(),
+            "Loot scan · " + LootScanHistoryViewModel.RulesLabel(loot) + (loot.IsComplete ? string.Empty : " · needed review"))
+        {
+            ScanId = loot.CorrectionId,
+            IsWrong = isWrong,
+            CorrectionCommand = new AsyncDelegateCommand(() => CorrectScanAsync(loot.CorrectionId, !isWrong)),
+            VerdictLines = loot.Items
+                .Where(item => item.Verdict != LootScanVerdict.Leave)
+                .Concat(loot.Items.Where(item => item.Verdict == LootScanVerdict.Leave))
+                .Take(MaximumVerdictLines)
+                .Select(item => item.ValueRoubles is { } value
+                    ? $"{item.Verdict.ToString().ToUpperInvariant()} {item.Name} · {LootScanDecisionViewModel.CompactRoubles(value, culture)}"
+                    : $"{item.Verdict.ToString().ToUpperInvariant()} {item.Name}")
+                .Concat(loot.Items.Count > MaximumVerdictLines
+                    ? [string.Create(culture, $"+{loot.Items.Count - MaximumVerdictLines:N0} more")]
+                    : [])
+                .ToArray(),
+        };
+    }
+
+    private const int MaximumVerdictLines = 6;
 
     internal async Task CorrectScanAsync(string scanId, bool isWrong)
     {
