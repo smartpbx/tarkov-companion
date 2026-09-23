@@ -493,6 +493,7 @@ public sealed partial class V2ShellViewModel
     public bool IntelHasAmmoFacts => _intelResult?.Ammo is not null;
     public bool IntelHasNoAmmoFacts => IntelIsAmmo && !IntelHasAmmoFacts;
     public string IntelAmmoUnknownLabel => V2ShellText.Get("V2.Shell.Intel.AmmoUnknown");
+    public string IntelAmmoCaliber => _intelResult?.Ammo?.Caliber ?? string.Empty;
     public string IntelAmmoDamage => _intelResult?.Ammo?.Damage.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     public string IntelAmmoPenetration => _intelResult?.Ammo?.Penetration.ToString(CultureInfo.CurrentCulture) ?? string.Empty;
     public string IntelAmmoTier => _intelResult?.Ammo?.Tier ?? string.Empty;
@@ -608,7 +609,7 @@ public sealed partial class V2ShellViewModel
             nameof(IntelHasSellingComparison), nameof(IntelSellingComparison),
             nameof(IntelKeepQuestLines), nameof(IntelKeepHideoutLines), nameof(HasIntelKeepDetail), nameof(ShowsIntelKeepEmpty),
             nameof(IntelIsKey), nameof(IntelIsAmmo), nameof(IntelKeyMapLabel), nameof(IntelKeyLocks),
-            nameof(IntelHasAmmoFacts), nameof(IntelHasNoAmmoFacts), nameof(IntelAmmoDamage), nameof(IntelAmmoPenetration),
+            nameof(IntelHasAmmoFacts), nameof(IntelHasNoAmmoFacts), nameof(IntelAmmoCaliber), nameof(IntelAmmoDamage), nameof(IntelAmmoPenetration),
             nameof(IntelAmmoTier), nameof(IntelAmmoAdvice), nameof(IntelArmorClasses),
             nameof(IntelHomeNeededNow), nameof(IntelHomePinned), nameof(IntelHomeRecent), nameof(IntelHomeHighestValue),
             nameof(HasIntelHomeNeededNow), nameof(HasIntelHomePinned), nameof(HasIntelHomeRecent), nameof(HasIntelHomeHighestValue),
