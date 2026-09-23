@@ -1558,7 +1558,14 @@ foreach ($Shot in $Shots) {
         # Inherited by this launch only, and read back once it has exited. The application
         # writes nothing there unless this is set, so a player's run costs nothing.
         $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
-        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList $Shot.args -PassThru
+        $LaunchArguments = @($Shot.args)
+        if ($Shot.width -gt 0 -and $Shot.height -gt 0) {
+            # Placement restore loads asynchronously after Opened. Give the application the
+            # intended verification size so it leaves placement to this harness for the launch;
+            # otherwise a remembered player-sized window can overwrite MoveWindow below.
+            $LaunchArguments += @("--window-size", "$($Shot.width)x$($Shot.height)")
+        }
+        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList $LaunchArguments -PassThru
         # Reading Handle here is what makes ExitCode and WaitForExit reliable later.
         $null = $Process.Handle
 
