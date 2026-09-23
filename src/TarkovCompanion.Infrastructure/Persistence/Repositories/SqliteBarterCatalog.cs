@@ -113,8 +113,13 @@ public sealed class SqliteBarterCatalog(SqliteConnectionFactory connectionFactor
                 stated.TryGetInt32(out var value)
                 ? value
                 : null;
-            var unlock = root.TryGetProperty("taskUnlock", out var task) && task.ValueKind == JsonValueKind.String
-                ? task.GetString()
+            var unlock = root.TryGetProperty("taskUnlock", out var task)
+                ? task.ValueKind switch
+                {
+                    JsonValueKind.String => task.GetString(),
+                    JsonValueKind.Object when task.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String => id.GetString(),
+                    _ => null,
+                }
                 : null;
             return (level, unlock);
         }

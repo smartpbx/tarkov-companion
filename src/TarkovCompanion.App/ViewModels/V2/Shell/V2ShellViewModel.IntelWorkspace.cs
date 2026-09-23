@@ -98,6 +98,16 @@ public sealed record V2IntelNeedLineViewModel(string Text, bool IsActive);
 /// <summary>One sale channel beside the others, with its share of the best price for the bar.</summary>
 public sealed record V2IntelPriceSourceViewModel(string Name, string ValueLabel, double Share, bool IsAvailable, bool IsBest);
 
+/// <summary>One trader source, available first and visibly muted when the profile cannot use it.</summary>
+public sealed record V2IntelAcquisitionSourceViewModel(
+    string Source,
+    string Cost,
+    string Requirement,
+    bool IsObtainable)
+{
+    public double Opacity => IsObtainable ? 1 : 0.52;
+}
+
 /// <summary>
 /// V2 rough package 17: presentation for the Intel workspace (docs/design/v2/v2-intel-workspace-concept.png).
 /// </summary>
@@ -489,6 +499,27 @@ public sealed partial class V2ShellViewModel
         }
     }
 
+    public string IntelWhereToBuyHeading => "Where to buy";
+    public bool HasIntelAcquisitionSources => IntelAcquisitionSources.Count > 0;
+    public string IntelNoAcquisitionSourcesLabel => "No trader source in the catalog.";
+    public IReadOnlyList<V2IntelAcquisitionSourceViewModel> IntelAcquisitionSources =>
+        _intelResult?.Acquisitions?.Select(DescribeAcquisition).ToArray() ?? [];
+
+    private static V2IntelAcquisitionSourceViewModel DescribeAcquisition(ProfiledItemAcquisition row)
+    {
+        var offer = row.Offer;
+        var cost = offer.Kind switch
+        {
+            ItemAcquisitionKind.Cash when offer.PriceRoubles is { } price => Roubles(price),
+            ItemAcquisitionKind.Barter when offer.BarterCost.Count > 0 =>
+                string.Join(" + ", offer.BarterCost.Select(input =>
+                    $"{input.Count.ToString(CultureInfo.CurrentCulture)} × {input.Name}")),
+            ItemAcquisitionKind.Barter => "Barter",
+            _ => "Price unknown",
+        };
+        return new(offer.TraderName, cost, row.Availability.RequirementLabel, row.Availability.IsObtainable);
+    }
+
     // Kind-specific card: what a key opens, or an ammo's ballistics.
     public bool IntelIsKey => _intelResult?.Kind == V2IntelKind.Key;
     public bool IntelIsAmmo => _intelResult?.Kind == V2IntelKind.Ammo;
@@ -611,6 +642,8 @@ public sealed partial class V2ShellViewModel
             nameof(IntelBestSaleLabel), nameof(IntelHasPrices), nameof(IntelHasNoPrices), nameof(IntelFleaPriceLabel),
             nameof(IntelPriceUpdatedLabel), nameof(IntelHasTraderPrice), nameof(IntelTraderPriceLabel),
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
+            nameof(IntelWhereToBuyHeading), nameof(HasIntelAcquisitionSources), nameof(IntelNoAcquisitionSourcesLabel),
+            nameof(IntelAcquisitionSources),
             nameof(IntelHasSevenDayHistory), nameof(IntelSevenDayLabel), nameof(IntelSevenDayRange),
             nameof(HasIntelPerSlotValue), nameof(IntelPerSlotValueLabel), nameof(IntelFeeLabel),
             nameof(IntelHasSellingComparison), nameof(IntelSellingComparison),

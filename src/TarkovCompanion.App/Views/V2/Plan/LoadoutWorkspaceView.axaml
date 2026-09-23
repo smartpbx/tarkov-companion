@@ -176,6 +176,32 @@
             </Border>
           </Border>
 
+          <Border Classes="v2-intel-section" AutomationProperties.AutomationId="v2-loadout-alternatives">
+            <StackPanel Spacing="8">
+              <TextBlock Classes="v2-heading-3" Text="Alternatives" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding AlternativesStatus}" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Alternatives}" IsVisible="{Binding HasAlternatives}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:LoadoutAlternativeViewModel">
+                    <Border Classes="v2-intel-fact" Opacity="{Binding Opacity}">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="1">
+                          <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}"
+                                     TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="v2-label" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Classes="v2-label" Text="{Binding Source}" />
+                          <TextBlock Classes="v2-label" Text="{Binding Requirement}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Use"
+                                Command="{Binding ChooseCommand}" VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </Border>
+
           <Border Classes="v2-intel-section">
             <StackPanel Spacing="10">
               <Grid ColumnDefinitions="*,Auto">

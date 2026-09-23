@@ -12,6 +12,7 @@ using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Loadouts;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profiles;
@@ -2848,7 +2849,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // [V2 rough package 60 — Plan] #288: saved kits, optional for the same reason. With no
         // store the Loadout page offers no presets rather than a Save button that does nothing.
         ILoadoutPresetStore? loadoutPresets = null,
-        IProfileRuntimeContextService? profileRuntimeContext = null)
+        IProfileRuntimeContextService? profileRuntimeContext = null,
+        IItemAcquisitionService? itemAcquisitions = null)
     {
         _group = group;
         _layoutStore = layoutStore;
@@ -2900,7 +2902,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository, loadoutPresets, timeProvider,
-            new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider));
+            new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider),
+            itemAcquisitions);
         Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);

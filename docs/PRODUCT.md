@@ -130,6 +130,8 @@ Each piece of gear shows the figures the catalog states (`GearFacts`: armor clas
 
 Warnings cover profile-unobtainable ammunition, low-tier ammunition paired with a kit worth at least 150,000 roubles, and armor with no selected plate. These are planning heuristics based on cached/public facts, not input automation or live gameplay detection.
 
+Loadout alternatives and Intel's item detail order trader cash and barter sources the active profile can use before dimmed sources gated by loyalty or a completed quest.
+
 The kit is shown as ten slots, filled or not, rather than as a list of whatever happens to be
 assigned (#288). The two questions a kit is looked at to answer are what is in it and what is
 still missing, and a list answers only the first. Pressing a slot aims the search at it; a filled
