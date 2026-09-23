@@ -145,6 +145,13 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
+    /// <summary>The engine's compact reason, shown only while the shared Learn Mode switch is on.</summary>
+    public string LearnReason => StatusLabel.Length > 0
+        ? StatusLabel
+        : HasHandlingLabel
+            ? $"{HandlingLabel}: needed for {TaskName}"
+            : $"Quest: advances {TaskName}";
+
     /// <summary>The row's compact secondary facts, without constructing a hidden control for each possible fact.</summary>
     public string MetadataLabel => string.Join(" · ", new[]
     {
@@ -587,8 +594,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         TimeProvider? clock = null,
         // #285: which foods and medicines the Events page records an allergy to.
         AllergyWarningService? allergies = null,
-        EventRuleService? eventRuleService = null)
+        EventRuleService? eventRuleService = null,
+        LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         _allergies = allergies;
         _eventRuleService = eventRuleService;
         _paths = paths;
@@ -639,6 +648,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             }
         };
     }
+
+    public LearnModeSetting LearnMode { get; }
 
     /// <summary>Raised after this workspace has moved the shared map to the requested one.</summary>
     public event EventHandler<EventArgs>? ShowOnMapRequested;

@@ -76,6 +76,12 @@ public sealed class HideoutStationRowViewModel : BindableViewModel
 
     public bool IsReady => HasNextLevel && CanBuildNow;
 
+    public string LearnReason => !HasNextLevel
+        ? "Done: every catalog level is built"
+        : CanBuildNow
+            ? $"Build: level {NextLevel} has no recorded item shortage"
+            : $"Build: level {NextLevel} is waiting on {Shortfall}";
+
     /// <summary>The level the profile says is built, which the stepper edits.</summary>
     public int BuiltLevel { get; init; }
 
@@ -109,6 +115,8 @@ public sealed record HideoutRequirementRowViewModel(
     public string CheapestRoute { get; init; } = string.Empty;
 
     public bool HasCheapestRoute => CheapestRoute.Length > 0;
+
+    public string LearnReason { get; init; } = string.Empty;
 }
 
 /// <summary>One item still short across the next level of every station, with the totals behind it.</summary>
@@ -150,8 +158,10 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         // composition without the barter catalog simply has no route lines.
         IBarterCatalog? barters = null,
         ITraderCatalog? traders = null,
-        IHideoutPrerequisiteCatalog? prerequisites = null)
+        IHideoutPrerequisiteCatalog? prerequisites = null,
+        LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         Upgrades = new(itemRepository, prerequisites);
         _barters = barters;
         _traders = traders;
@@ -160,6 +170,8 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
         _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
     }
+
+    public LearnModeSetting LearnMode { get; }
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
@@ -384,6 +396,7 @@ public sealed class HideoutWorkspaceViewModel : BindableViewModel
                         {
                             CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
                             IsHeldKnown = owned is not null,
+                            LearnReason = $"Keep: needed for {station.Name} level {station.NextLevel}",
                         });
                     }
 

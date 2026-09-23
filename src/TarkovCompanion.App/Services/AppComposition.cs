@@ -767,6 +767,7 @@ public static class AppComposition
         services.AddSingleton<TeamWorkspaceViewModel>();
 
         // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
+        services.AddSingleton<LearnModeSetting>();
         services.AddSingleton<PlanWorkspaceViewModel>();
         services.AddSingleton<HideoutWorkspaceViewModel>();
         // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
