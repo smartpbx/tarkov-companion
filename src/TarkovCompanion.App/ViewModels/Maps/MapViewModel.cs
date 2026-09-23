@@ -3372,6 +3372,38 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public Task RefreshQuestLayerAsync() => RefreshQuestLayerAsync(CancellationToken.None);
 
+    /// <summary>
+    /// [#780] Places objectives that are not this player's (a squadmate's) on the selected map with
+    /// the quest layer's own services: the same game-id lookup, variant and provenance checks.
+    /// </summary>
+    /// <param name="queryFor">Builds the objectives to place from the map's compatible ids; null for none.</param>
+    /// <returns>The projection for every floor, or null where this map cannot place anything.</returns>
+    internal async Task<QuestMapProjectionReadModel?> ProjectOtherObjectivesAsync(
+        Func<IReadOnlyCollection<string>, QuestMapObjectivesReadModel?> queryFor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(queryFor);
+        if (_questProjectionService is not { } projector ||
+            SelectedLocation is not { } location ||
+            SelectedVariant is not { } variant ||
+            _mapCatalogProvenance is not { } provenance)
+        {
+            return null;
+        }
+
+        var located = await WithGameIdAsync(location, cancellationToken).ConfigureAwait(true);
+        var mapIds = QuestMapProjectionService.CompatibleMapIds(located, variant).ToArray();
+        if (mapIds.Length == 0 || queryFor(mapIds) is not { } query || query.Objectives.Count == 0)
+        {
+            return null;
+        }
+
+        return await OffInterfaceThread.Run(
+                () => Task.FromResult(projector.Project(query, located, variant, selectedFloor: null, provenance)),
+                cancellationToken)
+            .ConfigureAwait(true);
+    }
+
     private MapGameIdResolver? _gameIdResolver;
 
     /// <summary>The location with the game's id for it, where the synced maps table has one.</summary>

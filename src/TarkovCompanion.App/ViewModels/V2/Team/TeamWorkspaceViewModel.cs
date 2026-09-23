@@ -117,7 +117,7 @@ public sealed record TeamMarkRowViewModel(
 /// shape. Package 29 (parity) shows it as its own Party card instead, over the same
 /// <see cref="SquadPageViewModel"/> V1 binds, which the shell attaches (<see cref="AttachParty"/>).
 /// </remarks>
-public sealed class TeamWorkspaceViewModel : BindableViewModel
+public sealed partial class TeamWorkspaceViewModel : BindableViewModel
 {
     /// <summary>
     /// How long a ping is shown before the relay forgets it.
@@ -159,13 +159,16 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
         IGroupSettingsStore groupSettings,
         CompanionPairingViewModel? pairing = null,
         TimeProvider? clock = null,
-        RaidCockpitViewModel? raidCockpit = null)
+        RaidCockpitViewModel? raidCockpit = null,
+        // [#780] The squad's quests, named from this player's catalog. Optional like the rest.
+        SquadQuestFeed? squadQuests = null)
     {
         _groupSession = groupSession ?? throw new ArgumentNullException(nameof(groupSession));
         _groupSettings = groupSettings ?? throw new ArgumentNullException(nameof(groupSettings));
         _pairing = pairing;
         _clock = clock ?? TimeProvider.System;
         _raidCockpit = raidCockpit;
+        AttachSquadQuests(squadQuests);
         if (_raidCockpit is not null)
         {
             // The centre map follows whichever map the Raid workspace shows (the top bar's map

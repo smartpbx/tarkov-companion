@@ -1669,6 +1669,22 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#780] The demo squad shares real catalog quests on this map, by id.
+            if (shell is not null && args.Contains("--squad-quests"))
+            {
+                // The render has no relay: stop the session so its "not sharing" stops replacing the demo squad.
+                DrainUntilComplete(services.GetRequiredService<TarkovCompanion.Application.Services.Group.GroupSessionService>().DisposeAsync().AsTask());
+                var squadBase = args.Contains("--raid-demo")
+                    ? RaidDemo(viewModel.Map.RenderModel, IntOption(args, "--raid-minutes", 14)).Group
+                    : TeamDemoGroup(viewModel.Map.RenderModel);
+                DrainUntilComplete(SquadQuestsDemo.ApplyAsync(services, viewModel.Map, squadBase));
+                services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.TeamWorkspaceViewModel>()
+                    .Apply(services.GetRequiredService<TarkovCompanion.Application.Services.Runtime.IRuntimeStateStore>().Current);
+                Pump(40);
+                SquadQuestsDemo.ShowOnRaid(services, args.Contains("--route-squad"));
+                Pump(80);
+            }
+
             if (args.Contains("--objective-route-demo"))
             {
                 var plan = services.GetRequiredService<PlanWorkspaceViewModel>();

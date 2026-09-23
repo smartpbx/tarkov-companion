@@ -381,6 +381,9 @@ public static class AppComposition
         // What the player is working on, for the group to see. Dead until tonight, because
         // there was no quest progress to send.
         services.AddSingleton<GroupQuestShare>();
+        // [#780] The squad's shared quest ids, named from this catalog, for Team, Raid and Plan.
+        services.AddSingleton<SquadQuestResolver>();
+        services.AddSingleton<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>();
         services.AddSingleton<GroupKitShare>();
         services.AddSingleton<GroupSessionService>();
         // Keeping the game's screenshot folder from growing without limit. Composed here
@@ -844,7 +847,8 @@ public static class AppComposition
             userMarkers: provider.GetRequiredService<IUserQuestMarkStore>(),
             // [Issue 571] "Done" by hand, and whose profile it belongs to.
             handDone: provider.GetRequiredService<IHandDoneObjectiveStore>(),
-            profiles: provider.GetRequiredService<IPlayerProfileService>()));
+            profiles: provider.GetRequiredService<IPlayerProfileService>(),
+            squadQuests: provider.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Team.SquadQuestFeed>()));
         services.AddSingleton<V2ShellViewModel>();
 
         // [V2 rough package 1] #269/#271/#274/#282: register the merged-but-orphaned V2
