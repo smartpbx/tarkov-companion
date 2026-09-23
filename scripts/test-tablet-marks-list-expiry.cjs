@@ -44,15 +44,12 @@ function check(name, condition, detail = "") {
 
 const listText = (page) => page.evaluate(() => document.getElementById("markList").textContent);
 
-async function until(page, predicate, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  let text = await listText(page);
-  while (!predicate(text) && Date.now() < deadline) {
-    await page.waitForTimeout(100);
-    text = await listText(page);
-  }
-
-  return text;
+async function waitForListText(page, expected, timeoutMs) {
+  await page.waitForFunction(
+    (text) => document.getElementById("markList").textContent.includes(text),
+    expected,
+    { timeout: timeoutMs });
+  return listText(page);
 }
 
 async function main() {
@@ -79,25 +76,27 @@ async function main() {
     await page.locator("#pairingVerify").waitFor({ state: "visible", timeout: 15000 });
     await page.locator("#unpairHeader:not([hidden])").waitFor({ state: "visible", timeout: 30000 });
 
-    const surfaceDeadline = Date.now() + 15000;
-    let state = await page.evaluate(() => window.__tabletTestState());
-    while (!(state.hasSurface && state.hasLive) && Date.now() < surfaceDeadline) {
-      await page.waitForTimeout(100);
-      state = await page.evaluate(() => window.__tabletTestState());
-    }
+    await page.waitForFunction(
+      () => {
+        const state = window.__tabletTestState();
+        return state.hasSurface && state.hasLive;
+      },
+      undefined,
+      { timeout: 15000 });
+    const state = await page.evaluate(() => window.__tabletTestState());
 
     check("the tablet has the desktop's map", state.hasSurface, JSON.stringify(state));
 
     // A tap on bare map is a ping, after the double-tap window closes.
     const box = await page.locator("#map").boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    const listed = await until(page, (text) => text.includes("Ping"), 15000);
+    const listed = await waitForListText(page, "Ping", 15000);
     check("the ping is on the Marks list", listed.includes("Ping"), JSON.stringify(listed));
     console.log("PING_LISTED");
 
     // The C# side now moves the desktop's clock past the ping's lifetime. Nothing else happens on
     // this page: the list has to empty because the desktop said so.
-    const emptied = await until(page, (text) => text.includes("Nothing marked yet."), 20000);
+    const emptied = await waitForListText(page, "Nothing marked yet.", 20000);
     check("the ping leaves the Marks list once it has expired", emptied.includes("Nothing marked yet."), JSON.stringify(emptied));
 
     if (failures > 0) {

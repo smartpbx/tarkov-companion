@@ -23,9 +23,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// spawns and watches the same way <c>TabletScreenshotHarness</c> does.
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class PingExpiryBrowserTests
+public sealed class PingExpiryBrowserTests : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task APingTheSurfaceNamesIsGoneFromTheTabletsMapAfterItsLifetime()
     {
         if (!HasHeadlessBrowser())
@@ -80,7 +80,7 @@ public sealed class PingExpiryBrowserTests
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
         startInfo.ArgumentList.Add(expiresUtc.ToString("O"));
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
 
         try
         {

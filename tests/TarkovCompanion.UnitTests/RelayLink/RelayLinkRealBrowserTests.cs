@@ -23,9 +23,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// earlier <c>npx playwright</c> run on the host this ran on, not by anything here.
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class RelayLinkRealBrowserTests
+public sealed class RelayLinkRealBrowserTests : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task PairingSurvivesAReloadInARealBrowser()
     {
         if (!HasHeadlessBrowser())
@@ -68,7 +68,7 @@ public sealed class RelayLinkRealBrowserTests
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         try
         {
             var stdoutTask = browserProcess.StandardOutput.ReadToEndAsync();
