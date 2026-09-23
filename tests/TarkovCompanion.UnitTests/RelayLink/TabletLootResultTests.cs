@@ -14,9 +14,9 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// <c>scripts/test-tablet-loot-result.cjs</c>.
 /// </summary>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TabletLootResultTests
+public sealed class TabletLootResultTests : RealBrowserTestHarness
 {
-    [Fact]
+    [RealBrowserFact]
     public async Task ALootResultOpensOverTheTabletsMapOnceAndReopensOnRequest()
     {
         if (!HasHeadlessBrowser())
@@ -84,7 +84,7 @@ public sealed class TabletLootResultTests
         startInfo.ArgumentList.Add(relay.BrowserOrigin.GetLeftPart(UriPartial.Authority));
         startInfo.ArgumentList.Add(pairingCode);
         startInfo.ArgumentList.Add("Raid tablet");
-        using var browserProcess = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browserProcess = StartBrowser(startInfo);
         var stderrTask = browserProcess.StandardError.ReadToEndAsync();
         var stdoutLog = new List<string>();
         var stdoutGate = new object();

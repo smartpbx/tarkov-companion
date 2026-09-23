@@ -22,11 +22,11 @@ namespace TarkovCompanion.UnitTests.RelayLink;
 /// <see cref="TabletTouchGestureTests"/> does it.
 /// </remarks>
 [Collection(RelayAdminKeyCollection.Name)]
-public sealed class TwoDesktopBrowserTests
+public sealed class TwoDesktopBrowserTests : RealBrowserTestHarness
 {
     private const string GroupKeyOfTheSquad = "the-squads-own-group-key";
 
-    [Fact]
+    [RealBrowserFact]
     public async Task EachTabletSeesAndDrivesOnlyItsOwnDesktop()
     {
         if (!HasHeadlessBrowser())
@@ -132,7 +132,7 @@ public sealed class TwoDesktopBrowserTests
         startInfo.ArgumentList.Add(browserOrigin);
         startInfo.ArgumentList.Add(qrFragment);
         startInfo.ArgumentList.Add(bob.Panel.PairingCode!);
-        using var browser = Process.Start(startInfo) ?? throw new InvalidOperationException("node did not start.");
+        using var browser = StartBrowser(startInfo);
         var stderrTask = browser.StandardError.ReadToEndAsync();
         var log = new List<string>();
         _ = Task.Run(async () =>
