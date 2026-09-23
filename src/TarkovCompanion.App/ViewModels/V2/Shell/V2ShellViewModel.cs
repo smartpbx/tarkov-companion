@@ -232,7 +232,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             hideout,
             keep,
             team,
-            options.DeveloperMode,
+            // [#279] A gallery scene photographs what a player sees, so no #265 scaffold chrome.
+            options.DeveloperMode && options.GalleryScene is null,
             intelLanding,
             intelTrade,
             acquisitionChains,

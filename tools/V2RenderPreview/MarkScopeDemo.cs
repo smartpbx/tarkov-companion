@@ -31,38 +31,14 @@ internal static class MarkScopeDemo
             return;
         }
 
-        var bounds = renderer.Scene.Bounds;
-        MapScenePoint At(double fx, double fy) => new(bounds.MinimumX + (bounds.Width * fx), bounds.MinimumY + (bounds.Height * fy));
-        (string? Label, RaidMarkScope Scope, RaidMarkLifetime Lifetime, MapScenePoint Point)[] marks =
-        [
-            ("Stash", RaidMarkScope.Private, RaidMarkLifetime.UntilRemoved, At(0.36, 0.36)),
-            ("Dorms", RaidMarkScope.Squad, RaidMarkLifetime.FiveMinutes, At(0.50, 0.34)),
-            (null, RaidMarkScope.Squad, RaidMarkLifetime.ThisRaid, At(0.62, 0.44)),
-            (null, RaidMarkScope.Private, RaidMarkLifetime.Ping, At(0.44, 0.42)),
-            (null, RaidMarkScope.Squad, RaidMarkLifetime.Ping, At(0.56, 0.40)),
-        ];
-        foreach (var (label, scope, lifetime, point) in marks)
+        // Shared with the Windows page gallery's marks scene (#279).
+        var placing = TarkovCompanion.App.Services.Diagnostics.GalleryMarks.PlaceAsync(store, mapId, renderer.Scene.Bounds);
+        while (!placing.IsCompleted)
         {
-            var placing = store.PlaceAsync(mapId, null, point.X, point.Y, label, scope, lifetime);
-            while (!placing.IsCompleted)
-            {
-                pump(1);
-            }
-
-            pump(4);
+            pump(1);
         }
 
-        // #290: a tablet's short route, three stops of one route.
-        var routeId = Guid.NewGuid();
-        var step = 0;
-        foreach (var point in new[] { At(0.40, 0.48), At(0.48, 0.52), At(0.56, 0.49) })
-        {
-            var placing = store.PlaceAsync(mapId, null, point.X, point.Y, null, RaidMarkScope.Squad, RaidMarkLifetime.UntilRemoved, default, new RaidMarkRoute(routeId, ++step));
-            while (!placing.IsCompleted)
-            {
-                pump(1);
-            }
-        }
+        pump(4);
 
         // Only the Marks card open, so the rows are on screen at 1080 lines.
         foreach (var card in new[] { raid.Cards.Summary, raid.Cards.Squad, raid.Cards.Objectives, raid.Cards.Extracts, raid.Cards.ExtractSelection, raid.Cards.Route, raid.Cards.Tasks, raid.Cards.LootSelection })

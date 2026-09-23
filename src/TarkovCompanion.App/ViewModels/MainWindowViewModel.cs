@@ -2905,7 +2905,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             new TarkovCompanion.Application.Services.Planning.AllergyWarningService(profileService, eventCatalog, itemRepository, timeProvider),
             itemAcquisitions,
             profileService);
-        Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
+        Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring,
+            ct => EventTargetChoices.TradersAsync(traderCatalog, ct),
+            ct => EventTargetChoices.MapsAsync(map.Locations, maps, ct));
         Squad = new(itemRepository);
         Group = new(groupSettings);
 

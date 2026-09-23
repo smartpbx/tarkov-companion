@@ -132,6 +132,12 @@ public sealed record AppCommandLine(
     /// </summary>
     public bool ApplyUpdateAndExit { get; init; }
 
+    /// <summary>
+    /// [#279] A seeded state for the Windows page gallery (<see cref="GallerySceneKind"/>), with a
+    /// readiness answer on the diagnostic channel. Honoured only with <c>--developer-mode</c>.
+    /// </summary>
+    public GallerySceneKind? GalleryScene { get; init; }
+
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -162,6 +168,9 @@ public sealed record AppCommandLine(
                 ? WindowSizeOverride.Parse(windowSize)
                 : null,
             ApplyUpdateAndExit = HasFlag(args, "--apply-update-and-exit"),
+            GalleryScene = GetValue(args, "--gallery-scene") is { } scene
+                ? GallerySceneKinds.Parse(scene)
+                : null,
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
@@ -194,6 +203,7 @@ public sealed record AppCommandLine(
         "--map-renderer-large-text",
         "--map-renderer-loot-offline",
         "--window-size",
+        "--gallery-scene",
         V2ShellModes.Option,
     ];
 
@@ -238,7 +248,7 @@ public sealed record AppCommandLine(
         "--output" or "--demo-fixture" or "--diagnostic-channel" or
         "--page" or "--map" or "--floor" or
         "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines" or
-        "--window-size" or V2ShellModes.Option;
+        "--window-size" or "--gallery-scene" or V2ShellModes.Option;
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
         args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));

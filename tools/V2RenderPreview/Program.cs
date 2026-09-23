@@ -810,6 +810,20 @@ internal static class Program
                 Pump(40);
             }
 
+            // #288: the rule editor with an effect being typed, one field wrong, to show the inline error.
+            if (args.Contains("--events-editing-demo"))
+            {
+                var editor = viewModel.Events.RuleEditor;
+                editor.AddBossCommand.Execute(null);
+                editor.Rows[^1].TargetText = "Killa";
+                editor.Rows[^1].Multiplier = "0";
+                editor.AddQuestCommand.Execute(null);
+                editor.Rows[^1].TargetText = "Shooter Born in Heaven";
+                editor.Rows[^1].StartText = "2026-10-20";
+                editor.Rows[^1].EndText = "2026-11-02";
+                Pump(40);
+            }
+
             // Issue 645: a fresh install's honest history state is one locally recorded price.
             // Seed that exact state after migrations so the Flea render proves it does not draw
             // three identical low/average/high figures.
@@ -1775,6 +1789,19 @@ internal static class Program
                 Pump(80);
             }
 
+            // [#279] The Windows gallery's seeded scene, run here the same way the packaged app runs it.
+            if (shell is not null && StringOption(args, "--gallery-scene") is { } galleryScene)
+            {
+                var galleryReady = new GalleryReadiness();
+                var galleryRun = new GallerySceneRunner(services, viewModel, mapId ?? "customs", GallerySceneKinds.Parse(galleryScene))
+                    .RunAsync(galleryReady, CancellationToken.None);
+                var galleryWait = galleryReady.WaitAsync(TimeSpan.FromSeconds(150), CancellationToken.None);
+                DrainUntilComplete(galleryWait);
+                DrainUntilComplete(galleryRun);
+                Console.WriteLine($"Gallery scene: ready={galleryWait.Result.Ready} {galleryWait.Result.Detail}");
+                Pump(40);
+            }
+
             if (args.Contains("--objective-route-demo"))
             {
                 var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
@@ -2296,6 +2323,12 @@ internal static class Program
                     IntOption(args, "--loot-tour-idle", 60),
                     StringOption(args, "--loot-threshold") is { } threshold ? ParseLootThreshold(threshold) : null,
                     StringOption(args, "--loot-basis"));
+            }
+
+            // [#318] --loot-coverage-table <file.md>: every map's loot coverage, for docs/MAPS.md.
+            if (shell is not null && StringOption(args, "--loot-coverage-table") is { } lootCoverageTable)
+            {
+                LootCoverageTable.Write(services, viewModel, shell, lootCoverageTable);
             }
 
             if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)

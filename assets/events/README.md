@@ -27,8 +27,10 @@ the name. With it selected, search the item catalog and press Add for each item 
 Remove to take one back out. Delete removes the file.
 
 The page writes the same shape described below, so a definition it created can be edited by hand
-afterwards, and one written by hand can be edited on the page. Rules are still a text editor's
-job, but the page validates and previews them before they can affect planning or recommendations.
+afterwards, and one written by hand can be edited on the page. The page also writes the typed
+effects below (Effects, one row each, with errors shown next to the field) and Duplicate copies an
+event's rules and items under a new name. It records when a definition was last saved, not who
+saved it.
 
 Recorded results are keyed by event id and item id together, so removing an item and adding it
 back keeps what was recorded against it. Changing an event's `id` does orphan them.

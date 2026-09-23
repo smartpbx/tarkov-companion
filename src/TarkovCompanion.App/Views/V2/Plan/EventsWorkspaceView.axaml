@@ -70,135 +70,228 @@
       <Border Grid.Column="1" Classes="v2-intel-pane" Padding="18,14"
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.AutomationId="v2-events-detail">
-        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
-          <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
-            <TextBlock Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
-            <Button Grid.Column="1" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
-                    Content="{Binding DeleteLabel}" IsVisible="{Binding CanEdit}" />
-          </Grid>
-          <StackPanel Grid.Row="1" Spacing="4">
-            <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
-                       Foreground="{DynamicResource V2.Brush.TextSecondary}" />
-            <!-- #285: one press takes back the last state recorded here. -->
-            <Button Classes="v2-target v2-outline" HorizontalAlignment="Left" Command="{Binding UndoCommand}"
-                    Content="{Binding UndoLabel}" IsVisible="{Binding CanUndo}"
-                    AutomationProperties.AutomationId="v2-events-undo" />
-          </StackPanel>
-          <TextBlock Grid.Row="2" Classes="v2-heading-3" Text="{Binding Progress}" TextWrapping="Wrap" />
-          <TextBlock Grid.Row="3" Classes="v2-label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
-
-          <!-- [V2 rough package 60 — Plan] #288. The file format has always carried a name, a
-               window and an active flag; nothing in the application ever let anybody set them, so
-               every event created here was unnamed-after-the-fact, undated and permanently on.
-               Archive switches an event off and keeps it, along with everything recorded against
-               it; only Delete removes a definition. -->
-          <Border Grid.Row="4" Classes="v2-intel-section" IsVisible="{Binding CanEditSchedule}">
-            <StackPanel Spacing="8">
-              <TextBlock Classes="v2-heading-3" Text="Schedule" AutomationProperties.HeadingLevel="2" />
-              <TextBox Classes="v2-field-input" Text="{Binding RenameTo}"
-                       PlaceholderText="Event name"
-                       AutomationProperties.AutomationId="v2-events-rename"
-                       AutomationProperties.Name="Event name" />
-              <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
-                <TextBox Classes="v2-field-input" Text="{Binding ScheduleStart}"
-                         PlaceholderText="First day, or leave blank"
-                         AutomationProperties.AutomationId="v2-events-start"
-                         AutomationProperties.Name="First day of the event" />
-                <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding ScheduleEnd}"
-                         PlaceholderText="Last day, or leave blank"
-                         AutomationProperties.AutomationId="v2-events-end"
-                         AutomationProperties.Name="Last day of the event" />
+        <!-- #288: the event itself on the left (name, days, typed effects, history) and the items it
+             applies to on the right. Two columns because the effect rows and the item list both
+             grow, and stacked they squeezed the item list to nothing at 1080p. -->
+        <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+          <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasRuleInformation}">
+            <ScrollViewer.KeyBindings>
+              <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveScheduleCommand}" />
+            </ScrollViewer.KeyBindings>
+            <StackPanel Spacing="10" Margin="0,0,6,0">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Classes="v2-heading-2" Text="Event" AutomationProperties.HeadingLevel="2" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Classes="v2-target v2-plain" Content="Duplicate" Command="{Binding DuplicateCommand}"
+                        IsVisible="{Binding CanEdit}" AutomationProperties.AutomationId="v2-events-duplicate"
+                        ToolTip.Tip="Copy rules and items under a new name" />
+                <Button Grid.Column="2" Classes="v2-target v2-outline" Command="{Binding DeleteCommand}"
+                        Content="{Binding DeleteLabel}" IsVisible="{Binding CanEdit}"
+                        AutomationProperties.AutomationId="v2-events-delete" />
               </Grid>
-              <TextBlock Classes="v2-body" Text="{Binding SchedulePreview}" TextWrapping="Wrap"
-                         AutomationProperties.AutomationId="v2-events-schedule-preview"
-                         AutomationProperties.LiveSetting="Polite" />
-              <WrapPanel ItemSpacing="8" LineSpacing="6">
-                <Button Classes="v2-target v2-outline" Content="Save schedule"
-                        AutomationProperties.AutomationId="v2-events-save-schedule"
-                        Command="{Binding SaveScheduleCommand}" />
-                <Button Classes="v2-target v2-plain" Content="{Binding ArchiveLabel}"
-                        AutomationProperties.AutomationId="v2-events-archive"
-                        Command="{Binding ToggleArchivedCommand}" />
-              </WrapPanel>
-              <TextBlock Classes="v2-label" Text="{Binding ScheduleStatus}" TextWrapping="Wrap"
-                         AutomationProperties.LiveSetting="Polite" />
-            </StackPanel>
-          </Border>
 
-          <Border Grid.Row="5" Classes="v2-intel-section" IsVisible="{Binding HasRuleInformation}"
-                  AutomationProperties.AutomationId="v2-events-rule-preview">
-            <StackPanel Spacing="6">
-              <TextBlock Classes="v2-heading-3" Text="Rule preview" AutomationProperties.HeadingLevel="2" />
-              <TextBlock Classes="v2-body" Text="{Binding RulePreview}" TextWrapping="Wrap"
-                         AutomationProperties.LiveSetting="Polite" />
-              <TextBlock Classes="v2-label" Text="{Binding RuleStatus}" TextWrapping="Wrap"
-                         IsVisible="{Binding !HasRuleIssues}"
-                         AutomationProperties.AutomationId="v2-events-rule-status" />
-              <TextBlock Classes="v2-label" Text="{Binding RuleStatus}" TextWrapping="Wrap"
-                         IsVisible="{Binding HasRuleIssues}"
-                         Foreground="{DynamicResource V2.Brush.Warning}"
-                         AutomationProperties.AutomationId="v2-events-rule-error" />
-            </StackPanel>
-          </Border>
+              <!-- [V2 rough package 60 — Plan] #288. Archive switches an event off and keeps it,
+                   along with everything recorded against it; only Delete removes a definition. -->
+              <StackPanel Spacing="8" IsVisible="{Binding CanEditSchedule}">
+                <TextBox Classes="v2-field-input" Text="{Binding RenameTo}"
+                         PlaceholderText="Event name"
+                         AutomationProperties.AutomationId="v2-events-rename"
+                         AutomationProperties.Name="Event name" />
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                  <TextBox Classes="v2-field-input" Text="{Binding ScheduleStart}"
+                           PlaceholderText="First day, or blank"
+                           AutomationProperties.AutomationId="v2-events-start"
+                           AutomationProperties.Name="First day of the event" />
+                  <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding ScheduleEnd}"
+                           PlaceholderText="Last day, or blank"
+                           AutomationProperties.AutomationId="v2-events-end"
+                           AutomationProperties.Name="Last day of the event" />
+                </Grid>
+                <TextBlock Classes="v2-label" Text="{Binding SchedulePreview}" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-events-schedule-preview"
+                           AutomationProperties.LiveSetting="Polite" />
+              </StackPanel>
 
-          <!-- A definition names items by id and nobody knows them by id, so they are chosen from the catalog. -->
-          <StackPanel Grid.Row="6" Spacing="6" IsVisible="{Binding CanEdit}">
-            <Border Classes="v2-intel-search">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
-                         PlaceholderText="Find an item to add"
-                         AutomationProperties.AutomationId="v2-events-item-search"
-                         AutomationProperties.Name="Find an item to add">
-                  <TextBox.KeyBindings>
-                    <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
-                  </TextBox.KeyBindings>
-                </TextBox>
-                <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain"
-                        AutomationProperties.Name="Search" ToolTip.Tip="Search" Command="{Binding SearchCommand}">
-                  <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
-                </Button>
-              </Grid>
-            </Border>
-            <TextBlock Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap" />
-            <ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding Matches}">
+              <TextBlock Classes="v2-heading-3" Text="Effects" AutomationProperties.HeadingLevel="3" />
+              <ItemsControl ItemsSource="{Binding RuleEditor.Rows}" IsVisible="{Binding CanEditSchedule}"
+                            AutomationProperties.AutomationId="v2-events-effects">
                 <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="pages:EventItemMatchViewModel">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
-                      <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                      <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Add" Command="{Binding AddCommand}" />
-                    </Grid>
+                  <DataTemplate x:DataType="pages:EventEffectRowViewModel">
+                    <Border Classes="v2-intel-fact" Padding="0,6">
+                      <Grid ColumnDefinitions="112,*,Auto,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8">
+                        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding KindLabel}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                          <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice, Mode=TwoWay}"
+                                    IsVisible="{Binding UsesPicker}" HorizontalAlignment="Stretch"
+                                    PlaceholderText="{Binding TargetPlaceholder}"
+                                    AutomationProperties.Name="{Binding RowName}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="pages:EventTargetChoice">
+                                <TextBlock Text="{Binding Name}" />
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                          <TextBox Classes="v2-field-input" Text="{Binding TargetText}" IsVisible="{Binding UsesTargetText}"
+                                   PlaceholderText="{Binding TargetPlaceholder}"
+                                   AutomationProperties.Name="{Binding RowName}" />
+                          <TextBlock Classes="v2-label" Text="{Binding UnknownText}" IsVisible="{Binding IsUnknown}"
+                                     TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="2" VerticalAlignment="Center">
+                          <TextBox Classes="v2-field-input" Width="76" Text="{Binding Multiplier}" IsVisible="{Binding HasMultiplier}"
+                                   PlaceholderText="x1" ToolTip.Tip="Multiplier"
+                                   AutomationProperties.Name="Multiplier" />
+                          <CheckBox Content="Open" IsChecked="{Binding IsOpen, Mode=TwoWay}" IsVisible="{Binding HasOpenToggle}"
+                                    AutomationProperties.Name="Open while active" />
+                          <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasWindow}">
+                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding StartText}" PlaceholderText="First day"
+                                     AutomationProperties.Name="Quest first day" />
+                            <TextBox Classes="v2-field-input" Width="112" Text="{Binding EndText}" PlaceholderText="Last day"
+                                     AutomationProperties.Name="Quest last day" />
+                          </StackPanel>
+                        </StackPanel>
+                        <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-intel-plain" VerticalAlignment="Center"
+                                Command="{Binding RemoveCommand}" ToolTip.Tip="Remove effect"
+                                AutomationProperties.Name="Remove effect">
+                          <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Close}" />
+                        </Button>
+                        <!-- Errors sit under the field they name, on their own line, so the inputs stay aligned. -->
+                        <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+                          <TextBlock Classes="v2-label" Text="{Binding TargetError}" IsVisible="{Binding HasTargetError}"
+                                     Foreground="{DynamicResource V2.Brush.Warning}" />
+                          <TextBlock Classes="v2-label" Text="{Binding RowError}" IsVisible="{Binding HasRowError}"
+                                     TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Warning}" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Classes="v2-label" Text="{Binding ValueError}"
+                                   IsVisible="{Binding HasValueError}" HorizontalAlignment="Right"
+                                   Foreground="{DynamicResource V2.Brush.Warning}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <WrapPanel ItemSpacing="6" LineSpacing="6" IsVisible="{Binding CanEditSchedule}">
+                <Button Classes="v2-target v2-chip" Content="+ Trader price" Command="{Binding RuleEditor.AddTraderCommand}"
+                        AutomationProperties.AutomationId="v2-events-add-trader" />
+                <Button Classes="v2-target v2-chip" Content="+ Flea" Command="{Binding RuleEditor.AddFleaCommand}"
+                        AutomationProperties.AutomationId="v2-events-add-flea" />
+                <Button Classes="v2-target v2-chip" Content="+ Map" Command="{Binding RuleEditor.AddMapCommand}"
+                        AutomationProperties.AutomationId="v2-events-add-map" />
+                <Button Classes="v2-target v2-chip" Content="+ Boss spawns" Command="{Binding RuleEditor.AddBossCommand}"
+                        AutomationProperties.AutomationId="v2-events-add-boss" />
+                <Button Classes="v2-target v2-chip" Content="+ Quest window" Command="{Binding RuleEditor.AddQuestCommand}"
+                        AutomationProperties.AutomationId="v2-events-add-quest" />
+              </WrapPanel>
+
+              <Border Classes="v2-intel-section" AutomationProperties.AutomationId="v2-events-rule-preview">
+                <StackPanel Spacing="4">
+                  <TextBlock Classes="v2-body" Text="{Binding RuleEditor.Preview}" TextWrapping="Wrap"
+                             IsVisible="{Binding RuleEditor.IsValid}"
+                             AutomationProperties.LiveSetting="Polite" />
+                  <TextBlock Classes="v2-label" Text="{Binding RuleEditor.Status}" TextWrapping="Wrap"
+                             IsVisible="{Binding RuleEditor.IsValid}"
+                             AutomationProperties.AutomationId="v2-events-rule-status" />
+                  <TextBlock Classes="v2-label" Text="{Binding RuleEditor.Status}" TextWrapping="Wrap"
+                             IsVisible="{Binding !RuleEditor.IsValid}"
+                             Foreground="{DynamicResource V2.Brush.Warning}"
+                             AutomationProperties.AutomationId="v2-events-rule-error"
+                             AutomationProperties.LiveSetting="Polite" />
+                  <TextBlock Classes="v2-label" Text="{Binding RuleEditor.GeneralError}" TextWrapping="Wrap"
+                             IsVisible="{Binding RuleEditor.HasGeneralError}"
+                             Foreground="{DynamicResource V2.Brush.Warning}" />
+                </StackPanel>
+              </Border>
+
+              <StackPanel Spacing="6" IsVisible="{Binding CanEditSchedule}">
+                <WrapPanel ItemSpacing="8" LineSpacing="6">
+                  <Button Classes="v2-target v2-outline" Content="Save event"
+                          ToolTip.Tip="Save event (Ctrl+S)"
+                          AutomationProperties.AutomationId="v2-events-save-schedule"
+                          Command="{Binding SaveScheduleCommand}" />
+                  <Button Classes="v2-target v2-plain" Content="{Binding ArchiveLabel}"
+                          AutomationProperties.AutomationId="v2-events-archive"
+                          Command="{Binding ToggleArchivedCommand}" />
+                </WrapPanel>
+                <TextBlock Classes="v2-label" Text="{Binding ScheduleStatus}" TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Classes="v2-label" Text="{Binding History}"
+                           Foreground="{DynamicResource V2.Brush.TextSecondary}"
+                           AutomationProperties.AutomationId="v2-events-history" />
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+
+          <Grid Grid.Column="1" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="10">
+            <TextBlock Grid.Row="0" Classes="v2-heading-2" Text="Applicable items" AutomationProperties.HeadingLevel="2" />
+            <StackPanel Grid.Row="1" Spacing="4">
+              <TextBlock Classes="v2-body" Text="{Binding Detail}" TextWrapping="Wrap"
+                         Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+              <!-- #285: one press takes back the last state recorded here. -->
+              <Button Classes="v2-target v2-outline" HorizontalAlignment="Left" Command="{Binding UndoCommand}"
+                      Content="{Binding UndoLabel}" IsVisible="{Binding CanUndo}"
+                      AutomationProperties.AutomationId="v2-events-undo" />
+            </StackPanel>
+            <TextBlock Grid.Row="2" Classes="v2-heading-3" Text="{Binding Progress}" TextWrapping="Wrap" />
+            <TextBlock Grid.Row="3" Classes="v2-label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
+
+            <!-- A definition names items by id and nobody knows them by id, so they are chosen from the catalog. -->
+            <StackPanel Grid.Row="4" Spacing="6" IsVisible="{Binding CanEdit}">
+              <Border Classes="v2-intel-search">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Classes="v2-intel-search-input" Text="{Binding ItemQuery}"
+                           PlaceholderText="Find an item to add"
+                           AutomationProperties.AutomationId="v2-events-item-search"
+                           AutomationProperties.Name="Find an item to add">
+                    <TextBox.KeyBindings>
+                      <KeyBinding Gesture="Enter" Command="{Binding SearchCommand}" />
+                    </TextBox.KeyBindings>
+                  </TextBox>
+                  <Button Grid.Column="1" Classes="v2-target v2-icon-btn v2-intel-plain"
+                          AutomationProperties.Name="Search" ToolTip.Tip="Search" Command="{Binding SearchCommand}">
+                    <Path Classes="v2-icon v2-icon-action" Data="{DynamicResource V2.Icon.Search}" />
+                  </Button>
+                </Grid>
+              </Border>
+              <TextBlock Classes="v2-label" Text="{Binding SearchStatus}" TextWrapping="Wrap" />
+              <ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Matches}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="pages:EventItemMatchViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,3">
+                        <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="v2-target v2-outline" Content="Add" Command="{Binding AddCommand}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </StackPanel>
+
+            <ScrollViewer Grid.Row="5" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding Items}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="pages:EventItemViewModel">
+                    <Border Classes="v2-intel-fact" Padding="0,10">
+                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+                        <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ItemName}" TextWrapping="Wrap"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="1">
+                          <TextBlock Classes="v2-label" Text="Recorded" />
+                          <TextBlock Classes="v2-body" Text="{Binding StateLabel}" />
+                        </StackPanel>
+                        <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" ItemSpacing="6" LineSpacing="6">
+                          <Button Classes="v2-target v2-chip" Content="Safe" Command="{Binding MarkSafeCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="Allergic" Command="{Binding MarkAllergicCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="Untested" Command="{Binding MarkUntestedCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-chip" Content="Unknown" Command="{Binding MarkUnknownCommand}" IsEnabled="{Binding CanRecord}" />
+                          <Button Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanEdit}" />
+                        </WrapPanel>
+                      </Grid>
+                    </Border>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
-          </StackPanel>
-
-          <ScrollViewer Grid.Row="7" HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding Items}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="pages:EventItemViewModel">
-                  <Border Classes="v2-intel-fact" Padding="0,10">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="8">
-                      <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding ItemName}" TextWrapping="Wrap"
-                                 VerticalAlignment="Center" />
-                      <StackPanel Grid.Column="1" Spacing="1">
-                        <TextBlock Classes="v2-label" Text="Recorded" />
-                        <TextBlock Classes="v2-body" Text="{Binding StateLabel}" />
-                      </StackPanel>
-                      <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" ItemSpacing="6" LineSpacing="6">
-                        <Button Classes="v2-target v2-chip" Content="Safe" Command="{Binding MarkSafeCommand}" IsEnabled="{Binding CanRecord}" />
-                        <Button Classes="v2-target v2-chip" Content="Allergic" Command="{Binding MarkAllergicCommand}" IsEnabled="{Binding CanRecord}" />
-                        <Button Classes="v2-target v2-chip" Content="Untested" Command="{Binding MarkUntestedCommand}" IsEnabled="{Binding CanRecord}" />
-                        <Button Classes="v2-target v2-chip" Content="Unknown" Command="{Binding MarkUnknownCommand}" IsEnabled="{Binding CanRecord}" />
-                        <Button Classes="v2-target v2-plain" Content="Remove" Command="{Binding RemoveCommand}" IsVisible="{Binding CanEdit}" />
-                      </WrapPanel>
-                    </Grid>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
+          </Grid>
         </Grid>
       </Border>
     </Grid>

@@ -47,6 +47,10 @@ and has neither a step that could publish nor a token that could.
    restoring or overwriting the player's remembered per-monitor window bounds.
    These run before step 9 seeds any data, so they are the first-run state. A width the runner's
    desktop cannot offer is recorded as skipped rather than photographed cropped.
+   The Customs route/squad/marks captures and the extract and Labs captures pass
+   `--developer-mode --gallery-scene <map|route|squad|marks>`: the app seeds synthetic state
+   (catalog quests, a demo squad, marks) and the gallery waits for its `ready` answer on the
+   diagnostic channel instead of sleeping. Database and Config are restored after each scene.
 8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
    showing a populated catalog is evidence that the desktop launches since then produced it.
 9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker
