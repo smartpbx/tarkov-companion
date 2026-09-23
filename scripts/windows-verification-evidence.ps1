@@ -210,6 +210,11 @@ if ($null -ne $Smoke) {
 if ($Excerpts.Count -gt 0 -and -not [string]::IsNullOrWhiteSpace($LocalDataRoot)) {
     $StartupLog = Join-Path $LocalDataRoot "Logs\\startup.log"
     if (Test-Path -LiteralPath $StartupLog) {
+        # #781: these are the job's LAST lines, written by whichever step launched the app last
+        # (the simulator smoke, which is stopped with a kill), not by the gallery launch named
+        # above. Read as that launch's story they sent #781 hunting a hang that was not in them;
+        # a forced gallery close carries its own launch's lifecycle lines in its detail.
+        $Excerpts.Add("startup.log tail (end of the whole job, not the launch named above):")
         foreach ($Line in @(Get-Content -LiteralPath $StartupLog -Tail 20 -ErrorAction SilentlyContinue)) {
             $Excerpts.Add("startup: $(ConvertTo-SafeEvidenceText $Line)")
         }
