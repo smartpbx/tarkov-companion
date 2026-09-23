@@ -203,14 +203,14 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
     </Style>
     <Style Selector="TextBlock.loot-tile-name">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="LineHeight" Value="13" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
       <Setter Property="TextWrapping" Value="Wrap" />
       <Setter Property="TextTrimming" Value="CharacterEllipsis" />
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
     </Style>
     <Style Selector="TextBlock.loot-tile-detail">
-      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="HorizontalAlignment" Value="Right" />
       <Setter Property="VerticalAlignment" Value="Bottom" />

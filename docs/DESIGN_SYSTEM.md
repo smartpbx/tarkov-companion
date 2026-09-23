@@ -330,6 +330,7 @@ Automated in CI today, by `V2DesignSystemContractTests` and `V2ThemeResourceTest
   view;
 - that focus and error border setters target the Fluent template parts, with focus declared last;
 - that styles take colours, type, gaps, radii, targets, and shadows from V2 resources;
+- that every production V2 view takes font sizes and line heights from scalable resources or bindings;
 - that message templates are resources whose placeholders match the manifest;
 - the number, currency, date-time, and message formatting results;
 - the resolver rules.
@@ -393,6 +394,8 @@ so only the V2 status roles need their own overrides.
 Text scale multiplies the type ramp and nothing else. Interface scale, the separate stepper beside
 it in Setup, still zooms the whole shell through `MainWindow`'s `LayoutTransformControl`; they are
 different settings and both are kept.
+At 200%, Intel gives its result decisions more width and wraps sort choices, while Raid keeps its
+single control row and lets verbose cells wrap instead of collapsing map-presentation controls.
 
 To see one: `tools/V2RenderPreview --appearance light|dark|high-contrast|system`,
 `--color-vision red-green|blue-yellow|mono`, `--text-scale 100..200`,

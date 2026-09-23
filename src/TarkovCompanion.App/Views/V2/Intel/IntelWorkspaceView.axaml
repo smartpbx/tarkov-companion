@@ -26,10 +26,12 @@
             <Path Classes="v2-icon v2-icon-lg v2-icon-muted" Data="{DynamicResource V2.Icon.Box}" />
           </Border>
           <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-            <TextBlock Classes="v2-label" Text="{Binding Subtitle}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}"
+                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+            <TextBlock Classes="v2-label" Text="{Binding Subtitle}"
+                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
             <TextBlock Classes="v2-label" IsVisible="{Binding HasMatchLabel}" Text="{Binding MatchLabel}"
-                       TextTrimming="CharacterEllipsis" />
+                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
             <!-- #287 (event state on items): Allergic is a clear chip, Safe/Untested a quiet label. -->
             <Border Classes="v2-intel-event-chip" HorizontalAlignment="Left"
                     IsVisible="{Binding EventStateIsAllergic}">
@@ -86,7 +88,10 @@
            extra width to the item pane. -->
       <Grid Grid.Row="1" ColumnSpacing="16">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="0.3*" MinWidth="400" MaxWidth="560" />
+          <!-- At 200% the old 400 DIP floor left less than one word between the thumbnail and
+               price columns, and the horizontal sort row was clipped at the pane edge. Give the
+               decision list a larger share while leaving most of the workspace to detail. -->
+          <ColumnDefinition Width="0.45*" MinWidth="480" MaxWidth="640" />
           <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
         <!-- Results: kind chips, a count, and the rows. Before any search it offers the
@@ -121,7 +126,7 @@
                        Text="{Binding IntelSearchStatus}" TextWrapping="Wrap" Margin="2,0" />
 
             <!-- Order: relevance is the search's own ranking; the others reorder the same hits. -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasIntelResults}">
+            <StackPanel Grid.Row="2" Spacing="6" IsVisible="{Binding HasIntelResults}">
               <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding IntelSortHeading}" Margin="2,0,0,0" />
               <ItemsControl ItemsSource="{Binding IntelSorts}">
                 <ItemsControl.ItemsPanel>

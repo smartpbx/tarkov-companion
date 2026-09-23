@@ -407,8 +407,8 @@
     </Style>
     <!-- The initial paired with that colour, legible over any hue in the palette. -->
     <Style Selector="TextBlock.v2-map-person-initial">
-      <Setter Property="FontSize" Value="8" />
-      <Setter Property="LineHeight" Value="9" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+      <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
       <Setter Property="FontWeight" Value="Bold" />
       <Setter Property="Foreground" Value="White" />
     </Style>
@@ -469,7 +469,7 @@
       <Setter Property="Height" Value="15" />
     </Style>
     <Style Selector="TextBlock.v2-map-marker-number">
-      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
       <Setter Property="FontWeight" Value="Bold" />
     </Style>
     <!-- [Issue 508] Waypoint and quest-objective pins. One colour family each — the existing
