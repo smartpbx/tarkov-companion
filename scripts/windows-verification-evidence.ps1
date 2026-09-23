@@ -108,6 +108,7 @@ if ($null -ne $Launch) {
         # A main-window handle and a live process, not semantic interactivity: nothing in the
         # probe knows whether a page has filled in.
         mainWindowAfterSeconds = $(Get-OptionalProperty $LaunchWindow "appearedAfterSeconds")
+        startupLogWindowAfterSeconds = $(Get-OptionalProperty $LaunchWindow "startupLogWindowAfterSeconds")
         windowReleasedAfterCloseSeconds = $(Get-OptionalProperty $LaunchShutdown "windowClosedAfterSeconds")
         exitCode = $(Get-OptionalProperty $LaunchShutdown "exitCode")
         requiredObservations = @($Launch.observations | Where-Object { $_.required } |
@@ -146,6 +147,7 @@ if ($null -ne $Gallery) {
                 page = $_.page
                 shellMode = $(Get-OptionalProperty $_ "shellMode")
                 windowShown = [bool]$(Get-OptionalProperty $_ "windowShown")
+                windowShownAfterSeconds = $(Get-OptionalProperty $_ "windowShownAfterSeconds")
                 presented = [bool]$_.presented
                 visuallyVaried = [bool]$_.visuallyVaried
                 interactionRequired = [bool]$(Get-OptionalProperty $_ "interactionRequired")

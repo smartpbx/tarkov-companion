@@ -20,6 +20,12 @@
     <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
+  <!-- The shipped desktop is the only ReadyToRun workload. Keeping the condition on both the
+       Windows framework and RID leaves portable builds, tests, the simulator and the relay on
+       their existing publish paths while letting the win-x64 restore acquire crossgen2. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0' and '$(RuntimeIdentifier)' == 'win-x64'">
+    <PublishReadyToRun>true</PublishReadyToRun>
+  </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
     <ProjectReference Include="../TarkovCompanion.Application/TarkovCompanion.Application.csproj" />

@@ -105,6 +105,9 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 {
                     DataContext = viewModel,
                 };
+                // #728 measures the shipped startup from CrashLog's first line to the first real
+                // window, rather than timing process setup or guessing from a screenshot.
+                window.Opened += (_, _) => CrashLog.Write("lifecycle", "Main window shown.");
                 if (viewModel.PreviewShell is not null)
                 {
                     services.GetService<DesktopWindowPlacementController>()?.Attach(window);

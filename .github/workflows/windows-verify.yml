@@ -604,9 +604,13 @@ jobs:
           "Packing $Next from the binaries that were installed as $env:TARKOV_BUILD_VERSION."
 
           # Under the runner's temporary folder, not dist/: nothing of this may be published.
+          # Seed it with the installed version's package and feed so Velopack has a real base
+          # from which to build a delta. A clean output folder silently proves only full updates.
           $NextDir = Join-Path $env:RUNNER_TEMP "win-x64-next"
           $NextPack = Join-Path $env:RUNNER_TEMP "velopack-next"
           Copy-Item -LiteralPath "artifacts/win-x64" -Destination $NextDir -Recurse
+          New-Item -ItemType Directory -Path $NextPack -Force | Out-Null
+          Copy-Item -Path "dist/velopack/*" -Destination $NextPack -Recurse
           $BuildInfo = Join-Path $NextDir "BUILD_INFO.txt"
           # Written without a byte-order mark, which Set-Content -Encoding utf8 would add here.
           $Lines = @((Get-Content -LiteralPath $BuildInfo) -replace '^version=.+$', "version=$Next")
@@ -615,8 +619,16 @@ jobs:
             --mainExe TarkovCompanion.exe --packTitle "Tarkov Companion" --packAuthors "Clayton Mannerow" `
             --icon (Join-Path $NextDir "Assets/TarkovCompanion.ico") --outputDir $NextPack
           if ($LASTEXITCODE -ne 0) { throw "Packing the next version failed." }
+          $DeltaName = "TarkovCompanionDesktop-$Next-delta.nupkg"
+          $Delta = Join-Path $NextPack $DeltaName
+          if (-not (Test-Path -LiteralPath $Delta -PathType Leaf)) {
+            throw "Packing the next version did not produce $DeltaName from the installed version."
+          }
+          "Built delta package $DeltaName ($((Get-Item -LiteralPath $Delta).Length) bytes)."
           $Feed = Join-Path $env:RUNNER_TEMP "rough-channel-next"
-          python scripts/release/rough_channel.py stage --velopack $NextPack --output $Feed --expect-version $Next
+          # The disposable feed deliberately contains both the installed base and the next
+          # version. The production staging command's one-version assertion does not apply.
+          python scripts/release/rough_channel.py stage --velopack $NextPack --output $Feed
           if ($LASTEXITCODE -ne 0) { throw "Staging the next version's feed failed." }
 
           $Current = Split-Path -Parent $env:TC_INSTALLED
@@ -670,9 +682,14 @@ jobs:
             if (Test-Path -LiteralPath $Log) { Get-Content -LiteralPath $Log -Tail 40 }
             throw "The update did not apply: current\BUILD_INFO.txt says '$Applied', and '$Next' was downloaded and handed to the updater."
           }
+          $StartupLog = Join-Path $env:LOCALAPPDATA "TarkovCompanion/Logs/startup.log"
+          if (-not (Test-Path -LiteralPath $StartupLog -PathType Leaf) -or
+              -not (Select-String -LiteralPath $StartupLog -SimpleMatch $DeltaName -Quiet)) {
+            throw "The updater applied $Next without recording verification of $DeltaName."
+          }
           if (-not $Reopened) { throw "The update applied but the application did not reopen from current\ within ninety seconds." }
           if (-not (Test-Path -LiteralPath $env:TC_MARKER)) { throw "Updating destroyed the existing application data marker." }
-          "Updated $env:TARKOV_BUILD_VERSION to $Next, the application reopened from current\, and the data marker is intact."
+          "Updated $env:TARKOV_BUILD_VERSION to $Next through $DeltaName, the application reopened from current\, and the data marker is intact."
 
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
@@ -747,6 +764,9 @@ jobs:
               # process that exits first leaves it null, and that is said rather than printed blank.
               $Released = if ($null -ne $Evidence.launch.windowReleasedAfterCloseSeconds) { "window released $($Evidence.launch.windowReleasedAfterCloseSeconds)s after the close request" } else { "process exited before a separate window release was observed" }
               $Lines += "Launch probe: main window handle after $($Evidence.launch.mainWindowAfterSeconds)s; $Released; exit code $($Evidence.launch.exitCode). Window presence and process health, not semantic interactivity."
+              if ($null -ne $Evidence.launch.startupLogWindowAfterSeconds) {
+                $Lines += "Startup log: [started] to Main window shown in $($Evidence.launch.startupLogWindowAfterSeconds)s."
+              }
             }
             if ($null -ne $Evidence.gallery) {
               $Clean = $Evidence.gallery.launchCount - $Evidence.gallery.failedCount
