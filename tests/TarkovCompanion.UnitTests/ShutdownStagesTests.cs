@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
 
 namespace TarkovCompanion.UnitTests;
@@ -86,6 +87,49 @@ public sealed class ShutdownStagesTests
         Assert.True(ran);
         Assert.True(stages.WithinBudget);
         Assert.Contains("calm", stages.Report(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A service whose <c>Dispose</c> blocks is abandoned at its allowance too (#735).
+    /// </summary>
+    /// <remarks>
+    /// <c>ServiceProvider.DisposeAsync</c> calls a plain <see cref="IDisposable.Dispose"/> inline,
+    /// before it has a task to return, so a bound applied to the returned task never applied: the
+    /// services stage waited as long as the slowest disposer did and the teardown report was
+    /// never written. Run through <see cref="Task.Run(Func{Task})"/> and a deadline here, because
+    /// the old code blocked inside <c>RunAsync</c> itself and would otherwise hang the test
+    /// instead of failing it.
+    /// </remarks>
+    [Fact]
+    public async Task AServiceWhoseDisposeBlocksIsAbandonedAtItsAllowance()
+    {
+        using var release = new ManualResetEventSlim();
+        // A factory, not an instance: the container disposes only what it created.
+        var services = new ServiceCollection()
+            .AddSingleton(_ => new BlockingDisposable(release))
+            .BuildServiceProvider();
+        _ = services.GetRequiredService<BlockingDisposable>();
+        var stages = new ShutdownStages(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            await Task.Run(() => stages.RunAsync("services", () => services.DisposeAsync().AsTask(), TimeSpan.FromMilliseconds(200)))
+                .WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.False(stages.WithinBudget);
+        Assert.Equal("services", stages.Current);
+        Assert.Contains("services", stages.Report(), StringComparison.Ordinal);
+        Assert.Contains("(abandoned)", stages.Report(), StringComparison.Ordinal);
+    }
+
+    private sealed class BlockingDisposable(ManualResetEventSlim release) : IDisposable
+    {
+        public void Dispose() => release.Wait(TimeSpan.FromSeconds(60));
     }
 
     /// <summary>An ordinary shutdown reports every step and its cost, in order.</summary>

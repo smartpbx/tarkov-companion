@@ -799,16 +799,24 @@ function Measure-DeadSpace {
 function Close-AppProcess {
     param([System.Diagnostics.Process] $Process, [string] $Page)
 
+    $script:ForcedCloseDetail = ""
     try {
         $Forced = $false
         if (-not $Process.HasExited) {
-            $null = $Process.CloseMainWindow()
+            $Asked = $Process.CloseMainWindow()
             # Kill() without the process-tree overload: that one is .NET Core only, so under
             # Windows PowerShell it threw, was reported below, and left the launch running into
             # the next one.
             if (-not $Process.WaitForExit(20000)) {
                 $Forced = $true
+                # #735: what state it was left in, before the kill erases it. A window still up
+                # and not responding is a UI thread that never read the close; a window gone is
+                # an exit stuck after it, and the application's own lifecycle lines say where.
+                $Process.Refresh()
+                $State = "CloseMainWindow returned $Asked; window still up: $($Process.MainWindowHandle -ne [IntPtr]::Zero); responding: $($Process.Responding); threads: $($Process.Threads.Count)"
                 $Process.Kill()
+                $script:ForcedCloseDetail = "$State. " + (Get-LaunchLifecycleLines -Since $Process.StartTime.ToUniversalTime())
+                Write-Host "Forced close of '$Page': $script:ForcedCloseDetail"
             }
             $null = $Process.WaitForExit(5000)
         }
@@ -818,6 +826,50 @@ function Close-AppProcess {
         Write-Host "Could not close the process for '$Page': $($_.Exception.Message)"
         return $false
     }
+}
+
+<#
+    The application's own lifecycle, hang and shutdown lines from one launch, newest last.
+
+    #735: a forced close used to report only that it happened. These are the lines that say how
+    far the exit got - "Main window closed", "Desktop lifetime returned", "Teardown ...", "Exit
+    requested ... last stage: ..." - or that the interface was frozen when the close arrived. The
+    runner's own log, so nothing of a player's is in it.
+#>
+function Get-LaunchLifecycleLines {
+    param([DateTime] $Since)
+
+    $StartupLog = Join-Path $env:LOCALAPPDATA "TarkovCompanion\Logs\startup.log"
+    if (-not (Test-Path -LiteralPath $StartupLog -PathType Leaf)) {
+        return "No startup.log to read."
+    }
+
+    try {
+        $Stream = [System.IO.FileStream]::new($StartupLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $Reader = [System.IO.StreamReader]::new($Stream)
+        try { $Text = $Reader.ReadToEnd() } finally { $Reader.Dispose() }
+    }
+    catch {
+        return "startup.log could not be read: $($_.Exception.Message)"
+    }
+
+    $Picked = [System.Collections.Generic.List[string]]::new()
+    foreach ($Line in ($Text -split "`r?`n")) {
+        if ($Line -notmatch '^(?<at>\S+) \[(?<category>lifecycle|ui-hang|ui-hang-recovered|shutdown-failure|dispatcher-exception|unhandled-exception)\] (?<detail>.*)$') { continue }
+        $At = [DateTimeOffset]::MinValue
+        if (-not [DateTimeOffset]::TryParse($Matches.at, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AssumeUniversal, [ref] $At)) { continue }
+        # A second of slack: the process start time and the log's clock are read differently.
+        if ($At.UtcDateTime -lt $Since.AddSeconds(-1)) { continue }
+        $Detail = $Matches.detail
+        if ($Detail.Length -gt 160) { $Detail = $Detail.Substring(0, 160) + "..." }
+        $Picked.Add("[$($Matches.category)] $Detail")
+    }
+
+    if ($Picked.Count -eq 0) {
+        return "The launch wrote no lifecycle line."
+    }
+
+    return "Its lifecycle: " + (($Picked | Select-Object -Last 6) -join " | ")
 }
 
 <#
@@ -1645,7 +1697,7 @@ foreach ($Shot in $Shots) {
 
         $Result.gracefulShutdown = Close-AppProcess -Process $Process -Page $Page
         if (-not $Result.gracefulShutdown) {
-            throw "The packaged app required forced termination after '$Page'."
+            throw "The packaged app required forced termination after '$Page'. $script:ForcedCloseDetail"
         }
         $Content = Measure-ImageContent -Path $Screenshot
         $Drew = $Content.distinctColors -ge $MinimumDistinctColors -and $Content.variedFraction -ge $MinimumVariedFraction
