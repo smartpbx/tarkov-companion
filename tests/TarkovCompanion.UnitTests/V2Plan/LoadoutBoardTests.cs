@@ -57,6 +57,31 @@ public sealed class LoadoutBoardTests
     }
 
     [Fact]
+    public async Task RecognizedEquipmentPrefillsTheSameBoard()
+    {
+        var page = Page();
+        page.Apply(Snapshot(items: 3));
+
+        var loaded = await page.LoadRecognizedItemsAsync(["carbine", "helmet", "bandage"]);
+
+        Assert.Equal(3, loaded);
+        Assert.Equal("3 of 10 slots filled", page.SlotBoardSummary);
+        Assert.Equal("Carbine", page.SlotBoard.Single(tile => tile.Slot == LoadoutSlot.Weapon).Summary);
+        Assert.Equal("Helmet", page.SlotBoard.Single(tile => tile.Slot == LoadoutSlot.Helmet).Summary);
+        Assert.Equal("Bandage", page.SlotBoard.Single(tile => tile.Slot == LoadoutSlot.Medical).Summary);
+        Assert.Equal("3 recognized items assigned.", page.AssignmentStatus);
+    }
+
+    [Fact]
+    public void AGenericWeaponPartIsNotInventedAsAMagazine()
+    {
+        Assert.Null(LoadoutPageViewModel.SlotForRecognized(ItemCategory.Attachment, "M-LOK handguard"));
+        Assert.Equal(
+            LoadoutSlot.Magazine,
+            LoadoutPageViewModel.SlotForRecognized(ItemCategory.Attachment, "30-round magazine"));
+    }
+
+    [Fact]
     public void PressingATileAimsTheSearchAtThatSlot()
     {
         var page = Page();
@@ -213,6 +238,26 @@ public sealed class LoadoutBoardTests
         new HashSet<string>(StringComparer.Ordinal),
         new DataProvenance("fixture", Now));
 
+    private static ItemDefinition Helmet { get; } = Item("helmet", "Helmet", ItemCategory.Helmet);
+
+    private static ItemDefinition Bandage { get; } = Item("bandage", "Bandage", ItemCategory.Medicine);
+
+    private static ItemDefinition Item(string id, string name, ItemCategory category) => new(
+        id,
+        name,
+        name,
+        string.Empty,
+        category,
+        new ItemDimensions(1, 1),
+        true,
+        null,
+        null,
+        null,
+        null,
+        null,
+        new HashSet<string>(StringComparer.Ordinal),
+        new DataProvenance("fixture", Now));
+
     private sealed class FixedClock : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => Now;
@@ -238,6 +283,10 @@ public sealed class LoadoutBoardTests
                     "5.56x45",
                     new HashSet<string>(StringComparer.Ordinal),
                     new HashSet<string>(StringComparer.Ordinal)),
+                new("helmet", "Helmet", ItemCategory.Helmet, 20_000, 1.2, null,
+                    new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)),
+                new("bandage", "Bandage", ItemCategory.Medicine, 2_000, 0.1, null,
+                    new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal)),
             ]);
 
         public Task<IReadOnlyList<KeyFacts>> GetKeyFactsAsync(CancellationToken cancellationToken) =>
@@ -260,7 +309,13 @@ public sealed class LoadoutBoardTests
     private sealed class Repository : IItemRepository
     {
         public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
-            Task.FromResult<ItemDefinition?>(itemId == Carbine.Id ? Carbine : null);
+            Task.FromResult<ItemDefinition?>(itemId switch
+            {
+                "carbine" => Carbine,
+                "helmet" => Helmet,
+                "bandage" => Bandage,
+                _ => null,
+            });
 
         public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(string query, int limit, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ItemSearchHit>>([]);

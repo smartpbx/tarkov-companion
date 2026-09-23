@@ -622,6 +622,75 @@ public sealed class LoadoutPageViewModel : PageViewModel
         ResetEvaluation("Assign at least one item, then evaluate.");
     }
 
+    /// <summary>Replaces the board with catalog items identified in a screenshot.</summary>
+    /// <remarks>
+    /// Recognition supplies identities, not slot guesses. The catalog category chooses the slot;
+    /// ambiguous armor kinds use their own named category, and generic weapon attachments are not
+    /// called magazines unless their catalog name says magazine.
+    /// </remarks>
+    public async Task<int> LoadRecognizedItemsAsync(
+        IReadOnlyCollection<string> itemIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+        var facts = await EnsureFactsAsync(cancellationToken).ConfigureAwait(true);
+        _selection.Clear();
+
+        foreach (var itemId in itemIds)
+        {
+            var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+            var fact = facts.GetValueOrDefault(itemId);
+            var name = item?.Name ?? fact?.Name ?? itemId;
+            var category = KindOf(itemId, item?.Category ?? ItemCategory.Unknown, facts);
+            if (SlotForRecognized(category, name) is not { } slot)
+            {
+                continue;
+            }
+
+            var option = SlotOptions.First(candidate => candidate.Slot == slot);
+            if (!_selection.TryGetValue(slot, out var assigned))
+            {
+                _selection[slot] = assigned = [];
+            }
+
+            if (!option.AllowsMany)
+            {
+                assigned.Clear();
+            }
+
+            assigned.Add(new(itemId, name, $"{category} · {DescribeCost(fact)} · {DescribeWeight(fact)}{DescribeGear(fact)}"));
+        }
+
+        await RefreshAllergyWarningsAsync(cancellationToken).ConfigureAwait(true);
+        RefreshAssignments();
+        ResetEvaluation(Assignments.Count == 0
+            ? "No recognized equipment maps to a loadout slot."
+            : "Recognized equipment loaded. Evaluate when ready.");
+        AssignmentStatus = Assignments.Count == 0
+            ? "No recognized equipment was assigned."
+            : $"{Assignments.Count} recognized items assigned.";
+        await RefreshAlternativesAsync(cancellationToken).ConfigureAwait(true);
+        return Assignments.Count;
+    }
+
+    internal static LoadoutSlot? SlotForRecognized(ItemCategory category, string name) => category switch
+    {
+        ItemCategory.Weapon => LoadoutSlot.Weapon,
+        ItemCategory.Ammunition or ItemCategory.AmmunitionPack => LoadoutSlot.Ammunition,
+        ItemCategory.Attachment when name.Contains("magazine", StringComparison.OrdinalIgnoreCase) => LoadoutSlot.Magazine,
+        ItemCategory.Armor => LoadoutSlot.Armor,
+        ItemCategory.Plate => LoadoutSlot.Plate,
+        ItemCategory.Helmet => LoadoutSlot.Helmet,
+        ItemCategory.Headset => LoadoutSlot.Headset,
+        ItemCategory.Rig => LoadoutSlot.Rig,
+        ItemCategory.Backpack => LoadoutSlot.Backpack,
+        ItemCategory.Medicine or ItemCategory.Provision => LoadoutSlot.Medical,
+        _ => null,
+    };
+
+    internal static bool RecognizedSlotAllowsMany(LoadoutSlot slot) =>
+        SlotOptions.First(option => option.Slot == slot).AllowsMany;
+
     /// <summary>Reads the saved kits, so the page can offer them.</summary>
     public async Task LoadPresetsAsync(CancellationToken cancellationToken)
     {

@@ -99,7 +99,7 @@ public sealed class StashPlanSourceTests
         Assert.Equal(StashPlanGroup.Review, rifle.Group);
         Assert.Contains("stash.specialist.gear-unresolved", rifle.ReasonCodes);
         Assert.NotNull(rifle.NetValueRoubles.Value);
-        Assert.StartsWith("Gear isn't sorted yet. It would fetch about ₽", StashSortWording.Why(rifle, null), StringComparison.Ordinal);
+        Assert.StartsWith("Open the recognized kit in Loadout · about ₽", StashSortWording.Why(rifle, null), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Threading;
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Capture;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
@@ -103,12 +104,12 @@ public static class StashSortWording
 
         if (planned.ReasonCodes.Any(code => code.StartsWith("stash.specialist.", StringComparison.Ordinal)))
         {
-            // Gear waits for the loadout planner, and still says what it is worth meanwhile.
+            // Gear now hands off to the loadout planner, and still says what it is worth here.
             var gear = planned.ReasonCodes.Contains("stash.specialist.gear-unresolved", StringComparer.Ordinal);
             return (gear, planned.NetValueRoubles.Value) switch
             {
-                (true, { } worth) => $"Gear isn't sorted yet. It would fetch about ₽{worth.ToString("N0", CultureInfo.CurrentCulture)}.",
-                (true, null) => "Gear isn't sorted yet.",
+                (true, { } worth) => $"Open the recognized kit in Loadout · about ₽{worth.ToString("N0", CultureInfo.CurrentCulture)} to a buyer.",
+                (true, null) => "Open the recognized kit in Loadout.",
                 _ => "Ammo and keys aren't sorted yet.",
             };
         }
@@ -189,6 +190,10 @@ public sealed record StashItemRowViewModel(
     public bool HasWikiLink => WikiLinkPolicy.IsAllowed(WikiUri);
 
     public ICommand? OpenWikiCommand { get; init; }
+
+    public ICommand? OpenLoadoutCommand { get; init; }
+
+    public bool HasLoadoutLink => OpenLoadoutCommand is not null;
 }
 
 /// <summary>
@@ -415,6 +420,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private StashItemRowViewModel? _selectedItem;
     private ScanIntent _scanTarget = ScanIntent.Stash;
     private bool _isGridView = true;
+    private Func<IReadOnlyCollection<string>, Task>? _openLoadout;
 
     public StashScanWorkspaceViewModel(
         IStashSnapshotStore store,
@@ -685,6 +691,10 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </summary>
     public string SelectedItemDisplayName => SelectedItem?.DisplayName ?? string.Empty;
 
+    public bool SelectedItemHasLoadoutLink => SelectedItem?.HasLoadoutLink == true;
+
+    public ICommand? SelectedItemOpenLoadoutCommand => SelectedItem?.OpenLoadoutCommand;
+
     /// <summary>The selected item's group and the whole of its reason, which a row has to trim.</summary>
     public string SelectedItemSortLabel => SelectedItem is not { } item
         ? string.Empty
@@ -742,6 +752,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 OnPropertyChanged(nameof(HasSelectedItem));
                 OnPropertyChanged(nameof(SelectedItemDisplayName));
                 OnPropertyChanged(nameof(SelectedItemSortLabel));
+                OnPropertyChanged(nameof(SelectedItemHasLoadoutLink));
+                OnPropertyChanged(nameof(SelectedItemOpenLoadoutCommand));
             }
         }
     }
@@ -870,6 +882,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         await OverlayScanProgressAsync(CancellationToken.None).ConfigureAwait(true);
         RaiseAll();
     }
+
+    public void AttachLoadoutNavigation(Func<IReadOnlyCollection<string>, Task> openLoadout) =>
+        _openLoadout = openLoadout ?? throw new ArgumentNullException(nameof(openLoadout));
 
     /// <summary>While a scan is collecting, the grid shows that scan rather than the last saved one.</summary>
     private async Task OverlayScanProgressAsync(CancellationToken cancellationToken)
@@ -1338,6 +1353,18 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var ammoByItemId = _ammoByItemId ?? new Dictionary<string, AmmoStats>(StringComparer.Ordinal);
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
         var definitionsByItemId = new Dictionary<string, ItemDefinition?>(StringComparer.Ordinal);
+        IReadOnlyDictionary<string, LoadoutItemFacts> loadoutFacts;
+        try
+        {
+            loadoutFacts = (await _catalog.GetLoadoutFactsAsync(cancellationToken).ConfigureAwait(true))
+                .ToDictionary(fact => fact.ItemId, StringComparer.Ordinal);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            WorkspaceFault.Record("stash", "read loadout facts", exception);
+            loadoutFacts = new Dictionary<string, LoadoutItemFacts>(StringComparer.Ordinal);
+        }
+        var recognizedLoadoutIds = RecognizedLoadoutIds(reconstruction, loadoutFacts);
 
         var sorted = await SortAsync(reconstruction, ammoByItemId, keyFactsByItemId, cancellationToken).ConfigureAwait(true);
         var plannedByKey = sorted?.Plan.Items.ToDictionary(item => item.ItemKey, StringComparer.Ordinal);
@@ -1384,6 +1411,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                 {
                     SelectCommand = new DelegateCommand(() => SelectedItem = bare),
                     OpenWikiCommand = new DelegateCommand(() => _wikiOpener?.TryOpen(wikiUri)),
+                    OpenLoadoutCommand = recognizedLoadoutIds.Count > 0 &&
+                        plannedByKey?.GetValueOrDefault(tile.ItemKey)?.ReasonCodes.Contains(
+                            "stash.specialist.gear-unresolved", StringComparer.Ordinal) == true &&
+                        _openLoadout is not null
+                            ? new AsyncDelegateCommand(() => _openLoadout(recognizedLoadoutIds))
+                            : null,
                 };
 
                 // Every read footprint is drawn on its container's grid, including the ammo and
@@ -1474,6 +1507,31 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             })
             .OrderBy(row => row.DisplayName, StringComparer.Ordinal)
             .ToArray();
+    }
+
+    internal static IReadOnlyList<string> RecognizedLoadoutIds(
+        StashReconstruction reconstruction,
+        IReadOnlyDictionary<string, LoadoutItemFacts> facts)
+    {
+        var ids = new List<string>();
+        var singleSlots = new HashSet<LoadoutSlot>();
+        foreach (var tile in reconstruction.Containers.SelectMany(container => container.Tiles))
+        {
+            if (tile.ItemId is not { } itemId || facts.GetValueOrDefault(itemId) is not { } fact ||
+                LoadoutPageViewModel.SlotForRecognized(fact.Category, fact.Name) is not { } slot)
+            {
+                continue;
+            }
+
+            if (!LoadoutPageViewModel.RecognizedSlotAllowsMany(slot) && !singleSlots.Add(slot))
+            {
+                continue;
+            }
+
+            ids.Add(itemId);
+        }
+
+        return ids;
     }
 
     /// <summary>
