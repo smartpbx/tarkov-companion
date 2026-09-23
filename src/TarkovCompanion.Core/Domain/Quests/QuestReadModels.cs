@@ -36,7 +36,14 @@ public sealed record QuestObjectiveReadModel(
     DateTimeOffset? ProgressModifiedUtc,
     bool IsPinned,
     IReadOnlyList<string> MapIds,
-    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets);
+    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets)
+{
+    /// <summary>The trader named by a trader-level objective, where this objective is one.</summary>
+    public string? RequiredTraderId { get; init; }
+
+    /// <summary>The loyalty level named by a trader-level objective, where this objective is one.</summary>
+    public int? RequiredTraderLevel { get; init; }
+}
 
 public sealed record QuestPrerequisiteReadModel(
     string RequiredTaskId,

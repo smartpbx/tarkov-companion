@@ -28,7 +28,7 @@ public enum V2SetupSection
     /// <summary>Package 29 (parity): the quest-progress exchange and TarkovTracker import V1 kept in Settings.</summary>
     Progress,
 
-    /// <summary>V2 rough package 43 (#314): the five notifications, each with a switch and a test.</summary>
+    /// <summary>V2 rough package 43 (#314): the six notifications, each with a switch and a test.</summary>
     Notifications,
     /// <summary>#292: what the data is and what leaves the machine, layered; the deep-link target for "why" beside a control.</summary>
     DataPrivacy,

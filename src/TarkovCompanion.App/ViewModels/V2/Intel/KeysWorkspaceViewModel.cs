@@ -77,6 +77,8 @@ public sealed class KeyListRowViewModel : BindableViewModel
 
     public string VerdictReason => Key.VerdictReason;
 
+    public string LearnReason => VerdictReason;
+
     public string Map => Key.Map;
 
     public string LockSummary => Key.LockSummary;
@@ -104,8 +106,12 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
     private KeyVerdictFilter _filter;
     private IReadOnlyList<KeyListRowViewModel>? _rows;
 
-    public KeysWorkspaceViewModel(KeysPageViewModel page, Action<string>? openItem = null)
+    public KeysWorkspaceViewModel(
+        KeysPageViewModel page,
+        Action<string>? openItem = null,
+        TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         _page = page ?? throw new ArgumentNullException(nameof(page));
         _openItem = openItem;
         VerdictFilters =
@@ -125,6 +131,8 @@ public sealed class KeysWorkspaceViewModel : BindableViewModel
         });
         _page.PropertyChanged += PageChanged;
     }
+
+    public TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting LearnMode { get; }
 
     public IReadOnlyList<KeyVerdictChipViewModel> VerdictFilters { get; }
 

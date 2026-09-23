@@ -39,7 +39,7 @@ public enum NotificationKind
 /// Which notifications are on, and whether any of them may draw a window.
 /// </summary>
 /// <remarks>
-/// All five start on, because each one is already the answer to "would he want to know". What
+/// All six start on, because each one is already the answer to "would he want to know". What
 /// starts off is the pop-up: <see cref="ShowsDesktopPopup"/> is the only setting here that can put
 /// something on screen by itself, and "nothing pops over a full-screen game unless the player
 /// asked for it" is the rule it exists to keep. With it off, a notification is a tray icon that
@@ -121,7 +121,7 @@ public sealed record NotificationSettings
 }
 
 /// <summary>One thing worth telling somebody, already written out.</summary>
-/// <param name="Kind">Which of the five this is.</param>
+/// <param name="Kind">Which of the six this is.</param>
 /// <param name="Title">Three or four words, which is all a tray balloon shows.</param>
 /// <param name="Body">One sentence underneath it.</param>
 /// <param name="Count">How many events this stands for; 1 unless a burst was coalesced.</param>
@@ -132,6 +132,41 @@ public sealed record NotificationRequest(
     string Body,
     int Count,
     DateTimeOffset RaisedUtc);
+
+/// <summary>Text safe to let Windows repeat on a locked screen.</summary>
+/// <remarks>
+/// This deliberately cannot carry the original notification request. A platform channel accepts
+/// only this projection, so a later flea alert cannot accidentally put an item name or value on
+/// the lock screen merely because its in-app wording became more useful.
+/// </remarks>
+public sealed record LockScreenNotification(string Title, string Body);
+
+/// <summary>A native operating-system notification surface, where content may outlive the window.</summary>
+public interface INativeNotificationChannel
+{
+    bool IsAvailable { get; }
+
+    void Show(LockScreenNotification notification);
+}
+
+public static class NotificationPrivacy
+{
+    /// <summary>Removes names, values, endpoints and other detail before Windows can retain it.</summary>
+    public static LockScreenNotification ForLockScreen(NotificationRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return request.Kind switch
+        {
+            NotificationKind.SquadMark => new("Squad update", "Open Tarkov Companion to view it."),
+            NotificationKind.DebriefReady => new("Raid over", "The debrief is ready."),
+            NotificationKind.DataRefreshFailed => new("Game data needs attention", "Open Tarkov Companion for details."),
+            NotificationKind.UpdateReady => new("Update ready", "Open Tarkov Companion for details."),
+            NotificationKind.RelayUnreachable => new("Squad relay unreachable", "Open Tarkov Companion for details."),
+            NotificationKind.FleaSold => new("Flea offer sold", "Open Tarkov Companion for details."),
+            _ => new("Tarkov Companion", "Open Tarkov Companion for details."),
+        };
+    }
+}
 
 /// <summary>One squadmate mark or ping, as the coordinator needs to see it.</summary>
 /// <param name="Id">The relay's own id, which is what stops one mark being announced twice.</param>

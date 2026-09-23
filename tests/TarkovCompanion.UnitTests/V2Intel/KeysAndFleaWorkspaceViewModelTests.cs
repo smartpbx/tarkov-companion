@@ -31,6 +31,15 @@ public sealed class KeysWorkspaceViewModelTests
     }
 
     [Fact]
+    public void A_key_rows_learn_line_is_the_key_engines_verdict_reason()
+    {
+        var key = Row("keep-1", KeepOrSell.Keep);
+        var row = new KeyListRowViewModel(key, false, null!);
+
+        Assert.Equal(key.VerdictReason, row.LearnReason);
+    }
+
+    [Fact]
     public async Task TheFilterBoxFindsKeysByTheMapTheyBelongToAsWellAsByName()
     {
         var (page, workspace) = await LoadedAsync();

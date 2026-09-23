@@ -4,7 +4,7 @@ using TarkovCompanion.Core.Domain.Raids;
 namespace TarkovCompanion.Application.Services.Notifications;
 
 /// <summary>
-/// Decides which of the five notifications to raise, and refuses to raise anything else.
+/// Decides which of the six notifications to raise, and refuses to raise anything else.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,14 +14,14 @@ namespace TarkovCompanion.Application.Services.Notifications;
 /// no timer in it.
 /// </para>
 /// <para>
-/// Three rules cut across all five. Nothing repeats: each one is keyed on the thing that caused it
+/// Three rules cut across all six. Nothing repeats: each one is keyed on the thing that caused it
 /// (a mark's relay id, a raid's id, which endpoints failed, which build is waiting, one outage) and
 /// fires once for it. Nothing fires for something the player did: a mark this player dropped is
 /// never announced back to them. And a burst becomes one line — six marks in four seconds is "6
 /// marks from Ferret", not six interruptions.
 /// </para>
 /// <para>
-/// Four of the five are silent during a raid, and deliberately do not record that they were
+/// Five of the six are silent during a raid, and deliberately do not record that they were
 /// suppressed: the condition is still true when the raid ends, so the notification arrives then
 /// rather than being lost. Only <see cref="NotificationKind.SquadMark"/> fires mid-raid, because
 /// it is the only one that changes what somebody does in the next ten seconds.

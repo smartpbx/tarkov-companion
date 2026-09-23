@@ -14,6 +14,8 @@ namespace TarkovCompanion.App.ViewModels.V2.Plan;
 public sealed record HideoutUpgradeStepRowViewModel(string Order, string Title, string State, string AlsoNeeds, bool IsReady)
 {
     public bool HasAlsoNeeds => AlsoNeeds.Length > 0;
+
+    public string LearnReason => HasAlsoNeeds ? $"Gate: {AlsoNeeds}" : $"Items: {State}";
 }
 
 /// <summary>One line of the merged shopping list.</summary>

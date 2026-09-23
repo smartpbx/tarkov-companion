@@ -13,13 +13,20 @@ public enum PlanQuestFilter
     /// <summary>Active quests, and any quest or objective the player pinned.</summary>
     Active,
 
+    /// <summary>Quests the progression planner names current, excluding merely pinned quests.</summary>
+    Current,
+
     /// <summary>Not started, and the catalog says the player can take it now.</summary>
     Available,
 
     /// <summary>Not started, and gated by a level or an unfinished prerequisite.</summary>
     Locked,
 
+    Future,
+
     Completed,
+
+    Unknown,
 
     /// <summary>Quests the catalog says Kappa needs, until they are done.</summary>
     Kappa,
@@ -89,6 +96,8 @@ public sealed record PlanRequirementRowViewModel(
     public string ProgressLabel => Have is { } have
         ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
         : string.Create(CultureInfo.CurrentCulture, $"? / {Need:N0}");
+
+    public string LearnReason => $"{HandlingLabel}: needed by this map's quests";
 }
 
 /// <summary>
@@ -100,26 +109,41 @@ public static class PlanQuestRules
     public static string FilterLabel(PlanQuestFilter filter) => filter switch
     {
         PlanQuestFilter.Active => "Active",
-        PlanQuestFilter.Available => "Available now",
-        PlanQuestFilter.Locked => "Locked",
+        PlanQuestFilter.Current => "Current",
+        PlanQuestFilter.Available => "Next",
+        PlanQuestFilter.Locked => "Blocked",
+        PlanQuestFilter.Future => "Future",
         PlanQuestFilter.Completed => "Completed",
+        PlanQuestFilter.Unknown => "Unknown",
         PlanQuestFilter.Kappa => "Kappa",
         _ => "All",
     };
 
-    /// <summary>Whether a quest belongs to a filter. The filters never overlap on state: a started quest is Active, not Available.</summary>
-    public static bool Includes(QuestSummaryReadModel task, PlanQuestFilter filter)
+    /// <summary>Whether a quest belongs to a filter. The named state filters never overlap.</summary>
+    public static bool Includes(QuestSummaryReadModel task, PlanQuestFilter filter, QuestStatePlan? plan = null)
     {
         ArgumentNullException.ThrowIfNull(task);
-        var notStarted = task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted;
         return filter switch
         {
             PlanQuestFilter.Active => task.RecordedState == RecordedTaskState.Active ||
                 task.IsPinned ||
                 task.Objectives.Any(objective => objective.IsPinned),
-            PlanQuestFilter.Available => notStarted && task.Eligibility.State == QuestEligibilityState.Available,
-            PlanQuestFilter.Locked => notStarted && task.Eligibility.State == QuestEligibilityState.Locked,
+            PlanQuestFilter.Current => plan?.State == QuestPlanState.Current ||
+                plan is null && task.RecordedState == RecordedTaskState.Active,
+            PlanQuestFilter.Available => plan?.State == QuestPlanState.Next ||
+                plan is null && task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted &&
+                    task.Eligibility.State == QuestEligibilityState.Available,
+            PlanQuestFilter.Locked => plan?.State == QuestPlanState.Blocked ||
+                plan is null && (task.RecordedState == RecordedTaskState.Failed ||
+                    task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted &&
+                    task.Eligibility.State == QuestEligibilityState.Locked),
+            PlanQuestFilter.Future => plan?.State == QuestPlanState.Future ||
+                plan is null && task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted &&
+                    task.Eligibility.State == QuestEligibilityState.Delayed,
             PlanQuestFilter.Completed => task.RecordedState == RecordedTaskState.Completed,
+            PlanQuestFilter.Unknown => plan?.State == QuestPlanState.Unknown ||
+                plan is null && task.RecordedState is RecordedTaskState.Unknown or RecordedTaskState.NotStarted &&
+                    task.Eligibility.State == QuestEligibilityState.Indeterminate,
             PlanQuestFilter.Kappa => task.KappaRequired == true && task.RecordedState != RecordedTaskState.Completed,
             _ => true,
         };
@@ -127,6 +151,20 @@ public static class PlanQuestRules
 
     /// <summary>Completed quests plan nothing, so their objectives are shown only where the player asked to see finished work.</summary>
     public static bool ShowsFinishedObjectives(PlanQuestFilter filter) => filter is PlanQuestFilter.Completed or PlanQuestFilter.All;
+
+    public static string StateLabel(QuestPlanState state) => state switch
+    {
+        QuestPlanState.Current => "Current",
+        QuestPlanState.Next => "Next",
+        QuestPlanState.Future => "Future",
+        QuestPlanState.Blocked => "Blocked",
+        QuestPlanState.Completed => "Completed",
+        _ => "Unknown",
+    };
+
+    public static string StateDetail(QuestStatePlan plan) => plan.Blockers.Count == 0
+        ? string.Empty
+        : string.Join(" · ", plan.Blockers.Select(blocker => blocker.Label));
 
     /// <summary>
     /// What a quest is doing, for the row, or empty for one already being played.
@@ -162,10 +200,13 @@ public static class PlanQuestRules
     {
         (> 0, _, _) => $"No quest matches “{query}” in {FilterLabel(filter)}.",
         (_, true, _) => $"No {FilterLabel(filter).ToLowerInvariant()} quest for this trader.",
-        (_, _, PlanQuestFilter.Active) => "No active quests. Try Available now, or All.",
-        (_, _, PlanQuestFilter.Available) => "Nothing is available right now.",
-        (_, _, PlanQuestFilter.Locked) => "No quest is locked.",
+        (_, _, PlanQuestFilter.Active) => "No active quests. Try Next, or All.",
+        (_, _, PlanQuestFilter.Current) => "No quest is current.",
+        (_, _, PlanQuestFilter.Available) => "No quest is next right now.",
+        (_, _, PlanQuestFilter.Locked) => "No quest is blocked.",
+        (_, _, PlanQuestFilter.Future) => "No future quest is waiting on a timer.",
         (_, _, PlanQuestFilter.Completed) => "No quest is recorded complete.",
+        (_, _, PlanQuestFilter.Unknown) => "No quest state is unknown.",
         (_, _, PlanQuestFilter.Kappa) => "No Kappa quest is left, or the catalog does not say which are.",
         _ => "No quests recorded yet.",
     };

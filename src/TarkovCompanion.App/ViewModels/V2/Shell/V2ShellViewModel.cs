@@ -209,7 +209,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #274: persisted quest/hideout look-ahead controls in Setup > Progress.
         RecommendationHorizonSettingsViewModel? recommendationHorizons = null,
         // #314: the after-update banner and its player-facing change list.
-        ReleaseExperienceViewModel? releaseExperience = null)
+        ReleaseExperienceViewModel? releaseExperience = null,
+        LearnModeSetting? learnMode = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -235,7 +236,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             intelLanding,
             intelTrade,
             acquisitionChains,
-            intelEventStates)
+            intelEventStates,
+            learnMode)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
@@ -333,7 +335,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         IIntelLandingService? intelLanding = null,
         IIntelTradeCatalogService? intelTrade = null,
         IAcquisitionChainPlanningService? acquisitionChains = null,
-        IIntelEventStateCatalog? intelEventStates = null)
+        IIntelEventStateCatalog? intelEventStates = null,
+        LearnModeSetting? learnMode = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -356,7 +359,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             intelLanding,
             intelTrade,
             acquisitionChains,
-            intelEventStates)
+            intelEventStates,
+            learnMode)
     {
     }
 
@@ -382,7 +386,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         IIntelLandingService? intelLanding = null,
         IIntelTradeCatalogService? intelTrade = null,
         IAcquisitionChainPlanningService? acquisitionChains = null,
-        IIntelEventStateCatalog? intelEventStates = null)
+        IIntelEventStateCatalog? intelEventStates = null,
+        LearnModeSetting? learnMode = null)
     {
         _lifetimeToken = _lifetime.Token;
         _developerMode = developerMode;
@@ -435,8 +440,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (legacy is not null)
         {
             legacy.Items.ResultLimit = IntelResultLimit;
-            AmmoWorkspace = new(legacy.Ammo, id => OpenSuggestedItem(id, "v2-ammo-open-intel"));
-            KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"));
+            AmmoWorkspace = new(legacy.Ammo, id => OpenSuggestedItem(id, "v2-ammo-open-intel"), learnMode);
+            KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"), learnMode);
             FleaWorkspace = new(legacy.Flea, id => OpenSuggestedItem(id, "v2-flea-open-intel"));
         }
 
@@ -444,7 +449,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // service directly rather than gated behind a legacy graph.
         var chainPlanner = acquisitionChains ?? NullAcquisitionChainPlanningService.Instance;
         IntelAcquisitionChain = new(chainPlanner);
-        CraftsBartersWorkspace = new(_intelTrade, chainPlanner, id => OpenSuggestedItem(id, "v2-crafts-open-intel"));
+        CraftsBartersWorkspace = new(_intelTrade, chainPlanner, id => OpenSuggestedItem(id, "v2-crafts-open-intel"), learnMode);
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)
