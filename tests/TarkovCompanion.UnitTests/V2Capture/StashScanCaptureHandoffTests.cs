@@ -135,7 +135,20 @@ public sealed class StashScanCaptureHandoffTests
             new CompositeFreeHandoff(),
             Origin,
             clock);
-        using var arming = new GuidedStashScanArming(coordinator, guided, Origin, clock);
+        var captureContext = new CaptureContextMetadata(
+            "intel",
+            "profile-a",
+            "customs",
+            "plan-a",
+            "item-a",
+            "scan-a",
+            "this-desktop");
+        using var arming = new GuidedStashScanArming(
+            coordinator,
+            guided,
+            Origin,
+            new FixedCaptureContextSource(captureContext),
+            clock);
 
         // No scan: asking to resume arms nothing.
         arming.Resume();
@@ -150,6 +163,9 @@ public sealed class StashScanCaptureHandoffTests
         arming.Resume();
         var armed = Assert.Single(coordinator.Snapshot.Sessions, session => !session.IsTerminal);
         Assert.Equal(ScanIntent.Stash, armed.Request.Intent);
+        Assert.Equal("profile-a", armed.Request.ProfileId);
+        Assert.Equal("customs", armed.Request.MapId);
+        Assert.Equal(captureContext, armed.Context);
 
         // Left alone past the idle limit, it lets the one armed slot go.
         clock.Advance(GuidedStashScanArming.IdleAfter + TimeSpan.FromMinutes(1));
@@ -168,6 +184,11 @@ public sealed class StashScanCaptureHandoffTests
             new StashScanWorkflow(assembler, store, new StashSnapshotComparer()),
             new StashOwnedCountsApplier(new StubProfileService(TarkovCompanion.UnitTests.V2Shell.V2ShellTestData.Snapshot().Profile!)),
             new MemoryPendingStore());
+    }
+
+    private sealed class FixedCaptureContextSource(CaptureContextMetadata context) : ICaptureContextSource
+    {
+        public CaptureContextMetadata Describe(string? initiatingDevice = null) => context;
     }
 
     private sealed class CompositeFreeHandoff : ICaptureResultHandoff
