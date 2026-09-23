@@ -437,7 +437,9 @@ Refusals name their cause rather than sharing one code: `claim-not-completed`,
 `claim-grant-mismatch`, `owner-already-live`, `recovery-grant-rejected`. An establishment is
 timestamped on the desktop, so it is compared against the relay's clock with the protocol's
 one-minute skew allowance — requiring the two clocks to agree exactly refused every claim from a
-desktop a fraction of a second ahead (package 48).
+desktop a fraction of a second ahead (package 48). Outside that allowance the claim routes answer
+`{"code":"clock-skew","offsetSeconds":-14400}` (server minus claim time); every other refusal
+keeps its existing string code body.
 
 Once claimed, the owner registers each paired tablet on the relay too (separately from the
 desktop's own local `DesktopCompanionAuthority` record of it), bearer-authenticated with the
