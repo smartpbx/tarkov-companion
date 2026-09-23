@@ -376,6 +376,17 @@ internal static class Program
                 Pump(40);
             }
 
+            if (StringOption(args, "--plan-map") is { } planMap)
+            {
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                if (!plan.SelectMapForPreview(planMap))
+                {
+                    throw new ArgumentException($"The Plan workspace has no map named '{planMap}'.");
+                }
+
+                Pump(80);
+            }
+
             // [V2 rough package 46] The chrome the player can now collapse, so a render can show
             // the map at each of the widths it can have.
             if (shell is not null && StringOption(args, "--nav-rail") is { } railMode)
@@ -1656,6 +1667,16 @@ internal static class Program
                 }
 
                 Pump(20);
+            }
+
+            if (args.Contains("--objective-route-demo"))
+            {
+                var plan = services.GetRequiredService<PlanWorkspaceViewModel>();
+                plan.RefreshMapPreview();
+                Pump(80);
+                plan.RefreshMapPreview();
+                plan.SendSelectedObjectiveRouteToRaidForPreview();
+                Pump(40);
             }
 
             // [Issue 701] Exercise the same choices exposed beside the gem and in Layers. This

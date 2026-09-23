@@ -2554,12 +2554,15 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         UiActivity.Step("raid:traffic");
         var routes = BuildRouteLayers(model, transformVersion, raidSnapshot);
         UiActivity.Step("raid:routes");
+        var objectiveRoute = ObjectiveRouteFor(model);
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
             : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
+            .Concat(objectiveRoute is null ? [] : [objectiveRoute.Layer])
             .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
-            .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects).ToArray();
+            .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects)
+            .Concat(objectiveRoute?.Objects ?? []).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
@@ -2726,12 +2729,13 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </remarks>
     internal MapSceneRendererViewModel? CreateObjectivePreview(
         IReadOnlyList<MapSceneObject> objectives,
-        MapSceneRendererViewModel? existing)
+        MapSceneRendererViewModel? existing,
+        IReadOnlyList<MapSceneLayer>? additionalLayers = null)
     {
         ArgumentNullException.ThrowIfNull(objectives);
         return PreviewModel() is not { } model
             ? null
-            : BuildPreview(model, [], [], objectives, existing);
+            : BuildPreview(model, [], additionalLayers ?? [], objectives, existing);
     }
 
     /// <summary>The render model a preview may be built from: only while this cockpit's own scene shows it.</summary>

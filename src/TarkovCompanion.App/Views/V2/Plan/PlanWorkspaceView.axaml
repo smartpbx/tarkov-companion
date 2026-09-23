@@ -374,7 +374,16 @@
           <Border x:Name="PlanObjectivesCard" Grid.Row="1" Grid.ColumnSpan="2" x:DataType="vm:PlanMapGroupViewModel" Classes="v2-plan-section v2-plan-accent"
                   Margin="16,0,16,12" Padding="12,12,8,8">
             <Grid RowDefinitions="Auto,*">
-              <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" Margin="4,0,0,8" />
+              <StackPanel Margin="4,0,0,8" Spacing="2">
+                <TextBlock Classes="v2-heading-3" Text="{Binding ObjectivesHeading}" />
+                <TextBlock Classes="v2-label" Text="{Binding RouteSummary}" IsVisible="{Binding HasRoute}"
+                           Foreground="{DynamicResource V2.Brush.Action}" TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="v2-plan-objective-route-summary" />
+                <TextBlock Classes="v2-label" Text="{Binding RouteCaveat}" IsVisible="{Binding HasRoute}"
+                           TextWrapping="Wrap" />
+                <TextBlock Classes="v2-label" Text="{Binding RouteHint}" IsVisible="{Binding HasRouteHint}"
+                           TextWrapping="Wrap" />
+              </StackPanel>
               <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                 <ItemsControl ItemsSource="{Binding VisibleObjectives}" Margin="0,0,8,0">
@@ -421,6 +430,11 @@
                                       AutomationProperties.AutomationId="v2-plan-objective-wiki"
                                       AutomationProperties.Name="Open this quest's page on the wiki" />
                             </WrapPanel>
+                            <TextBlock Classes="v2-label" IsVisible="{Binding HasRouteReason}" TextWrapping="Wrap">
+                              <Run Text="{Binding RouteDistanceLabel}" />
+                              <Run Text=" · " />
+                              <Run Text="{Binding RouteReason}" />
+                            </TextBlock>
                             <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
                                        Foreground="{DynamicResource V2.Brush.Action}"
                                        IsVisible="{Binding $parent[UserControl].((vm:PlanWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />

@@ -179,7 +179,7 @@ public static class PlanExport
         var groups = plan.Groups
             .Select(group => new PlanExportGroup(
                 group.MapLabel,
-                [.. group.Objectives.Select(Step)],
+                [.. group.VisitOrder.Select(Step)],
                 [
                     .. group.Requirements
                         .Where(requirement => !requirement.IsSatisfied)
@@ -211,7 +211,7 @@ public static class PlanExport
     private static IReadOnlyList<QuestSummaryReadModel> PlannedQuests(PlanWorkspaceViewModel plan) =>
     [
         .. plan.Groups
-            .SelectMany(group => group.Objectives)
+            .SelectMany(group => group.VisitOrder)
             .Select(row => row.Task)
             .DistinctBy(task => task.TaskId, StringComparer.Ordinal),
     ];

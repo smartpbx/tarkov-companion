@@ -33,6 +33,8 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
     private bool? _hasMapPosition;
     private int _number;
     private bool _isLast;
+    private string _routeReason = string.Empty;
+    private string _routeDistanceLabel = string.Empty;
 
     internal PlanObjectiveRowViewModel(
         QuestSummaryReadModel task,
@@ -153,6 +155,34 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool HasStatusLabel => StatusLabel.Length > 0;
 
+    public string RouteReason
+    {
+        get => _routeReason;
+        private set
+        {
+            if (SetProperty(ref _routeReason, value))
+            {
+                OnPropertyChanged(nameof(HasRouteReason));
+            }
+        }
+    }
+
+    public bool HasRouteReason => RouteReason.Length > 0;
+
+    public string RouteDistanceLabel
+    {
+        get => _routeDistanceLabel;
+        private set => SetProperty(ref _routeDistanceLabel, value);
+    }
+
+    internal void ApplyRouteStep(ObjectiveRouteStep? step)
+    {
+        RouteReason = step?.Reason ?? string.Empty;
+        RouteDistanceLabel = step is null
+            ? string.Empty
+            : string.Create(CultureInfo.CurrentCulture, $"{step.LegDistanceMetres:N0} m");
+    }
+
     /// <summary>The engine's compact reason, shown only while the shared Learn Mode switch is on.</summary>
     public string LearnReason => StatusLabel.Length > 0
         ? StatusLabel
@@ -253,6 +283,11 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     private bool _isSelected;
     private bool _isAvailable = true;
     private string _availabilityLabel = string.Empty;
+    private IReadOnlyList<PlanObjectiveRowViewModel> _visitOrder;
+    private ObjectiveRouteBundle? _route;
+    private string _routeHint = "Choose a spawn in Raid, or take a position screenshot, to order these objectives.";
+    private string? _routeSignature;
+    private int _unroutedObjectiveCount;
 
     internal PlanMapGroupViewModel(
         string? mapId,
@@ -264,6 +299,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
         MapId = mapId;
         MapLabel = mapLabel;
         Objectives = objectives;
+        _visitOrder = objectives;
         Quests = objectives
             .GroupBy(row => row.Task.TaskId, StringComparer.Ordinal)
             .Select(group => new PlanQuestSummaryViewModel(
@@ -286,6 +322,9 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     public IReadOnlyList<PlanObjectiveRowViewModel> Objectives { get; }
 
+    /// <summary>The objective rows in their planned visiting order, with unplaced rows last.</summary>
+    public IReadOnlyList<PlanObjectiveRowViewModel> VisitOrder => _visitOrder;
+
     public IReadOnlyList<PlanQuestSummaryViewModel> Quests { get; }
 
     /// <summary>"4 objectives · 3 quests", the bundle card's second line.</summary>
@@ -301,6 +340,31 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
 
     /// <summary>"Objectives (4)", the context panel's list heading.</summary>
     public string ObjectivesHeading => $"Objectives ({Objectives.Count})";
+
+    public ObjectiveRouteBundle? Route => _route;
+
+    public bool HasRoute => Route is { Steps.Count: > 0 };
+
+    public string RouteSummary => Route is { } route
+        ? string.Join(" · ", new[]
+        {
+            string.Create(CultureInfo.CurrentCulture, $"{route.Steps.Count:N0} stops"),
+            string.Create(CultureInfo.CurrentCulture, $"{route.TotalDistanceMetres:N0} m from {route.StartLabel}"),
+            _unroutedObjectiveCount > 0
+                ? string.Create(CultureInfo.CurrentCulture, $"{_unroutedObjectiveCount:N0} without one exact position")
+                : string.Empty,
+        }.Where(value => value.Length > 0))
+        : string.Empty;
+
+    public string RouteHint
+    {
+        get => _routeHint;
+        private set => SetProperty(ref _routeHint, value);
+    }
+
+    public bool HasRouteHint => !HasRoute && RouteHint.Length > 0;
+
+    public string RouteCaveat => "Straight-line visit order · walls, terrain, and safety are not modelled";
 
     /// <summary>Only a real map can be opened on the Raid map.</summary>
     public bool CanOpenInRaid => MapId is not null;
@@ -371,7 +435,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
         }
     }
 
-    private int VisibleTarget => Math.Min(Objectives.Count, _visibleObjectiveLimit);
+    private int VisibleTarget => Math.Min(VisitOrder.Count, _visibleObjectiveLimit);
 
     private void Grow()
     {
@@ -386,7 +450,7 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
         var until = paceOnInterfaceThread ? Math.Min(target, _visible.Count + ObjectiveChunkSize) : target;
         for (var index = _visible.Count; index < until; index++)
         {
-            _visible.Add(Objectives[index]);
+            _visible.Add(VisitOrder[index]);
         }
 
         if (_visible.Count < target && paceOnInterfaceThread && !_growthPosted)
@@ -491,6 +555,46 @@ public sealed class PlanMapGroupViewModel : BindableViewModel
     public ICommand SelectCommand { get; }
 
     public ICommand OpenInRaidCommand { get; }
+
+    internal bool ApplyRoute(ObjectiveRouteBundle? route, string hint, int unroutedObjectiveCount = 0)
+    {
+        var signature = route is null
+            ? $"none:{hint}"
+            : $"{route.StartLabel}|{route.TotalDistanceMetres:R}|{unroutedObjectiveCount}|{string.Join(',', route.Steps.Select(step => step.ObjectiveId))}";
+        if (signature == _routeSignature)
+        {
+            return false;
+        }
+
+        _routeSignature = signature;
+        _route = route;
+        _unroutedObjectiveCount = unroutedObjectiveCount;
+        RouteHint = hint;
+        var byId = route?.Steps.ToDictionary(step => step.ObjectiveId, StringComparer.Ordinal) ??
+            new Dictionary<string, ObjectiveRouteStep>(StringComparer.Ordinal);
+        _visitOrder =
+        [
+            .. Objectives
+                .OrderBy(row => byId.TryGetValue(row.Objective.ObjectiveId, out var step) ? step.Number : int.MaxValue)
+                .ThenBy(row => row.Number),
+        ];
+        for (var index = 0; index < _visitOrder.Count; index++)
+        {
+            var row = _visitOrder[index];
+            row.Number = index + 1;
+            row.IsLast = index == _visitOrder.Count - 1;
+            row.ApplyRouteStep(byId.GetValueOrDefault(row.Objective.ObjectiveId));
+        }
+
+        _visible?.Clear();
+        Grow();
+        OnPropertyChanged(nameof(VisitOrder));
+        OnPropertyChanged(nameof(Route));
+        OnPropertyChanged(nameof(HasRoute));
+        OnPropertyChanged(nameof(RouteSummary));
+        OnPropertyChanged(nameof(HasRouteHint));
+        return true;
+    }
 }
 
 /// <summary>
@@ -1809,7 +1913,35 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
     internal static string CountLabel(int count, string noun) =>
         string.Create(CultureInfo.CurrentCulture, $"{count:N0} {noun}{(count == 1 ? string.Empty : "s")}");
 
-    private Task OpenInRaidAsync(string mapId) => ShowOnMapAsync(mapId);
+    private async Task OpenInRaidAsync(string mapId)
+    {
+        var group = Groups.FirstOrDefault(candidate =>
+            string.Equals(candidate.MapId, mapId, StringComparison.OrdinalIgnoreCase));
+        _raidCockpit?.SetObjectiveRoute(mapId, group?.Route);
+        await ShowOnMapAsync(mapId).ConfigureAwait(true);
+    }
+
+    internal bool SelectMapForPreview(string map)
+    {
+        var group = Groups.FirstOrDefault(candidate =>
+            string.Equals(candidate.MapId, map, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(candidate.MapLabel, map, StringComparison.OrdinalIgnoreCase));
+        if (group is null)
+        {
+            return false;
+        }
+
+        SelectedGroup = group;
+        return true;
+    }
+
+    internal void SendSelectedObjectiveRouteToRaidForPreview()
+    {
+        if (SelectedGroup is { MapId: { } mapId } group)
+        {
+            _raidCockpit?.SetObjectiveRoute(mapId, group.Route);
+        }
+    }
 
     /// <summary>The map catalog location a game-data map id belongs to, if the catalog has it.</summary>
     private string? LocationIdFor(string gameMapId) => _map.Locations
@@ -1932,9 +2064,22 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             projected = [];
         }
 
-        var scene = _map.RenderModel is { } renderModel
-            ? BuildObjectiveScene(group.Objectives, projected, renderModel, DateTimeOffset.UtcNow)
+        var nowUtc = DateTimeOffset.UtcNow;
+        var renderModel = _map.RenderModel;
+        var scene = renderModel is not null
+            ? BuildObjectiveScene(group.VisitOrder, projected, renderModel, nowUtc)
             : QuestObjectiveScene.Empty;
+        ObjectiveRouteScene? routeScene = null;
+        if (renderModel is not null)
+        {
+            routeScene = BuildObjectiveRoute(group, scene, nowUtc);
+            if (routeScene is not null)
+            {
+                // Applying a route renumbers and reorders rows. Build the objective markers once
+                // more so their numbers agree with the visiting order the panel now shows.
+                scene = BuildObjectiveScene(group.VisitOrder, projected, renderModel, nowUtc);
+            }
+        }
         var known = _projected.ContainsKey(group.MapId);
         foreach (var row in group.Objectives)
         {
@@ -1943,15 +2088,21 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                 : null;
         }
 
+        var previewObjects = routeScene is null
+            ? scene.Objects
+            : [.. scene.Objects, .. routeScene.Objects.Where(item => item.Kind == MapSceneObjectKind.Route)];
         // [#775] The picture's hash too: the cockpit replaces its picture while tiles fill in, and a
         // preview that is not re-presented keeps drawing the one it replaced.
-        var signature = $"{_raidCockpit.BackgroundSha}|{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', scene.Objects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
+        var signature = $"{_raidCockpit.BackgroundSha}|{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', previewObjects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
         if (MapPreview is not null && signature == _mapPreviewSignature)
         {
             return;
         }
 
-        var preview = _raidCockpit.CreateObjectivePreview(scene.Objects, MapPreview);
+        var preview = _raidCockpit.CreateObjectivePreview(
+            previewObjects,
+            MapPreview,
+            routeScene is null ? [] : [routeScene.Layer]);
         _mapPreviewSignature = preview is null ? null : signature;
         MapPreview = preview;
         MapNote = preview is null ? "This map has no 2D plan yet." : string.Empty;
@@ -1964,6 +2115,7 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         MapNote = note;
         if (SelectedGroup is { } group)
         {
+            group.ApplyRoute(null, note.Length > 0 ? note : "A map and route origin are needed to order these objectives.");
             foreach (var row in group.Objectives)
             {
                 row.HasMapPosition = null;
@@ -1993,6 +2145,55 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             model.Floors,
             id => numbers.GetValueOrDefault(id),
             nowUtc);
+    }
+
+    private ObjectiveRouteScene? BuildObjectiveRoute(
+        PlanMapGroupViewModel group,
+        QuestObjectiveScene scene,
+        DateTimeOffset nowUtc)
+    {
+        if (_raidCockpit?.ObjectiveRouteOrigin() is not { } origin)
+        {
+            group.ApplyRoute(null, "Choose a spawn in Raid, or take a position screenshot, to order these objectives.");
+            return null;
+        }
+
+        var objects = scene.Objects.ToDictionary(item => item.Id);
+        var labels = group.Objectives
+            .DistinctBy(row => row.Objective.ObjectiveId, StringComparer.Ordinal)
+            .ToDictionary(row => row.Objective.ObjectiveId, row => row.Description, StringComparer.Ordinal);
+        var stops = new List<ObjectiveRouteStop>();
+        foreach (var entry in scene.Entries.Where(entry => entry.IsPlaced).DistinctBy(entry => entry.ObjectiveId, StringComparer.Ordinal))
+        {
+            var points = entry.ObjectIds
+                .Where(objects.ContainsKey)
+                .Select(id => objects[id].Geometry)
+                .Where(geometry => geometry.Kind == MapSceneGeometryKind.Point)
+                .Select(geometry => geometry.Points[0])
+                .Distinct()
+                .ToArray();
+            // Several candidates or authored spots do not name one honest place to visit. They
+            // stay in the list, after the routed stops, with the existing placement explanation.
+            if (points.Length != 1)
+            {
+                continue;
+            }
+
+            stops.Add(new(entry.ObjectiveId, labels.GetValueOrDefault(entry.ObjectiveId) ?? entry.Objective.Description, points[0])
+            {
+                FloorIds = entry.FloorIds,
+            });
+        }
+
+        if (stops.Count == 0)
+        {
+            group.ApplyRoute(null, "No objective on this map has one exact position to route.");
+            return null;
+        }
+
+        var route = ObjectiveRoutePlanner.Plan(origin.At, origin.Label, stops, origin.UnitsPerMetre);
+        group.ApplyRoute(route, string.Empty, group.Objectives.Count - stops.Count);
+        return ObjectiveRouteSceneBuilder.Build(route, origin.At, nowUtc);
     }
 
     private void MapPreviewViewChangeRequested(MapSceneViewChange change)
