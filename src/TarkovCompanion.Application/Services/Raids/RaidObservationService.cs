@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.CaptureSessions;
-using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -40,7 +39,6 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotImageLoader? _imageLoader;
     private readonly IScanUseCase? _scanUseCase;
     private readonly ICaptureSessionService? _captureSessions;
-    private readonly IProfileRuntimeContextService? _profileRuntimeContext;
     private readonly ICaptureContextSource? _captureContext;
     private readonly ScreenshotRetentionService? _retention;
     private readonly IScreenshotRetentionStore? _retentionSettings;
@@ -94,7 +92,6 @@ public sealed class RaidObservationService : IAsyncDisposable
         ScreenshotRetentionService? retention = null,
         IScreenshotRetentionStore? retentionSettings = null,
         ICaptureSessionService? captureSessions = null,
-        IProfileRuntimeContextService? profileRuntimeContext = null,
         TimeProvider? timeProvider = null,
         // Last, so no positional caller moves. Where the shell is, it says which workspace,
         // plan, selection and prior scan a screenshot was taken beside.
@@ -105,7 +102,11 @@ public sealed class RaidObservationService : IAsyncDisposable
         // #703: passively recognised TASKS frames become one review-only offer outside raids.
         QuestScreenshotBurstCollector? questScreenshotBursts = null)
     {
-        _captureContext = captureContext;
+        _captureContext = captureSessions is null
+            ? captureContext
+            : captureContext ?? throw new ArgumentNullException(
+                nameof(captureContext),
+                "Capture-session screenshot intake requires a context source.");
         _stageTimeline = stageTimeline;
         _questScreenshotBursts = questScreenshotBursts;
         _pathLocator = pathLocator;
@@ -116,7 +117,6 @@ public sealed class RaidObservationService : IAsyncDisposable
         _imageLoader = imageLoader;
         _scanUseCase = scanUseCase;
         _captureSessions = captureSessions;
-        _profileRuntimeContext = profileRuntimeContext;
         _retention = retention;
         _retentionSettings = retentionSettings;
         _squad = squad;
@@ -729,21 +729,11 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             try
             {
-                var current = _stateStore.Current;
-                var activeProfile = _profileRuntimeContext?.Current.ActiveProfile;
                 // A screenshot that answers an armed request is submitted in that request's
                 // own context; intake refuses any other. See CaptureIntakeContext.
                 var context = CaptureIntakeContext.For(
                     _captureSessions,
-                    _captureContext?.Describe() ?? new CaptureContextMetadata(
-                        activeWorkspace: null,
-                        activeProfile: activeProfile?.Context.Identity.ProfileId.ToString("D"),
-                        activeMap: current.Raid.MapId,
-                        activePlan: null,
-                        selectedEntity: null,
-                        priorScan: null,
-                        initiatingDevice: "desktop",
-                        profileContext: activeProfile?.Context));
+                    _captureContext!.Describe());
                 // #572: minted here rather than left to EnqueueAsync so the scan's timeline can
                 // begin under the same id the whole pipeline correlates by.
                 var correlationId = CaptureCorrelationId.New();

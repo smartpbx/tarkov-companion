@@ -30,6 +30,7 @@ public sealed class GuidedStashScanArming : IDisposable
     private readonly ICaptureSessionService _captureSessions;
     private readonly GuidedStashScanService _guidedScan;
     private readonly WorkspaceOrigin _origin;
+    private readonly ICaptureContextSource _captureContext;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GuidedStashScanArming> _logger;
     private readonly Lock _gate = new();
@@ -42,12 +43,14 @@ public sealed class GuidedStashScanArming : IDisposable
         ICaptureSessionService captureSessions,
         GuidedStashScanService guidedScan,
         WorkspaceOrigin origin,
+        ICaptureContextSource captureContext,
         TimeProvider? timeProvider = null,
         ILogger<GuidedStashScanArming>? logger = null)
     {
         _captureSessions = captureSessions ?? throw new ArgumentNullException(nameof(captureSessions));
         _guidedScan = guidedScan ?? throw new ArgumentNullException(nameof(guidedScan));
         _origin = origin ?? throw new ArgumentNullException(nameof(origin));
+        _captureContext = captureContext ?? throw new ArgumentNullException(nameof(captureContext));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _logger = logger ?? NullLogger<GuidedStashScanArming>.Instance;
         _captureSessions.Changed += OnCaptureSessionsChanged;
@@ -145,16 +148,17 @@ public sealed class GuidedStashScanArming : IDisposable
             }
 
             var now = _timeProvider.GetUtcNow();
+            var context = _captureContext.Describe();
             var receipt = _captureSessions.Arm(new(
-                new(new CaptureSessionId(Guid.NewGuid()), ScanIntent.Stash, _origin, now, ProfileId: null, MapId: null, ExpiresUtc: null),
-                new CaptureContextMetadata(
-                    activeWorkspace: "stash",
-                    activeProfile: null,
-                    activeMap: null,
-                    activePlan: null,
-                    selectedEntity: null,
-                    priorScan: null,
-                    initiatingDevice: "desktop"),
+                new(
+                    new CaptureSessionId(Guid.NewGuid()),
+                    ScanIntent.Stash,
+                    _origin,
+                    now,
+                    ProfileId: context.ActiveProfile,
+                    MapId: context.ActiveMap,
+                    ExpiresUtc: null),
+                context,
                 new("stash_scroll", "Scroll your stash and take the next screenshot.")));
             if (!receipt.Accepted && receipt.Code != "intent_already_armed")
             {

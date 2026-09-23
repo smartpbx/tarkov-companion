@@ -73,11 +73,20 @@ public sealed class RaidObservationServiceTests
         var screenshotRoot = Path.Combine("eft", "Screenshots");
         var capture = new BlockingCaptureSessionService();
         var scan = new CountingScanUseCase();
+        var captureContext = new CaptureContextMetadata(
+            "raid",
+            "profile-a",
+            "customs",
+            "plan-a",
+            "objective-a",
+            "scan-a",
+            "this-desktop");
         using var harness = new Harness(
             new("eft", null, screenshotRoot, new Confidence(0.8)),
             imageLoader: new StubImageLoader(),
             scanUseCase: scan,
-            captureSessions: capture);
+            captureSessions: capture,
+            captureContext: new FixedCaptureContextSource(captureContext));
         harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "shot.png"));
 
         await harness.RunUntilAsync(_ => harness.Store.Current.Raid.LastKnownPosition is not null);
@@ -88,6 +97,16 @@ public sealed class RaidObservationServiceTests
         Assert.NotNull(capture.Submission);
         Assert.Equal(CaptureDeliveryKind.WatchedFile, capture.Submission!.DeliveryKind);
         Assert.Equal(CaptureSourceKind.GameWrittenScreenshot, capture.Submission.Source.SourceKind);
+        Assert.Equal(captureContext, capture.Submission.Context);
+    }
+
+    [Fact]
+    public void CaptureSessionIntakeCannotBeComposedWithoutAContextSource()
+    {
+        Assert.Throws<ArgumentNullException>(() => new Harness(
+            new("eft", null, "screenshots", new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            captureSessions: new BlockingCaptureSessionService()));
     }
 
     [Fact]
@@ -212,6 +231,7 @@ public sealed class RaidObservationServiceTests
             IScreenshotImageLoader? imageLoader = null,
             IScanUseCase? scanUseCase = null,
             ICaptureSessionService? captureSessions = null,
+            ICaptureContextSource? captureContext = null,
             QuestScreenshotBurstCollector? questScreenshotBursts = null)
         {
             var options = new RuntimeOptions(
@@ -242,6 +262,7 @@ public sealed class RaidObservationServiceTests
                 imageLoader: imageLoader,
                 scanUseCase: scanUseCase,
                 captureSessions: captureSessions,
+                captureContext: captureContext,
                 questScreenshotBursts: questScreenshotBursts);
         }
 
@@ -310,6 +331,11 @@ public sealed class RaidObservationServiceTests
                 PixelFormat.Bgra8888,
                 DateTimeOffset.UnixEpoch,
                 "raid-observation-fixture"));
+    }
+
+    private sealed class FixedCaptureContextSource(CaptureContextMetadata context) : ICaptureContextSource
+    {
+        public CaptureContextMetadata Describe(string? initiatingDevice = null) => context;
     }
 
     private sealed class CountingScanUseCase : IScanUseCase
