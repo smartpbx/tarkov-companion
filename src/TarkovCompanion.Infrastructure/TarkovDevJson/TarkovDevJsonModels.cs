@@ -408,6 +408,10 @@ public sealed class TarkovDevTaskObjective
 
     public IReadOnlyList<string> Status { get; init; } = [];
 
+    public string? Trader { get; init; }
+
+    public int? Level { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }

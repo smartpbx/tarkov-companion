@@ -136,6 +136,11 @@ internal static class Program
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
 
+            if (args.Contains("--learn-mode"))
+            {
+                services.GetRequiredService<LearnModeSetting>().IsEnabled = true;
+            }
+
             if (args.Contains("--clock-skew-demo"))
             {
                 services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400);

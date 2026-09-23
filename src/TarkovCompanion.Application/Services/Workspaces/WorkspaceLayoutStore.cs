@@ -52,6 +52,9 @@ public static class WorkspaceLayoutKeys
     /// <summary>[Issue 572] "on" when a Loot result goes to the paired tablet and the desktop stays on the map.</summary>
     public const string LootOnTabletOnly = "loot.tablet-only";
 
+    /// <summary>[Issue 288] "on" when Plan rows include the engine's short reason.</summary>
+    public const string PlanLearnMode = "plan.learn-mode";
+
     /// <summary>Whether one card of the Raid side panel is open ("open"/"closed"); see RaidPanelCards.</summary>
     public static string RaidCard(string cardId) => $"raid.card.{cardId}";
 }

@@ -111,6 +111,18 @@ public sealed class PlanWorkspaceViewModelTests
     }
 
     [Fact]
+    public void A_quest_rows_learn_line_uses_the_quest_and_handling_the_engine_already_chose()
+    {
+        var task = Task("Gunsmith 4", RecordedTaskState.Active,
+        [
+            Objective("find-parts", RecordedObjectiveState.InProgress, foundInRaidRequired: true),
+        ]);
+        var row = new PlanObjectiveRowViewModel(task, task.Objectives[0], null!);
+
+        Assert.Equal("Find in raid: needed for Gunsmith 4", row.LearnReason);
+    }
+
+    [Fact]
     public void A_map_group_numbers_its_steps_and_counts_distinct_quests()
     {
         var first = Task("quest-a", RecordedTaskState.Active,

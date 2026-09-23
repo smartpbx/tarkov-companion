@@ -82,6 +82,9 @@
                               </Grid>
                               <TextBlock Classes="v2-label" Text="{Binding ReasonSummary}" TextWrapping="Wrap"
                                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
+                              <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                         Foreground="{DynamicResource V2.Brush.Action}"
+                                         IsVisible="{Binding $parent[UserControl].((vm:KeepListWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                               <WrapPanel Orientation="Horizontal" IsVisible="{Binding HasCounts}" Margin="0,2,0,0">
                                 <Border Classes="v2-keep-chip" Margin="0,0,6,0" IsVisible="{Binding HasQuestCount}"
                                         AutomationProperties.AutomationId="v2-keep-quest-count">

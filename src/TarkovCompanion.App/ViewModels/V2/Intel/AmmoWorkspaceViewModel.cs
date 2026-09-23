@@ -68,6 +68,8 @@ public sealed record AmmoRoundRowViewModel(AmmoRoundViewModel Round, bool IsSele
 
     public IReadOnlyList<AmmoArmorRatingViewModel> ArmorClasses => Round.ArmorClasses;
 
+    public string LearnReason => Round.LearnModeExplanation;
+
     public string AutomationId => $"v2-ammo-round-{Round.ItemId}";
 }
 
@@ -91,8 +93,12 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
     private int _armorClass;
     private AmmoSort _sort = AmmoSort.Rank;
 
-    public AmmoWorkspaceViewModel(AmmoPageViewModel page, Action<string>? openItem = null)
+    public AmmoWorkspaceViewModel(
+        AmmoPageViewModel page,
+        Action<string>? openItem = null,
+        TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         _page = page ?? throw new ArgumentNullException(nameof(page));
         _openItem = openItem;
         ArmorFilters =
@@ -125,6 +131,8 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
         });
         _page.PropertyChanged += PageChanged;
     }
+
+    public TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting LearnMode { get; }
 
     public IReadOnlyList<AmmoChipViewModel> ArmorFilters { get; }
 

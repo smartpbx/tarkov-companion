@@ -76,7 +76,7 @@
                             AutomationProperties.AutomationId="{Binding AutomationId}"
                             AutomationProperties.Name="{Binding Name}"
                             Command="{Binding SelectCommand}">
-                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="2">
+                      <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="2">
                         <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-body" FontWeight="SemiBold"
                                    Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                         <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-body" FontWeight="SemiBold"
@@ -88,6 +88,9 @@
                           <Run Text="{Binding Map}" /><Run Text=" · " /><Run Text="{Binding LockSummary}" /><Run Text=" · " /><Run Text="{Binding Uses}" />
                         </TextBlock>
                         <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label" Text="{Binding Cost}" />
+                        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Classes="v2-label" Text="{Binding LearnReason}"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource V2.Brush.Action}"
+                                   IsVisible="{Binding $parent[UserControl].((vm:KeysWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                       </Grid>
                     </Button>
                   </DataTemplate>

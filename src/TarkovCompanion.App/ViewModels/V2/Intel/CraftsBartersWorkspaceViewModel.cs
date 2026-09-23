@@ -75,6 +75,13 @@ public sealed record IntelTradeRowViewModel(
         IntelTradeReadiness.Unknown => V2ShellText.Get("V2.Shell.Intel.Trade.LevelUnknown"),
         _ => string.Empty,
     };
+
+    public string LearnReason => Readiness switch
+    {
+        IntelTradeReadiness.Ready => $"Ready: {ProfitLabel}",
+        IntelTradeReadiness.Locked => $"Locked: needs {SourceName} {LevelLabel}".TrimEnd(),
+        _ => $"Check: {SourceName} {LevelLabel}".TrimEnd(),
+    };
 }
 
 /// <summary>
@@ -99,18 +106,24 @@ public sealed class CraftsBartersWorkspaceViewModel : BindableViewModel
     private bool _loading;
     private bool _loaded;
 
-    public CraftsBartersWorkspaceViewModel(IIntelTradeCatalogService catalog, Action<string> openItem)
+    public CraftsBartersWorkspaceViewModel(
+        IIntelTradeCatalogService catalog,
+        Action<string> openItem,
+        TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting? learnMode = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(openItem);
         _catalog = catalog;
         _openItem = openItem;
+        LearnMode = learnMode ?? new();
         Sorts = Enum.GetValues<IntelTradeSort>()
             .Select(sort => new IntelTradeSortViewModel(sort, SelectSort))
             .ToArray();
         Sorts.Single(sort => sort.Sort == _sort).IsSelected = true;
         LoadTask = LoadAsync();
     }
+
+    public TarkovCompanion.App.ViewModels.V2.Plan.LearnModeSetting LearnMode { get; }
 
     /// <summary>
     /// The in-flight (or, once it resolves, completed) initial load. Nothing in the running app
