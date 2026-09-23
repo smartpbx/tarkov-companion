@@ -151,7 +151,7 @@ public sealed partial class RaidCockpitViewModel
     private static string CoverageLabel(TrafficPriorBasis basis, int spawnAreaCount) => string.Join(" · ", new[]
     {
         spawnAreaCount > 0 ? $"{spawnAreaCount} {(spawnAreaCount == 1 ? "spawn area" : "spawn areas")}" : "no spawn areas",
-        basis.Extracts > 0 ? $"{basis.Extracts} extracts" : "no extracts",
+        basis.Extracts > 0 ? $"{basis.Extracts} ways out (transits included; co-op hidden)" : "no ways out",
         basis.LootSpawns > 0 ? $"{basis.LootSpawns} loot spawns" : "no loot data",
     });
 

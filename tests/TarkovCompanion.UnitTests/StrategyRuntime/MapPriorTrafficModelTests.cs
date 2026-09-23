@@ -111,6 +111,8 @@ public sealed class MapPriorTrafficModelTests
             new(MapOverlayKind.Spawns, new(4, 4), "Sniper spawn"),
             new(MapOverlayKind.Spawns, new(5, 5), "Boss spawn · Dormitory · 4 points"),
             new(MapOverlayKind.Extracts, new(6, 6), "ZB-1011") { Faction = MapFeatureFaction.Pmc },
+            new(MapOverlayKind.Extracts, new(6.5, 6.5), "ZB-1011") { Faction = MapFeatureFaction.Scav },
+            new(MapOverlayKind.Extracts, new(6.75, 6.75), "Boiler Room Basement (Co-op)"),
             new(MapOverlayKind.Extracts, new(7, 7), "Factory →"),
             new(MapOverlayKind.Labels, new(8, 8), "Main Bridge"),
             new(MapOverlayKind.Labels, new(9, 9), "Dorms"),

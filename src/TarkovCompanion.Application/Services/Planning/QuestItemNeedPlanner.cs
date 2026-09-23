@@ -113,6 +113,28 @@ public static class QuestItemNeedPlanner
         return new QuestItemNeeds(requirements, interchangeable, progress) { Reusable = reusable };
     }
 
+    /// <summary>
+    /// The lifetime quantity every catalog quest asks for, including tasks and objectives already
+    /// completed. All other need rules stay the same, so faction-only and category objectives do
+    /// not reappear merely because this is a denominator rather than today's keep list.
+    /// </summary>
+    public static IReadOnlyDictionary<string, int> TotalsByItem(IEnumerable<QuestSummaryReadModel> tasks)
+    {
+        ArgumentNullException.ThrowIfNull(tasks);
+        var lifetimeTasks = tasks.Select(task => task with
+        {
+            RecordedState = RecordedTaskState.NotStarted,
+            Objectives = [.. task.Objectives.Select(objective => objective with
+            {
+                RecordedState = RecordedObjectiveState.InProgress,
+                RecordedCount = null,
+            })],
+        });
+        return FromBoard(lifetimeTasks).Requirements
+            .GroupBy(requirement => requirement.ItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(requirement => requirement.Required), StringComparer.Ordinal);
+    }
+
     /// <summary>Not finished, and not a quest only the other faction is ever offered.</summary>
     private static bool CanStillBeDone(QuestSummaryReadModel task) =>
         task.RecordedState != RecordedTaskState.Completed &&

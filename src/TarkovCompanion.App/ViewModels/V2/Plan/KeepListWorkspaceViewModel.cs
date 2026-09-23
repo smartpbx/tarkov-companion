@@ -236,6 +236,11 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         var head = now > 0 && now < total
             ? $"Quests {Count(now)} now, {Count(total - now)} later"
             : $"Quests {Count(total)}";
+        if (entry.QuestTotal > total)
+        {
+            head += $" of {Count(entry.QuestTotal)} overall";
+        }
+
         var found = entry.QuestFoundInRaid;
         return found <= 0
             ? head

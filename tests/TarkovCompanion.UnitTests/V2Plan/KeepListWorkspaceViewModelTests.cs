@@ -307,6 +307,36 @@ public sealed class KeepListWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task A_quest_count_shows_open_need_against_the_done_and_open_total()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements =
+            [
+                new("done", "obj-done", "item-spring", 2, false),
+                new("open", "obj-open", "item-spring", 4, false),
+            ],
+        };
+        var profile = TestProfile(
+            objectiveProgress: new Dictionary<string, int> { ["obj-open"] = 1 },
+            completedTaskIds: new HashSet<string> { "done" });
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(profile),
+            new FakeItemRepository().WithName("item-spring", "Spring"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService(
+            [
+                Quest("done", "Done quest", RecordedTaskState.Completed),
+                Quest("open", "Open quest", RecordedTaskState.Active),
+            ], requirements));
+
+        await viewModel.RefreshAsync();
+
+        Assert.Equal("Quests 3 of 6 overall", Assert.Single(Assert.Single(viewModel.Groups).Items).QuestCountLabel);
+    }
+
+    [Fact]
     public async Task A_quest_that_needs_it_all_found_in_raid_says_so_and_one_that_does_not_stays_plain()
     {
         var requirements = new FakeRequirementCatalog
