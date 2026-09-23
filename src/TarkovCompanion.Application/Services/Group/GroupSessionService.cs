@@ -83,6 +83,12 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private static readonly TimeSpan StaleLimit = TimeSpan.FromMinutes(3);
 
+    /// <summary>How long a goodbye may take while the session carries on (a rename, sharing off).</summary>
+    private static readonly TimeSpan WithdrawBudget = TimeSpan.FromSeconds(2);
+
+    /// <summary>How long a goodbye may take while the application closes (#786).</summary>
+    private static readonly TimeSpan ClosingWithdrawBudget = TimeSpan.FromMilliseconds(500);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IGroupSettingsStore _settings;
@@ -1308,9 +1314,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         // application stayed on everybody else's map for the full three-minute lifetime,
         // apparently still in the raid.
         //
-        // Before the token is cancelled, because it uses it; and on its own short budget, so
-        // a relay that has gone away cannot hold the application open while it closes.
-        await WithdrawRegisteredAsync().ConfigureAwait(false);
+        // Before the worker is stopped, so its last exchange cannot re-register this member after
+        // the goodbye; and on its own short budget, so a relay that has gone away cannot hold the
+        // application open while it closes. Half a second, not the two a rename gets (#786): this
+        // runs inside the application's teardown, and a goodbye that does not arrive costs the
+        // group a stale marker, never the player a hung close.
+        await WithdrawRegisteredAsync(ClosingWithdrawBudget).ConfigureAwait(false);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_worker is { } worker)
         {
@@ -1327,12 +1336,12 @@ public sealed class GroupSessionService : IAsyncDisposable
     }
 
     /// <summary>Withdraws whatever this service last registered, if anything.</summary>
-    private async Task WithdrawRegisteredAsync()
+    private async Task WithdrawRegisteredAsync(TimeSpan? budget = null)
     {
         if (_registered is { } registered)
         {
             _registered = null;
-            await WithdrawAsync(registered).ConfigureAwait(false);
+            await WithdrawAsync(registered, budget).ConfigureAwait(false);
         }
     }
 
@@ -1346,11 +1355,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// marker, which is what happened every time before this; it must not cost anybody a hung
     /// close, so it runs on its own short budget and swallows everything.
     /// </remarks>
-    private async Task WithdrawAsync((string Server, string Key, string Name) identity)
+    private async Task WithdrawAsync((string Server, string Key, string Name) identity, TimeSpan? budget = null)
     {
         try
         {
-            using var leaving = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var leaving = new CancellationTokenSource(budget ?? WithdrawBudget);
             using var request = new HttpRequestMessage(
                 HttpMethod.Delete,
                 new Uri(new Uri(identity.Server), $"state/{Uri.EscapeDataString(identity.Name)}"));
