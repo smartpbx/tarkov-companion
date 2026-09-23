@@ -384,6 +384,14 @@ public sealed class ItemIntelServiceTests
 
         public Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<FleaMarketRates?>(rates);
+
+        public Task<IReadOnlyDictionary<string, CurrencyRoubleRate>> GetCurrencyRoubleRatesAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, CurrencyRoubleRate>>(
+                new Dictionary<string, CurrencyRoubleRate>(StringComparer.Ordinal)
+                {
+                    ["RUB"] = new("RUB", 1, new DataProvenance("fixture", DateTimeOffset.UnixEpoch)),
+                });
     }
 
     private static PlayerProfile Profile(IReadOnlyDictionary<string, int> owned) => new(

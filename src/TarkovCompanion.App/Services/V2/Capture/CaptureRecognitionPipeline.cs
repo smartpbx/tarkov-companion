@@ -249,7 +249,16 @@ public sealed class CaptureRecognitionPipeline(
             [
                 .. read.Listings
                     .OrderBy(listing => listing.Bounds.Y)
-                    .Select(listing => new CaptureFleaListing(listing.PriceRoubles, listing.Quantity, listing.Confidence, listing.SourceText)),
+                    .Select(listing => new CaptureFleaListing(
+                        listing.PriceRoubles,
+                        listing.Quantity,
+                        listing.Confidence,
+                        listing.SourceText,
+                        listing.CurrencyCode,
+                        listing.OriginalPrice,
+                        listing.CurrencyRateRoubles,
+                        listing.CurrencyRateProvenance,
+                        listing.Condition)),
             ];
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

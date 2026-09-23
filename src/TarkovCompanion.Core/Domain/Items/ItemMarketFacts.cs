@@ -1,5 +1,17 @@
 namespace TarkovCompanion.Core.Domain.Items;
 
+/// <summary>How many roubles one unit of a catalog currency costs.</summary>
+/// <remarks>
+/// The item catalog publishes Dollars and Euros as ordinary items with a rouble-denominated
+/// trader purchase offer. Keeping that observation, rather than a hard-coded multiplier, lets a
+/// photographed foreign-currency flea price be compared with the same catalog snapshot as every
+/// other price.
+/// </remarks>
+public sealed record CurrencyRoubleRate(
+    string CurrencyCode,
+    long RoublesPerUnit,
+    TarkovCompanion.Core.Common.DataProvenance Provenance);
+
 /// <summary>
 /// The two rates the game charges on a flea listing, as json.tarkov.dev publishes them.
 /// </summary>

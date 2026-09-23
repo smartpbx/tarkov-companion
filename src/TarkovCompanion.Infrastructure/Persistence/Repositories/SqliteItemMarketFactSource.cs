@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Items;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -16,6 +17,13 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 /// </remarks>
 public sealed class SqliteItemMarketFactSource(SqliteConnectionFactory connectionFactory) : IItemMarketFactSource
 {
+    private static readonly IReadOnlyDictionary<string, string> CurrencyItemIds =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["USD"] = "5696686a4bdc2da3298b456a",
+            ["EUR"] = "569668774bdc2da2298b4568",
+        };
+
     public async Task<ItemMarketFacts?> GetAsync(string itemId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
@@ -68,6 +76,85 @@ public sealed class SqliteItemMarketFactSource(SqliteConnectionFactory connectio
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
             ? new(reader.GetDouble(0), reader.GetDouble(1), ParseTimestamp(reader.GetString(2)))
             : null;
+    }
+
+    public async Task<IReadOnlyDictionary<string, CurrencyRoubleRate>> GetCurrencyRoubleRatesAsync(
+        CancellationToken cancellationToken)
+    {
+        var rates = new Dictionary<string, CurrencyRoubleRate>(StringComparer.Ordinal)
+        {
+            ["RUB"] = new("RUB", 1, new DataProvenance("roubles", DateTimeOffset.UnixEpoch)),
+        };
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, raw_json, source_updated_utc FROM items WHERE id IN ($usd, $eur);";
+        command.Parameters.AddWithValue("$usd", CurrencyItemIds["USD"]);
+        command.Parameters.AddWithValue("$eur", CurrencyItemIds["EUR"]);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var itemId = reader.GetString(0);
+            var currency = CurrencyItemIds.Single(pair => pair.Value == itemId).Key;
+            var raw = reader.IsDBNull(1) ? null : reader.GetString(1);
+            if (ReadRoublePurchaseRate(raw) is not { } rate)
+            {
+                continue;
+            }
+
+            var observedUtc = ParseTimestamp(reader.GetString(2));
+            rates[currency] = new(
+                currency,
+                rate,
+                new DataProvenance("json.tarkov.dev/items", observedUtc, observedUtc, Confidence: Confidence.Certain));
+        }
+
+        return rates;
+    }
+
+    /// <summary>
+    /// Reads the catalog's rouble purchase offer for a currency item. A base price is not an
+    /// exchange rate, and a foreign-denominated offer cannot convert itself, so both are refused.
+    /// </summary>
+    internal static long? ReadRoublePurchaseRate(string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawJson);
+            if (!document.RootElement.TryGetProperty("buyFromTrader", out var offers) ||
+                offers.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var offer in offers.EnumerateArray())
+            {
+                if (offer.ValueKind != JsonValueKind.Object ||
+                    !offer.TryGetProperty("currency", out var currency) ||
+                    !string.Equals(currency.GetString(), "RUB", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (offer.TryGetProperty("priceRUB", out var priceRub) &&
+                    priceRub.ValueKind == JsonValueKind.Number &&
+                    priceRub.TryGetInt64(out var rate) &&
+                    rate > 0)
+                {
+                    return rate;
+                }
+            }
+
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

@@ -402,3 +402,43 @@ public sealed record ExplainableRecommendationRequest
 
     public RecommendationEventScope? EventScope { get; }
 }
+
+/// <summary>
+/// One photographed flea offer evaluated against the catalog's two resale alternatives.
+/// </summary>
+/// <remarks>
+/// Offer ranking is deliberately a recommendation-engine input rather than a UI calculation:
+/// identity confidence, OCR price confidence, fee/net evidence, condition, ruleset version and
+/// explanation provenance then travel together in the same <see cref="RecommendationResult"/>
+/// shape used by Loot and Intel.
+/// </remarks>
+public sealed record FleaOfferRecommendationRequest
+{
+    public FleaOfferRecommendationRequest(
+        string recommendationId,
+        EvidencedValue<string> itemIdentity,
+        DateTimeOffset evaluatedUtc,
+        CaptureSessionId captureSessionId,
+        EvidencedValue<long?> offerPriceRoubles,
+        RecommendationEconomics resaleEconomics)
+    {
+        RecommendationId = V2ContractGuard.Required(recommendationId, nameof(recommendationId));
+        ItemIdentity = V2ContractGuard.NotNull(itemIdentity, nameof(itemIdentity));
+        EvaluatedUtc = V2ContractGuard.Utc(evaluatedUtc, nameof(evaluatedUtc));
+        CaptureSessionId = V2ContractGuard.Defined(captureSessionId, nameof(captureSessionId));
+        OfferPriceRoubles = V2ContractGuard.AtLeast(offerPriceRoubles, 1, nameof(offerPriceRoubles));
+        ResaleEconomics = resaleEconomics ?? throw new ArgumentNullException(nameof(resaleEconomics));
+    }
+
+    public string RecommendationId { get; }
+
+    public EvidencedValue<string> ItemIdentity { get; }
+
+    public DateTimeOffset EvaluatedUtc { get; }
+
+    public CaptureSessionId CaptureSessionId { get; }
+
+    public EvidencedValue<long?> OfferPriceRoubles { get; }
+
+    public RecommendationEconomics ResaleEconomics { get; }
+}

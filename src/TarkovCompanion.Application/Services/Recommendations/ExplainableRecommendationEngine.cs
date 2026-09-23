@@ -255,7 +255,7 @@ public sealed class ExplainableRecommendationEngine(
             AddRaidContextReasons(raidContext, reasons);
         }
 
-        var economics = InspectEconomics(request, evidenceIssues);
+        var economics = InspectEconomics(request.Economics, request.EvaluatedUtc, evidenceIssues);
         if (economics is { } economic)
         {
             reasons.Add(new(
@@ -383,6 +383,147 @@ public sealed class ExplainableRecommendationEngine(
                 evidenceIssues.Count == 0 ? "recommendation.complete" : "recommendation.partial"),
             decisionProvenance);
 
+        return new V2RecommendationResult(
+            request.RecommendationId,
+            V2ContractVersion.Current,
+            _policy.RulesetVersion,
+            request.CaptureSessionId,
+            decisionEvidence);
+    }
+
+    /// <summary>
+    /// Evaluates one photographed flea offer against the catalog's flea-net and trader exits.
+    /// </summary>
+    /// <remarks>
+    /// This is a distinct entry point because an offer is an acquisition question, not an item
+    /// already held in a profile. Reusing the stash request would make pins and quest needs decide
+    /// whether a quoted purchase is profitable. It still emits the same versioned result, reason,
+    /// sensitivity and provenance shape as the other recommendation use cases.
+    /// </remarks>
+    public V2RecommendationResult EvaluateFleaOffer(
+        FleaOfferRecommendationRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var issues = new SortedDictionary<string, EvidenceIssue>(StringComparer.Ordinal);
+        var identity = AssessEvidence(
+            request.ItemIdentity.Status,
+            request.ItemIdentity.Provenance,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        if (!identity.IsReliable || string.IsNullOrWhiteSpace(request.ItemIdentity.Value))
+        {
+            AddIssue(
+                issues,
+                "identity.untrusted",
+                "The photographed item's identity is ambiguous, stale, incomplete, or below the confidence threshold.",
+                identity);
+        }
+
+        var offer = InspectEvidence(
+            request.OfferPriceRoubles,
+            request.EvaluatedUtc,
+            _policy.MaximumPriceAge,
+            allowPartial: false);
+        if (!offer.IsReliable)
+        {
+            AddIssue(
+                issues,
+                "offer.price-untrusted",
+                "The photographed offer price is ambiguous, stale, incomplete, or below the confidence threshold.",
+                offer.Assessment);
+        }
+
+        var economics = InspectEconomics(request.ResaleEconomics, request.EvaluatedUtc, issues);
+        var reasons = new List<ReasonDraft>();
+        V2RecommendationAction action;
+        if (identity.IsReliable && offer.Trusted is { } trustedOffer && economics is { } resale && issues.Count == 0)
+        {
+            var margin = resale.TotalValue - trustedOffer.Value;
+            var profitable = margin > 0;
+            var comparison = CombineProvenance(
+                "recommendation.flea-offer-comparison",
+                request.EvaluatedUtc,
+                [identity.Provenance, trustedOffer.Provenance, resale.ExplanationProvenance]);
+            reasons.Add(new(
+                ExplainableRecommendationRule.Economics,
+                RecommendationReasonCategory.Economics,
+                $"economics.offer.{(profitable ? "profit" : "no-profit")}.{resale.SourceCode}",
+                FleaOfferExplanation(trustedOffer.Value, resale, margin),
+                comparison));
+            action = profitable ? V2RecommendationAction.Take : V2RecommendationAction.Leave;
+        }
+        else
+        {
+            action = V2RecommendationAction.Review;
+        }
+
+        foreach (var issue in issues.Values)
+        {
+            reasons.Add(new(
+                ExplainableRecommendationRule.EvidenceQuality,
+                RecommendationReasonCategory.EvidenceQuality,
+                issue.Code,
+                issue.Explanation,
+                issue.Provenance));
+        }
+
+        if (reasons.Count == 0)
+        {
+            reasons.Add(new(
+                ExplainableRecommendationRule.EvidenceQuality,
+                RecommendationReasonCategory.EvidenceQuality,
+                "evidence.insufficient",
+                "There is not enough current evidence to compare this photographed offer.",
+                request.ItemIdentity.Provenance));
+        }
+
+        var ordered = reasons
+            .OrderByDescending(reason => _policy.PriorityOf(reason.Rule))
+            .ThenBy(reason => reason.Code, StringComparer.Ordinal)
+            .Select(reason => new V2RecommendationReason(
+                reason.Category,
+                reason.Code,
+                reason.Explanation,
+                _policy.PriorityOf(reason.Rule),
+                reason.Provenance))
+            .ToArray();
+        var top = ordered[0];
+        var absentCost = new EvidencedValue<long?>(
+            "recommendation.opportunity-cost-roubles",
+            null,
+            new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current, "opportunity-cost.unavailable"),
+            top.Provenance);
+        var decision = new RecommendationDecision(
+            action,
+            Summary(action, top.Explanation),
+            ordered,
+            absentCost,
+            null,
+            [new RecommendationSensitivity(
+                "offer-or-resale-price-updated",
+                "A newer photographed offer or catalog resale price can change this comparison.",
+                null)]);
+        // A complete offer has one economic reason whose lineage is already near the contract's
+        // depth bound (offer + identity + flea gross/fee/net). Wrapping that single tree again
+        // adds no evidence and can make a valid comparison unrepresentable.
+        var decisionProvenance = ordered.Length == 1
+            ? ordered[0].Provenance
+            : CombineProvenance(
+                "recommendation.flea-offer-decision",
+                request.EvaluatedUtc,
+                ordered.Select(reason => reason.Provenance).ToArray());
+        var decisionEvidence = new EvidencedValue<RecommendationDecision>(
+            "recommendation.decision",
+            decision,
+            new ResultStatus(
+                issues.Count == 0 ? ResultCompleteness.Complete : ResultCompleteness.Partial,
+                DecisionFreshness(issues.Values),
+                issues.Count == 0 ? "recommendation.complete" : "recommendation.partial"),
+            decisionProvenance);
         return new V2RecommendationResult(
             request.RecommendationId,
             V2ContractVersion.Current,
@@ -922,45 +1063,45 @@ public sealed class ExplainableRecommendationEngine(
     }
 
     private EconomicInspection? InspectEconomics(
-        ExplainableRecommendationRequest request,
+        RecommendationEconomics economics,
+        DateTimeOffset evaluatedUtc,
         IDictionary<string, EvidenceIssue> issues)
     {
-        var economics = request.Economics;
         var footprint = InspectEvidence(
             economics.OccupiedSquares,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
         var flea = InspectEconomicPrice(
             economics.FleaNetRoubles,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge);
         var trader = InspectEconomicPrice(
             economics.TraderRoubles,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge);
         var gross = InspectEvidence(
             economics.FleaGrossRoubles,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
         var fee = InspectEvidence(
             economics.FleaFeeRoubles,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
         var condition = InspectEvidence(
             economics.ConditionFraction,
-            request.EvaluatedUtc,
+            evaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
         var fleaRole = CombineProvenance(
             $"recommendation.economic-price.flea-net.{flea.RoleState}",
-            request.EvaluatedUtc,
+            evaluatedUtc,
             [flea.Assessment.Provenance]);
         var traderRole = CombineProvenance(
             $"recommendation.economic-price.trader.{trader.RoleState}",
-            request.EvaluatedUtc,
+            evaluatedUtc,
             [trader.Assessment.Provenance]);
 
         if (!footprint.IsReliable)
@@ -998,7 +1139,7 @@ public sealed class ExplainableRecommendationEngine(
                 "No current trustworthy flea net or trader value is available; gross value is not treated as net.",
                 CombineProvenance(
                     "recommendation.economic-price.unavailable",
-                    request.EvaluatedUtc,
+                    evaluatedUtc,
                     [fleaRole, traderRole]),
                 WorstFreshness([flea.Assessment.Freshness, trader.Assessment.Freshness]));
             return null;
@@ -1021,37 +1162,37 @@ public sealed class ExplainableRecommendationEngine(
         // both roles distinct even when a single catalog snapshot backs both fields.
         var priceRole = CombineProvenance(
             $"recommendation.economic-price.{(useFlea ? "flea-net" : "trader")}",
-            request.EvaluatedUtc,
+            evaluatedUtc,
             [fleaRole, traderRole]);
         var footprintRole = CombineProvenance(
             "recommendation.economic-footprint",
-            request.EvaluatedUtc,
+            evaluatedUtc,
             [trustedFootprint.Provenance]);
         var calculation = CombineProvenance(
             "recommendation.value-per-square",
-            request.EvaluatedUtc,
+            evaluatedUtc,
             [priceRole, footprintRole]);
         var explanationInputs = new List<EvidenceProvenance> { calculation };
         AddExplanationInput(
             explanationInputs,
             gross.Trusted,
             "recommendation.economic-detail.flea-gross",
-            request.EvaluatedUtc);
+            evaluatedUtc);
         AddExplanationInput(
             explanationInputs,
             fee.Trusted,
             "recommendation.economic-detail.flea-fee",
-            request.EvaluatedUtc);
+            evaluatedUtc);
         AddExplanationInput(
             explanationInputs,
             condition.Trusted,
             "recommendation.economic-detail.condition",
-            request.EvaluatedUtc);
+            evaluatedUtc);
         var explanationProvenance = explanationInputs.Count == 1
             ? calculation
             : CombineProvenance(
                 "recommendation.economic-explanation",
-                request.EvaluatedUtc,
+                evaluatedUtc,
                 explanationInputs);
         return new(
             value,
@@ -1322,6 +1463,20 @@ public sealed class ExplainableRecommendationEngine(
         if (economics.ConditionFraction is { } condition) details.Add($"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}");
         var suffix = details.Count == 0 ? string.Empty : $" ({string.Join(", ", details)})";
         return $"{economics.TotalValue.ToString("N0", CultureInfo.InvariantCulture)} roubles across {economics.Footprint} square(s) is {economics.ValuePerSquare.ToString("N0", CultureInfo.InvariantCulture)} per square, in the {economics.Band.ToString().ToLowerInvariant()} band{suffix}.";
+    }
+
+    private static string FleaOfferExplanation(long offerPrice, EconomicInspection resale, long margin)
+    {
+        var channel = resale.SourceCode == "flea-net" ? "flea after its fee" : "best trader";
+        var result = margin > 0
+            ? $"{margin.ToString("N0", CultureInfo.InvariantCulture)} roubles more than it costs"
+            : margin == 0
+                ? "the same as it costs"
+                : $"{Math.Abs(margin).ToString("N0", CultureInfo.InvariantCulture)} roubles less than it costs";
+        var condition = resale.ConditionFraction is { } fraction
+            ? $" at {fraction.ToString("P0", CultureInfo.InvariantCulture)} condition"
+            : string.Empty;
+        return $"The offer costs {offerPrice.ToString("N0", CultureInfo.InvariantCulture)} roubles{condition}; the {channel} returns {resale.TotalValue.ToString("N0", CultureInfo.InvariantCulture)}, {result}.";
     }
 
     private TrustedValue<T>? InspectRequiredProfileField<T>(
