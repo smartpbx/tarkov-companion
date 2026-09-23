@@ -1,0 +1,37 @@
+{
+  "reviewed": "2026-09-23",
+  "sources": [
+    "EFT Wiki The Lab revision 2026-08-16",
+    "EFT Wiki Reserve revision 2026-09-06",
+    "EFT Wiki Interchange revision 2026-09-15"
+  ],
+  "overrides": {
+    "the lab": {
+      "Ventilation Shaft": [
+        { "kind": "NoBackpack" }
+      ]
+    },
+    "reserve": {
+      "Sewer Manhole": [
+        { "kind": "NoBackpack" }
+      ],
+      "Cliff Descent": [
+        { "kind": "NoArmor" },
+        { "kind": "Items", "items": ["Red Rebel ice pick", "Paracord"] }
+      ],
+      "Armored Train": [
+        {
+          "kind": "TimedWindow",
+          "arrivalStartsAtTimeLeftMinutes": 16,
+          "arrivalEndsAtTimeLeftMinutes": 12,
+          "durationMinutes": 7
+        }
+      ]
+    },
+    "interchange": {
+      "Path to River (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
+      ]
+    }
+  }
+}

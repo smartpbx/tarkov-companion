@@ -537,7 +537,16 @@ public sealed record MapSceneObject
         Equals(left.Transfer, right.Transfer) &&
         left.RequiresCoOp == right.RequiresCoOp &&
         left.IsOneTime == right.IsOneTime &&
+        SameConditions(left.Conditions, right.Conditions) &&
         left.SwitchChain.Select(item => item.Id).SequenceEqual(right.SwitchChain.Select(item => item.Id), StringComparer.Ordinal);
+
+    private static bool SameConditions(
+        IReadOnlyList<MapExtractCondition> left,
+        IReadOnlyList<MapExtractCondition> right) =>
+        left.Count == right.Count && left.Zip(right).All(pair =>
+            pair.First.Kind == pair.Second.Kind &&
+            Equals(pair.First.TimedWindow, pair.Second.TimedWindow) &&
+            pair.First.Items.SequenceEqual(pair.Second.Items, StringComparer.Ordinal));
 
     private static bool SameSwitch(MapSwitch? left, MapSwitch? right) =>
         left is null && right is null ||

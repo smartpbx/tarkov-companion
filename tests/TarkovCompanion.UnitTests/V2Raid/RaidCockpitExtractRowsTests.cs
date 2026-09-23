@@ -98,6 +98,68 @@ public sealed class RaidCockpitExtractRowsTests
     }
 
     [Fact]
+    public void Reviewed_condition_chips_and_tooltip_text_survive_the_scene_boundary()
+    {
+        var requirements = new MapExtractRequirements([], null, false, false)
+        {
+            Conditions =
+            [
+                new(MapExtractConditionKind.NoArmor, [], null),
+                new(MapExtractConditionKind.Items, ["Red Rebel ice pick", "Paracord"], null),
+            ],
+        };
+        var row = Assert.Single(RaidCockpitViewModel.BuildExtractRows([
+            Object("cliff", MapSceneObjectKind.Extract, "Cliff Descent", MapFeatureFaction.Pmc, MapSceneOfferState.Unknown, requirements),
+        ]));
+
+        Assert.True(row.NeedsNoArmor);
+        Assert.True(row.NeedsItems);
+        Assert.Equal("No armored vest · Bring Red Rebel ice pick + Paracord", row.RequirementText);
+    }
+
+    [Theory]
+    [InlineData(null, "Train arrives with 16–12 min left, stays 7 min")]
+    [InlineData("0:19:00", "Train in ~3 min, stays 7 min")]
+    [InlineData("0:14:00", "Train arriving now–~2 min, stays 7 min")]
+    [InlineData("0:10:00", "Train here, up to 5 min left")]
+    [InlineData("0:08:00", "Train may still be here, up to 3 min left")]
+    [InlineData("0:04:00", "Train has left")]
+    public void Timed_window_relates_the_train_schedule_to_known_time_left(string? timeLeft, string expected)
+    {
+        var window = new MapExtractTimedWindow(
+            TimeSpan.FromMinutes(16),
+            TimeSpan.FromMinutes(12),
+            TimeSpan.FromMinutes(7));
+
+        Assert.Equal(expected, MapExtractRequirementText.DescribeTimedWindow("Armored Train", window, timeLeft));
+    }
+
+    [Fact]
+    public void A_timed_row_updates_its_tooltip_without_rebuilding_the_extract_list()
+    {
+        var requirements = new MapExtractRequirements([], null, false, false)
+        {
+            Conditions =
+            [
+                new(
+                    MapExtractConditionKind.TimedWindow,
+                    [],
+                    new(TimeSpan.FromMinutes(16), TimeSpan.FromMinutes(12), TimeSpan.FromMinutes(7))),
+            ],
+        };
+        var row = Assert.Single(RaidCockpitViewModel.BuildExtractRows([
+            Object("train", MapSceneObjectKind.Extract, "Armored Train", MapFeatureFaction.Shared, MapSceneOfferState.Unknown, requirements),
+        ], timeLeft: "0:19:00"));
+
+        Assert.True(row.HasTimedWindow);
+        Assert.Equal("Train in ~3 min, stays 7 min", row.RequirementText);
+
+        row.UpdateTimeLeft("0:10:00");
+
+        Assert.Equal("Train here, up to 5 min left", row.RequirementText);
+    }
+
+    [Fact]
     public void Rows_built_again_from_the_same_extracts_read_the_same_and_a_changed_offer_does_not()
     {
         // [#453] The cockpit keeps the list it shows when a rebuild's rows read the same, so the

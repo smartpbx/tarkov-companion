@@ -39,7 +39,8 @@ compiled into Infrastructure, performs no additional runtime request, retains pe
 provenance, and yields whenever the primary publishes the same map-scoped normalized name. See
 `docs/research/EXTRACT_CATALOG_COVERAGE.md` for the method and exclusions and
 `fixtures/extract-catalog/coverage-2026-09-15.normalized.json` for its retained deterministic
-input.
+input. A checked 2026-09-23 embedded table also fills missing backpack, armor, carried-item,
+and timed-window extract conditions.
 
 ### High-value loot-spawn locations
 

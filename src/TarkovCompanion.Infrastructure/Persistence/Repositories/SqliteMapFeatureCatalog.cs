@@ -26,6 +26,7 @@ public sealed class SqliteMapFeatureCatalog(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, IReadOnlyList<MapFeature>> _byMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loggedSwitchOverrides = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _loggedConditionOverrides = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task<IReadOnlyList<MapFeature>> GetAsync(string mapId, CancellationToken cancellationToken)
     {
@@ -187,7 +188,7 @@ public sealed class SqliteMapFeatureCatalog(
             AddLoot(root, features, containerNames, itemName);
             var mapName = ReadText(root, "normalizedName") ?? requestedMapId;
             var merged = ReviewedExtractCatalog.MergeFeatures(mapName, features);
-            return ApplySwitchOverrides(mapName, merged, switches);
+            return ApplyConditionOverrides(mapName, ApplySwitchOverrides(mapName, merged, switches));
         }
         catch (JsonException)
         {
@@ -253,6 +254,56 @@ public sealed class SqliteMapFeatureCatalog(
             {
                 logger?.LogInformation(
                     "Applied checked switch override for {MapName} / {ExtractName}.",
+                    mapName,
+                    feature.Name);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Adds only reviewed requirements the primary catalog has no field for.</summary>
+    /// <remarks>
+    /// This follows the switch pass so a row such as Labs Ventilation Shaft can first lose the
+    /// catalog's false elevator chain and then gain its checked no-backpack condition. Existing
+    /// payments, co-op rules, one-use flags, and corrected switch chains are retained.
+    /// </remarks>
+    private IReadOnlyList<MapFeature> ApplyConditionOverrides(
+        string mapName,
+        IReadOnlyList<MapFeature> features)
+    {
+        var result = new List<MapFeature>(features.Count);
+        foreach (var feature in features)
+        {
+            if (feature.Kind != MapFeatureKind.Extract ||
+                !MapExtractConditionOverrideCatalog.TryGet(mapName, feature.Name, out var conditions))
+            {
+                result.Add(feature);
+                continue;
+            }
+
+            var requirements = (feature.ExtractRequirements ?? new MapExtractRequirements([], null, false, false)) with
+            {
+                Conditions = conditions,
+            };
+            var requirementText = MapExtractRequirementReader.Describe(requirements);
+            var factionText = ExtractConditions.DescribeFaction(feature.Faction) ??
+                (feature.Provenance is null ? null : feature.Detail);
+            var detail = string.Join(
+                " · ",
+                new[] { factionText, requirementText }
+                    .Where(part => !string.IsNullOrWhiteSpace(part)));
+            result.Add(feature with
+            {
+                ExtractRequirements = requirements,
+                Detail = detail.Length == 0 ? null : detail,
+            });
+
+            var logKey = $"{mapName}\u001f{feature.Name}";
+            if (_loggedConditionOverrides.Add(logKey))
+            {
+                logger?.LogInformation(
+                    "Applied checked extract condition override for {MapName} / {ExtractName}.",
                     mapName,
                     feature.Name);
             }

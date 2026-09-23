@@ -967,6 +967,18 @@
                             <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding IsOneTime}">
                               <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
                             </Border>
+                            <Border Classes="v2-raid-chip" Padding="4,2" IsVisible="{Binding NeedsNoBackpack}">
+                              <TextBlock Classes="v2-label" Text="NO BAG" />
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4,2" IsVisible="{Binding NeedsNoArmor}">
+                              <TextBlock Classes="v2-label" Text="NO VEST" />
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding NeedsItems}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Box}" /></Viewbox>
+                            </Border>
+                            <Border Classes="v2-raid-chip" Padding="4" IsVisible="{Binding HasTimedWindow}">
+                              <Viewbox Width="13" Height="13"><Path Classes="v2-icon" Data="{DynamicResource V2.Icon.Clock}" /></Viewbox>
+                            </Border>
                           </StackPanel>
                           <TextBlock Grid.Column="3" Classes="v2-label" Text="{Binding Detail}" VerticalAlignment="Center" />
                           <Border Grid.Column="4" Classes="v2-raid-chip" Classes.v2-raid-muted="{Binding IsNotOffered}"
