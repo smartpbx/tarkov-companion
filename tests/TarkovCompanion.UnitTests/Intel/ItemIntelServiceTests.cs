@@ -283,7 +283,7 @@ public sealed class ItemIntelServiceTests
         Assert.Equal(V2IntelKind.Ammo, result.Kind);
         Assert.NotNull(result.Ammo);
         Assert.Equal(60, result.Ammo!.Damage);
-        Assert.Contains("for 556x45NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
+        Assert.Contains("for 5.56x45mm NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
         Assert.DoesNotContain("Caliber556x45NATO", result.Ammo.PracticalAdvice, StringComparison.Ordinal);
         Assert.Equal(55, result.Ammo.Penetration);
         Assert.Equal("5.56x45mm NATO", result.Ammo.Caliber);
