@@ -168,6 +168,10 @@
                          AutomationProperties.AutomationId="v2-plan-status"
                          AutomationProperties.LiveSetting="Polite" />
               <TextBlock Classes="v2-label" Text="{Binding ScopeLabel}" />
+              <TextBlock Classes="v2-label" Text="{Binding EventRuleSummary}"
+                         IsVisible="{Binding HasEventRuleSummary}" TextWrapping="Wrap"
+                         Foreground="{DynamicResource V2.Brush.Warning}"
+                         AutomationProperties.AutomationId="v2-plan-event-rules" />
               <!-- #288: the map where one raid moves the most quests. Pressing it selects that map. -->
               <Button Classes="v2-target v2-plan-link v2-plan-link-action" Padding="0" HorizontalAlignment="Left"
                       Content="{Binding SuggestedRaidLabel}" Command="{Binding SelectSuggestedRaidCommand}"
@@ -285,6 +289,9 @@
                         <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding MapLabel}"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock Classes="v2-label" Text="{Binding Summary}" />
+                        <TextBlock Classes="v2-label" Text="{Binding AvailabilityLabel}"
+                                   IsVisible="{Binding HasAvailabilityLabel}"
+                                   Foreground="{DynamicResource V2.Brush.Warning}" />
                         <!-- #288: the map where one raid moves the most quests along. -->
                         <TextBlock Classes="v2-label" Text="Suggested next raid" IsVisible="{Binding IsSuggested}"
                                    Foreground="{DynamicResource V2.Brush.Action}"

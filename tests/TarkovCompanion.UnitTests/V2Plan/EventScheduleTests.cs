@@ -35,6 +35,20 @@ public sealed class EventScheduleTests
         Assert.False(EventsPageViewModel.TryReadDate("next Tuesday-ish", out _));
 
     [Fact]
+    public void APlayersLocalCalendarDayIsStoredAsTheMatchingUtcInstant()
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone(
+            "Event test -04:00",
+            TimeSpan.FromHours(-4),
+            "Event test",
+            "Event test");
+        using var _ = LocalTime.UseZone(zone);
+
+        Assert.True(EventsPageViewModel.TryReadDate("2026-10-12", out var value));
+        Assert.Equal(DateTimeOffset.Parse("2026-10-12T04:00:00Z"), value);
+    }
+
+    [Fact]
     public async Task AWindowIsWrittenBackToTheDefinition()
     {
         var authoring = new Authoring(Definition());
@@ -117,6 +131,41 @@ public sealed class EventScheduleTests
         page.ScheduleStart = string.Empty;
         page.ScheduleEnd = "2000-01-01";
         Assert.Contains("ended", page.SchedulePreview, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypedRulesAreValidatedAndPreviewedForTheSelectedEvent()
+    {
+        var definition = Definition() with
+        {
+            RulesJson = """
+                {"effects":[
+                  {"type":"trader-price-multiplier","traderId":"prapor","traderName":"Prapor","multiplier":0.8},
+                  {"type":"map-availability","mapId":"laboratory","mapName":"Labs","available":false}
+                ]}
+                """,
+        };
+
+        var page = await PageAsync(new Authoring(definition));
+
+        Assert.Equal("While active: Prapor prices x0.8; Labs closed.", page.RulePreview);
+        Assert.Equal("2 effects validated", page.RuleStatus);
+        Assert.False(page.HasRuleIssues);
+    }
+
+    [Fact]
+    public async Task InvalidRulesShowTheirJsonPathAndNoPreview()
+    {
+        var definition = Definition() with
+        {
+            RulesJson = "{\"effects\":[{\"type\":\"map-availability\",\"available\":false}]}",
+        };
+
+        var page = await PageAsync(new Authoring(definition));
+
+        Assert.True(page.HasRuleIssues);
+        Assert.Contains("$.effects[0].mapId", page.RuleStatus, StringComparison.Ordinal);
+        Assert.Empty(page.RulePreview);
     }
 
     private static EventDefinition Definition() => new(
