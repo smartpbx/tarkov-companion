@@ -98,7 +98,7 @@ public sealed class MapSceneRendererHostContractTests
     {
         var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml");
 
-        Assert.Contains("ItemsSource=\"{Binding PointMarkers}\"", view, StringComparison.Ordinal);
+        Assert.Contains("prim:StagedItems.Source=\"{Binding PointMarkers}\"", view, StringComparison.Ordinal);
         Assert.Contains("<ToggleButton Classes=\"v2-map-marker\"", view, StringComparison.Ordinal);
         Assert.Contains("ItemsSource=\"{Binding ClusterMarkers}\"", view, StringComparison.Ordinal);
         Assert.Contains("<Button Classes=\"v2-map-marker cluster\"", view, StringComparison.Ordinal);
