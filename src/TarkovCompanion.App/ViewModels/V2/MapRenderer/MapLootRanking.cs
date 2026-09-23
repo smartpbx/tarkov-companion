@@ -28,7 +28,7 @@ public static class MapLootRanking
     public static double RevealZoom(int rank) =>
         rank < TopAtFit ? 0 : Math.Sqrt((rank + 1d) / TopAtFit);
 
-    /// <summary>A spawn's tier and top value, by the scene object it is drawn as.</summary>
+    /// <summary>A spawn's tier and top value in the active basis, by the scene object it is drawn as.</summary>
     public static IReadOnlyDictionary<MapSceneObjectId, (LootSpawnValueTier Tier, long Value)> ValuesOf(
         HighValueLootLayerResult? result)
     {
@@ -37,7 +37,11 @@ public static class MapLootRanking
         {
             if (entry.SceneObjectId is { } id)
             {
-                values[id] = (entry.Tier, entry.MaximumValue ?? 0);
+                values[id] = (
+                    entry.Tier,
+                    result!.AppliedFilter.ValueBasis == LootSpawnValueBasis.ValuePerSquare
+                        ? entry.MaximumValuePerSquare ?? 0
+                        : entry.MaximumValue ?? 0);
             }
         }
 

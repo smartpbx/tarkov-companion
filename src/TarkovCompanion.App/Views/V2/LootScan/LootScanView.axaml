@@ -537,30 +537,37 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:LootScanDecisionViewModel">
-                <Button Classes="loot-row" Classes.v2-selected="{Binding IsSelected}"
-                        Command="{Binding SelectCommand}"
-                        AutomationProperties.AutomationId="{Binding AutomationId}"
-                        AutomationProperties.Name="{Binding AutomationSummary}">
-                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <Border Classes="loot-edge"
-                            Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
-                            Classes.review="{Binding IsReview}" Classes.pending="{Binding IsPending}" />
-                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" Margin="0,8">
-                      <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
-                        <TextBlock Classes="v2-body loot-verdict"
-                                   Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
-                                   Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
-                                   Classes.pending="{Binding IsPending}"
-                                   Text="{Binding VerdictLabel}" />
-                        <TextBlock Grid.Column="1" Classes="v2-body loot-strong" Text="{Binding Name}"
-                                   TextTrimming="CharacterEllipsis" />
-                      </Grid>
-                      <TextBlock Classes="v2-label" Text="{Binding HeadlineReason}" TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <TextBlock Grid.Column="2" Classes="v2-body loot-strong" VerticalAlignment="Center"
-                               Text="{Binding ShortValuePerSquareLabel}" />
-                  </Grid>
-                </Button>
+                <Grid>
+                  <Button Classes="loot-row" Classes.v2-selected="{Binding IsSelected}"
+                          Command="{Binding SelectCommand}"
+                          AutomationProperties.AutomationId="{Binding AutomationId}"
+                          AutomationProperties.Name="{Binding AutomationSummary}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" Margin="0,0,54,0">
+                      <Border Classes="loot-edge"
+                              Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
+                              Classes.review="{Binding IsReview}" Classes.pending="{Binding IsPending}" />
+                      <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center" Margin="0,8">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                          <TextBlock Classes="v2-body loot-verdict"
+                                     Classes.take="{Binding IsTake}" Classes.swap="{Binding IsSwap}"
+                                     Classes.leave="{Binding IsLeave}" Classes.review="{Binding IsReview}"
+                                     Classes.pending="{Binding IsPending}"
+                                     Text="{Binding VerdictLabel}" />
+                          <TextBlock Grid.Column="1" Classes="v2-body loot-strong" Text="{Binding Name}"
+                                     TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                        <TextBlock Classes="v2-label" Text="{Binding HeadlineReason}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="v2-body loot-strong" VerticalAlignment="Center"
+                                 Text="{Binding ShortValuePerSquareLabel}" />
+                    </Grid>
+                  </Button>
+                  <Button Classes="v2-plain" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                          Width="50" Margin="0,7,7,7"
+                          Content="{DynamicResource V2.String.LootScan.Wiki}"
+                          Command="{Binding OpenWikiCommand}" IsEnabled="{Binding CanOpenWiki}"
+                          AutomationProperties.Name="{DynamicResource V2.String.LootScan.OpenWiki}" />
+                </Grid>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
