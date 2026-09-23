@@ -2122,6 +2122,42 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             }
         }
 
+        // The selected name plate is 184 DIPs wide. A numbered 20-DIP switch chip therefore
+        // needs its centre at least 102 DIPs from the extract's centre to clear the plate; 108
+        // leaves a visible gap. This second pass applies only while the extract is selected and
+        // only to steps whose catalog point is actually beside it. A hover has no persistent name
+        // to avoid, and a remote prerequisite keeps its exact map position.
+        var selected = points.FirstOrDefault(item =>
+            item.Id == _selectedObjectId &&
+            item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit);
+        if (selected is not null)
+        {
+            const double selectedNameStepScreenOffset = 108;
+            const double additionalStepScreenSpacing = 24;
+            const double selectedNameEdgeFlipMargin = 110;
+            // PinOffset is inside the marker's scale transform. Compensate here so the clearance
+            // above is 108 screen DIPs both at the 0.7 fit size and at full marker size.
+            var markerScale = MapMarkerScale.For(_scene.View.Camera.Zoom);
+            var selectedNameStepOffset = selectedNameStepScreenOffset / markerScale;
+            var additionalStepSpacing = additionalStepScreenSpacing / markerScale;
+            var selectedAnchor = _projection.Project(selected.Geometry.Points[0]);
+            var nearby = numberedSwitchAnchors
+                .Select((anchor, slot) => (anchor, slot))
+                .Where(item => Math.Sqrt(
+                    Math.Pow(item.anchor.X - selectedAnchor.X, 2) +
+                    Math.Pow(item.anchor.Y - selectedAnchor.Y, 2)) < MapMarkerOverlapLayout.CollisionDistance)
+                .Select(item => item.slot)
+                .ToArray();
+            var nameFlipsLeft = selectedAnchor.X > _canvasWidth - selectedNameEdgeFlipMargin;
+            for (var slot = 0; slot < nearby.Length; slot++)
+            {
+                var direction = nameFlipsLeft ? 1 : slot % 2 == 0 ? -1 : 1;
+                var lane = nameFlipsLeft ? slot : slot / 2;
+                result[numberedSwitches[nearby[slot]]] =
+                    (direction * (selectedNameStepOffset + (lane * additionalStepSpacing)), 0);
+            }
+        }
+
         return result;
     }
 
