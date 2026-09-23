@@ -880,6 +880,63 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal(RaidId, Assert.Single(reopened.Raids).RaidId);
     }
 
+    [Fact]
+    public async Task Planned_route_is_compared_with_screenshots_and_handed_to_map_replay()
+    {
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(
+            RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.SeedPositions(RaidId, [Position(Started.AddMinutes(1), 5, 0), Position(Started.AddMinutes(2), 5, 10)]);
+        var route = new RaidPlannedRoute(
+            "customs",
+            "Crossroads",
+            Started,
+            [new(0, 0, 0), new(10, 0, 0)]);
+        service.SeedEvent(RaidId, RaidPlannedRoute.EventType, route.ToPayload());
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths());
+        DebriefReplayRequest? replay = null;
+        viewModel.ReplayRequested += (_, request) => replay = request;
+
+        await viewModel.LoadAsync();
+        viewModel.WatchOnMapCommand.Execute(null);
+
+        Assert.True(viewModel.HasSelectedRouteComparison);
+        Assert.Equal(
+            "Planned to Crossroads · screenshots averaged 5 m from plan · furthest 10 m",
+            viewModel.SelectedRouteComparisonLabel);
+        Assert.NotNull(replay);
+        Assert.Equal(route.Points, replay.PlannedRoute);
+        Assert.Equal(viewModel.SelectedRouteComparisonLabel, replay.Comparison);
+    }
+
+    [Fact]
+    public void Route_deviation_measures_each_observation_to_the_nearest_plan_segment()
+    {
+        var measured = RaidRouteDeviation.Measure(
+            [new(0, 0, 0), new(10, 0, 0), new(10, 0, 10)],
+            [Position(Started, 5, 3), Position(Started.AddMinutes(1), 14, 6)]);
+
+        Assert.NotNull(measured);
+        Assert.Equal(3.5, measured.AverageMetres, precision: 5);
+        Assert.Equal(4, measured.FurthestMetres, precision: 5);
+        Assert.Equal(2, measured.ObservationCount);
+    }
+
+    [Fact]
+    public void Planned_route_parser_uses_newest_valid_event_and_ignores_damaged_rows()
+    {
+        var old = new RaidPlannedRoute("customs", "Old Gas", Started, [new(0, 0, 0), new(1, 0, 0)]);
+        var latest = new RaidPlannedRoute("customs", "Crossroads", Started.AddMinutes(1), [new(0, 0, 0), new(2, 0, 0)]);
+
+        var parsed = RaidPlannedRoute.Latest([old.ToPayload(), "{broken", latest.ToPayload()]);
+
+        Assert.NotNull(parsed);
+        Assert.Equal(latest.MapId, parsed.MapId);
+        Assert.Equal(latest.Extract, parsed.Extract);
+        Assert.Equal(latest.PlannedUtc, parsed.PlannedUtc);
+        Assert.Equal(latest.Points, parsed.Points);
+    }
+
     private sealed class RecordingQuestCatalog : IQuestCatalog
     {
         public string? Language { get; private set; }

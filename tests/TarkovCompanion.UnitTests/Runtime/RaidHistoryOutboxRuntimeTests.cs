@@ -234,12 +234,15 @@ public sealed class RaidHistoryOutboxRuntimeTests
         await using var outbox = new RaidHistoryOutbox(history, timeProvider: new ManualTimeProvider(Epoch));
         var raidId = Guid.NewGuid();
         var correction = new RaidScanCorrection("scan:42", true, Epoch).ToPayload();
+        var route = new RaidPlannedRoute(
+            "customs", "Crossroads", Epoch, [new(0, 0, 0), new(10, 0, 10)]).ToPayload();
 
         await outbox.RecordEventAsync(raidId, "tag", Epoch, "{\"tag\":\"Tasks\",\"present\":true}", default);
         await outbox.RecordEventAsync(raidId, RaidScanCorrection.EventType, Epoch, correction, default);
+        await outbox.RecordEventAsync(raidId, RaidPlannedRoute.EventType, Epoch, route, default);
 
-        Assert.Equal(["tag", RaidScanCorrection.EventType], history.Types);
-        Assert.Equal(2, history.Payloads.Count);
+        Assert.Equal(["tag", RaidScanCorrection.EventType, RaidPlannedRoute.EventType], history.Types);
+        Assert.Equal(3, history.Payloads.Count);
         Assert.Empty(await outbox.Store.ListAsync(default));
     }
 

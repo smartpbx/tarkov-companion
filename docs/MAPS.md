@@ -155,6 +155,13 @@ Normal EFT screenshot filenames are parsed as timestamp, X/Y/Z position, quatern
 
 Positions are always labeled last known. By default an observation becomes stale after two minutes, and one more than 30 seconds in the future is not plotted. Both thresholds are application-side safeguards rather than claims about the game. Captured image content is neither required nor persisted for position parsing.
 
+When the player explicitly chooses a suggested extract route on the Raid page, its lower-contact
+line is stored with that raid as world positions. Debrief's map replay draws that plan as a gold
+line and the raid's screenshot observations as a cyan trail. Its deviation
+summary measures each screenshot to the nearest plan segment and reports average and furthest
+distance. It is a comparison of sparse, player-created screenshots after the fact, never a live
+location claim or an inferred path between observations.
+
 ## Extracts
 
 Recognized active extracts are joined to cached static extract metadata by canonical ID. An active extract remains visible when its static position is missing, with explicit guidance that no marker can be shown. OCR confidence and source remain attached to the active observation.

@@ -351,6 +351,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private const string MarkIdPrefix = "mark:";
     private const string PlayerObjectId = "you:position";
     private const string PlayerTrailObjectId = "you:trail";
+    private const string PlannedReplayObjectId = "you:planned-route";
 
     /// <summary>The longest edge a composed tile picture is allowed to have, in pixels.</summary>
     private const double MaximumComposedTileExtent = 4096;
@@ -367,6 +368,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly TimeProvider _timeProvider;
     private readonly EarlyRaidSpawnPolicy _earlyRaidSpawns;
     private readonly IWorkspaceLayoutStore? _layout;
+    private readonly IRaidHistoryService? _raidHistory;
     private readonly FollowZoomSetting _followZoom;
     private readonly LootValueFilterSetting _lootValueFilter;
     private double _contextPanelWidth = DefaultContextPanelWidth;
@@ -472,7 +474,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         IUserQuestMarkStore? userMarkers = null,
         // [Issue 571] The player's own "done" marks, and whose profile they belong to.
         IHandDoneObjectiveStore? handDone = null,
-        IPlayerProfileService? profiles = null)
+        IPlayerProfileService? profiles = null,
+        // A chosen suggested route belongs to the raid, so Debrief can compare the plan with
+        // later screenshot evidence. Optional keeps galleries and isolated map fixtures inert.
+        IRaidHistoryService? raidHistory = null)
     {
         _map = map ?? throw new ArgumentNullException(nameof(map));
         _pictures = new(ReleasePicture);
@@ -487,6 +492,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _userMarkers = userMarkers;
         _handDone = handDone;
         _profiles = profiles;
+        _raidHistory = raidHistory;
         _layout = layout;
         _followZoom = new(layout);
         _lootValueFilter = new(layout);
@@ -3226,7 +3232,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         Func<string, string> ColorFor,
         bool ShowsGroupNames,
         IReadOnlyList<RaidTrail> Visited,
-        bool ShowsVisited);
+        bool ShowsVisited)
+    {
+        public IReadOnlyList<WorldPosition> PlannedRoute { get; init; } = [];
+    }
 
     /// <summary>Colours, chosen here because they are presentation and the scene carries none.</summary>
     private const string PlayerColor = "#FF34D3E8";
@@ -3253,7 +3262,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     {
         var player = _map.PlayerPosition;
         var built = BuildLiveLayers(
-            new(
+            new LiveSceneInputs(
                 player,
                 _map.PlayerTrailPositions,
                 _map.GroupMembers,
@@ -3261,7 +3270,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 _map.GroupColorFor,
                 _map.ShowsGroupNames,
                 _map.VisitedRaids,
-                _map.ShowsVisited),
+                _map.ShowsVisited)
+            {
+                PlannedRoute = _map.PlannedReplayPositions,
+            },
             model,
             nowUtc);
         // Only a marker that is still fresh has a moment to wait for. Recomputed by every rebuild,
@@ -3317,6 +3329,22 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 [],
                 new DataProvenance("screenshot", nowUtc)));
             styles[new(PlayerTrailObjectId)] = new(PlayerColor, LineThickness: 3);
+        }
+
+        var plannedRoute = PlanPoints(model, inputs.PlannedRoute);
+        if (plannedRoute.Count > 1)
+        {
+            playerObjects.Add(new(
+                new(PlannedReplayObjectId),
+                PlayerLayerId,
+                MapSceneObjectKind.Route,
+                MapSceneTruthKind.PersonalPlan,
+                "Your planned route",
+                "Selected on the Raid page before these screenshot observations.",
+                new(MapSceneGeometryKind.Line, plannedRoute),
+                [],
+                new DataProvenance("personal-plan", nowUtc)));
+            styles[new(PlannedReplayObjectId)] = new("#FFF1C75B", LineThickness: 4, Opacity: 0.95);
         }
 
         if (playerObjects.Count > 0)

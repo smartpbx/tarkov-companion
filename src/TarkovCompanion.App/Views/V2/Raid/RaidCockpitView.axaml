@@ -273,6 +273,8 @@
             <StackPanel Orientation="Horizontal" Spacing="10">
               <TextBlock Classes="v2-body" VerticalAlignment="Center" Text="{Binding Replay.Title}" />
               <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Replay.Position}" />
+              <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding Replay.Comparison}"
+                         IsVisible="{Binding Replay.HasComparison}" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="Back" Command="{Binding Replay.BackCommand}"
                       AutomationProperties.AutomationId="v2-raid-replay-back" />
               <Button Classes="v2-target v2-raid-viewcontrol" Content="{Binding Replay.PlayLabel}"
