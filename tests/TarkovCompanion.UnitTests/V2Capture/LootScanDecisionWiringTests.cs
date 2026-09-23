@@ -1,5 +1,6 @@
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Catalogs;
@@ -114,6 +115,30 @@ public sealed class LootScanDecisionWiringTests
         Assert.Equal("TAKE?", card.VerdictLabel);
         Assert.Equal("Worth its squares", card.HeadlineReason);
         Assert.Contains("your backpack wasn't read", card.WhyLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_named_result_row_opens_its_canonical_item_through_the_wiki_action()
+    {
+        var result = await EvaluateAsync(new Scan
+        {
+            Loot = [Named(0, 0, "gpu", "Graphics card", 2, 1)],
+            Carried = Backpack(4, 4),
+        });
+        var opened = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var card = Assert.Single(new LootScanViewModel(
+            result,
+            culture: CultureInfo.InvariantCulture,
+            openWiki: itemId =>
+            {
+                opened.TrySetResult(itemId);
+                return Task.CompletedTask;
+            }).Decisions);
+
+        Assert.True(card.CanOpenWiki);
+        await ((AsyncDelegateCommand)card.OpenWikiCommand).ExecuteAsync();
+
+        Assert.Equal("gpu", await opened.Task.WaitAsync(TimeSpan.FromSeconds(1)));
     }
 
     [Fact]

@@ -134,6 +134,8 @@
     "V2.String.LootScan.Backpack": "Your backpack",
     "V2.String.LootScan.NoBackpack": "Backpack not visible in this screenshot",
     "V2.String.LootScan.WhatToTake": "What should I take?",
+    "V2.String.LootScan.Wiki": "Wiki",
+    "V2.String.LootScan.OpenWiki": "Open item wiki",
     "V2.String.Live.Polite": "Background updates are announced here.",
     "V2.String.Live.Assertive": "Refused or failed actions are announced here.",
     "V2.String.Template.StatusName": "{availability}, {completeness}, {freshness}: {detail}",
