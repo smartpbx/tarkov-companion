@@ -87,9 +87,9 @@ public sealed class PlanQuestRulesTests
     public void AnEmptyBoardNamesWhichOfTheSearchTheTraderAndTheFilterEmptiedIt()
     {
         Assert.Equal("No quest matches “gunsmith” in Active.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Active, "gunsmith", false));
-        Assert.Equal("No locked quest for this trader.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Locked, string.Empty, true));
-        Assert.Equal("No active quests. Try Available now, or All.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Active, string.Empty, false));
-        Assert.Equal("Nothing is available right now.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Available, string.Empty, false));
+        Assert.Equal("No blocked quest for this trader.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Locked, string.Empty, true));
+        Assert.Equal("No active quests. Try Next, or All.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Active, string.Empty, false));
+        Assert.Equal("No quest is next right now.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.Available, string.Empty, false));
         Assert.Equal("No quests recorded yet.", PlanQuestRules.DescribeEmpty(PlanQuestFilter.All, string.Empty, false));
     }
 

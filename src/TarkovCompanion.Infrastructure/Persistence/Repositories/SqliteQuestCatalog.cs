@@ -542,23 +542,42 @@ public sealed class SqliteQuestCatalog(SqliteConnectionFactory connectionFactory
 
         public List<QuestObjectiveZone> Zones { get; } = [];
 
-        public QuestObjectiveDefinition ToDomain() => new(
-            Id,
-            TaskId,
-            sourceType,
-            kind,
-            IsFailureCondition,
-            SourceOrdinal,
-            description,
-            targetCount,
-            optional,
-            foundInRaid,
-            targetTaskId,
-            Statuses,
-            ItemTargets,
-            MapAssociations,
-            Zones,
-            subtypeJson,
-            rawJson);
+        public QuestObjectiveDefinition ToDomain()
+        {
+            string? traderId = null;
+            int? traderLevel = null;
+            if (kind == QuestObjectiveKind.TraderLevel)
+            {
+                using var document = JsonDocument.Parse(subtypeJson);
+                var subtype = document.RootElement;
+                traderId = subtype.TryGetProperty("trader", out var trader) ? trader.GetString() : null;
+                traderLevel = subtype.TryGetProperty("level", out var level) && level.TryGetInt32(out var parsedLevel)
+                    ? parsedLevel
+                    : null;
+            }
+
+            return new(
+                Id,
+                TaskId,
+                sourceType,
+                kind,
+                IsFailureCondition,
+                SourceOrdinal,
+                description,
+                targetCount,
+                optional,
+                foundInRaid,
+                targetTaskId,
+                Statuses,
+                ItemTargets,
+                MapAssociations,
+                Zones,
+                subtypeJson,
+                rawJson)
+            {
+                RequiredTraderId = traderId,
+                RequiredTraderLevel = traderLevel,
+            };
+        }
     }
 }

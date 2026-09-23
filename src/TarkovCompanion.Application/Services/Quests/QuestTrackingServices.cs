@@ -789,7 +789,11 @@ public sealed class QuestReadService(
                         .Distinct(StringComparer.OrdinalIgnoreCase)
                         .Order(StringComparer.OrdinalIgnoreCase)
                         .ToArray(),
-                    objective.ItemTargets);
+                    objective.ItemTargets)
+                {
+                    RequiredTraderId = objective.RequiredTraderId,
+                    RequiredTraderLevel = objective.RequiredTraderLevel,
+                };
             })
             .ToArray();
         return new(
