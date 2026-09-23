@@ -148,7 +148,24 @@ public sealed class HighValueLootRuntimeSourceTests
     }
 
     [Fact]
-    public async Task The_same_request_within_a_minute_gets_the_same_layer_and_anything_else_a_new_one()
+    public async Task Map_identity_casing_drift_still_finds_and_rebinds_the_matching_snapshot()
+    {
+        // [#716] A durable publication uses canonical lower-case IDs, while a catalog or raid
+        // handoff can preserve display casing. Exact lookup called that map Unavailable even
+        // though its snapshot and records were present in publication.cache.
+        var source = Source(new MemoryStore(Bundle(Now, "generation-one")), new StubRefresh());
+        await source.InitializeAsync(CancellationToken.None);
+
+        var result = source.Build(Request(Now.AddMinutes(1)) with { MapId = "Customs" });
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal("Customs", result.MapId);
+        Assert.Equal("Customs", entry.Spawn.MapId);
+        Assert.Equal(ResultCompleteness.Complete, result.Status.Completeness);
+    }
+
+    [Fact]
+    public async Task The_same_request_stays_stable_for_a_raid_and_anything_else_gets_a_new_layer()
     {
         // [#657] The Raid map asks again on every squad position; answering with the same result
         // is what lets the map keep its loot markers instead of rebuilding them.
@@ -165,17 +182,19 @@ public sealed class HighValueLootRuntimeSourceTests
 
         Assert.Same(built, source.Build(Request(at.AddSeconds(59))));
         Assert.Same(built, source.Build(Request(at) with { FloorIds = ["ground"] }));
-        var later = source.Build(Request(at.AddSeconds(60)));
+        var later = source.Build(Request(at.AddMinutes(59)));
+        Assert.Same(built, later);
+        later = source.Build(Request(at.AddHours(1)));
         Assert.NotSame(built, later);
-        Assert.NotSame(later, source.Build(Request(at.AddSeconds(60)) with { MapBounds = new MapSceneBounds(0, 0, 50, 50) }));
-        var floors = source.Build(Request(at.AddSeconds(60)) with { FloorIds = ["ground", "roof"] });
+        Assert.NotSame(later, source.Build(Request(at.AddHours(1)) with { MapBounds = new MapSceneBounds(0, 0, 50, 50) }));
+        var floors = source.Build(Request(at.AddHours(1)) with { FloorIds = ["ground", "roof"] });
         var narrow = new HighValueLootFilter(LootSpawnValueBasis.BestNet, LootSpawnValueThresholds.Default, TimeSpan.FromDays(1), TimeSpan.FromDays(90), 0);
-        var filtered = source.Build(Request(at.AddSeconds(60)) with { FloorIds = ["ground", "roof"], Filter = narrow });
+        var filtered = source.Build(Request(at.AddHours(1)) with { FloorIds = ["ground", "roof"], Filter = narrow });
         Assert.NotSame(floors, filtered);
         // The player's filter and the default one, asked for in turn, are both kept.
-        Assert.Same(floors, source.Build(Request(at.AddSeconds(61)) with { FloorIds = ["ground", "roof"] }));
-        Assert.Same(filtered, source.Build(Request(at.AddSeconds(61)) with { FloorIds = ["ground", "roof"], Filter = narrow }));
-        var head = source.Build(Request(at.AddSeconds(60)));
+        Assert.Same(floors, source.Build(Request(at.AddHours(1).AddSeconds(1)) with { FloorIds = ["ground", "roof"] }));
+        Assert.Same(filtered, source.Build(Request(at.AddHours(1).AddSeconds(1)) with { FloorIds = ["ground", "roof"], Filter = narrow }));
+        var head = source.Build(Request(at.AddHours(1)));
         Assert.NotSame(head, source.Build(Request(at.AddSeconds(59))));
 
         var beforeRefresh = source.Build(Request(at.AddSeconds(59)));

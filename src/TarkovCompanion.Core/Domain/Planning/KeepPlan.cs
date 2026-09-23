@@ -69,7 +69,8 @@ public sealed record KeepEntry(
     IReadOnlyList<KeepQuestNeed> QuestNeeds,
     IReadOnlyList<KeepHideoutNeed> HideoutNeeds,
     string? KeyReason,
-    int HideoutTotalBuild = 0)
+    int HideoutTotalBuild = 0,
+    int QuestTotal = 0)
 {
     public string Name => Item.Name;
 

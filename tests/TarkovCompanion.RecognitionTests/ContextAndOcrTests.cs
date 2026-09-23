@@ -8,6 +8,29 @@ namespace TarkovCompanion.RecognitionTests;
 public sealed class ContextAndOcrTests
 {
     [Fact]
+    public void HandTranscribedTaskFramesClassifyWithoutStealingNearbyScreens()
+    {
+        var fixtures = SyntheticFixtureLoader.LoadTaskContextScenes();
+        var detector = new ScanContextDetector();
+
+        Assert.Contains(fixtures, fixture => fixture.Name == "tasks-side-list");
+        Assert.Contains(fixtures, fixture => fixture.Name == "tasks-story-chapter");
+        Assert.Contains(fixtures, fixture => fixture.Name == "negative-flea");
+        Assert.Contains(fixtures, fixture => fixture.Name == "negative-stash");
+        Assert.Contains(fixtures, fixture => fixture.Name == "negative-inventory");
+        Assert.Contains(fixtures, fixture => fixture.Name == "negative-health-character");
+
+        foreach (var fixture in fixtures)
+        {
+            var result = detector.Detect(
+                fixture.CreateImage(),
+                new(fixture.ToOcrScene().Lines, TimeSpan.Zero, "hand-transcribed fixture"));
+
+            Assert.Equal(Enum.Parse<ScanContext>(fixture.ExpectedContext), result.Context);
+        }
+    }
+
+    [Fact]
     public async Task ScriptedPostOcrFixturesClassifyWithoutFabricatingUnknownState()
     {
         var fixtures = SyntheticFixtureLoader.LoadScenes();

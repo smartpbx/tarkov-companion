@@ -527,6 +527,22 @@
           </Grid>
         </Border>
 
+        <Border Classes="v2-surface-banner" IsVisible="{Binding ShowsQuestScreenshotOffer}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-quest-sync-offer"
+                AutomationProperties.Name="{Binding QuestScreenshotOfferText}">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+            <TextBlock Classes="v2-body" VerticalAlignment="Center"
+                       Text="{Binding QuestScreenshotOfferText}" />
+            <Button Grid.Column="1" Classes="v2-target v2-banner-action"
+                    Content="Review sync" Command="{Binding ReviewQuestScreenshotOfferCommand}"
+                    AutomationProperties.AutomationId="v2-quest-sync-offer-review" />
+            <Button Grid.Column="2" Classes="v2-target v2-banner-action"
+                    Content="Not now" Command="{Binding DismissQuestScreenshotOfferCommand}"
+                    AutomationProperties.AutomationId="v2-quest-sync-offer-dismiss" />
+          </Grid>
+        </Border>
+
         <!-- #562: a paired tablet asking to drive this desktop, wherever the player is looking. -->
         <prim:ControlRequestPromptView DataContext="{Binding ControlRequestPrompt}" />
 

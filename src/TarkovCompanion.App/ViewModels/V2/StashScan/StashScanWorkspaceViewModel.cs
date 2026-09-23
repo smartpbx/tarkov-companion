@@ -88,6 +88,19 @@ public static class StashSortWording
             return string.Empty;
         }
 
+        if (planned.ReasonCodes.Contains("stash.review-command.pinned", StringComparer.Ordinal))
+        {
+            return "Pinned for this snapshot.";
+        }
+
+        if (planned.Group == StashPlanGroup.Organize &&
+            planned.ReasonCodes.FirstOrDefault(code =>
+                code.StartsWith("stash.organize.move-together.", StringComparison.Ordinal)) is { } organizeCode &&
+            int.TryParse(organizeCode["stash.organize.move-together.".Length..], out var moveTogetherCount))
+        {
+            return $"Move {moveTogetherCount.ToString(CultureInfo.CurrentCulture)} matching stacks together.";
+        }
+
         if (planned.ReasonCodes.Any(code => code.StartsWith("stash.specialist.", StringComparison.Ordinal)))
         {
             // Gear waits for the loadout planner, and still says what it is worth meanwhile.
@@ -142,7 +155,7 @@ public static class StashSortWording
     }
 }
 
-/// <summary>One recognized item, shown under its rough Keep/Sell/Use soon/Review group.</summary>
+/// <summary>One recognized item, shown under its Keep/Sell/Use soon/Organize/Review group.</summary>
 public sealed record StashItemRowViewModel(
     string ItemKey,
     string DisplayName,
@@ -151,18 +164,22 @@ public sealed record StashItemRowViewModel(
     string EvidenceLabel,
     StashPlanGroup Group)
 {
-    public string GroupLabel => StashSortWording.Label(Group);
+    public string GroupLabel => IsIgnored ? "Ignored" : StashSortWording.Label(Group);
 
     /// <summary>One line on why the item is in its group, from the engine's own reasons.</summary>
     public string WhyLabel { get; init; } = string.Empty;
 
-    public bool IsKeep => Group == StashPlanGroup.Keep;
+    public bool IsIgnored { get; init; }
 
-    public bool IsSell => Group == StashPlanGroup.Sell;
+    public bool IsKeep => !IsIgnored && Group == StashPlanGroup.Keep;
 
-    public bool IsUseSoon => Group == StashPlanGroup.UseSoon;
+    public bool IsSell => !IsIgnored && Group == StashPlanGroup.Sell;
 
-    public bool IsReview => Group is StashPlanGroup.Review or StashPlanGroup.Organize;
+    public bool IsUseSoon => !IsIgnored && Group == StashPlanGroup.UseSoon;
+
+    public bool IsOrganize => !IsIgnored && Group == StashPlanGroup.Organize;
+
+    public bool IsReview => !IsIgnored && Group == StashPlanGroup.Review;
 
     public ICommand? SelectCommand { get; init; }
 
@@ -290,6 +307,10 @@ public sealed class StashGridTileViewModel : BindableViewModel
 
     public bool IsSellTile => HasGroupTag && ItemRow is { IsSell: true };
 
+    public bool IsOrganizeTile => HasGroupTag && ItemRow is { IsOrganize: true };
+
+    public bool IsIgnoredTile => HasGroupTag && ItemRow is { IsIgnored: true };
+
     public string AutomationName
     {
         get
@@ -315,7 +336,7 @@ public enum StashTileKind
     Unresolved,
 }
 
-/// <summary>A Keep / Sell / Use soon / Review tile over the sort plan.</summary>
+/// <summary>A Keep / Sell / Use soon / Organize / Review tile over the sort plan.</summary>
 public sealed record StashPlanTileViewModel(StashPlanGroup Group, string Label, int Count, bool IsWired)
 {
     public string CountLabel => IsWired ? Count.ToString(CultureInfo.CurrentCulture) : "—";
@@ -325,6 +346,8 @@ public sealed record StashPlanTileViewModel(StashPlanGroup Group, string Label, 
     public bool IsSell => Group == StashPlanGroup.Sell;
 
     public bool IsUseSoon => Group == StashPlanGroup.UseSoon;
+
+    public bool IsOrganize => Group == StashPlanGroup.Organize;
 
     public bool IsReview => Group == StashPlanGroup.Review;
 }
@@ -376,6 +399,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     private readonly IProfileRuntimeContextService? _profileContext;
     private readonly StashPlanSource? _planSource;
     private readonly StashScanCaptureStatus? _captureStatus;
+    private readonly StashReconstructionMerger _merger = new();
+    private StashReviewCommandState _reviewState = StashReviewCommandState.Empty;
+    private IReadOnlyList<StashReviewCommand> _reviewHistory = [];
     private bool _isSorted;
     private bool _sortFailed;
     private readonly StashReconstructionProjector _projector = new();
@@ -448,6 +474,11 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         MarkSelectedUnknownCommand = new AsyncDelegateCommand(MarkSelectedUnknownAsync);
         CorrectIdentityCommand = new AsyncDelegateCommand(CorrectIdentityAsync);
         CorrectQuantityCommand = new AsyncDelegateCommand(CorrectQuantityAsync);
+        PinSelectedCommand = new AsyncDelegateCommand(PinSelectedAsync);
+        IgnoreSelectedCommand = new AsyncDelegateCommand(IgnoreSelectedAsync);
+        RescanSelectedRegionCommand = new AsyncDelegateCommand(RescanSelectedRegionAsync);
+        MergePreviousSnapshotCommand = new AsyncDelegateCommand(MergePreviousSnapshotAsync);
+        UndoReviewCommand = new AsyncDelegateCommand(UndoReviewAsync);
         StartFullScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Stash));
         StartAmmoScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Ammo));
         StartKeysScanCommand = new DelegateCommand(() => RequestScan(ScanIntent.Keys));
@@ -638,6 +669,14 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
     public bool HasSelectedItem => SelectedItem is not null;
 
+    public bool CanMergePreviousSnapshot => MergeCandidate() is not null;
+
+    public bool CanUndoReview => _reviewState.LatestUndoable is not null;
+
+    public string UndoReviewLabel => _reviewState.LatestUndoable is { } command
+        ? $"Undo {StashReviewCommandProjection.ActionLabel(command.Action)}"
+        : "Undo last change";
+
     /// <summary>
     /// Never null so the "Correct the selected item" card can bind it directly: that card's
     /// bindings evaluate even while <see cref="HasSelectedItem"/> keeps it hidden, and a gallery
@@ -668,12 +707,12 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// scanned. It is only said now when it is still the case: no profile to sort for.
     /// </remarks>
     public string RecommendationNotice => _isSorted
-        ? "Sorted by your pins, quests, hideout and prices. Gear, ammo and keys wait under Review."
+        ? "Sorted by your pins, quests, hideout and prices. Gear, ammo and keys are never marked Sell."
         : _sortFailed
             ? "This snapshot couldn't be sorted, so everything is under Review."
             : "No profile is active, so nothing is sorted. Everything is under Review.";
 
-    public string CorrectionsNotice { get; } = "Corrections apply only to this session for now.";
+    public string CorrectionsNotice { get; } = "Saved with this snapshot.";
 
     public string IdentityCorrection
     {
@@ -722,6 +761,16 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     public ICommand CorrectIdentityCommand { get; }
 
     public ICommand CorrectQuantityCommand { get; }
+
+    public ICommand PinSelectedCommand { get; }
+
+    public ICommand IgnoreSelectedCommand { get; }
+
+    public ICommand RescanSelectedRegionCommand { get; }
+
+    public ICommand MergePreviousSnapshotCommand { get; }
+
+    public ICommand UndoReviewCommand { get; }
 
     public ICommand StartFullScanCommand { get; }
 
@@ -840,6 +889,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         if (scope is null)
         {
             Snapshots = [];
+            _reviewHistory = [];
+            _reviewState = StashReviewCommandState.Empty;
+            PendingCorrections = [];
             Status = _captureStatus?.LastMessage
                 ?? "No profile is loaded yet, so there is no stash scope to browse.";
             RaiseAll();
@@ -914,6 +966,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         {
             Status = "That snapshot no longer exists.";
             _selected = null;
+            _reviewHistory = [];
+            _reviewState = StashReviewCommandState.Empty;
             Items = [];
             Regions = [];
             AmmoSummary = [];
@@ -923,11 +977,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         }
 
         _selected = record;
-        await BuildItemBreakdownAsync(record, cancellationToken).ConfigureAwait(true);
+        await ReloadSelectedReviewAsync(cancellationToken).ConfigureAwait(true);
         await OverlayScanProgressAsync(cancellationToken).ConfigureAwait(true);
-        PendingCorrections = record.Recognition.Result.Value is { } recognized
-            ? await ReviewCommandsForAsync(recognized.SnapshotId, cancellationToken).ConfigureAwait(true)
-            : [];
         Snapshots = Snapshots
             .Select(row => row with { IsSelected = row.SnapshotId == snapshotId })
             .ToArray();
@@ -945,6 +996,8 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         var deletedId = _selected.SnapshotId;
         var result = await _workflow.DeleteAsync(scope, deletedId, CancellationToken.None).ConfigureAwait(true);
         _selected = null;
+        _reviewHistory = [];
+        _reviewState = StashReviewCommandState.Empty;
         Status = result.Deleted
             ? "Snapshot deleted."
             : "That snapshot was already gone.";
@@ -1067,25 +1120,145 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         QuantityCorrection = string.Empty;
     }
 
-    private async Task SubmitReviewAsync(StashReviewCommand command)
+    private async Task PinSelectedAsync()
+    {
+        if (SelectedRecognitionSnapshotId is not { } snapshotId || SelectedItem is not { } item)
+        {
+            return;
+        }
+
+        if (_reviewState.PinnedItemKeys.Contains(item.ItemKey))
+        {
+            Status = "That item is already pinned.";
+            return;
+        }
+
+        await SubmitReviewAsync(new StashReviewCommand(
+            Guid.NewGuid(),
+            snapshotId,
+            StashReviewActionKind.Pin,
+            [item.ItemKey],
+            _clock.GetUtcNow(),
+            StashReviewCommandProjection.WorkspaceOrigin,
+            reason: "Kept regardless of the current sort advice."), "Item pinned.").ConfigureAwait(true);
+    }
+
+    private async Task IgnoreSelectedAsync()
+    {
+        if (SelectedRecognitionSnapshotId is not { } snapshotId || SelectedItem is not { } item)
+        {
+            return;
+        }
+
+        if (_reviewState.IgnoredItemKeys.Contains(item.ItemKey))
+        {
+            Status = "That item is already ignored.";
+            return;
+        }
+
+        await SubmitReviewAsync(new StashReviewCommand(
+            Guid.NewGuid(),
+            snapshotId,
+            StashReviewActionKind.Ignore,
+            [item.ItemKey],
+            _clock.GetUtcNow(),
+            StashReviewCommandProjection.WorkspaceOrigin,
+            reason: "Dropped from this snapshot's sort plan."), "Item ignored.").ConfigureAwait(true);
+    }
+
+    private async Task RescanSelectedRegionAsync()
+    {
+        if (SelectedRecognitionSnapshotId is not { } snapshotId || SelectedItem is not { } item)
+        {
+            return;
+        }
+
+        if (_reviewState.RescanContainerPaths.Contains(item.ContainerPath))
+        {
+            Status = "That region is already queued for rescan.";
+            return;
+        }
+
+        var saved = await SubmitReviewAsync(new StashReviewCommand(
+            Guid.NewGuid(),
+            snapshotId,
+            StashReviewActionKind.Rescan,
+            [item.ContainerPath],
+            _clock.GetUtcNow(),
+            StashReviewCommandProjection.WorkspaceOrigin,
+            reason: $"Recapture {ContainerTitle(item.ContainerPath)}."), "Region queued for rescan.").ConfigureAwait(true);
+        if (!saved)
+        {
+            return;
+        }
+
+        if (_guidedScan is not null && CurrentScope() is { } scope)
+        {
+            await _guidedScan.StartAsync(
+                scope,
+                _profileContext?.Current.ActiveProfile?.Context.DataSnapshot.SnapshotId ?? "unversioned",
+                CancellationToken.None).ConfigureAwait(true);
+            _arming?.Resume();
+            Status = $"Ready to recapture {ContainerTitle(item.ContainerPath)}.";
+            RaiseAll();
+            return;
+        }
+
+        RequestScan(ScanIntent.Stash);
+    }
+
+    private async Task MergePreviousSnapshotAsync()
+    {
+        if (_selected is null || SelectedRecognitionSnapshotId is not { } snapshotId)
+        {
+            return;
+        }
+
+        var previous = MergeCandidate();
+        if (previous is null)
+        {
+            Status = "There is no earlier snapshot to merge.";
+            return;
+        }
+
+        await SubmitReviewAsync(new StashReviewCommand(
+            Guid.NewGuid(),
+            snapshotId,
+            StashReviewActionKind.MergeEntries,
+            [_selected.SnapshotId.ToString("D"), previous.SnapshotId.ToString("D")],
+            _clock.GetUtcNow(),
+            StashReviewCommandProjection.SnapshotMergeOrigin,
+            reason: $"Combined with the snapshot from {previous.RecordedLabel}."), "Snapshots combined.").ConfigureAwait(true);
+    }
+
+    private async Task UndoReviewAsync()
+    {
+        if (_reviewState.LatestUndoable is not { } command)
+        {
+            Status = "There is no review change to undo.";
+            return;
+        }
+
+        await SubmitReviewAsync(
+            StashReviewCommandProjection.Undo(command, _clock.GetUtcNow()),
+            $"Undid {StashReviewCommandProjection.ActionLabel(command.Action)}.").ConfigureAwait(true);
+    }
+
+    private async Task<bool> SubmitReviewAsync(StashReviewCommand command, string savedStatus = "Correction saved.")
     {
         try
         {
             await _workflow.ReviewAsync(command, CancellationToken.None).ConfigureAwait(true);
-            Status = "Correction saved.";
         }
         catch (InvalidOperationException exception)
         {
             Status = exception.Message;
-            return;
+            return false;
         }
 
-        if (SelectedRecognitionSnapshotId is { } snapshotId)
-        {
-            PendingCorrections = await ReviewCommandsForAsync(snapshotId, CancellationToken.None).ConfigureAwait(true);
-            OnPropertyChanged(nameof(PendingCorrections));
-            OnPropertyChanged(nameof(HasPendingCorrections));
-        }
+        await ReloadSelectedReviewAsync(CancellationToken.None).ConfigureAwait(true);
+        Status = savedStatus;
+        return true;
     }
 
     /// <summary>
@@ -1095,16 +1268,57 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </summary>
     private string? SelectedRecognitionSnapshotId => _selected?.Recognition.Result.Value?.SnapshotId;
 
-    private async Task<IReadOnlyList<StashReviewCommandRowViewModel>> ReviewCommandsForAsync(
-        string snapshotId,
-        CancellationToken cancellationToken) =>
-        (await _reviewCommands.ListAsync(snapshotId, cancellationToken).ConfigureAwait(true))
-            .Select(command => new StashReviewCommandRowViewModel(
-                command.Action.ToString(),
-                string.Join(", ", command.TargetItemKeys),
-                LocalTime.Moment(command.CreatedUtc),
-                command.Reason))
+    private static IReadOnlyList<StashReviewCommandRowViewModel> ReviewCommandRows(
+        IReadOnlyList<StashReviewCommand> commands) =>
+        commands
+            .Select(command => StashReviewCommandProjection.IsUndoRecord(command)
+                ? new StashReviewCommandRowViewModel(
+                    "Undo",
+                    command.Reason ?? "Review change",
+                    LocalTime.Moment(command.CreatedUtc),
+                    null)
+                : new StashReviewCommandRowViewModel(
+                    command.Action.ToString(),
+                    string.Join(", ", command.TargetItemKeys),
+                    LocalTime.Moment(command.CreatedUtc),
+                    command.Reason))
             .ToArray();
+
+    private StashSnapshotRowViewModel? MergeCandidate() => _selected is null
+        ? null
+        : Snapshots.FirstOrDefault(row =>
+            row.SnapshotId != _selected.SnapshotId && !_reviewState.MergedSnapshotIds.Contains(row.SnapshotId));
+
+    private async Task ReloadSelectedReviewAsync(CancellationToken cancellationToken)
+    {
+        if (_selected?.Recognition.Result.Value is not { } recognized || CurrentScope() is not { } scope)
+        {
+            _reviewHistory = [];
+            _reviewState = StashReviewCommandState.Empty;
+            PendingCorrections = [];
+            return;
+        }
+
+        _reviewHistory = await _reviewCommands.ListAsync(recognized.SnapshotId, cancellationToken).ConfigureAwait(true);
+        _reviewState = StashReviewCommandProjection.Project(_reviewHistory);
+        PendingCorrections = ReviewCommandRows(_reviewHistory);
+
+        var additions = new List<StashReconstruction>();
+        foreach (var snapshotId in _reviewState.MergedSnapshotIds.Where(id => id != _selected.SnapshotId))
+        {
+            var merged = await _store.ReadAsync(scope, snapshotId, cancellationToken).ConfigureAwait(true);
+            if (merged?.Recognition.Result.Value is { } mergedRecognition)
+            {
+                additions.Add(_projector.Project(mergedRecognition));
+            }
+        }
+
+        var reconstruction = _projector.Project(recognized);
+        await BuildItemBreakdownAsync(
+            additions.Count == 0 ? reconstruction : _merger.Merge(reconstruction, additions),
+            cancellationToken).ConfigureAwait(true);
+        RaiseAll();
+    }
 
     private Task BuildItemBreakdownAsync(StashSnapshotRecord record, CancellationToken cancellationToken) =>
         BuildItemBreakdownAsync(_projector.Project(record.Recognition.Result.Value!), cancellationToken);
@@ -1119,6 +1333,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     /// </remarks>
     private async Task BuildItemBreakdownAsync(StashReconstruction reconstruction, CancellationToken cancellationToken)
     {
+        var selectedItemKey = SelectedItem?.ItemKey;
         _reconstruction = reconstruction;
         var ammoByItemId = _ammoByItemId ?? new Dictionary<string, AmmoStats>(StringComparer.Ordinal);
         var keyFactsByItemId = _keyFactsByItemId ?? new Dictionary<string, KeyFacts>(StringComparer.Ordinal);
@@ -1146,6 +1361,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
 
                 var tileName = TileName(tile, definition, displayName);
                 var quantity = tile.Quantity ?? 1;
+                var isIgnored = _reviewState.IgnoredItemKeys.Contains(tile.ItemKey);
 
                 var wikiUri = definition?.WikiUri;
                 var bare = new StashItemRowViewModel(
@@ -1156,10 +1372,13 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                     DescribeProvenance(tile.Provenance),
                     plannedByKey?.GetValueOrDefault(tile.ItemKey)?.Group ?? StashPlanGroup.Review)
                 {
+                    IsIgnored = isIgnored,
                     WikiUri = wikiUri,
-                    WhyLabel = StashSortWording.Why(
-                        plannedByKey?.GetValueOrDefault(tile.ItemKey),
-                        sorted?.ReasonsByItemKey.GetValueOrDefault(tile.ItemKey)),
+                    WhyLabel = isIgnored
+                        ? "Ignored in this snapshot's plan."
+                        : StashSortWording.Why(
+                            plannedByKey?.GetValueOrDefault(tile.ItemKey),
+                            sorted?.ReasonsByItemKey.GetValueOrDefault(tile.ItemKey)),
                 };
                 var row = bare with
                 {
@@ -1219,11 +1438,19 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
             .Select(entry => entry.Row)
             .ToArray();
         Regions = regions;
+        if (selectedItemKey is not null)
+        {
+            SelectedItem = regions
+                .SelectMany(region => region.Tiles)
+                .Select(tile => tile.ItemRow)
+                .FirstOrDefault(row => string.Equals(row?.ItemKey, selectedItemKey, StringComparison.Ordinal));
+        }
         PlanTiles =
         [
             new(StashPlanGroup.Keep, "Keep", Count(items, StashPlanGroup.Keep), IsWired: _isSorted),
             new(StashPlanGroup.Sell, "Sell", Count(items, StashPlanGroup.Sell), IsWired: _isSorted),
             new(StashPlanGroup.UseSoon, "Use soon", Count(items, StashPlanGroup.UseSoon), IsWired: _isSorted),
+            new(StashPlanGroup.Organize, "Organize", Count(items, StashPlanGroup.Organize), IsWired: _isSorted),
             new(StashPlanGroup.Review, "Review", Count(items, StashPlanGroup.Review), IsWired: true),
         ];
         AmmoSummary = ammoRounds
@@ -1281,6 +1508,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
                         : keyFactsByItemId.ContainsKey(itemId)
                             ? StashSpecialistIntelligenceKind.Key
                             : StashSpecialistIntelligenceKind.None,
+                    _reviewState,
                     _clock.GetUtcNow(),
                     cancellationToken)
                 .ConfigureAwait(true);
@@ -1328,7 +1556,7 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
     }
 
     private static int Count(IReadOnlyList<StashItemRowViewModel> rows, StashPlanGroup group) =>
-        rows.Count(row => row.Group == group);
+        rows.Count(row => !row.IsIgnored && row.Group == group);
 
     /// <summary>"stash/ammo case" reads as "Ammo case"; a raw container path never reaches the view.</summary>
     private static string ContainerTitle(string containerPath)
@@ -1377,6 +1605,9 @@ public sealed class StashScanWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasNoKeySummary));
         OnPropertyChanged(nameof(PendingCorrections));
         OnPropertyChanged(nameof(HasPendingCorrections));
+        OnPropertyChanged(nameof(CanMergePreviousSnapshot));
+        OnPropertyChanged(nameof(CanUndoReview));
+        OnPropertyChanged(nameof(UndoReviewLabel));
         OnPropertyChanged(nameof(TotalsLabel));
         OnPropertyChanged(nameof(CoverageLabel));
         OnPropertyChanged(nameof(Regions));

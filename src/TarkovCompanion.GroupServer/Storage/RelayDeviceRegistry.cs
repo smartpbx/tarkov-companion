@@ -19,11 +19,12 @@ public sealed record RelayAuthenticationResult(bool Authenticated, string Code, 
     public static RelayAuthenticationResult Reject(string code = "not-authenticated") => new(false, code, null);
 }
 
-public sealed record RelayMutationResult<T>(bool Succeeded, string Code, T? Value)
+public sealed record RelayMutationResult<T>(bool Succeeded, string Code, T? Value, long? OffsetSeconds = null)
 {
     public static RelayMutationResult<T> Success(T value) => new(true, "accepted", value);
 
-    public static RelayMutationResult<T> Reject(string code) => new(false, code, default);
+    public static RelayMutationResult<T> Reject(string code, long? offsetSeconds = null) =>
+        new(false, code, default, offsetSeconds);
 }
 
 public readonly record struct RelayFrameAdmission(bool Accepted, string Code)
@@ -118,9 +119,16 @@ public sealed class RelayDeviceRegistry
             // that apart from a wrong grant or an owner that already existed. Each clause names
             // itself now. None of them reveals anything a caller does not already hold — this route
             // is behind the operator's admin key, and the material is the caller's own.
-            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            if (!TryCompletedPairing(
+                    completedPairing,
+                    now,
+                    out var deviceKey,
+                    out var establishment,
+                    out var clockOffsetSeconds))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+                return RelayMutationResult<RelaySessionCredential>.Reject(
+                    clockOffsetSeconds is null ? "claim-not-completed" : "clock-skew",
+                    clockOffsetSeconds);
             }
 
             if (grant.NewOwnerDeviceId != establishment.Assignment.DeviceId ||
@@ -190,9 +198,16 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("owner-already-live");
             }
 
-            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            if (!TryCompletedPairing(
+                    completedPairing,
+                    now,
+                    out var deviceKey,
+                    out var establishment,
+                    out var clockOffsetSeconds))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+                return RelayMutationResult<RelaySessionCredential>.Reject(
+                    clockOffsetSeconds is null ? "claim-not-completed" : "clock-skew",
+                    clockOffsetSeconds);
             }
 
             // The same binding ResumeOwnerByKeyAsync checks: the key named is the key that signed.
@@ -291,9 +306,16 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("owner-unknown");
             }
 
-            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            if (!TryCompletedPairing(
+                    completedPairing,
+                    now,
+                    out var deviceKey,
+                    out var establishment,
+                    out var clockOffsetSeconds))
             {
-                return RelayMutationResult<RelaySessionCredential>.Reject("claim-not-completed");
+                return RelayMutationResult<RelaySessionCredential>.Reject(
+                    clockOffsetSeconds is null ? "claim-not-completed" : "clock-skew",
+                    clockOffsetSeconds);
             }
 
             // Expired is "has not been heard from", which is the case this exists for. Revoked and
@@ -543,7 +565,7 @@ public sealed class RelayDeviceRegistry
                 return RelayMutationResult<RelaySessionCredential>.Reject("not-authorized");
             }
 
-            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment))
+            if (!TryCompletedPairing(completedPairing, now, out var deviceKey, out var establishment, out _))
             {
                 return RelayMutationResult<RelaySessionCredential>.Reject("pairing-incomplete");
             }
@@ -837,7 +859,7 @@ public sealed class RelayDeviceRegistry
             var devices = _state.Devices.ToList();
             var targetIndex = devices.FindIndex(device => device.DeviceId == targetDeviceId);
             if (targetIndex < 0 || !IsLive(devices[targetIndex], now) ||
-                !TryCompletedPairing(completedReplacement, now, out var deviceKey, out var establishment) ||
+                !TryCompletedPairing(completedReplacement, now, out var deviceKey, out var establishment, out _) ||
                 _state.Devices.Count >= ProtocolBounds.MaxDevices ||
                 HasIdentityCollision(deviceKey, establishment))
             {
@@ -1213,10 +1235,12 @@ public sealed class RelayDeviceRegistry
         PairingAttempt attempt,
         DateTimeOffset now,
         out DevicePublicKey deviceKey,
-        out SessionEstablished establishment)
+        out SessionEstablished establishment,
+        out long? clockOffsetSeconds)
     {
         deviceKey = null!;
         establishment = null!;
+        clockOffsetSeconds = null;
         // The establishment was timestamped on another machine — the desktop that built it, or the
         // tablet whose session it is — so it is compared with the same one-minute tolerance every
         // other cross-machine timestamp in this relay uses (CompanionPairingMailbox.RegisterOffer's
@@ -1229,10 +1253,24 @@ public sealed class RelayDeviceRegistry
             attempt.Establishment is not { } completed || completed.Purpose != HandshakePurpose.Pairing ||
             completed.DeviceKeyId != attempt.Request.DeviceKey.KeyId ||
             completed.Assignment.ProtocolVersion != attempt.Request.NegotiatedVersion ||
-            !CompanionProtocolVersion.Current.CanRead(completed.Assignment.ProtocolVersion) ||
-            completed.EstablishedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) ||
-            now - Earliest(completed.EstablishedUtc, now) > ProtocolBounds.MaximumPairingLifetime ||
-            completed.Assignment.SessionExpiresUtc <= now)
+            !CompanionProtocolVersion.Current.CanRead(completed.Assignment.ProtocolVersion))
+        {
+            return false;
+        }
+
+        if (completed.EstablishedUtc > now.Add(ProtocolBounds.MaxClientClockSkew) ||
+            now - Earliest(completed.EstablishedUtc, now) > ProtocolBounds.MaximumPairingLifetime)
+        {
+            // Signed so a fast PC is negative: relay time minus the claim's time. Rounded rather
+            // than truncated because claims have millisecond precision while the useful answer is
+            // whole seconds, and a 60.9-second disagreement must not be reported as 60 seconds.
+            clockOffsetSeconds = checked((long)Math.Round(
+                (now - completed.EstablishedUtc).TotalSeconds,
+                MidpointRounding.AwayFromZero));
+            return false;
+        }
+
+        if (completed.Assignment.SessionExpiresUtc <= now)
         {
             return false;
         }

@@ -32,8 +32,24 @@ internal static class FleaScanDemo
         drain(price);
         var average = price.Result?.Average24HourRoubles ?? price.Result?.FleaPriceRoubles ?? 100_000;
         var trader = price.Result?.BestTrader?.ValueRoubles ?? average / 3;
-        CaptureFleaListing Row(long roubles, int? quantity, double confidence) =>
-            new(roubles, quantity, new Confidence(confidence), $"{item.ShortName} {roubles}");
+        CaptureFleaListing Row(
+            long roubles,
+            int? quantity,
+            double confidence,
+            ItemConditionReading? condition = null,
+            string currency = "RUB",
+            long? original = null,
+            long rate = 1) =>
+            new(
+                roubles,
+                quantity,
+                new Confidence(confidence),
+                $"{item.ShortName} {(original ?? roubles)} {currency}",
+                currency,
+                original ?? roubles,
+                rate,
+                currency == "RUB" ? null : new DataProvenance("render catalog currency", now.AddMinutes(-10)),
+                condition);
 
         var analysis = new CaptureAnalysis(
             new string('c', 64),
@@ -50,8 +66,8 @@ internal static class FleaScanDemo
             ],
             FleaListings:
             [
-                Row(trader * 9 / 10, 1, 0.93),
-                Row(average * 80 / 100, 4, 0.9),
+                Row(trader * 9 / 10, 1, 0.93, new ItemConditionReading(ItemConditionKind.Durability, 41.5, 60)),
+                Row((average * 80 / 100 / 222) * 222, 4, 0.9, new ItemConditionReading(ItemConditionKind.Uses, 3, 5), "EUR", average * 80 / 100 / 222, 222),
                 Row(average * 97 / 100, null, 0.74),
                 Row(average * 104 / 100, 1, 0.91),
                 Row(average * 125 / 100, 2, 0.86),

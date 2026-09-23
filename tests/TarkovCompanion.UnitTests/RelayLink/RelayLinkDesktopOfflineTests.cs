@@ -143,6 +143,38 @@ public sealed class RelayLinkDesktopOfflineTests
         Assert.Equal("Relay link: resume ticket seen. (2 more like it in the last minute.)", last.Message);
     }
 
+    [Fact]
+    public async Task TheRelayDateHeaderMeasuresAndLogsThePcClockOnce()
+    {
+        var relayNow = RelaySecurityTestFactory.Now;
+        var pcClock = new RelayTestClock(relayNow.AddHours(4));
+        var logger = new ListLogger();
+        var tracker = new RelayClockOffsetTracker(new RelayLinkLog(logger, pcClock));
+        using var client = new HttpClient(new RelayClockTrackingHandler(
+            tracker,
+            pcClock,
+            new DateHandler(relayNow)));
+
+        using var first = await client.GetAsync("https://relay.example.test/health");
+        using var second = await client.GetAsync("https://relay.example.test/health");
+
+        Assert.Equal(-14_400, tracker.Current?.OffsetSeconds);
+        Assert.True(tracker.Current?.IsSkewed);
+        Assert.Single(logger.Entries, entry => entry.Message.Contains("clock offset", StringComparison.Ordinal));
+    }
+
+    private sealed class DateHandler(DateTimeOffset relayDate) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK);
+            response.Headers.Date = relayDate;
+            return Task.FromResult(response);
+        }
+    }
+
     private static readonly TimeSpan RelayCompanionRoutesOfflineWindow = TarkovCompanion.GroupServer.RelayCompanionRoutes.DesktopOfflineAfter;
 
     private static TabletMapSurface Surface(DateTimeOffset now) => new(

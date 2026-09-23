@@ -12,6 +12,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
@@ -439,6 +440,8 @@ public sealed record GroupMemberPanelViewModel(
     string Where,
     string Position,
     string Extra,
+    string RaidStatus,
+    string PositionSummary,
     bool IsElsewhere,
     bool IsStale)
 {
@@ -1349,6 +1352,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly IQuestReadService? _questReadService;
     private readonly QuestMapProjectionService? _questProjectionService;
+    private readonly FollowSetting _followSetting;
     private readonly MapPresentationService _presentationService = new();
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _selectionLoad;
@@ -1459,7 +1463,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // Optional so every composition that builds this by hand keeps working. Without it the
         // Visited layer is simply not offered, which is what the map did before it existed.
         IRaidHistoryService? raidHistory = null,
-        IMapDataService? mapDataService = null)
+        IMapDataService? mapDataService = null,
+        IWorkspaceLayoutStore? layout = null)
         : this(
             null,
             catalogClient,
@@ -1471,7 +1476,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             featureCatalog,
             itemRepository,
             raidHistory,
-            mapDataService)
+            mapDataService,
+            layout)
     {
     }
 
@@ -1486,7 +1492,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IMapFeatureCatalog? featureCatalog = null,
         IItemRepository? itemRepository = null,
         IRaidHistoryService? raidHistory = null,
-        IMapDataService? mapDataService = null)
+        IMapDataService? mapDataService = null,
+        IWorkspaceLayoutStore? layout = null)
     {
         RemoveMarkCommand = new ParameterCommand<MarkListItemViewModel>(RemoveMark);
         ClearReachedMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: true));
@@ -1502,6 +1509,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _profileService = profileService;
         _questReadService = questReadService;
         _questProjectionService = questProjectionService;
+        _followSetting = new(layout);
+        _followsPlayer = _followSetting.Value;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -1706,13 +1715,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     /// <remarks>
     /// On by default, because the whole point of this panel is to be looked at without being
-    /// operated. It switches itself off the moment the player pans or zooms by hand, on the
-    /// principle that a deliberate action should not be undone by the next screenshot.
+    /// operated. The remembered choice changes only for the Follow control or a deliberate
+    /// camera move; loading a map, starting a raid and fitting new artwork leave it alone.
     /// </remarks>
     public bool FollowsPlayer
     {
         get => _followsPlayer;
-        private set => Set(ref _followsPlayer, value);
+        private set
+        {
+            if (Set(ref _followsPlayer, value))
+            {
+                _followSetting.Set(value);
+            }
+        }
     }
 
     /// <summary>Asks the view to put the player in the middle of the panel.</summary>
@@ -2599,10 +2614,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Asks the view to scale the whole map into the panel and centre it.</summary>
+    /// <remarks>
+    /// Fits also happen while maps and artwork load, so fitting must not silently change the
+    /// remembered Follow choice. Manual panning and deliberate legacy zooming still turn it off.
+    /// </remarks>
     public void RequestFit()
     {
         IsAutoFit = true;
-        FollowsPlayer = false;
         FitRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -5011,6 +5029,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     $"{position.X:F0}, {position.Z:F0}{(floor is { Length: > 0 } ? $" · {floor}" : string.Empty)} · {DescribeAge(age)}")
                 : "No position shared",
             string.Join(" · ", member.Loadout.Concat(member.Quests)),
+            DescribeRaidStatus(member, isHere, locations),
+            DescribePositionSummary(member.Position is not null, age, floor),
             elsewhere,
             // Either their position is too old to trust, or they have stopped publishing at
             // all. The second is the one nothing could see before: a crashed companion froze
@@ -5018,6 +5038,31 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // forgot them.
             age is null || age > PlayerMarkerFreshFor || member.HasGoneQuiet);
     }
+
+    /// <summary>The short state beside a squadmate's name in the narrow Raid card.</summary>
+    private static string DescribeRaidStatus(
+        GroupMemberView member,
+        bool isHere,
+        IReadOnlyList<MapLocation> locations)
+    {
+        var state = DescribeState(member.RaidState);
+        var status = member.Side is { Length: > 0 } side ? $"{state} · {side}" : state;
+        if (isHere || member.MapId is not { Length: > 0 } mapId)
+        {
+            return status;
+        }
+
+        var name = locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+        return $"{name} · {status}";
+    }
+
+    private static string DescribePositionSummary(bool hasPosition, TimeSpan? age, string? floor) =>
+        !hasPosition
+            ? "No position shared"
+            : floor is not { Length: > 0 }
+                ? DescribeCompactAge(age)
+                : $"{DescribeCompactAge(age)} · {(floor == "floor unknown" ? "floor ?" : floor)}";
 
     /// <summary>The map they are on and what they are doing, in that order.</summary>
     /// <remarks>
@@ -5054,6 +5099,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         : value < TimeSpan.FromMinutes(1)
             ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
             : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
+
+    private static string DescribeCompactAge(TimeSpan? age) => age is not { } value
+        ? "age unknown"
+        : value < TimeSpan.FromMinutes(1)
+            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)} s ago")
+            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes} min ago");
 
     /// <summary>
     /// Whether something the group shared belongs on the map being looked at.

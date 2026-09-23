@@ -104,8 +104,8 @@ in `docs/LICENSING.md` and `docs/THIRD_PARTY_NOTICES.md`. The full Apache-2.0 te
 
 `OcrCoordinator` runs a full-frame OCR pass, detects the visible context from the
 data-driven `Recognition/anchors.en.json` catalog, and runs a second OCR pass in a region
-relative to the matched anchor bounds. Every anchor carries provenance that currently
-labels it as simulator-derived and live-unvalidated. Full-frame lines are merged back into
+relative to the matched anchor bounds. Every anchor carries provenance; legacy anchors remain
+labelled simulator-derived and live-unvalidated until measured on player frames. Full-frame lines are merged back into
 the candidate set, so a draggable panel or imperfect contextual crop cannot discard text
 that the first pass already observed. Overlapping full/contextual reads use the same
 geometry-aware deterministic deduplication rule as tiled Windows reads; the source file is
@@ -116,6 +116,10 @@ going quadratic. An available empty full-frame read surfaces as `CoordinatedOcrR
 with `ocr_no_text`, which `RecognitionService` reports instead of `context_unknown`. A frame that
 timed out or was rejected keeps its own diagnostic instead of being reported as an unavailable
 provider.
+
+TASKS recognition uses hand-transcribed 2026-09-22 player frames: list pages require the
+STORY/SIDE/OPERATIONAL tabs plus table headers, while STORY chapters require objective headings.
+Outside a raid, recognised TASKS files form a two-minute burst and raise one review-only sync offer.
 
 A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan, for
 every context a scan dispatches to. The merged candidate set carries the degradation of whichever
@@ -274,9 +278,11 @@ sets and `IsPartial`; missing valuations also make the total partial. Quantities
 or `qty: 2` are parsed from cell text. The deterministic grid detector searches for a regular
 line lattice, then the segmenter measures occupied cells from in-memory luminance variation.
 
-Flea parsing reads visible rouble/RUB rows and optional quantities. It never buys, sells,
-clicks, types, contacts a market service, or claims that a listing remained available after
-the captured timestamp.
+Flea parsing reads visible rouble/RUB, euro/EUR, and dollar/USD rows, optional quantities, and
+labelled durability, uses, charges, or resource values. Foreign quotes are converted with the
+current catalog's documented RUB rate; a row is left unresolved when that rate is unavailable.
+It never buys, sells, clicks, types, contacts a market service, or claims that a listing remained
+available after the captured timestamp.
 
 A row is joined by geometry, not by OCR line order. Each price (a number with a rouble sign or
 `RUB`, the two read back together when the engine returned them as separate lines on one visual
@@ -284,10 +290,10 @@ line) is a row; every other line attaches to the price nearest vertically, and t
 prices are equally near or when it lies further than 2.5 line heights from any. A quantity
 ("x3", "×3", "qty 3") is taken from the price's own line or an attached one; two different
 quantities on one row read as none. Bounds cover the price and everything attached, and
-`FleaListing.SourceText` keeps the lines a row was joined from, for review. Not yet measured, because
-no real flea screenshot exists in the corpus: the true row pitch (the 2.5 is a guess to be tuned
-on one), how the engine renders the rouble sign when it loses it, and the condition column. A bare
-number is never taken for a price.
+`FleaListing.SourceText` keeps the lines a row was joined from, for review. The 2026-09-22
+3840-by-1080 flea capture confirms the multi-row layout and a euro-denominated offer, but the true
+row pitch, how the OCR engine renders a lost rouble sign, and the condition column still require
+fixture-backed pixel measurement. A bare number is never taken for a price.
 
 ## Icon fallback
 

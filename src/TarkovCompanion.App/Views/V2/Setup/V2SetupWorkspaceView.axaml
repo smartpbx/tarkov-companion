@@ -513,6 +513,16 @@
          "is it working" is the question this section is opened to answer. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsDiagnosticsSelected}">
       <StackPanel Classes="v2-stack">
+        <Border Classes="v2-card" IsVisible="{Binding Pairing.HasClockSkewNotice}"
+                AutomationProperties.AutomationId="v2-setup-clock-skew">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-body" TextWrapping="Wrap"
+                       Foreground="{DynamicResource V2.Brush.Warning}"
+                       Text="{Binding Pairing.ClockSkewNotice}" />
+            <TextBlock Classes="v2-label" TextWrapping="Wrap"
+                       Text="{Binding Pairing.ClockSkewHelp}" />
+          </StackPanel>
+        </Border>
         <!-- [#454] The run before this one died without shutting down: where it was when it did.
              Above the self-test, because it is the one line here about something that already went wrong. -->
         <TextBlock Classes="v2-body" IsVisible="{Binding HasPreviousRunNotice}" Text="{Binding PreviousRunNotice}"

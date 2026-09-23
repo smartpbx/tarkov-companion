@@ -329,6 +329,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly EarlyRaidSpawnPolicy _earlyRaidSpawns;
     private readonly IWorkspaceLayoutStore? _layout;
     private readonly FollowZoomSetting _followZoom;
+    private readonly LootValueFilterSetting _lootValueFilter;
     private double _contextPanelWidth = DefaultContextPanelWidth;
     private bool _contextPanelHidden;
     // [Issue 573] Hidden / Dim (default) / Normal, remembered the same way the panel's own width is.
@@ -449,6 +450,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _profiles = profiles;
         _layout = layout;
         _followZoom = new(layout);
+        _lootValueFilter = new(layout);
+        _lootFilter = _lootValueFilter.Apply(_lootFilter);
         Cards = new(layout);
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
@@ -503,6 +506,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _raid.Corrections.Changed += CorrectionsChanged;
         _stateStore.Changed += RuntimeStateChanged;
         _marks.Changed += MarksChanged;
+        // [#707] Marks placed here, or on a paired tablet, go to the group as well.
+        AttachGroupMarks();
         if (_userMarkers is not null)
         {
             _userMarkers.Changed += UserMarkersChanged;
@@ -971,12 +976,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>The current map's name for the context panel header, e.g. "CUSTOMS".</summary>
     public string MapTitle => (SelectedMap?.Name ?? Renderer?.LocationLabel ?? string.Empty).ToUpper(CultureInfo.CurrentCulture);
 
-    /// <summary>"12 extracts · 5 spawn areas" for the context panel header.</summary>
+    /// <summary>"12 ways out (transits included; co-op hidden) · 5 spawn areas" for the context panel header.</summary>
     public string MapSummary => string.Join(
         " · ",
         new[]
         {
-            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} {(MapExtracts.Count == 1 ? "extract" : "extracts")}",
+            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} ways out (transits included; co-op hidden)",
             SpawnAreas.Count == 0 ? null : $"{SpawnAreas.Count} {(SpawnAreas.Count == 1 ? "spawn area" : "spawn areas")}",
         }.Where(part => part is not null));
 
@@ -1087,6 +1092,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
+        // [#707] A squadmate's ping or waypoint, now drawn here too.
+        if (TryRemoveGroupMarkAt(objectId))
+        {
+            return;
+        }
+
         // [Issue 571] A right-click that hit a quest objective's pin, not one of our own marks:
         // the pin's "right-click menu" is Done/Not done, one gesture same as removing a mark is.
         if (_handDone is not null && TryParseObjectiveId(objectId, out var objectiveId))
@@ -1134,6 +1145,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _raid.Corrections.Changed -= CorrectionsChanged;
         _stateStore.Changed -= RuntimeStateChanged;
         _marks.Changed -= MarksChanged;
+        DetachGroupMarks();
         if (_userMarkers is not null)
         {
             _userMarkers.Changed -= UserMarkersChanged;
@@ -2115,7 +2127,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         var group = _stateStore.Current.Group;
         var number = 0;
-        foreach (var waypoint in group.Waypoints.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase)))
+        foreach (var waypoint in group.Waypoints.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase) && !IsOwnForwardedMark(item.Id)))
         {
             number++;
             yield return new(
@@ -2126,7 +2138,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 id => session.RemoveMarkAsync(id, CancellationToken.None));
         }
 
-        foreach (var ping in group.Pings.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase)))
+        foreach (var ping in group.Pings.Where(item => string.Equals(item.MapId, mapId, StringComparison.OrdinalIgnoreCase) && !IsOwnForwardedMark(item.Id)))
         {
             yield return new(
                 ping.Id,
@@ -2200,6 +2212,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         // [#453] Each stage names itself, so a hang record says which one held the interface.
         UiActivity.Step("raid:rebuild");
         RefreshMarkRows();
+        NotifySquadWatch();
         RefreshTraffic();
         // Read once, before anything is built from it: a publication that lands while this runs
         // then differs from what was seen and asks for one more pass, instead of being taken for
@@ -2429,6 +2442,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
 
         UiActivity.Step("raid:loot");
         var (marksLayer, markObjects) = BuildMarksLayer(_marks.Marks, model.Location.Id, nowUtc);
+        // [#707] The group's pings and waypoints, drawn and not only listed.
+        var (groupMarksLayer, groupMarkObjects) = BuildGroupMarksLayer(model, nowUtc);
         // [V2 rough package 22] You, your trail, the squad and where you have been before.
         var live = BuildLiveLayers(model, nowUtc);
         _objectStyles = live.Styles;
@@ -2459,9 +2474,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         UiActivity.Step("raid:routes");
         var additionalLayers = (marksLayer is { } definiteMarksLayer
             ? new[] { lootLayer.Layer, definiteMarksLayer }
-            : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers).ToArray();
+            : [lootLayer.Layer]).Concat(live.Layers).Concat(traffic.Layers).Concat(routes.Layers)
+            .Concat(groupMarksLayer is { } definiteGroupMarks ? new[] { definiteGroupMarks } : Array.Empty<MapSceneLayer>()).ToArray();
         var additionalObjects = lootLayer.Objects.Concat(markObjects).Concat(live.Objects).Concat(_questScene.Objects)
-            .Concat(traffic.Objects).Concat(routes.Objects).ToArray();
+            .Concat(traffic.Objects).Concat(routes.Objects).Concat(groupMarkObjects).ToArray();
 
         // [V2 rough package 39] The stack: one asset per floor beside the background.
         // [Issue 551] Awaited before the view is read below, not after it: a zoom or a pan that
@@ -3087,6 +3103,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
+        _lootValueFilter.Set(request.State.Filter);
         _lootFilter = request.State;
         var result = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
@@ -3255,7 +3272,9 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var squadObjects = new List<MapSceneObject>();
         foreach (var member in inputs.Squad)
         {
-            if (!inputs.IsOnThisMap(member.MapId))
+            // [#707] A squadmate who has left their raid is not on this map any more, whatever
+            // their older companion still says about the last screenshot of it.
+            if (!inputs.IsOnThisMap(member.MapId) || !SquadRaidPresence.IsPlaced(member))
             {
                 continue;
             }

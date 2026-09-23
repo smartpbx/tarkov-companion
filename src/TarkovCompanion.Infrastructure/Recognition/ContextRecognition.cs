@@ -361,7 +361,7 @@ public sealed class OcrCoordinator
         var detection = _contextDetector.Detect(image, fullFrame);
         var supplemental = _supplementalDetector.Detect(fullFrame);
         if (!fullFrame.IsAvailable ||
-            detection.Context == ScanContext.Unknown ||
+            detection.Context is ScanContext.Unknown or ScanContext.QuestTasks ||
             OcrOutcome.IsMemoryExhausted(fullFrame))
         {
             var empty = OcrOutcome.IsEmpty(fullFrame);

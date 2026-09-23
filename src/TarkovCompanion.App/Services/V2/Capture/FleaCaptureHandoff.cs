@@ -1,17 +1,44 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.Application.Services.Recommendations;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Items;
+using TarkovCompanion.Core.Domain.Recommendations;
+using RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
+using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 
 namespace TarkovCompanion.App.Services.V2.Capture;
 
 /// <summary>One flea offer the player photographed, beside what the catalog says the item is worth.</summary>
 /// <param name="PriceRoubles">The price on the row, for one unit.</param>
 /// <param name="Quantity">Units in the offer, where that was legible.</param>
-/// <param name="ResaleNetRoubles">What one unit returns resold at the 24-hour average, after the fee; null where unknown.</param>
-public sealed record FleaScanRow(long PriceRoubles, int? Quantity, double Confidence, string? SourceText, long? ResaleNetRoubles)
+/// <remarks>
+/// Recommendation and alternatives are the #274 engine's complete, versioned explanation shape;
+/// the UI does not reconstruct a verdict from these scalar fields.
+/// </remarks>
+public sealed record FleaScanAlternative(
+    string ItemId,
+    string ItemName,
+    double Confidence,
+    long? ResaleMarginRoubles,
+    RecommendationResult Recommendation);
+
+public sealed record FleaScanRow(
+    long PriceRoubles,
+    int? Quantity,
+    double Confidence,
+    string? SourceText,
+    string CurrencyCode,
+    long OriginalPrice,
+    long CurrencyRateRoubles,
+    ItemConditionReading? Condition,
+    long? ResaleMarginRoubles,
+    RecommendationResult Recommendation,
+    IReadOnlyList<FleaScanAlternative> Alternatives)
 {
     /// <summary>The whole offer, where the count was read.</summary>
     public long? StackRoubles => Quantity is { } count and > 1 ? checked(PriceRoubles * count) : null;
@@ -50,10 +77,14 @@ public sealed record FleaScanResult(
 public sealed class FleaCaptureHandoff(
     IItemRepository items,
     IItemMarketFactSource? market = null,
-    ILogger<FleaCaptureHandoff>? logger = null) : ICaptureResultHandoff
+    ILogger<FleaCaptureHandoff>? logger = null,
+    ExplainableRecommendationEngine? engine = null) : ICaptureResultHandoff
 {
+    private static readonly ProducerIdentity Producer = new("Tarkov Companion flea offer", "flea-offer-1");
+
     private readonly IItemRepository _items = items ?? throw new ArgumentNullException(nameof(items));
     private readonly ILogger<FleaCaptureHandoff> _logger = logger ?? NullLogger<FleaCaptureHandoff>.Instance;
+    private readonly ExplainableRecommendationEngine _engine = engine ?? new ExplainableRecommendationEngine();
 
     /// <summary>Raised when a capture held at least one legible flea row. Never raised otherwise.</summary>
     public event EventHandler<FleaScanResult>? ListingsRead;
@@ -82,38 +113,80 @@ public sealed class FleaCaptureHandoff(
     public async Task<FleaScanResult> BuildAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var identified = request.Analysis.Identified;
-        var best = identified.Count > 0 ? identified[0] : null;
-        var definition = best is null ? null : await _items.GetAsync(best.CanonicalId, cancellationToken).ConfigureAwait(false);
-        var price = best is null ? null : await _items.GetPriceAsync(best.CanonicalId, cancellationToken).ConfigureAwait(false);
-        var average = definition is { FleaEligible: true } ? price?.Average24HourRoubles ?? price?.FleaPriceRoubles : null;
-        var fee = average is { } asking and > 0 && best is not null
-            ? await FeeAsync(best.CanonicalId, asking, cancellationToken).ConfigureAwait(false)
-            : null;
-        var resaleNet = average is { } value && fee is { } cost ? value - cost : (long?)null;
+        var identified = request.Analysis.Identified.Take(5).ToArray();
+        var evaluatedUtc = request.SubmittedUtc;
+        var rates = await ReadFleaRatesAsync(cancellationToken).ConfigureAwait(false);
+        var candidates = new List<CandidateFacts>(identified.Length);
+        foreach (var candidate in identified)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            candidates.Add(await ReadCandidateAsync(candidate, rates, cancellationToken).ConfigureAwait(false));
+        }
+
+        var rows = new List<FleaScanRow>(request.Analysis.FleaListings.Count);
+        for (var index = 0; index < request.Analysis.FleaListings.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var row = request.Analysis.FleaListings[index];
+            var evaluations = candidates.Count == 0
+                ? [EvaluateUnknown(request, row, index, evaluatedUtc)]
+                : candidates
+                    .Select((candidate, candidateIndex) => Evaluate(
+                        request,
+                        row,
+                        candidate,
+                        index,
+                        candidateIndex,
+                        evaluatedUtc,
+                        cancellationToken))
+                    .ToArray();
+            var primary = evaluations[0];
+            rows.Add(new(
+                row.PriceRoubles,
+                row.Quantity,
+                row.Confidence.Value,
+                row.SourceText,
+                row.CurrencyCode,
+                row.OriginalPrice ?? row.PriceRoubles,
+                row.CurrencyRateRoubles,
+                row.Condition,
+                primary.MarginRoubles,
+                primary.Recommendation,
+                [
+                    .. evaluations.Skip(1).Select(alternative => new FleaScanAlternative(
+                        alternative.ItemId!,
+                        alternative.ItemName!,
+                        alternative.Confidence,
+                        alternative.MarginRoubles,
+                        alternative.Recommendation)),
+                ]));
+        }
+
+        var ranked = rows
+            .Select((row, sourceIndex) => (Row: row, SourceIndex: sourceIndex))
+            .OrderBy(candidate => Rank(candidate.Row.Recommendation))
+            .ThenByDescending(candidate => candidate.Row.ResaleMarginRoubles)
+            .ThenBy(candidate => candidate.Row.PriceRoubles)
+            .ThenBy(candidate => candidate.SourceIndex)
+            .Select(candidate => candidate.Row)
+            .ToArray();
+        var best = candidates.FirstOrDefault();
         return new(
             request.SessionId,
             request.ArtifactId,
             request.CapturedUtc,
-            best?.CanonicalId,
-            definition?.Name ?? best?.DisplayName,
+            best?.Candidate.CanonicalId,
+            best?.Definition?.Name ?? best?.Candidate.DisplayName,
             [.. identified.Skip(1).Take(4)],
-            price?.BestTrader?.ValueRoubles,
-            price?.BestTrader?.TraderName,
-            average,
-            fee,
-            price?.Provenance.SourceUpdatedUtc ?? price?.Provenance.ObservedUtc,
-            [
-                .. request.Analysis.FleaListings.Select(row => new FleaScanRow(
-                    row.PriceRoubles,
-                    row.Quantity,
-                    row.Confidence.Value,
-                    row.SourceText,
-                    resaleNet)),
-            ]);
+            best?.Price?.BestTrader?.ValueRoubles,
+            best?.Price?.BestTrader?.TraderName,
+            best?.AverageRoubles,
+            best?.FeeRoubles,
+            best?.Price?.Provenance.SourceUpdatedUtc ?? best?.Price?.Provenance.ObservedUtc,
+            ranked);
     }
 
-    private async Task<long?> FeeAsync(string itemId, long askingRoubles, CancellationToken cancellationToken)
+    private async Task<FleaMarketRates?> ReadFleaRatesAsync(CancellationToken cancellationToken)
     {
         if (market is null)
         {
@@ -122,15 +195,283 @@ public sealed class FleaCaptureHandoff(
 
         try
         {
-            var rates = await market.GetFleaRatesAsync(cancellationToken).ConfigureAwait(false);
-            var facts = await market.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
-            return rates is not null && facts?.BasePriceRoubles is { } basePrice and > 0
-                ? FleaMarketFee.Calculate(basePrice, askingRoubles, 1, rates)
-                : null;
+            return await market.GetFleaRatesAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return null;
         }
     }
+
+    private async Task<CandidateFacts> ReadCandidateAsync(
+        CaptureIdentifiedItem candidate,
+        FleaMarketRates? rates,
+        CancellationToken cancellationToken)
+    {
+        var definition = await _items.GetAsync(candidate.CanonicalId, cancellationToken).ConfigureAwait(false);
+        var price = await _items.GetPriceAsync(candidate.CanonicalId, cancellationToken).ConfigureAwait(false);
+        ItemMarketFacts? facts = null;
+        if (market is not null)
+        {
+            try
+            {
+                facts = await market.GetAsync(candidate.CanonicalId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                facts = null;
+            }
+        }
+
+        var average = definition is { FleaEligible: true }
+            ? price?.Average24HourRoubles ?? price?.FleaPriceRoubles
+            : null;
+        long? fee = average is { } asking and > 0 && rates is not null && facts?.BasePriceRoubles is { } basePrice and > 0
+            ? FleaMarketFee.Calculate(basePrice, asking, 1, rates)
+            : null;
+        return new(candidate, definition, price, rates, average, fee, average - fee);
+    }
+
+    private Evaluation Evaluate(
+        CaptureHandoffRequest request,
+        CaptureFleaListing row,
+        CandidateFacts candidate,
+        int rowIndex,
+        int candidateIndex,
+        DateTimeOffset evaluatedUtc,
+        CancellationToken cancellationToken)
+    {
+        var identity = ScreenshotProvenance(
+            request,
+            $"item/{candidate.Candidate.CanonicalId}",
+            candidate.Candidate.Confidence.Value,
+            evaluatedUtc);
+        var priceProvenance = OfferPriceProvenance(request, row, rowIndex, evaluatedUtc);
+        var economics = Economics(
+            candidate,
+            row,
+            evaluatedUtc,
+            ScreenshotProvenance(request, $"row/{rowIndex}/condition", row.Confidence.Value, evaluatedUtc));
+        var recommendation = _engine.EvaluateFleaOffer(
+            new FleaOfferRecommendationRequest(
+                $"flea-{request.ArtifactId}-{rowIndex}-{candidateIndex}",
+                Complete("offer.item", candidate.Candidate.CanonicalId, identity),
+                evaluatedUtc,
+                request.SessionId,
+                Complete<long?>("offer.price-roubles", row.PriceRoubles, priceProvenance),
+                economics),
+            cancellationToken);
+        var bestResale = BestResale(economics);
+        var margin = recommendation.Decision.Value?.Action is RecommendationAction.Take or RecommendationAction.Leave &&
+                     bestResale is { } resale
+            ? resale - row.PriceRoubles
+            : (long?)null;
+        return new(
+            candidate.Candidate.CanonicalId,
+            candidate.Definition?.Name ?? candidate.Candidate.DisplayName,
+            candidate.Candidate.Confidence.Value,
+            margin,
+            recommendation);
+    }
+
+    private Evaluation EvaluateUnknown(
+        CaptureHandoffRequest request,
+        CaptureFleaListing row,
+        int rowIndex,
+        DateTimeOffset evaluatedUtc)
+    {
+        var provenance = ScreenshotProvenance(request, "item/unread", 0, evaluatedUtc);
+        var unknown = UnknownEconomics(provenance);
+        var recommendation = _engine.EvaluateFleaOffer(new FleaOfferRecommendationRequest(
+            $"flea-{request.ArtifactId}-{rowIndex}-unread",
+            Unknown<string>("offer.item", "identity.unread", provenance),
+            evaluatedUtc,
+            request.SessionId,
+            Complete<long?>("offer.price-roubles", row.PriceRoubles, OfferPriceProvenance(request, row, rowIndex, evaluatedUtc)),
+            unknown));
+        return new(null, null, 0, null, recommendation);
+    }
+
+    private static RecommendationEconomics Economics(
+        CandidateFacts candidate,
+        CaptureFleaListing row,
+        DateTimeOffset evaluatedUtc,
+        EvidenceProvenance conditionProvenance)
+    {
+        var catalog = CatalogProvenance(candidate, evaluatedUtc);
+        var unavailable = new ResultStatus(ResultCompleteness.Unavailable, FreshnessState.Current, "catalog.not-published");
+        var unknown = new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Unknown, "catalog.unread");
+        var average = candidate.AverageRoubles;
+        var fee = candidate.FeeRoubles;
+        var fleaGross = average is { } gross
+            ? Complete<long?>("economics.flea-gross", gross, catalog)
+            : new EvidencedValue<long?>("economics.flea-gross", null, unavailable, catalog);
+        var feeProvenance = FeeProvenance(candidate, catalog, evaluatedUtc);
+        var fleaFee = average is null
+            ? new EvidencedValue<long?>("economics.flea-fee", null, unavailable, catalog)
+            : fee is { } knownFee
+                ? Complete<long?>("economics.flea-fee", knownFee, feeProvenance)
+                : new EvidencedValue<long?>("economics.flea-fee", null, unknown, catalog);
+        var netProvenance = fee is null
+            ? catalog
+            : new EvidenceProvenance(
+                EvidenceSourceClass.DerivedCalculation,
+                $"flea-offer/net/{candidate.Candidate.CanonicalId}",
+                evaluatedUtc,
+                EvidenceConfidence.Certain,
+                Producer,
+                generatedUtc: evaluatedUtc,
+                inputs: [catalog, feeProvenance]);
+        var fleaNet = candidate.ResaleNetRoubles is { } net
+            ? Complete<long?>("economics.flea-net", net, netProvenance)
+            : new EvidencedValue<long?>(
+                "economics.flea-net",
+                null,
+                average is null ? unavailable : unknown,
+                catalog);
+        var trader = candidate.Price?.BestTrader?.ValueRoubles is { } paid
+            ? Complete<long?>("economics.trader", paid, catalog)
+            : new EvidencedValue<long?>("economics.trader", null, unavailable, catalog);
+        var squares = candidate.Definition?.Dimensions.Slots is { } slots
+            ? Complete<int?>("economics.squares", slots, catalog)
+            : new EvidencedValue<int?>("economics.squares", null, unknown, catalog);
+        var condition = row.Condition is { Current: { } current, Maximum: { } maximum }
+            ? Complete<double?>(
+                "economics.condition",
+                current / maximum,
+                conditionProvenance)
+            : new EvidencedValue<double?>("economics.condition", null, unavailable, catalog);
+        return new(fleaGross, fleaFee, fleaNet, trader, squares, condition);
+    }
+
+    private static RecommendationEconomics UnknownEconomics(EvidenceProvenance provenance)
+    {
+        return new(
+            Unknown<long?>("economics.flea-gross", "catalog.unread", provenance),
+            Unknown<long?>("economics.flea-fee", "catalog.unread", provenance),
+            Unknown<long?>("economics.flea-net", "catalog.unread", provenance),
+            Unknown<long?>("economics.trader", "catalog.unread", provenance),
+            Unknown<int?>("economics.squares", "catalog.unread", provenance),
+            Unknown<double?>("economics.condition", "condition.unread", provenance));
+    }
+
+    private static EvidenceProvenance CatalogProvenance(CandidateFacts candidate, DateTimeOffset evaluatedUtc)
+    {
+        var source = candidate.Price?.Provenance ?? candidate.Definition?.Provenance;
+        var observed = Earlier(source?.SourceUpdatedUtc ?? source?.ObservedUtc ?? evaluatedUtc, evaluatedUtc);
+        return new(
+            EvidenceSourceClass.PublicStructuredData,
+            $"json.tarkov.dev/items/{candidate.Candidate.CanonicalId}",
+            observed,
+            EvidenceConfidence.Certain,
+            Producer);
+    }
+
+    private static EvidenceProvenance FeeProvenance(
+        CandidateFacts candidate,
+        EvidenceProvenance catalog,
+        DateTimeOffset evaluatedUtc)
+    {
+        if (candidate.Rates is not { } rates)
+        {
+            return catalog;
+        }
+
+        var publishedRates = new EvidenceProvenance(
+            EvidenceSourceClass.PublicStructuredData,
+            "json.tarkov.dev/items/flea-market-rates",
+            Earlier(rates.ObservedUtc, evaluatedUtc),
+            EvidenceConfidence.Certain,
+            Producer);
+        return new EvidenceProvenance(
+            EvidenceSourceClass.DerivedCalculation,
+            $"flea-offer/fee/{candidate.Candidate.CanonicalId}",
+            evaluatedUtc,
+            EvidenceConfidence.Certain,
+            Producer,
+            generatedUtc: evaluatedUtc,
+            inputs: [catalog, publishedRates]);
+    }
+
+    private static EvidenceProvenance OfferPriceProvenance(
+        CaptureHandoffRequest request,
+        CaptureFleaListing row,
+        int rowIndex,
+        DateTimeOffset evaluatedUtc)
+    {
+        var screenshot = ScreenshotProvenance(request, $"row/{rowIndex}/price", row.Confidence.Value, evaluatedUtc);
+        if (row.CurrencyCode == "RUB" || row.CurrencyRateProvenance is not { } rateSource)
+        {
+            return screenshot;
+        }
+
+        var rateObserved = Earlier(rateSource.SourceUpdatedUtc ?? rateSource.ObservedUtc, evaluatedUtc);
+        var rate = new EvidenceProvenance(
+            EvidenceSourceClass.PublicStructuredData,
+            $"json.tarkov.dev/currency/{row.CurrencyCode}",
+            rateObserved,
+            EvidenceConfidence.Certain,
+            Producer);
+        return new EvidenceProvenance(
+            EvidenceSourceClass.DerivedCalculation,
+            $"flea-offer/currency/{row.CurrencyCode}-to-RUB",
+            evaluatedUtc,
+            screenshot.Confidence,
+            Producer,
+            generatedUtc: evaluatedUtc,
+            inputs: [screenshot, rate]);
+    }
+
+    private static EvidenceProvenance ScreenshotProvenance(
+        CaptureHandoffRequest request,
+        string suffix,
+        double confidence,
+        DateTimeOffset evaluatedUtc) =>
+        new(
+            EvidenceSourceClass.GameWrittenScreenshot,
+            $"{request.Provenance.SourceIdentifier}/flea/{suffix}",
+            Earlier(request.Provenance.ObservedUtc, evaluatedUtc),
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, confidence),
+            Producer);
+
+    private static int Rank(RecommendationResult recommendation) => recommendation.Decision.Value?.Action switch
+    {
+        RecommendationAction.Take => 0,
+        RecommendationAction.Leave => 1,
+        _ => 2,
+    };
+
+    private static long? BestResale(RecommendationEconomics economics) =>
+        (economics.FleaNetRoubles.Value, economics.TraderRoubles.Value) switch
+        {
+            ({ } flea, { } trader) => Math.Max(flea, trader),
+            ({ } flea, null) => flea,
+            (null, { } trader) => trader,
+            _ => null,
+        };
+
+    private static DateTimeOffset Earlier(DateTimeOffset value, DateTimeOffset ceiling) =>
+        value <= ceiling ? value : ceiling;
+
+    private static EvidencedValue<T> Complete<T>(string fieldId, T value, EvidenceProvenance provenance) =>
+        new(fieldId, value, new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "complete"), provenance);
+
+    private static EvidencedValue<T> Unknown<T>(string fieldId, string code, EvidenceProvenance provenance) =>
+        new(fieldId, default!, new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Unknown, code), provenance);
+
+    private sealed record CandidateFacts(
+        CaptureIdentifiedItem Candidate,
+        ItemDefinition? Definition,
+        ItemPriceSnapshot? Price,
+        FleaMarketRates? Rates,
+        long? AverageRoubles,
+        long? FeeRoubles,
+        long? ResaleNetRoubles);
+
+    private sealed record Evaluation(
+        string? ItemId,
+        string? ItemName,
+        double Confidence,
+        long? MarginRoubles,
+        RecommendationResult Recommendation);
 }

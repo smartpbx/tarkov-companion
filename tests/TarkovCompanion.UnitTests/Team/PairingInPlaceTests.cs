@@ -1,5 +1,6 @@
 using System.Net;
 using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.Application.Services.Devices;
 
 namespace TarkovCompanion.UnitTests.Team;
 
@@ -74,5 +75,17 @@ public sealed class PairingInPlaceTests
             new CompanionPairingViewModel.RelayRefusal(HttpStatusCode.BadRequest, "something-new"));
 
         Assert.Contains("something-new", said, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheClockSkewRefusalCarriesItsOffsetIntoPlainWords()
+    {
+        var described = CompanionPairingViewModel.DescribeClaim(
+            new RelayClaimResult(RelayClaimOutcome.Refused, "clock-skew", -14_400),
+            RelayOwnerClaimState.Unknown);
+
+        Assert.Equal(
+            "Your PC clock is 4 h ahead of real time. Pairing won't work until it's fixed.",
+            described.Message);
     }
 }

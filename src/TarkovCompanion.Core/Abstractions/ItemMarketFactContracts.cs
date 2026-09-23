@@ -15,4 +15,11 @@ public interface IItemMarketFactSource
     Task<ItemMarketFacts?> GetAsync(string itemId, CancellationToken cancellationToken);
 
     Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Rouble prices for the currencies the catalog currently sells, keyed by ISO-style short
+    /// name (RUB, USD, EUR). RUB is always one; a missing foreign currency remains unread.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, CurrencyRoubleRate>> GetCurrencyRoubleRatesAsync(
+        CancellationToken cancellationToken);
 }

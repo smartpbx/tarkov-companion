@@ -30,6 +30,9 @@ public sealed record KeepListInputs(
     /// (see <see cref="KeepListPlanner.LaterPrestigeTiers"/>). Their needs are not the player's yet.
     /// </summary>
     public IReadOnlySet<string> LaterPrestigeTierTaskIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Full catalog quest quantities by item, including completed tasks and objectives.</summary>
+    public IReadOnlyDictionary<string, int>? QuestTotals { get; init; }
 }
 
 /// <summary>
@@ -139,6 +142,13 @@ public static class KeepListPlanner
             .GroupBy(requirement => requirement.ItemId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Sum(requirement => requirement.Required), StringComparer.Ordinal);
 
+        // Unlike the actionable map above, this is the lifetime catalog total: handed-in tasks
+        // and recorded objective progress stay in it. It gives "3 of 8 overall" the same stable
+        // denominator the hideout full-build count already has.
+        var questTotalByItem = inputs.QuestTotals ?? inputs.QuestRequirements
+            .GroupBy(requirement => requirement.ItemId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Sum(requirement => requirement.Required), StringComparer.Ordinal);
+
         var keyFactsById = inputs.KeyFacts.ToDictionary(fact => fact.ItemId, StringComparer.Ordinal);
         var keyRanks = KeyValue.Rank(inputs.KeyFacts
             .Where(fact => fact.AcquisitionCostRoubles is > 0)
@@ -237,7 +247,8 @@ public static class KeepListPlanner
                 questNeeds,
                 hideoutNeeds,
                 keyReason,
-                hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0)
+                hideoutNeeds.Length > 0 ? hideoutTotalByItem.GetValueOrDefault(itemId) : 0,
+                questNeeds.Length > 0 ? questTotalByItem.GetValueOrDefault(itemId) : 0)
             {
                 Held = HeldCount.Of(profile.OwnedItemCounts, itemId),
             });

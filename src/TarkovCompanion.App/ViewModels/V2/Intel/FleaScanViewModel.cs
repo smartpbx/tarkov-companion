@@ -1,5 +1,6 @@
 using System.Globalization;
 using TarkovCompanion.App.Services.V2.Capture;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.App.ViewModels.V2.Intel;
@@ -32,14 +33,25 @@ public sealed class FleaScanRowViewModel
         ArgumentNullException.ThrowIfNull(scan);
         AutomationId = $"v2-flea-scan-row-{rank.ToString(CultureInfo.InvariantCulture)}";
         RankLabel = rank == 1 ? "#1 best buy" : $"#{rank.ToString(culture)}";
-        PriceLabel = $"{Roubles(row.PriceRoubles, culture)} each";
+        PriceLabel = row.CurrencyCode == "RUB"
+            ? $"{Roubles(row.PriceRoubles, culture)} each"
+            : $"{OriginalPrice(row, culture)} · {Roubles(row.PriceRoubles, culture)} each";
         StackLabel = row.Quantity switch
         {
             null => "count not read",
             1 => "1 unit",
             { } count => $"{count.ToString("N0", culture)} units · {Roubles(row.StackRoubles ?? row.PriceRoubles, culture)} for the lot",
         };
-        Verdict = Judge(row.PriceRoubles, scan.TraderRoubles, scan.Average24HourRoubles, row.ResaleNetRoubles);
+        var decision = row.Recommendation.Decision.Value;
+        var economicReason = decision?.Reasons.FirstOrDefault(reason => reason.Category == RecommendationReasonCategory.Economics);
+        Verdict = decision?.Action switch
+        {
+            RecommendationAction.Take when economicReason?.Code.Contains("trader", StringComparison.Ordinal) == true => FleaRowVerdict.ProfitToTrader,
+            RecommendationAction.Take => FleaRowVerdict.ProfitOnFlea,
+            RecommendationAction.Leave when scan.Average24HourRoubles is { } average && row.PriceRoubles < average => FleaRowVerdict.UnderAverage,
+            RecommendationAction.Leave => FleaRowVerdict.OverAverage,
+            _ => FleaRowVerdict.Unknown,
+        };
         VerdictLabel = Verdict switch
         {
             FleaRowVerdict.ProfitToTrader => "Good buy",
@@ -48,21 +60,15 @@ public sealed class FleaScanRowViewModel
             FleaRowVerdict.OverAverage => "Over average",
             _ => "No comparison",
         };
-        WhyLabel = Verdict switch
-        {
-            FleaRowVerdict.ProfitToTrader =>
-                $"{scan.TraderName ?? "A trader"} pays {Roubles(scan.TraderRoubles!.Value - row.PriceRoubles, culture)} more than this",
-            FleaRowVerdict.ProfitOnFlea =>
-                $"Resold at the 24 h average it clears {Roubles(row.ResaleNetRoubles!.Value - row.PriceRoubles, culture)} after the fee",
-            FleaRowVerdict.UnderAverage when row.ResaleNetRoubles is not null =>
-                $"{Roubles(scan.Average24HourRoubles!.Value - row.PriceRoubles, culture)} under the 24 h average, less than its fee",
-            FleaRowVerdict.UnderAverage =>
-                $"{Roubles(scan.Average24HourRoubles!.Value - row.PriceRoubles, culture)} under the 24 h average · fee not known",
-            FleaRowVerdict.OverAverage =>
-                $"{Roubles(row.PriceRoubles - scan.Average24HourRoubles!.Value, culture)} over the 24 h average",
-            _ => "The catalog has no trader or flea price for it",
-        };
-        ConfidenceLabel = $"read {row.Confidence.ToString("P0", culture)} sure";
+        WhyLabel = economicReason?.Explanation ?? decision?.Reasons.FirstOrDefault()?.Explanation ?? "The catalog has no trader or flea price for it";
+        ConfidenceLabel = $"read {row.Confidence.ToString("P0", culture)} sure · {row.Recommendation.RulesetVersion}";
+        ConditionLabel = row.Condition is { } condition
+            ? $"{ConditionName(condition.Kind)} {condition.Current!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}/{condition.Maximum!.Value.ToString("N1", culture).TrimEnd('0').TrimEnd(culture.NumberFormat.NumberDecimalSeparator[0])}"
+            : "condition not read";
+        AlternativesLabel = row.Alternatives.Count == 0
+            ? string.Empty
+            : $"Other reads: {string.Join(" · ", row.Alternatives.Take(2).Select(alternative => $"{alternative.ItemName} — {ActionLabel(alternative.Recommendation)}"))}";
+        EvidenceLabel = row.SourceText is { Length: > 0 } source ? $"Read: {source}" : string.Empty;
     }
 
     public string AutomationId { get; }
@@ -81,20 +87,41 @@ public sealed class FleaScanRowViewModel
 
     public string ConfidenceLabel { get; }
 
+    public string ConditionLabel { get; }
+
+    public string AlternativesLabel { get; }
+
+    public bool HasAlternatives => AlternativesLabel.Length > 0;
+
+    public string EvidenceLabel { get; }
+
+    public bool HasEvidence => EvidenceLabel.Length > 0;
+
     public bool IsGoodBuy => Verdict is FleaRowVerdict.ProfitToTrader or FleaRowVerdict.ProfitOnFlea;
 
-    /// <summary>
-    /// "Good buy" means one thing: bought at this price and sold again, it returns more than it
-    /// cost. To a trader that is certain; on the flea it is as good as the 24-hour average.
-    /// </summary>
-    internal static FleaRowVerdict Judge(long price, long? trader, long? average, long? resaleNet) =>
-        trader is { } pays && pays > price ? FleaRowVerdict.ProfitToTrader
-        : resaleNet is { } net && net > price ? FleaRowVerdict.ProfitOnFlea
-        : average is { } mean && price < mean ? FleaRowVerdict.UnderAverage
-        : average is not null ? FleaRowVerdict.OverAverage
-        : FleaRowVerdict.Unknown;
-
     internal static string Roubles(long value, CultureInfo culture) => "₽" + value.ToString("N0", culture);
+
+    private static string OriginalPrice(FleaScanRow row, CultureInfo culture) => row.CurrencyCode switch
+    {
+        "EUR" => "€" + row.OriginalPrice.ToString("N0", culture),
+        "USD" => "$" + row.OriginalPrice.ToString("N0", culture),
+        _ => row.OriginalPrice.ToString("N0", culture) + " " + row.CurrencyCode,
+    };
+
+    private static string ConditionName(ItemConditionKind kind) => kind switch
+    {
+        ItemConditionKind.Uses => "Uses",
+        ItemConditionKind.Charges => "Charges",
+        ItemConditionKind.Resource => "Resource",
+        _ => "Durability",
+    };
+
+    private static string ActionLabel(RecommendationResult recommendation) => recommendation.Decision.Value?.Action switch
+    {
+        RecommendationAction.Take => "good buy",
+        RecommendationAction.Leave => "skip",
+        _ => "review",
+    };
 }
 
 /// <summary>A photographed flea screen as Intel &gt; Flea shows it.</summary>
@@ -125,14 +152,7 @@ public sealed class FleaScanViewModel
             _ => "No 24 h flea average",
         };
         ObservedLabel = $"Photographed {LocalTime.Moment(scan.ObservedUtc)}";
-        Rows =
-        [
-            .. scan.Rows
-                .Select((row, sourceIndex) => (Row: row, SourceIndex: sourceIndex))
-                .OrderBy(candidate => candidate.Row.PriceRoubles)
-                .ThenBy(candidate => candidate.SourceIndex)
-                .Select((candidate, index) => new FleaScanRowViewModel(candidate.Row, scan, index + 1, format)),
-        ];
+        Rows = [.. scan.Rows.Select((row, index) => new FleaScanRowViewModel(row, scan, index + 1, format))];
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
         var stale = scan.PriceUpdatedUtc is { } priceTime && now - priceTime > TimeSpan.FromDays(1);
         MarketDataNote = (offline, stale, scan.PriceUpdatedUtc) switch

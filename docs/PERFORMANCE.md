@@ -299,6 +299,15 @@ thread, which a Windows build does on its render thread.
 Managed heap after a forced full collection, `--memory-tour 10`: before 152 / 147 / 149 MB after
 0 / 5 / 10 switches, after 132 / 136 / 137 MB.
 
+Second pass: what was left was building and styling controls, about 0.7 ms each here. The first
+Raid visit built ~1,800 in one turn (page, map view, 49 marks at ~10 controls, 29 extract rows,
+16 objective rows); a switch rebuilt the marks and rows. Now the work is spread over turns, and
+input is answered between them. `StagedItems.Source` (marks, place names, loot, extract and
+objective rows) shows 8 new or changed entries per turn and keeps the old row in place until its
+turn, so a scrolled list keeps its place. `StagedStack` adds the side panel's cards one per turn;
+`StagedHost` adds the map view a turn after the page. `--tree-census N` prints the subtrees of N+
+controls; `UiStallMeter` prints when each long input wait began, to find it in a trace.
+
 ## Gotchas
 
 - A view that is not visible is nearly free. Bisecting by leaving out the property that shows the

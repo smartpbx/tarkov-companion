@@ -1,0 +1,103 @@
+[
+  {
+    "name": "tasks-side-list",
+    "source": "fixture://tasks-side-list",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "QuestTasks",
+    "lines": [
+      { "text": "STORY", "x": 1050, "y": 53, "width": 90, "height": 19, "confidence": 1.0 },
+      { "text": "SIDE", "x": 1205, "y": 53, "width": 75, "height": 19, "confidence": 1.0 },
+      { "text": "OPERATIONA1", "x": 1370, "y": 53, "width": 145, "height": 19, "confidence": 1.0 },
+      { "text": "Trader", "x": 1080, "y": 104, "width": 60, "height": 18, "confidence": 1.0 },
+      { "text": "Type", "x": 1190, "y": 104, "width": 45, "height": 18, "confidence": 1.0 },
+      { "text": "Class", "x": 1250, "y": 104, "width": 50, "height": 18, "confidence": 1.0 },
+      { "text": "Task", "x": 1560, "y": 104, "width": 45, "height": 18, "confidence": 1.0 },
+      { "text": "Location", "x": 1880, "y": 104, "width": 80, "height": 18, "confidence": 1.0 },
+      { "text": "Status", "x": 2040, "y": 104, "width": 65, "height": 18, "confidence": 1.0 },
+      { "text": "Progress", "x": 2220, "y": 104, "width": 80, "height": 18, "confidence": 1.0 },
+      { "text": "The Punisher - Part 2", "x": 1310, "y": 160, "width": 240, "height": 18, "confidence": 1.0 }
+    ]
+  },
+  {
+    "name": "tasks-story-chapter",
+    "source": "fixture://tasks-story-chapter",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "QuestTasks",
+    "lines": [
+      { "text": "STORY", "x": 1050, "y": 53, "width": 90, "height": 19, "confidence": 1.0 },
+      { "text": "SIDE", "x": 1205, "y": 53, "width": 75, "height": 19, "confidence": 1.0 },
+      { "text": "OPERATIONAL", "x": 1370, "y": 53, "width": 145, "height": 19, "confidence": 1.0 },
+      { "text": "CHAPTER", "x": 1210, "y": 155, "width": 85, "height": 18, "confidence": 1.0 },
+      { "text": "Main objectives", "x": 1195, "y": 395, "width": 160, "height": 18, "confidence": 1.0 },
+      { "text": "Find Voevoda's personal belongings", "x": 1235, "y": 425, "width": 340, "height": 18, "confidence": 1.0 },
+      { "text": "Optional objectives", "x": 1195, "y": 535, "width": 190, "height": 18, "confidence": 1.0 }
+    ]
+  },
+  {
+    "name": "negative-flea",
+    "source": "fixture://negative-flea",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "FleaListings",
+    "lines": [
+      { "text": "FLEA MARKET", "x": 2050, "y": 25, "width": 160, "height": 19, "confidence": 1.0 },
+      { "text": "Trader [rating]", "x": 1800, "y": 90, "width": 140, "height": 18, "confidence": 1.0 },
+      { "text": "Price", "x": 2490, "y": 90, "width": 60, "height": 18, "confidence": 1.0 },
+      { "text": "PURCHASE", "x": 2850, "y": 190, "width": 105, "height": 18, "confidence": 1.0 }
+    ]
+  },
+  {
+    "name": "negative-stash",
+    "source": "fixture://negative-stash",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "Container",
+    "lines": [
+      { "text": "STASH", "x": 2350, "y": 60, "width": 70, "height": 18, "confidence": 1.0 },
+      { "text": "TACTICAL RIG", "x": 1730, "y": 280, "width": 140, "height": 18, "confidence": 1.0 },
+      { "text": "POCKETS", "x": 1730, "y": 450, "width": 90, "height": 18, "confidence": 1.0 }
+    ]
+  },
+  {
+    "name": "negative-inventory",
+    "source": "fixture://negative-inventory",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "Container",
+    "lines": [
+      { "text": "GEAR", "x": 1270, "y": 25, "width": 55, "height": 18, "confidence": 1.0 },
+      { "text": "TACTICAL RIG", "x": 1730, "y": 280, "width": 140, "height": 18, "confidence": 1.0 },
+      { "text": "POCKETS", "x": 1730, "y": 450, "width": 90, "height": 18, "confidence": 1.0 },
+      { "text": "BACKPACK", "x": 1730, "y": 545, "width": 110, "height": 18, "confidence": 1.0 }
+    ]
+  },
+  {
+    "name": "negative-health-character",
+    "source": "fixture://negative-health-character",
+    "width": 3840,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.0,
+    "expectedContext": "Unknown",
+    "lines": [
+      { "text": "OVERALL", "x": 1050, "y": 25, "width": 80, "height": 18, "confidence": 1.0 },
+      { "text": "GEAR", "x": 1270, "y": 25, "width": 55, "height": 18, "confidence": 1.0 },
+      { "text": "HEALTH", "x": 1460, "y": 25, "width": 75, "height": 18, "confidence": 1.0 },
+      { "text": "TASKS", "x": 2220, "y": 25, "width": 65, "height": 18, "confidence": 1.0 },
+      { "text": "HEAD", "x": 1450, "y": 195, "width": 50, "height": 18, "confidence": 1.0 },
+      { "text": "THORAX", "x": 1320, "y": 310, "width": 70, "height": 18, "confidence": 1.0 }
+    ]
+  }
+]

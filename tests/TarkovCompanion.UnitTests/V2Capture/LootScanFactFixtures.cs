@@ -74,6 +74,16 @@ internal static class LootScanFactFixtures
 
         public Task<FleaMarketRates?> GetFleaRatesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<FleaMarketRates?>(Rates);
+
+        public Task<IReadOnlyDictionary<string, CurrencyRoubleRate>> GetCurrencyRoubleRatesAsync(
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, CurrencyRoubleRate>>(
+                new Dictionary<string, CurrencyRoubleRate>(StringComparer.Ordinal)
+                {
+                    ["RUB"] = new("RUB", 1, new DataProvenance("fixture", Now)),
+                    ["EUR"] = new("EUR", 222, new DataProvenance("fixture", Now)),
+                    ["USD"] = new("USD", 190, new DataProvenance("fixture", Now)),
+                });
     }
 
     internal sealed class Profiles : IPlayerProfileService

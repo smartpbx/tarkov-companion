@@ -55,6 +55,10 @@ measured as loot, and one named item with no lattice opens Intel instead of an e
 
 ## The flea fee
 
+Photographed flea offers use the same versioned explainable policy as Loot and Intel. Their
+condition, OCR evidence and alternate item reads stay attached; EUR/USD quotes use the catalog's
+current rouble purchase rate and remain review-only when that rate is unavailable.
+
 The game does not publish the formula. It is the one the community worked out and the EFT wiki
 documents:
 

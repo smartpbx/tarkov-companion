@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
@@ -138,6 +139,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private readonly IItemRepository? _items;
     private readonly IQuestCatalog? _questCatalog;
     private readonly IPlayerProfileService? _profileService;
+    private readonly QuestTrackingOptions? _questOptions;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _taskNames = new(StringComparer.Ordinal);
     private bool _taskCatalogLoaded;
@@ -193,7 +195,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         TimeProvider? clock = null,
         IItemRepository? items = null,
         IQuestCatalog? questCatalog = null,
-        IPlayerProfileService? profileService = null)
+        IPlayerProfileService? profileService = null,
+        QuestTrackingOptions? questOptions = null)
     {
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
@@ -201,6 +204,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         _items = items;
         _questCatalog = questCatalog;
         _profileService = profileService;
+        _questOptions = questOptions;
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         SaveCorrectionCommand = new AsyncDelegateCommand(SaveCorrectionAsync);
@@ -1349,7 +1353,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         try
         {
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
-            var catalog = await _questCatalog.GetAsync(profile.GameMode, "en", cancellationToken).ConfigureAwait(true);
+            // Debrief reads the same translated catalog as the rest of quest tracking. A literal
+            // English request made past raid events switch language when every live quest view did.
+            var language = _questOptions?.NormalizedLanguage ?? "en";
+            var catalog = await _questCatalog.GetAsync(profile.GameMode, language, cancellationToken).ConfigureAwait(true);
             if (catalog is null)
             {
                 return;

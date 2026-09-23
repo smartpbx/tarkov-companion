@@ -174,6 +174,7 @@ public static class AppComposition
         services.AddSingleton<SqliteConnectionFactory>();
         services.AddSingleton<SqliteMigrationRunner>();
         services.AddSingleton<SqliteDataPlatformMaintenance>();
+        services.AddSingleton<DatabaseMaintenanceCoordinator>();
         services.AddSingleton<SqliteItemRepository>();
         services.AddSingleton<IItemRepository>(provider => provider.GetRequiredService<SqliteItemRepository>());
         services.AddSingleton<SqlitePriceHistoryRepository>();
@@ -557,6 +558,7 @@ public static class AppComposition
         services.AddSingleton<QuestListMatcher>();
         services.AddSingleton<QuestListMatchMerger>();
         services.AddSingleton<QuestHistoryInference>();
+        services.AddSingleton<QuestScreenshotBurstCollector>();
         services.AddSingleton<QuestScreenshotSyncService>();
         services.AddSingleton<IQuestScreenshotImageSource, QuestScreenshotImageSource>();
         services.AddSingleton<IQuestTaskColumnRegionDetector, QuestTaskColumnRegionDetector>();
@@ -564,7 +566,9 @@ public static class AppComposition
             provider.GetRequiredService<QuestScreenshotSyncService>(),
             provider.GetRequiredService<IQuestScreenshotImageSource>(),
             () => provider.GetRequiredService<IRuntimeStateStore>().Current.Observation.ScreenshotRoot,
-            timeProvider));
+            timeProvider,
+            provider.GetRequiredService<QuestScreenshotBurstCollector>(),
+            provider.GetRequiredService<IRuntimeStateStore>()));
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
         services.AddSingleton<FleaSaleStateService>();
@@ -657,7 +661,8 @@ public static class AppComposition
                 new ScreenshotWatchPacer(provider.GetRequiredService<IRuntimeStateStore>()));
             services.AddSingleton<IScreenshotWatcher>(provider => new WindowsScreenshotWatcher(
                 commandLine.DeveloperMode,
-                pacer: provider.GetRequiredService<IScreenshotWatchPacer>()));
+                pacer: provider.GetRequiredService<IScreenshotWatchPacer>(),
+                logger: provider.GetService<ILogger<WindowsScreenshotWatcher>>()));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             // [Issue 316] GDI window capture is retired: scans read the screenshots the game writes.
             // The slot stays because the scan use case and the capture-session source take one;
@@ -772,6 +777,10 @@ public static class AppComposition
         // remove reaching IRaidMarkStore over the now-composed relay registry and frame hub.
         // Always registered (like DesktopCompanionAuthority above); Configure/SetOwnerCredential
         // below are what actually turn it on, once a relay origin and a successful claim exist.
+        services.AddSingleton(provider => new RelayClockOffsetTracker(
+            new RelayLinkLog(
+                provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
+                timeProvider)));
         services.AddSingleton(provider => new RelayMarksBridge(
             provider.GetRequiredService<DesktopCompanionAuthority>(),
             provider.GetRequiredService<IRaidMarkStore>(),
@@ -780,7 +789,8 @@ public static class AppComposition
             // token is, so a restart does not ask for the relay's admin key or a re-pair.
             new RelayLinkVault(provider.GetRequiredService<IIntegrationSecretStore>()),
             // [#693] The relay link's own lines in the desktop log (owner session, tickets, answers).
-            provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink")));
+            provider.GetRequiredService<ILoggerFactory>().CreateLogger("RelayLink"),
+            provider.GetRequiredService<RelayClockOffsetTracker>()));
         // The default every platform/configuration resolves unless the block below overrides it,
         // so V2ShellViewModel has one dependency to take regardless of whether pairing is possible.
         services.AddSingleton(CompanionPairingAvailability.Unavailable);

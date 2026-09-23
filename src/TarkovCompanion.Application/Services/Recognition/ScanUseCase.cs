@@ -313,6 +313,14 @@ public sealed class ScanUseCase : IScanUseCase
                     flea.ObservedUtc));
                 break;
 
+            case ScanContext.QuestTasks:
+                // Classification is the whole passive-watch job. Quest names are read only if
+                // the player opens the review, and applying them still requires Confirm.
+                status = ScanCompletionStatus.Complete;
+                diagnostic = recognition.DiagnosticCode;
+                recognitionDegradation = null;
+                break;
+
             default:
                 status = recognition.DiagnosticCode == "ocr_provider_unavailable"
                     ? ScanCompletionStatus.Unavailable

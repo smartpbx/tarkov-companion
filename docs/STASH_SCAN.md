@@ -44,10 +44,17 @@ Comparison does not turn confidence into state. `Observed` means directly placed
 `Inferred` means a deterministic stitch, and `Unresolved` means the snapshot cannot place or name
 the occurrence. Additions/removals use `Absent` only for the side with no occurrence.
 
-Correction, merge, split, pin, ignore, and rescan enter through append-only `StashReviewCommand`
-records. They are review intent, not game actions. The organization planner consumes an already
-computed v2 recommendation. Its only outputs are Keep, Sell, Use soon, Organize, and Review plus
-manual checklist operations. Missing #308 ammo/key intelligence always produces Review.
+Correction, pin, ignore, region rescan, and snapshot merge enter through append-only
+`StashReviewCommand` records in SQLite. They are review intent, not game actions. Pin keeps that
+occurrence regardless of its current advice; ignore removes it from the plan without hiding the
+captured tile; rescan starts and re-arms a guided capture; merge fills uncovered squares in the
+selected snapshot from the previous one. **Undo** appends a cancelling record, so neither the
+evidence nor its review history is rewritten.
+
+The organization planner consumes an already computed v2 recommendation. Matching occurrences
+whose keep/sell decision is unresolved are grouped under **Organize** to move together; its other
+outputs remain Keep, Sell, Use soon, and Review plus manual checklist operations. Missing #308
+ammo/key intelligence still prevents a keep/sell claim.
 
 ### The sort plan's caller (2026-09-19)
 
@@ -56,8 +63,8 @@ under Review and three of the workspace's four plan tiles read a dash. `StashPla
 caller. Each named tile is put to `ExplainableRecommendationEngine` as a stash question, from the
 same facts the Loot Scan reads (`docs/LOOT_SCAN.md`): the profile's pins, wishlist and item
 rules, outstanding quest and hideout needs, the flea net after its fee, what a trader pays. The
-workspace sorts a snapshot when it is loaded, lists Keep first, then Sell, then Review, tags
-sorted tiles on the grid, and gives each row one line of why.
+workspace sorts a snapshot when it is loaded, lists Keep first, then Use soon, Sell, Organize, and
+Review, tags sorted tiles on the grid, and gives each row one line of why.
 
 Three things it deliberately does not do:
 
@@ -109,8 +116,8 @@ than claims that the current synthetic fixtures meet them.
 `Views/V2/StashScan` is the first caller of this backend outside its own tests. It registers
 `StashScanWorkflow` and its dependencies in `AppComposition.cs`, lists and browses persisted
 snapshots, and shows an ammo and key summary by joining recognized items against
-`IItemFactCatalog`. Starting a scan arms the shell's existing capture chrome with the Stash, Ammo,
-or Keys intent.
+`IItemFactCatalog`. Starting a scan runs the guided full-stash capture; specialist Ammo and Keys
+sub-scans are not offered until their handoff exists.
 
 `StashScanCaptureHandoff` (#273) bridges an accepted Stash-intent capture into this backend. While
 a guided scan is collecting (below) the capture joins that scan; otherwise it
@@ -162,10 +169,10 @@ go through the shared capture dialog as one screenshot.
 
 ### What was measured, and on what
 
-There is no real stash screenshot on the development host, so
-`StashScanEndToEndMeasurementTests` paints a 34-row stash at the one measured geometry and scores
-the real pixel reader, reconstructor, assembler and projector against the layout it painted. The
-artwork is invented, so these numbers describe the plumbing, not the game.
+`StashScanEndToEndMeasurementTests` still paints a 34-row stash at one measured geometry and
+scores the pixel reader, reconstructor, assembler and projector against its known layout. The
+artwork is invented, so these numbers describe the plumbing, not the game. The separate real
+burst below is present on the development host and exercises the same pipeline.
 
 | Step | Lattice exact | Footprints found | Spurious | Screens placed | Items correct |
 | --- | --- | --- | --- | --- | --- |
@@ -201,13 +208,14 @@ the hand-read `<screenshot>.expected.json` labels the Loot Scan measurement writ
 | Whole rows only | 3 / 3 | 0 / 6 | 7 / 7 |
 | Footprints against labels (six frames, 385 items) | 202 / 202 | 359 (93.2%), 106 spurious | 366 (95.1%), 8 spurious |
 | Boundaries judged right (1,109 labelled) | — | not measured | 1,089 (the ridge alone: 1,070) |
-| Screens placed, in the order captured | 3 / 3 | 1 / 7 | 1 / 7 |
+| Screens placed, in the order captured | 3 / 3 | 1 / 7 | 7 / 7 |
 | Pairs that do overlap, placed at the true row | 3 / 3 | not measured | 3 / 3 |
 | Pairs with no whole row in common left unplaced | — | not measured | 6 / 6, none placed wrongly |
 
-The burst still places one screen of seven, and that is the right answer for it: the player paged
-the stash, so no later screen shares a whole row with the first, and nothing may be placed by
-guessing. The pairwise rows are what show the stitch itself working.
+The burst now places all seven screens. Unique whole-row overlap remains the first choice; where
+the player paged without overlap, the readable scrollbar orders the page and later overlap can
+refine it. The nine screenshots are not a held-out, versioned corpus and therefore do not satisfy
+the release gates above by themselves.
 
 Three things the painted frames had assumed were false, and each is now drawn the way it measured:
 

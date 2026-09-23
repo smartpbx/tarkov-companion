@@ -1,6 +1,9 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.Platform.Windows.Watching;
 
@@ -27,9 +30,10 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 /// could move, for a number already on disk.
 ///
 /// Screenshots already on disk when watching starts are not replayed, with one exception: a
-/// file written in the couple of minutes before startup is still worth reporting, because the
-/// alternative is losing the shot the player took while the companion was restarting. Anything
-/// older is left alone, so that yesterday's screenshot cannot announce a raid that is over.
+/// file named for the couple of minutes before startup is still worth reporting, because the
+/// alternative is losing the shot the player took while the companion was restarting. Once the
+/// first listing is complete, identity alone decides whether a file is new; filesystem time is
+/// never an acceptance watermark, so clock corrections and sync metadata cannot stall intake.
 /// </remarks>
 public sealed class WindowsScreenshotWatcher(
     bool developerMode = false,
@@ -41,7 +45,8 @@ public sealed class WindowsScreenshotWatcher(
     // Optional so every existing caller — and every platform without a runtime state store —
     // gets exactly the one-second poll it always had.
     IScreenshotWatchPacer? pacer = null,
-    TimeSpan? attentivePollInterval = null)
+    TimeSpan? attentivePollInterval = null,
+    ILogger<WindowsScreenshotWatcher>? logger = null)
     : IScreenshotWatcher
 {
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
@@ -125,7 +130,7 @@ public sealed class WindowsScreenshotWatcher(
         var watchState = StateFor(screenshotRoot);
         var seen = watchState.Seen;
         var settling = new Dictionary<string, SettlingCandidate>(StringComparer.OrdinalIgnoreCase);
-        var cutoff = _timeProvider.GetUtcNow().UtcDateTime - StartupGrace;
+        logger?.LogInformation("Watching Escape from Tarkov screenshots in {Folder}.", screenshotRoot);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -138,11 +143,11 @@ public sealed class WindowsScreenshotWatcher(
             }
 
             var listingStarted = _timeProvider.GetTimestamp();
-            var snapshot = Snapshot(screenshotRoot);
+            var now = _timeProvider.GetUtcNow();
+            var snapshot = Snapshot(screenshotRoot, now);
             Interlocked.Exchange(
                 ref _lastListingTicks,
                 _timeProvider.GetElapsedTime(listingStarted).Ticks);
-            var now = _timeProvider.GetUtcNow();
             var present = snapshot.Select(item => item.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var missing in settling.Keys.Where(path => !present.Contains(path)).ToArray())
             {
@@ -158,23 +163,25 @@ public sealed class WindowsScreenshotWatcher(
             {
                 var wasTracked = seen.TryGetValue(candidate.Path, out var delivered);
                 if (wasTracked
-                    && delivered!.Fingerprint == candidate.Fingerprint)
+                    && delivered!.Length == candidate.Fingerprint.Length)
                 {
                     continue;
                 }
 
-                var order = new FileOrderKey(candidate.WrittenUtc.Ticks, candidate.Path);
-                // A later screenshot can finish first while an older file is still growing or
-                // locked. The delivery watermark suppresses newly discovered historical files;
-                // it must not turn a candidate already under observation into a delivered file.
                 var wasSettling = settling.ContainsKey(candidate.Path);
-                if (candidate.WrittenUtc < cutoff
-                    || (!wasTracked
-                        && !wasSettling
-                        && watchState.DeliveryWatermark is { } watermark
-                        && order.CompareTo(watermark) <= 0))
+                if (!watchState.Initialized
+                    && !wasTracked
+                    && !wasSettling
+                    && !IsInsideStartupWindow(candidate.CapturedUtc, now))
                 {
-                    seen[candidate.Path] = new(candidate.Fingerprint, now);
+                    seen[candidate.Path] = new(candidate.Fingerprint.Length, now);
+                    logger?.LogInformation(
+                        "Skipped startup screenshot {Filename}: its {TimestampSource} capture time " +
+                        "{Captured:O} is outside the {StartupMinutes}-minute startup window.",
+                        MaskScreenshotName(Path.GetFileName(candidate.Path)),
+                        candidate.CaptureTimeFromName ? "filename" : "filesystem",
+                        candidate.CapturedUtc,
+                        StartupGrace.TotalMinutes);
                     continue;
                 }
 
@@ -216,17 +223,12 @@ public sealed class WindowsScreenshotWatcher(
                     continue;
                 }
 
-                seen[candidate.Path] = new(completed, now);
+                seen[candidate.Path] = new(completed.Length, now);
                 settling.Remove(candidate.Path);
-                if (watchState.DeliveryWatermark is null
-                    || order.CompareTo(watchState.DeliveryWatermark.Value) > 0)
-                {
-                    watchState.DeliveryWatermark = order;
-                }
-
                 yield return new(candidate.Path, ScreenshotSightingKind.Settled);
             }
 
+            watchState.Initialized = true;
             PruneTracking(seen, settling, present);
             if (!await WaitAsync(NextInterval(), cancellationToken).ConfigureAwait(false))
             {
@@ -309,7 +311,7 @@ public sealed class WindowsScreenshotWatcher(
     /// and therefore wins. A folder that has been deleted or become unreadable is reported to the
     /// application as unavailable so readiness cannot remain green while no intake exists.
     /// </remarks>
-    private IReadOnlyList<FileCandidate> Snapshot(string screenshotRoot)
+    private IReadOnlyList<FileCandidate> Snapshot(string screenshotRoot, DateTimeOffset now)
     {
         var newest = new PriorityQueue<FileCandidate, FileOrderKey>();
         try
@@ -318,8 +320,8 @@ public sealed class WindowsScreenshotWatcher(
             // every file before the configured tracking bound was applied. A mistaken folder
             // containing hundreds of thousands of images could therefore exhaust memory even
             // though the retained dictionaries were later pruned. Walk the directory lazily and
-            // retain only the newest bounded population; older entries are already behind the
-            // delivery watermark and startup grace.
+            // retain only the newest bounded population by the game's filename clock. Using
+            // filesystem time here would let one future-dated file crowd out every real new one.
             // DirectoryInfo rather than Directory: enumerating paths and then constructing a
             // FileInfo for each one costs a second stat per file, and on a folder of three
             // thousand screenshots that stat was the listing. Enumerating FileInfo hands back
@@ -333,7 +335,7 @@ public sealed class WindowsScreenshotWatcher(
                     continue;
                 }
 
-                var candidate = Describe(info);
+                var candidate = Describe(info, now);
                 if (candidate is null)
                 {
                     continue;
@@ -341,7 +343,7 @@ public sealed class WindowsScreenshotWatcher(
 
                 newest.Enqueue(
                     candidate,
-                    new(candidate.WrittenUtc.Ticks, candidate.Path));
+                    new(candidate.CapturedUtc.UtcTicks, candidate.Path));
                 if (newest.Count > _maximumTrackedFiles)
                 {
                     _ = newest.Dequeue();
@@ -359,7 +361,7 @@ public sealed class WindowsScreenshotWatcher(
 
         return newest.UnorderedItems
             .Select(entry => entry.Element)
-            .OrderBy(entry => entry.WrittenUtc)
+            .OrderBy(entry => entry.CapturedUtc)
             .ThenBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
@@ -368,7 +370,7 @@ public sealed class WindowsScreenshotWatcher(
     {
         var info = new FileInfo(path);
         info.Refresh();
-        return Describe(info);
+        return Describe(info, DateTimeOffset.UtcNow);
     }
 
     /// <summary>
@@ -380,15 +382,18 @@ public sealed class WindowsScreenshotWatcher(
     /// read — the one confirming a file has not changed under it — goes through
     /// <see cref="TryProbe"/>, which does refresh.
     /// </remarks>
-    private static FileCandidate? Describe(FileInfo info)
+    private static FileCandidate? Describe(FileInfo info, DateTimeOffset now)
     {
         try
         {
+            var writtenUtc = info.LastWriteTimeUtc;
+            var capturedFromName = TryReadCaptureTime(info.Name, now, out var capturedUtc);
             return new(
                 info.FullName,
-                info.LastWriteTimeUtc,
-                new(info.Length, info.LastWriteTimeUtc.Ticks),
-                info.Attributes);
+                new(info.Length, writtenUtc.Ticks),
+                info.Attributes,
+                capturedFromName ? capturedUtc : new DateTimeOffset(writtenUtc, TimeSpan.Zero),
+                capturedFromName);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -397,6 +402,44 @@ public sealed class WindowsScreenshotWatcher(
             return null;
         }
     }
+
+    private static bool IsInsideStartupWindow(DateTimeOffset capturedUtc, DateTimeOffset now) =>
+        (capturedUtc - now).Duration() <= StartupGrace;
+
+    /// <summary>Reads the local wall-clock prefix the game puts on every screenshot name.</summary>
+    /// <remarks>
+    /// Filesystem stamps can jump backwards, forwards, or be rewritten by sync. The name is the
+    /// game's identity for when the player asked for the capture. During the repeated hour at
+    /// the end of daylight saving time, both offsets are possible; the one closest to now is the
+    /// live capture, while either is safely old for startup-history filtering later on.
+    /// </remarks>
+    private static bool TryReadCaptureTime(string name, DateTimeOffset now, out DateTimeOffset capturedUtc)
+    {
+        capturedUtc = default;
+        const int timestampLength = 17;
+        if (name.Length < timestampLength
+            || !DateTime.TryParseExact(
+                name.AsSpan(0, timestampLength),
+                "yyyy-MM-dd'['HH-mm']'",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var local)
+            || LocalTime.Zone.IsInvalidTime(local))
+        {
+            return false;
+        }
+
+        var offsets = LocalTime.Zone.IsAmbiguousTime(local)
+            ? LocalTime.Zone.GetAmbiguousTimeOffsets(local)
+            : [LocalTime.Zone.GetUtcOffset(local)];
+        capturedUtc = offsets
+            .Select(offset => new DateTimeOffset(local, offset).ToUniversalTime())
+            .MinBy(candidate => (candidate - now).Duration());
+        return true;
+    }
+
+    private static string MaskScreenshotName(string name) =>
+        string.Concat(name.Select(character => char.IsAsciiDigit(character) ? '#' : character));
 
     private bool TryOpenCompleted(FileCandidate candidate, out FileFingerprint completed)
     {
@@ -523,9 +566,10 @@ public sealed class WindowsScreenshotWatcher(
 
     private sealed record FileCandidate(
         string Path,
-        DateTime WrittenUtc,
         FileFingerprint Fingerprint,
-        FileAttributes Attributes);
+        FileAttributes Attributes,
+        DateTimeOffset CapturedUtc,
+        bool CaptureTimeFromName);
 
     private sealed record SettlingCandidate(FileFingerprint Fingerprint, int StableProbes)
     {
@@ -533,7 +577,7 @@ public sealed class WindowsScreenshotWatcher(
         public bool NameAnnounced { get; init; }
     }
 
-    private sealed record SeenFile(FileFingerprint Fingerprint, DateTimeOffset LastObservedUtc);
+    private sealed record SeenFile(long Length, DateTimeOffset LastObservedUtc);
 
     private sealed class WatchState(string root)
     {
@@ -541,14 +585,14 @@ public sealed class WindowsScreenshotWatcher(
 
         public Dictionary<string, SeenFile> Seen { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-        public FileOrderKey? DeliveryWatermark { get; set; }
+        public bool Initialized { get; set; }
     }
 
-    private readonly record struct FileOrderKey(long WrittenUtcTicks, string Path) : IComparable<FileOrderKey>
+    private readonly record struct FileOrderKey(long CapturedUtcTicks, string Path) : IComparable<FileOrderKey>
     {
         public int CompareTo(FileOrderKey other)
         {
-            var byTime = WrittenUtcTicks.CompareTo(other.WrittenUtcTicks);
+            var byTime = CapturedUtcTicks.CompareTo(other.CapturedUtcTicks);
             return byTime != 0 ? byTime : StringComparer.OrdinalIgnoreCase.Compare(Path, other.Path);
         }
     }

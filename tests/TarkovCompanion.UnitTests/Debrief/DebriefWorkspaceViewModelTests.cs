@@ -3,9 +3,13 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.UnitTests.PlayerTime;
@@ -130,6 +134,26 @@ public sealed class DebriefWorkspaceViewModelTests
         var row = Assert.Single(viewModel.SelectedQuestEvents);
         Assert.Equal("TASK_1", row.QuestLabel);
         Assert.Equal("Handed in", row.StateLabel);
+    }
+
+    [Fact]
+    public async Task Quest_event_names_use_the_configured_catalog_language()
+    {
+        var history = new FakeRaidHistoryService();
+        history.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(10), null, null));
+        history.SeedEvent(RaidId, "quest", JsonSerializer.Serialize(new QuestStatusObservation(
+            "EVENT_1", "TASK_1", RecordedTaskState.Completed, Started.AddMinutes(3))));
+        var catalog = new RecordingQuestCatalog();
+        var viewModel = new DebriefWorkspaceViewModel(
+            history,
+            TestPaths(),
+            questCatalog: catalog,
+            profileService: new StubProfileService(),
+            questOptions: new QuestTrackingOptions("de"));
+
+        await viewModel.LoadAsync();
+
+        Assert.Equal("de", catalog.Language);
     }
 
     /// <summary>docs/research/EFT_LOG_FACTS.md names the `real` figure as present and unused.</summary>
@@ -776,6 +800,34 @@ public sealed class DebriefWorkspaceViewModelTests
         var woods = Assert.Single(viewModel.MapStats, stat => stat.MapLabel == "woods");
         Assert.False(woods.HasManual);
         Assert.Equal(string.Empty, woods.ManualLabel);
+    }
+
+    private sealed class RecordingQuestCatalog : IQuestCatalog
+    {
+        public string? Language { get; private set; }
+
+        public Task<QuestCatalogSnapshot?> GetAsync(GameMode gameMode, string language, CancellationToken cancellationToken)
+        {
+            Language = language;
+            return Task.FromResult<QuestCatalogSnapshot?>(null);
+        }
+    }
+
+    private sealed class StubProfileService : IPlayerProfileService
+    {
+        private static readonly PlayerProfile Profile = new(
+            Guid.NewGuid(), "test", GameMode.Regular, 1, Faction.Unknown, null,
+            new Dictionary<string, int>(), new HashSet<string>(), new Dictionary<string, int>(),
+            new Dictionary<string, int>(), new HashSet<string>(), new Dictionary<string, int>(),
+            new Dictionary<string, EventItemState>(), new Dictionary<string, string>(), Started);
+
+        public Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken) => Task.FromResult(Profile);
+
+        public Task SaveAsync(PlayerProfile value, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<string> ExportJsonAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<PlayerProfile> ImportJsonAsync(string json, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class FakeRaidHistoryService : IRaidHistoryService

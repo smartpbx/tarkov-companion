@@ -179,9 +179,9 @@
   <h1>Tarkov Companion</h1>
   <span class="quiet grow"><span class="live-dot" id="liveDot"></span><span id="liveStatus">Not paired.</span></span>
   <!-- #407: the map is the surface and fills the tablet; once paired, the pairing card that got
-       here is gone (see #pairing below), so the one thing it still owns — unpairing — moves here,
-       the one place that is never scrolled away. -->
-  <button type="button" id="unpairHeader" class="headerBtn" hidden>Unpair</button>
+       here is gone (see #pairing below), so the one thing it still owns — forgetting the saved
+       desktop — moves here, the one place that is never scrolled away. -->
+  <button type="button" id="unpairHeader" class="headerBtn" hidden>Forget this desktop</button>
 </header>
 
 <main>
@@ -209,6 +209,9 @@
       <p class="good">Paired as "<span id="pairedName"></span>".</p>
     </div>
     <div id="pairingError" class="bad" style="display:none"></div>
+    <div id="pairAgainActions" class="form" hidden>
+      <button type="button" id="pairAgain">Pair again</button>
+    </div>
   </section>
 
   <section id="surface" style="display:none">
@@ -480,15 +483,15 @@
   // Relay calls. Bodies are the protocol's own JSON wire roots; the pairing code travels only
   // in the Tarkov-Pairing-Code header, never in JSON or a URL.
   // ---------------------------------------------------------------------------------------
-  async function postJson(path, body, code) {
+  async function postJson(path, body, code, signal) {
     const headers = { "Content-Type": "application/json" };
     if (code) headers["Tarkov-Pairing-Code"] = code;
-    const response = await fetch(path, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined });
+    const response = await fetch(path, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined, signal });
     return response;
   }
 
-  async function getJson(path) {
-    const response = await fetch(path);
+  async function getJson(path, signal) {
+    const response = await fetch(path, { signal });
     if (response.status === 404) return null;
     if (!response.ok) throw new Error("The relay answered " + response.status);
     return response.json();
@@ -1873,6 +1876,7 @@
   // its own device key, and knows it is the same desktop answering. Forgotten on Unpair, and when
   // the relay says the desktop revoked this tablet.
   const PAIRED_KEY = "paired";
+  const PROMINENT_PAIR_AGAIN_AFTER = 3;
 
   async function rememberDesktop(desktopKeyId, deviceName) {
     try {
@@ -1884,6 +1888,19 @@
 
   let comingBack = null;
   let comeBackTimer = null;
+  let comeBackAbort = null;
+  let comeBackFailures = 0;
+  let comeBackStartedAt = 0;
+
+  function offerPairAgain(visible, prominent) {
+    $("pairAgainActions").hidden = !visible;
+    $("pairAgain").classList.toggle("primary", visible && prominent);
+  }
+
+  function showRememberedDesktopActions(visible) {
+    $("unpairHeader").hidden = !visible;
+    offerPairAgain(visible, false);
+  }
 
   /**
    * Asks to be let back in without a code. Resolves "resumed", "waiting" (the desktop has not
@@ -1902,10 +1919,14 @@
       }
 
       if (!paired?.desktopKeyId) return "never-paired";
+      if (!comeBackStartedAt) comeBackStartedAt = Date.now();
+      showRememberedDesktopActions(true);
       setStage("pairingWaiting");
       $("pairingWaitingText").textContent = "Reconnecting to the desktop…";
+      const controller = new AbortController();
+      comeBackAbort = controller;
       const device = await ensureDeviceIdentity();
-      const asked = await postJson("/v2/companion/relay/possession/challenge", null);
+      const asked = await postJson("/v2/companion/relay/possession/challenge", null, null, controller.signal);
       if (!asked.ok) return asked.status === 429 ? "waiting" : "refused"; // an older relay has no such route
       const issued = await asked.json();
       const knocked = await postJson(
@@ -1917,6 +1938,8 @@
           challengeId: { value: issued.challengeId },
           assertion: await signAssertion(device, await RelayFrameCrypto.deviceDoorChallenge(issued.nonceBase64Url)),
         },
+        null,
+        controller.signal,
       );
       if (knocked.status === 403) {
         // Revoked on the desktop, or a relay that has been claimed by somebody else since.
@@ -1931,7 +1954,7 @@
       const deadline = Math.min(Date.parse(ticket.expiresUtc), Date.now() + 60_000);
       let code = null;
       while (!code && Date.now() < deadline) {
-        const answer = await getJson(`/v2/companion/relay/resume/requests/${ticket.ticketId}`);
+        const answer = await getJson(`/v2/companion/relay/resume/requests/${ticket.ticketId}`, controller.signal);
         if (!answer) break;
         code = answer.pairingCode;
         if (!code) await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -1945,6 +1968,7 @@
       return "resumed";
     })().finally(() => {
       comingBack = null;
+      comeBackAbort = null;
     });
     return comingBack;
   }
@@ -1955,7 +1979,8 @@
     let outcome = "waiting";
     try {
       outcome = await comeBackByKey();
-    } catch {
+    } catch (error) {
+      if (error?.name === "AbortError") return;
       outcome = "waiting";
     }
 
@@ -1963,19 +1988,27 @@
     // A tablet that has never been paired has nothing to say about it — this used to show "no
     // longer paired", worded as if it once was, on the very first load of a brand new tablet.
     if (outcome === "never-paired") {
+      showRememberedDesktopActions(false);
       setStage("pairingIdle");
       return;
     }
 
     if (outcome === "refused") {
+      showRememberedDesktopActions(false);
       setStage("pairingIdle", refusedMessage || "This tablet is no longer paired with the desktop. Pair it again.");
       return;
     }
 
+    comeBackFailures += 1;
+    const prominent = comeBackFailures >= PROMINENT_PAIR_AGAIN_AFTER ||
+      Date.now() - comeBackStartedAt >= 60_000;
+    offerPairAgain(true, prominent);
     setStage(
       "pairingIdle",
       outcome === "offline"
-        ? "The desktop is not connected to the relay. Open Tarkov Companion on it; this tablet reconnects by itself."
+        ? prominent
+          ? "The desktop is still offline. Pair again to use a new code."
+          : "The desktop is not connected. This tablet will keep trying."
         : "Waiting for the desktop. This tablet reconnects by itself once it is running.",
     );
     comeBackTimer = setTimeout(() => {
@@ -2075,6 +2108,9 @@
     // to the one thing it still owns, which moves to the header.
     $("pairing").hidden = true;
     $("unpairHeader").hidden = false;
+    offerPairAgain(false, false);
+    comeBackFailures = 0;
+    comeBackStartedAt = 0;
     renderLiveStatus();
     announceTab();
     pollLiveFrames();
@@ -2111,6 +2147,7 @@
     if (unpaired) {
       clearTimeout(comeBackTimer);
       await idbDelete(PAIRED_KEY).catch(() => {});
+      showRememberedDesktopActions(false);
       setStage("pairingIdle", message);
       return;
     }
@@ -3158,6 +3195,8 @@
     if (!code.trim()) return;
     try {
       clearTimeout(comeBackTimer);
+      comeBackAbort?.abort();
+      showRememberedDesktopActions(false);
       pendingApproval = null;
       await beginPairing(code, deviceName);
       $("pairedName").textContent = deviceName;
@@ -3196,8 +3235,27 @@
   }
   $("showOnDesktop").addEventListener("click", showCurrentViewOnDesktop);
 
-  $("unpairHeader").addEventListener("click", () =>
-    sessionEnded("Unpaired. Start pairing on the desktop to pair this tablet again.", true));
+  async function forgetDesktopAndPairAgain() {
+    if (!confirm("Forget this desktop and pair again?")) return;
+    clearTimeout(comeBackTimer);
+    comeBackAbort?.abort();
+    live = null;
+    mode = "Follow";
+    confirmedMode = "Follow";
+    pending.clear();
+    await forgetSession();
+    await idbDelete(PAIRED_KEY).catch(() => {});
+    showSurface(false);
+    $("pairing").hidden = false;
+    showRememberedDesktopActions(false);
+    renderLiveStatus();
+    setStage("pairingIdle");
+    $("pairingCode").value = "";
+    $("pairingCode").focus();
+  }
+
+  $("pairAgain").addEventListener("click", forgetDesktopAndPairAgain);
+  $("unpairHeader").addEventListener("click", forgetDesktopAndPairAgain);
 
   // Test-only introspection: nothing above ever calls this, and no behaviour depends on it. The
   // camera/mode state it reads is otherwise unreachable from outside the closure without an

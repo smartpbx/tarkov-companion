@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -87,6 +88,26 @@ public sealed class RaidObservationServiceTests
         Assert.NotNull(capture.Submission);
         Assert.Equal(CaptureDeliveryKind.WatchedFile, capture.Submission!.DeliveryKind);
         Assert.Equal(CaptureSourceKind.GameWrittenScreenshot, capture.Submission.Source.SourceKind);
+    }
+
+    [Fact]
+    public async Task RecognizedTaskScreenshotsReachThePassiveBurstCollector()
+    {
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var bursts = new QuestScreenshotBurstCollector();
+        using var harness = new Harness(
+            new("eft", null, screenshotRoot, new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            scanUseCase: new TaskScreenshotScanUseCase(),
+            questScreenshotBursts: bursts);
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "tasks-1.png"));
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "tasks-2.png"));
+
+        harness.Service.Start();
+        await UntilAsync(() => bursts.Current.ScreenshotCount == 2);
+
+        Assert.True(bursts.Current.IsVisible);
+        Assert.Equal(2, bursts.Current.ScreenshotCount);
     }
 
     [Fact]
@@ -190,7 +211,8 @@ public sealed class RaidObservationServiceTests
             bool demoMode = false,
             IScreenshotImageLoader? imageLoader = null,
             IScanUseCase? scanUseCase = null,
-            ICaptureSessionService? captureSessions = null)
+            ICaptureSessionService? captureSessions = null,
+            QuestScreenshotBurstCollector? questScreenshotBursts = null)
         {
             var options = new RuntimeOptions(
                 demoMode,
@@ -219,7 +241,8 @@ public sealed class RaidObservationServiceTests
                 NullLogger<RaidObservationService>.Instance,
                 imageLoader: imageLoader,
                 scanUseCase: scanUseCase,
-                captureSessions: captureSessions);
+                captureSessions: captureSessions,
+                questScreenshotBursts: questScreenshotBursts);
         }
 
         public SquadStateService Squad { get; } = new();
@@ -316,6 +339,33 @@ public sealed class RaidObservationServiceTests
             null,
             [],
             "fixture");
+    }
+
+    private sealed class TaskScreenshotScanUseCase : IScanUseCase
+    {
+        public Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The fixture only receives decoded screenshot images.");
+
+        public Task<ScanOutcome> ScanImageAsync(CapturedImage image, CancellationToken cancellationToken)
+        {
+            var recognition = new RecognitionResult(
+                ScanContext.QuestTasks,
+                [],
+                image.CapturedUtc,
+                "quest_tasks_context");
+            return Task.FromResult(new ScanOutcome(
+                Guid.NewGuid(),
+                ScanCompletionStatus.Complete,
+                ScanContext.QuestTasks,
+                image.CapturedUtc,
+                recognition,
+                null,
+                null,
+                null,
+                null,
+                [],
+                "quest_tasks_context"));
+        }
     }
 
     private sealed class CancellationAwareScanUseCase : IScanUseCase
@@ -522,6 +572,12 @@ public sealed class RaidObservationServiceTests
     {
         public bool TryParse(string filename, TimeSpan localUtcOffset, out ScreenshotPosition? position)
         {
+            if (Path.GetFileName(filename).StartsWith("tasks-", StringComparison.Ordinal))
+            {
+                position = null;
+                return false;
+            }
+
             // The real parser records the bare name whatever it is handed, and the service
             // now hands it a full path so the file's own timestamp can be read.
             position = new(
