@@ -162,7 +162,7 @@ public sealed class TabletMapSurfacePublisher : IDisposable
             // would draw, so what is published is compared rather than the revision that carries
             // it. Serialized with the timestamp blanked, because the timestamp is the one field
             // that differs on every publish and comparing it would make every tick a change.
-            var content = TabletMapSurfaceJson.Serialize(surface with { PublishedUtc = default });
+            var content = TabletMapSurfaceJson.SerializeVisible(surface);
             if (_publishedContent is { } previous && previous.AsSpan().SequenceEqual(content))
             {
                 return;

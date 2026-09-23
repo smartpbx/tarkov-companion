@@ -416,7 +416,9 @@ startup and whenever its session is refused, and after "Forget this relay" on pr
 A paired tablet comes back the same way. It signs the relay's nonce (hashed under
 `TarkovCompanion.PairedDevice/v2/relay-resume-door`, never bare) with its device key at
 `POST /v2/companion/relay/resume/requests?deviceKeyId=…`; the relay checks that against the key it
-holds for that device and refuses `device-unknown`, `device-revoked` or `proof-rejected`. A ticket
+holds for that device and refuses `device-unknown`, `device-revoked` or `proof-rejected`, and
+`409 desktop-offline` when that device's desktop has not been heard from for two minutes (#693:
+nobody could answer the ticket, and the tablet said "Reconnecting" indefinitely). A ticket
 is all it gives: the owner sees it on its next frames read (`resumeRequests`), opens an ordinary
 pairing offer, answers the ticket with the offer's code
 (`POST …/resume/requests/{ticket}/offer`), and the pairing handshake runs with the code entry and

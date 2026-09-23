@@ -293,6 +293,22 @@ public static class TabletMapSurfaceJson
     public static byte[] Serialize(TabletMapSurface surface) =>
         JsonSerializer.SerializeToUtf8Bytes(surface, Options);
 
+    /// <summary>
+    /// What a tablet would draw from <paramref name="surface"/>, for telling a real change from a
+    /// rebuild that changed nothing: the publish stamp and the scene revision are left out.
+    /// </summary>
+    /// <remarks>
+    /// [#693] Only the stamp used to be left out. The scene takes a new revision on every rebuild,
+    /// and a raid rebuilds it on every tick, so every tick compared as a change and was sent:
+    /// measured on the live relay at 8.4 surfaces a second, up to 400 KB each. No tablet reads the
+    /// revision inside the surface; the relay numbers what it holds itself.
+    /// </remarks>
+    public static byte[] SerializeVisible(TabletMapSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        return Serialize(surface with { PublishedUtc = default, Revision = 0 });
+    }
+
     public static TabletMapSurface? Deserialize(ReadOnlySpan<byte> utf8Json)
     {
         try

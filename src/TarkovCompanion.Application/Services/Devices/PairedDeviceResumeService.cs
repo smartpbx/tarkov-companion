@@ -109,6 +109,10 @@ public sealed class PairedDeviceResumeService : IDisposable
             }
             catch (Exception exception) when (exception is not OutOfMemoryException)
             {
+                _bridge.Log?.Write(
+                    "resume:failed",
+                    $"returning device not resumed: {exception.GetType().Name}.",
+                    Microsoft.Extensions.Logging.LogLevel.Warning);
                 // A handshake that did not finish leaves the tablet where it was: it asks again,
                 // or the player pairs it by code. Nothing half-done is kept by the coordinator
                 // past the offer's own few minutes.
@@ -130,6 +134,14 @@ public sealed class PairedDeviceResumeService : IDisposable
             .FirstOrDefault();
         if (known is null || known.Status is DeviceLifecycleStatus.Revoked or DeviceLifecycleStatus.Replaced)
         {
+            // [#693] The relay routes a ticket by the key it has on record; this desktop answers
+            // only for a device it approved. Said, because it is the one refusal nobody sees.
+            _bridge.Log?.Write(
+                "resume:unknown",
+                known is null
+                    ? "resume ticket ignored: that device is not paired with this desktop."
+                    : $"resume ticket ignored: that device is {known.Status} here.",
+                Microsoft.Extensions.Logging.LogLevel.Warning);
             return;
         }
 
@@ -144,9 +156,15 @@ public sealed class PairedDeviceResumeService : IDisposable
                 using var registered = await _relay.SendAsync(offer, cancellationToken).ConfigureAwait(false);
                 if (!registered.IsSuccessStatusCode)
                 {
+                    _bridge.Log?.Write(
+                        "resume:offer-failed",
+                        $"resume offer refused by the relay: HTTP {(int)registered.StatusCode}.",
+                        Microsoft.Extensions.Logging.LogLevel.Warning);
                     throw new InvalidOperationException("The relay would not hold the resume offer.");
                 }
             }
+
+            _bridge.Log?.Write("resume:offer-opened", "resume offer opened for a returning device.");
 
             if (!await _bridge.AnswerResumeTicketAsync(ticket.TicketId, code, cancellationToken).ConfigureAwait(false))
             {
@@ -202,6 +220,7 @@ public sealed class PairedDeviceResumeService : IDisposable
 
             var resumed = _authority.Snapshot.Devices.FirstOrDefault(
                 device => device.DeviceId == session.Establishment.Assignment.DeviceId);
+            _bridge.Log?.Write("resume:done", "returning device resumed with a fresh session.");
             if (resumed is not null)
             {
                 DeviceResumed?.Invoke(resumed);

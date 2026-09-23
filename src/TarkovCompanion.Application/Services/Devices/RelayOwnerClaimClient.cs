@@ -82,6 +82,20 @@ public sealed class RelayOwnerClaimClient
     /// </remarks>
     public async Task<RelayClaimResult> ClaimByKeyAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
+        var result = await ClaimByKeyCoreAsync(nowUtc, cancellationToken).ConfigureAwait(false);
+        // [#693] A desktop the relay refuses to register is not on the relay at all, so none of
+        // its tablets can come back; that has to be somewhere a person can read it.
+        _bridge?.Log?.Write(
+            "register:" + result.Outcome,
+            $"registering this desktop on the relay: {result.Outcome}" + (result.Code is { } code ? $" ({code})." : "."),
+            result.Outcome == RelayClaimOutcome.Claimed
+                ? Microsoft.Extensions.Logging.LogLevel.Information
+                : Microsoft.Extensions.Logging.LogLevel.Warning);
+        return result;
+    }
+
+    private async Task<RelayClaimResult> ClaimByKeyCoreAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
         try
         {
             using var asked = await _relay.PostAsync("v2/companion/relay/possession/challenge", null, cancellationToken)

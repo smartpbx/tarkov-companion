@@ -170,6 +170,18 @@ public static class RelayCompanionRoutes
     /// </summary>
     public const string OwnerSeenHeader = "X-Relay-Owner-Seen-Ms";
 
+    /// <summary>
+    /// How long a desktop can go unheard before a returning tablet is told it is not connected,
+    /// rather than handed a ticket nobody will answer.
+    /// </summary>
+    /// <remarks>
+    /// [#693] A connected desktop reads its queue every two seconds, or holds one read for twenty,
+    /// and every read counts as heard. A tablet whose desktop had not been on the relay for a day
+    /// was given a ticket, polled it for a minute, and started again: "Reconnecting to the
+    /// desktop" for as long as anybody watched, with nothing anywhere saying why.
+    /// </remarks>
+    public static readonly TimeSpan DesktopOfflineAfter = TimeSpan.FromMinutes(2);
+
     /// <summary>How long a tablet says it will hold, before the relay's own bound.</summary>
     public const string WaitQuery = "wait";
 
@@ -834,6 +846,14 @@ public static class RelayCompanionRoutes
                     RelayPossessionChallenges.DeviceDoorChallenge(nonce)))
             {
                 return Results.Json("proof-rejected", statusCode: StatusCodes.Status403Forbidden);
+            }
+
+            // [#693] Only a desktop that is here can answer; a ticket for one that is not would
+            // just be polled until it lapsed. The tablet asks again by itself, and says why.
+            var now = (app.Services.GetService<TimeProvider>() ?? TimeProvider.System).GetUtcNow();
+            if (tenant.Registry.OwnerLastSeenUtc() is not { } ownerSeen || now - ownerSeen > DesktopOfflineAfter)
+            {
+                return Results.Json("desktop-offline", statusCode: StatusCodes.Status409Conflict);
             }
 
             var ticket = tenant.Tickets.Open(device.DeviceKey.KeyId);
