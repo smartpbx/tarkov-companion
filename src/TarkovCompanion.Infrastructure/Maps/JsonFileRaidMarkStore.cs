@@ -83,7 +83,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             pruned = PruneExpired();
             if (pruned)
             {
-                await WriteAsync(cancellationToken).ConfigureAwait(false);
+                await WriteUntilNoExpiredMarksAsync(cancellationToken).ConfigureAwait(false);
             }
 
             ScheduleNextExpiry();
@@ -191,7 +191,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
                 _marks = [.. _marks.OrderByDescending(mark => mark.CreatedUtc).Take(MaximumMarks)];
             }
 
-            await WriteAsync(cancellationToken).ConfigureAwait(false);
+            await WriteUntilNoExpiredMarksAsync(cancellationToken).ConfigureAwait(false);
             ScheduleNextExpiry();
         }
         finally
@@ -235,7 +235,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             pruned = PruneExpired();
             if (pruned)
             {
-                await WriteAsync(CancellationToken.None).ConfigureAwait(false);
+                await WriteUntilNoExpiredMarksAsync(CancellationToken.None).ConfigureAwait(false);
             }
 
             ScheduleNextExpiry();
@@ -316,6 +316,20 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
             _storePath,
             JsonSerializer.Serialize(new MarkDocument([.. _marks.Select(ToRow)]), JsonOptions),
             cancellationToken);
+
+    /// <summary>
+    /// Rechecks the clock after every write. A loaded disk can outlast a ping's remaining life;
+    /// returning before rewriting that newly expired ping leaves another process able to reload it
+    /// while the zero-delay timer is still waiting for a thread-pool turn.
+    /// </summary>
+    private async Task WriteUntilNoExpiredMarksAsync(CancellationToken cancellationToken)
+    {
+        do
+        {
+            await WriteAsync(cancellationToken).ConfigureAwait(false);
+        }
+        while (PruneExpired());
+    }
 
     private async Task<MarkDocument?> ReadOrDefaultAsync(CancellationToken cancellationToken)
     {
