@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Maps;
 
@@ -18,10 +19,13 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 /// running, and a map is re-selected often enough that re-parsing a large JSON payload every
 /// time would be felt.
 /// </remarks>
-public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFactory) : IMapFeatureCatalog
+public sealed class SqliteMapFeatureCatalog(
+    SqliteConnectionFactory connectionFactory,
+    ILogger<SqliteMapFeatureCatalog>? logger = null) : IMapFeatureCatalog
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, IReadOnlyList<MapFeature>> _byMap = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _loggedSwitchOverrides = new(StringComparer.OrdinalIgnoreCase);
 
     public async Task<IReadOnlyList<MapFeature>> GetAsync(string mapId, CancellationToken cancellationToken)
     {
@@ -94,8 +98,7 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         // the key. A handful of ids per map, once per map.
         var itemNames = await ReadItemNamesAsync(connection, payload, cancellationToken).ConfigureAwait(false);
         var containerNames = await ReadContainerNamesAsync(connection, cancellationToken).ConfigureAwait(false);
-        var primary = Read(payload, itemNames, containerNames) ?? [];
-        return ReviewedExtractCatalog.MergeFeatures(ReadSlug(payload) ?? mapId, primary);
+        return Read(payload, itemNames, containerNames, mapId) ?? [];
     }
 
     /// <summary>Whether this stored map is the one being asked for.</summary>
@@ -158,10 +161,11 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         return names;
     }
 
-    private static IReadOnlyList<MapFeature>? Read(
+    private IReadOnlyList<MapFeature>? Read(
         string sourceJson,
         IReadOnlyDictionary<string, string> itemNames,
-        IReadOnlyDictionary<string, string> containerNames)
+        IReadOnlyDictionary<string, string> containerNames,
+        string requestedMapId)
     {
         try
         {
@@ -181,13 +185,80 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
             AddSpawns(root, features);
             AddLocks(root, features);
             AddLoot(root, features, containerNames, itemName);
-            return features;
+            var mapName = ReadText(root, "normalizedName") ?? requestedMapId;
+            var merged = ReviewedExtractCatalog.MergeFeatures(mapName, features);
+            return ApplySwitchOverrides(mapName, merged, switches);
         }
         catch (JsonException)
         {
             // A reshaped payload costs the markers for one map rather than the whole catalog.
             return null;
         }
+    }
+
+    /// <summary>Replaces only the switch list for reviewed map/extract pairs.</summary>
+    /// <remarks>
+    /// This pass runs after the reviewed extract supplement is merged. That is why Medical Block
+    /// Elevator and D-2, which are absent from the primary extract arrays but already have reviewed
+    /// positions, receive the same checked chains as primary extracts without inventing positions.
+    /// Every transfer, co-op, and one-use field remains the catalog-backed value read above.
+    /// </remarks>
+    private IReadOnlyList<MapFeature> ApplySwitchOverrides(
+        string mapName,
+        IReadOnlyList<MapFeature> features,
+        IReadOnlyDictionary<string, MapSwitch> switches)
+    {
+        var result = new List<MapFeature>(features.Count);
+        foreach (var feature in features)
+        {
+            if (feature.Kind != MapFeatureKind.Extract ||
+                !MapExtractSwitchOverrideCatalog.TryGet(mapName, feature.Name, out var switchIds))
+            {
+                result.Add(feature);
+                continue;
+            }
+
+            var missingIds = switchIds.Where(id => !switches.ContainsKey(id)).ToArray();
+            if (missingIds.Length > 0)
+            {
+                logger?.LogWarning(
+                    "Skipped checked switch override for {MapName} / {ExtractName}; the catalog omitted switch ids {SwitchIds}.",
+                    mapName,
+                    feature.Name,
+                    string.Join(", ", missingIds));
+                result.Add(feature);
+                continue;
+            }
+
+            var existing = feature.ExtractRequirements ?? new MapExtractRequirements([], null, false, false);
+            var requirements = existing with
+            {
+                SwitchChain = switchIds.Select(id => switches[id]).ToArray(),
+            };
+            var requirementText = MapExtractRequirementReader.Describe(requirements);
+            var factionText = ExtractConditions.DescribeFaction(feature.Faction) ??
+                (feature.Provenance is null ? null : feature.Detail);
+            var detail = string.Join(
+                " · ",
+                new[] { factionText, requirementText }
+                    .Where(part => !string.IsNullOrWhiteSpace(part)));
+            result.Add(feature with
+            {
+                ExtractRequirements = requirements.HasAny ? requirements : null,
+                Detail = detail.Length == 0 ? null : detail,
+            });
+
+            var logKey = $"{mapName}\u001f{feature.Name}";
+            if (_loggedSwitchOverrides.Add(logKey))
+            {
+                logger?.LogInformation(
+                    "Applied checked switch override for {MapName} / {ExtractName}.",
+                    mapName,
+                    feature.Name);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>

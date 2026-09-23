@@ -21,6 +21,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Persistence/Migrations/*.sql" />
+    <EmbeddedResource Include="../../assets/maps/extract-switch-overrides.json"
+                      Link="Maps/extract-switch-overrides.json"
+                      LogicalName="TarkovCompanion.Infrastructure.Maps.extract-switch-overrides.json" />
     <EmbeddedResource Include="Recognition/anchors.en.json"
                       WithCulture="false"
                       LogicalName="TarkovCompanion.Infrastructure.Recognition.anchors.en.json" />
