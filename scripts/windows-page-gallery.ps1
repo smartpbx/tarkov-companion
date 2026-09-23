@@ -800,6 +800,13 @@ function Close-AppProcess {
     param([System.Diagnostics.Process] $Process, [string] $Page)
 
     $script:ForcedCloseDetail = ""
+    # #781: read while the process is alive. Under Windows PowerShell, StartTime on a process that
+    # has exited throws, so reading it after the Kill below sent every forced close to the catch
+    # with an empty detail: run 35910833358 said "required forced termination" and nothing else,
+    # and the startup.log tail beside it (the last launch of the whole job, not this one) was read
+    # as this launch's story.
+    $StartedUtc = try { $Process.StartTime.ToUniversalTime() } catch { [DateTime]::UtcNow.AddMinutes(-5) }
+    $Asked = "not asked"
     try {
         $Forced = $false
         if (-not $Process.HasExited) {
@@ -812,10 +819,17 @@ function Close-AppProcess {
                 # #735: what state it was left in, before the kill erases it. A window still up
                 # and not responding is a UI thread that never read the close; a window gone is
                 # an exit stuck after it, and the application's own lifecycle lines say where.
-                $Process.Refresh()
-                $State = "CloseMainWindow returned $Asked; window still up: $($Process.MainWindowHandle -ne [IntPtr]::Zero); responding: $($Process.Responding); threads: $($Process.Threads.Count)"
-                $Process.Kill()
-                $script:ForcedCloseDetail = "$State. " + (Get-LaunchLifecycleLines -Since $Process.StartTime.ToUniversalTime())
+                # Each read is guarded: a process that ends in the middle of them is an exit that
+                # took just over twenty seconds, which is itself the answer.
+                $State = try {
+                    $Process.Refresh()
+                    "CloseMainWindow returned $Asked; window still up: $($Process.MainWindowHandle -ne [IntPtr]::Zero); responding: $($Process.Responding); threads: $($Process.Threads.Count)"
+                }
+                catch {
+                    "CloseMainWindow returned $Asked; the process ended while its state was read ($($_.Exception.Message))"
+                }
+                $script:ForcedCloseDetail = "$State. " + (Get-LaunchLifecycleLines -Since $StartedUtc)
+                try { $Process.Kill() } catch { $script:ForcedCloseDetail += " Kill: $($_.Exception.Message)" }
                 Write-Host "Forced close of '$Page': $script:ForcedCloseDetail"
             }
             $null = $Process.WaitForExit(5000)
@@ -823,7 +837,8 @@ function Close-AppProcess {
         return -not $Forced -and $Process.HasExited
     }
     catch {
-        Write-Host "Could not close the process for '$Page': $($_.Exception.Message)"
+        $script:ForcedCloseDetail = "Close failed (CloseMainWindow returned $Asked): $($_.Exception.Message). " + (Get-LaunchLifecycleLines -Since $StartedUtc)
+        Write-Host "Could not close the process for '$Page': $script:ForcedCloseDetail"
         return $false
     }
 }
