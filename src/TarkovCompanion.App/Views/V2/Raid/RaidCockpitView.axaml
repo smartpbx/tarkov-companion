@@ -319,6 +319,23 @@
                        AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
             <TextBlock Classes="v2-label" VerticalAlignment="Center"
                        Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
+            <!-- [#707] Out of the raid with a squadmate still inside: whose map this is, or one
+                 press to go to it. -->
+            <TextBlock Classes="v2-label" VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="v2-raid-squad-watch"
+                       Text="{Binding SquadWatchLabel}">
+              <TextBlock.IsVisible>
+                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                  <Binding Path="HasSquadWatch" />
+                  <Binding Path="!CanFollowSquadmate" />
+                </MultiBinding>
+              </TextBlock.IsVisible>
+            </TextBlock>
+            <Button Classes="v2-chip" VerticalAlignment="Center"
+                    AutomationProperties.AutomationId="v2-raid-follow-squadmate"
+                    IsVisible="{Binding CanFollowSquadmate}"
+                    Command="{Binding FollowSquadmateCommand}"
+                    Content="{Binding SquadWatchLabel}" />
           </StackPanel>
           <!-- The starred column: when the Raid plan is dragged wide the mode segment and the floor
                ladder wrap onto a second line here instead of pushing the buttons off the strip

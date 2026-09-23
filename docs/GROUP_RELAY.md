@@ -167,6 +167,10 @@ learns about them without polling anything:
 height, which matters for a map with floors. The reply is the created mark, including the `id`
 the server assigned, so two members marking at once cannot collide.
 
+The V2 desktop sends every ping and waypoint placed on its Raid map (or on a paired tablet) this
+way, keeps the returned `id`, and deletes it when the mark is removed, moved or expires (#707).
+A member in `PostRaid` or `Menu` publishes no position or trail, and is not drawn on the map.
+
 ### Reaching, removing, clearing
 
     POST   /waypoints/{id}/reached      { "by": "MaxGooner" }
