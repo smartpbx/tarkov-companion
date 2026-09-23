@@ -4,7 +4,13 @@
     "EFT Wiki The Lab revision 2026-08-16",
     "EFT Wiki Reserve revision 2026-09-06",
     "EFT Wiki Customs revision 2026-08-21",
-    "EFT Wiki Interchange revision 2026-09-15"
+    "EFT Wiki Interchange revision 2026-09-15",
+    "EFT Wiki Factory revision 2026-08-20",
+    "EFT Wiki Woods revision 2026-09-15",
+    "EFT Wiki Shoreline revision 2026-09-08",
+    "EFT Wiki Streets of Tarkov revision 2026-08-13",
+    "EFT Wiki Lighthouse revision 2026-09-16",
+    "EFT Wiki Ground Zero revision 2026-09-11"
   ],
   "overrides": {
     "the lab": {
@@ -32,6 +38,72 @@
     "customs": {
       "ZB-013": [
         { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ],
+      "Railroad Passage (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
+      ]
+    },
+    "factory": {
+      "Med Tent Gate": [
+        { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ],
+      "Cellars": [
+        { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ]
+    },
+    "night factory": {
+      "Med Tent Gate": [
+        { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ],
+      "Cellars": [
+        { "kind": "Items", "items": ["Factory emergency exit key"] }
+      ]
+    },
+    "woods": {
+      "ZB-014": [
+        { "kind": "Items", "items": ["ZB-014 key"] }
+      ],
+      "Power Line Passage (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
+      ]
+    },
+    "shoreline": {
+      "Climber's Trail": [
+        { "kind": "NoArmor" },
+        { "kind": "Items", "items": ["Red Rebel ice pick", "Paracord"] }
+      ],
+      "Cliff Descent": [
+        { "kind": "NoArmor" },
+        { "kind": "Items", "items": ["Red Rebel ice pick", "Paracord"] }
+      ]
+    },
+    "streets of tarkov": {
+      "Klimov Street (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
+      ]
+    },
+    "lighthouse": {
+      "Armored Train": [
+        {
+          "kind": "TimedWindow",
+          "arrivalStartsAtTimeLeftMinutes": 20,
+          "arrivalEndsAtTimeLeftMinutes": 15,
+          "durationMinutes": 7
+        }
+      ],
+      "Mountain Pass": [
+        { "kind": "NoArmor" },
+        { "kind": "Items", "items": ["Red Rebel ice pick", "Paracord"] }
+      ]
+    },
+    "ground zero": {
+      "Mira Ave (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
+      ]
+    },
+    "ground zero 21": {
+      "Mira Ave (Flare)": [
+        { "kind": "Items", "items": ["Green flare"] }
       ]
     },
     "interchange": {
