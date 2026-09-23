@@ -143,7 +143,7 @@ internal static class MapExtractRequirementReader
     public static string Describe(MapExtractRequirements requirements)
     {
         ArgumentNullException.ThrowIfNull(requirements);
-        var parts = new List<string>(4);
+        var parts = new List<string>(8);
         if (requirements.SwitchChain.Count > 0)
         {
             parts.Add("Needs power: " + string.Join(", then ", requirements.SwitchChain.Select(item => item.Name)));
@@ -164,6 +164,28 @@ internal static class MapExtractRequirementReader
             else
             {
                 parts.Add(transfer.Count == 1 ? "Needs an item" : $"Needs {transfer.Count:N0} of an item");
+            }
+        }
+
+        foreach (var condition in requirements.Conditions)
+        {
+            switch (condition.Kind)
+            {
+                case MapExtractConditionKind.NoBackpack:
+                    parts.Add("No backpack");
+                    break;
+                case MapExtractConditionKind.NoArmor:
+                    parts.Add("No armored vest");
+                    break;
+                case MapExtractConditionKind.Items when condition.Items.Count > 0:
+                    parts.Add("Bring " + string.Join(" + ", condition.Items));
+                    break;
+                case MapExtractConditionKind.TimedWindow when condition.TimedWindow is { } window:
+                    parts.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Arrives with {window.ArrivalStartsAtTimeLeft.TotalMinutes:0}–{window.ArrivalEndsAtTimeLeft.TotalMinutes:0} min left"));
+                    parts.Add(string.Create(CultureInfo.InvariantCulture, $"Stays {window.Duration.TotalMinutes:0} min"));
+                    break;
             }
         }
 

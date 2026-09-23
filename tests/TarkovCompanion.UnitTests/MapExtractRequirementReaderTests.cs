@@ -6,7 +6,7 @@ using TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 namespace TarkovCompanion.UnitTests;
 
-/// <summary>Requirement chains measured from the 2026-09-14 Labs and Reserve catalog rows.</summary>
+/// <summary>Requirements measured from the 2026-09-14 Labs, Reserve, and Interchange catalog rows.</summary>
 public sealed class MapExtractRequirementReaderTests
 {
     [Fact]
@@ -48,7 +48,9 @@ public sealed class MapExtractRequirementReaderTests
             main.ExtractRequirements!.SwitchChain.Select(item => item.Name));
 
         var ventilation = Assert.Single(features, feature => feature.Name == "Ventilation Shaft");
-        Assert.Null(ventilation.ExtractRequirements);
+        Assert.True(ventilation.ExtractRequirements!.RequiresNoBackpack);
+        Assert.Empty(ventilation.ExtractRequirements.SwitchChain);
+        Assert.Contains("No backpack", ventilation.Detail, StringComparison.Ordinal);
 
         var medical = Assert.Single(features, feature => feature.Name == "Medical Block Elevator");
         Assert.Equal(
@@ -78,6 +80,35 @@ public sealed class MapExtractRequirementReaderTests
         var coOp = Assert.Single(features, feature => feature.Name == "Scav Lands (Co-Op)");
         Assert.True(coOp.ExtractRequirements!.RequiresCoOp);
         Assert.Contains("Needs co-op partner", coOp.Detail, StringComparison.Ordinal);
+
+        var manhole = Assert.Single(features, feature => feature.Name == "Sewer Manhole");
+        Assert.True(manhole.ExtractRequirements!.RequiresNoBackpack);
+
+        var cliff = Assert.Single(features, feature => feature.Name == "Cliff Descent");
+        Assert.True(cliff.ExtractRequirements!.RequiresNoArmor);
+        Assert.Equal(
+            ["Red Rebel ice pick", "Paracord"],
+            Assert.Single(cliff.ExtractRequirements.Conditions, item => item.Kind == MapExtractConditionKind.Items).Items);
+        Assert.Contains("No armored vest · Bring Red Rebel ice pick + Paracord", cliff.Detail, StringComparison.Ordinal);
+
+        var train = Assert.Single(features, feature => feature.Name == "Armored Train");
+        var window = Assert.Single(train.ExtractRequirements!.Conditions).TimedWindow;
+        Assert.Equal(TimeSpan.FromMinutes(16), window!.ArrivalStartsAtTimeLeft);
+        Assert.Equal(TimeSpan.FromMinutes(12), window.ArrivalEndsAtTimeLeft);
+        Assert.Equal(TimeSpan.FromMinutes(7), window.Duration);
+        Assert.Contains("Arrives with 16–12 min left · Stays 7 min", train.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CheckedInterchangeFlareConditionFillsTheRealCatalogGap()
+    {
+        var features = await ReadFeaturesAsync("interchange", InterchangeOverrideMap);
+
+        var river = Assert.Single(features, feature => feature.Name == "Path to River (Flare)");
+        var items = Assert.Single(river.ExtractRequirements!.Conditions);
+        Assert.Equal(MapExtractConditionKind.Items, items.Kind);
+        Assert.Equal(["Green flare"], items.Items);
+        Assert.Contains("Bring Green flare", river.Detail, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -163,7 +194,19 @@ public sealed class MapExtractRequirementReaderTests
             {"id":"hermetic","name":"Bunker Hermetic Door","faction":"shared","position":{"x":-110.0,"y":0.0,"z":80.0},"switch":false,"switches":[]},
             {"id":"woods","name":"Exit to Woods","faction":"pmc","position":{"x":10.0,"y":0.0,"z":10.0},"switch":false,"switches":[],
              "transferItem":{"item":"675aaa003107dac10006332f","count":1}},
-            {"id":"coop","name":"Scav Lands (Co-Op)","faction":"shared","position":{"x":20.0,"y":0.0,"z":20.0},"switch":false,"switches":[]}
+            {"id":"coop","name":"Scav Lands (Co-Op)","faction":"shared","position":{"x":20.0,"y":0.0,"z":20.0},"switch":false,"switches":[]},
+            {"id":"manhole","name":"Sewer Manhole","faction":"shared","position":{"x":30.0,"y":0.0,"z":30.0},"switch":false,"switches":[]},
+            {"id":"cliff","name":"Cliff Descent","faction":"pmc","position":{"x":40.0,"y":0.0,"z":40.0},"switch":false,"switches":[]},
+            {"id":"train","name":"Armored Train","faction":"shared","position":{"x":50.0,"y":0.0,"z":50.0},"switch":false,"switches":[]}
+          ]
+        }
+        """;
+
+    private const string InterchangeOverrideMap = """
+        {
+          "id":"interchange","name":"Interchange","normalizedName":"interchange","switches":[],
+          "extracts":[
+            {"id":"river","name":"Path to River (Flare)","faction":"pmc","position":{"x":10.0,"y":0.0,"z":10.0},"switch":false,"switches":[]}
           ]
         }
         """;

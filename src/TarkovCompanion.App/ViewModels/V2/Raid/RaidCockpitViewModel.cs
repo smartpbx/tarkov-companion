@@ -185,7 +185,8 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         string detail,
         MapSceneOfferState offerState,
         ICommand selectCommand,
-        MapExtractRequirements? requirements = null)
+        MapExtractRequirements? requirements = null,
+        string? timeLeft = null)
     {
         Id = id;
         Position = position;
@@ -194,7 +195,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
         _offerState = offerState;
         SelectCommand = selectCommand;
         Requirements = requirements;
-        RequirementText = MapExtractRequirementText.Describe(requirements);
+        RequirementText = MapExtractRequirementText.Describe(requirements, name, timeLeft);
     }
 
     /// <summary>The scene object this row is the same extract as, for the map to select.</summary>
@@ -210,7 +211,7 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
 
     public MapExtractRequirements? Requirements { get; }
 
-    public string RequirementText { get; }
+    public string RequirementText { get; private set; }
 
     public bool HasRequirements => RequirementText.Length > 0;
 
@@ -223,6 +224,24 @@ public sealed class RaidExtractRowViewModel : BindableViewModel
     public bool NeedsCoOp => Requirements?.RequiresCoOp == true;
 
     public bool IsOneTime => Requirements?.IsOneTime == true;
+
+    public bool NeedsNoBackpack => Requirements?.RequiresNoBackpack == true;
+
+    public bool NeedsNoArmor => Requirements?.RequiresNoArmor == true;
+
+    public bool NeedsItems => Requirements?.RequiresItems == true;
+
+    public bool HasTimedWindow => Requirements?.HasTimedWindow == true;
+
+    public void UpdateTimeLeft(string? timeLeft)
+    {
+        var text = MapExtractRequirementText.Describe(Requirements, Name, timeLeft);
+        if (RequirementText != text)
+        {
+            RequirementText = text;
+            OnPropertyChanged(nameof(RequirementText));
+        }
+    }
 
     public bool IsOffered => _offerState == MapSceneOfferState.Offered;
 
@@ -2034,6 +2053,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 OnPropertyChanged(nameof(RaidPhaseLabel));
                 OnPropertyChanged(nameof(HasRaidPhaseDetail));
                 OnPropertyChanged(nameof(ExtractClockSummary));
+                foreach (var row in MapExtracts)
+                {
+                    row.UpdateTimeLeft(_raid.TimeLeft);
+                }
                 // The raid clock ticks once a second, which is the only clock this page has. The
                 // plan changes with it exactly once per screenshot: when the marker turns from
                 // fresh to "from an older screenshot".
@@ -2745,7 +2768,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// </param>
     internal static IReadOnlyList<RaidExtractRowViewModel> BuildExtractRows(
         IReadOnlyList<MapSceneObject> objects,
-        Action<MapSceneObjectId, MapScenePoint, string>? select = null) => objects
+        Action<MapSceneObjectId, MapScenePoint, string>? select = null,
+        string? timeLeft = null) => objects
         .Where(item => item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit)
         .GroupBy(item => item.Label, StringComparer.OrdinalIgnoreCase)
         .Select(group => group.OrderByDescending(item => item.OfferState == MapSceneOfferState.Offered).First())
@@ -2773,7 +2797,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 },
                 item.OfferState,
                 select is null ? NoOpCommand : new DelegateCommand(() => select(item.Id, point, item.Label)),
-                item.ExtractRequirements);
+                item.ExtractRequirements,
+                timeLeft);
         })
         .ToArray();
 
@@ -2970,7 +2995,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             ? scene.Objects
             : scene.Objects.Where(item => item.Kind != MapSceneObjectKind.Extract || !CoOpExtracts.IsCoOp(item.Label)).ToArray();
         // The corrections card lists every exit by name; the rows then take their routes' estimates.
-        var extractRows = BuildExtractRows(extractObjects, SelectExtract);
+        var extractRows = BuildExtractRows(extractObjects, SelectExtract, _raid.TimeLeft);
         Corrections.Refresh(
             _raid.Corrections.Apply(_stateStore.Current.Raid),
             [.. extractRows.Where(row => row.Detail != "Transit").Select(row => row.Name)]);
