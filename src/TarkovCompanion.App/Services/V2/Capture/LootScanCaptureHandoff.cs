@@ -136,6 +136,8 @@ public sealed class LootScanCaptureHandoff(
                         request.Analysis.Grid)
                     {
                         CarriedGrid = request.Analysis.CarriedGrid,
+                        CarriedGrids = request.Analysis.CarriedGrids,
+                        HasCompleteCarriedCoverage = request.Analysis.HasCompleteCarriedCoverage,
                     },
                     profile,
                     cancellationToken)
@@ -178,11 +180,22 @@ public sealed class LootScanCaptureHandoff(
                 ? visibleLootRequest
                 : new(InventoryGridSurface.VisibleLoot, lattice: null, occupiedCells: []),
             cancellationToken);
-        var carriedInventory = _gridReconstructor.Reconstruct(
-            request.CarriedGrid is { Surface: InventoryGridSurface.CarriedInventory } carriedRequest
-                ? carriedRequest
-                : new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),
-            cancellationToken);
+        var carriedRequests = request.CarriedGrids.Count > 0
+            ? request.CarriedGrids
+            : request.CarriedGrid is { Surface: InventoryGridSurface.CarriedInventory } carriedRequest
+                ? [new(CarriedGridIdentity.PrimaryBackpack, carriedRequest)]
+                : [];
+        var carriedGrids = carriedRequests
+            .Select(carried => new CarriedGridReconstructionResult(
+                carried.Identity,
+                _gridReconstructor.Reconstruct(carried.Reconstruction, cancellationToken)))
+            .ToArray();
+        var carriedInventory = carriedGrids
+            .FirstOrDefault(carried => carried.Identity == CarriedGridIdentity.PrimaryBackpack)
+            ?.Reconstruction
+            ?? _gridReconstructor.Reconstruct(
+                new(InventoryGridSurface.CarriedInventory, lattice: null, occupiedCells: []),
+                cancellationToken);
         _stageTimeline?.Mark(request.CorrelationId, "grid_reconstruct", reconstructStopwatch.Elapsed);
         // The pipeline's content hash is the only thing that survives the pixel-free handoff
         // boundary; reusing it for both sides keeps this frame "current" without a redecode.
@@ -213,18 +226,24 @@ public sealed class LootScanCaptureHandoff(
                     cancellationToken,
                     profile)
                 .ConfigureAwait(false);
-        IReadOnlyList<LootScanCarriedPolicy> carriedPolicies = _recommendations is null
-            ? []
-            : await _recommendations.BuildCarriedPoliciesAsync(
-                    carriedInventory,
-                    request.SessionId,
-                    request.ArtifactId,
-                    request.DecodeRevision,
-                    contentHash,
-                    evaluatedUtc,
-                    profile,
-                    cancellationToken)
-                .ConfigureAwait(false);
+        var carriedPolicies = new List<LootScanCarriedPolicy>();
+        if (_recommendations is not null)
+        {
+            foreach (var carried in carriedGrids)
+            {
+                carriedPolicies.AddRange(await _recommendations.BuildCarriedPoliciesAsync(
+                        carried.Reconstruction,
+                        request.SessionId,
+                        request.ArtifactId,
+                        request.DecodeRevision,
+                        contentHash,
+                        evaluatedUtc,
+                        profile,
+                        cancellationToken,
+                        carried.Identity)
+                    .ConfigureAwait(false));
+            }
+        }
         _stageTimeline?.Mark(request.CorrelationId, "recommendation", recommendStopwatch.Elapsed);
         var lootScanRequest = new LootScanRequest(
             request.ScanId,
@@ -239,7 +258,8 @@ public sealed class LootScanCaptureHandoff(
             evaluatedUtc,
             recommendationContext,
             visibleLoot,
-            carriedInventory,
+            carriedGrids,
+            request.HasCompleteCarriedCoverage,
             candidates,
             carriedPolicies);
         var decideStopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -300,4 +320,10 @@ public sealed record LootScanFrame(
     /// showed one. Without it a scan says the carried grid is unread and offers no fit.
     /// </summary>
     public GridReconstructionRequest? CarriedGrid { get; init; }
+
+    /// <summary>Every separately framed backpack, rig and pocket grid read from the frame.</summary>
+    public IReadOnlyList<CarriedGridReconstructionRequest> CarriedGrids { get; init; } = [];
+
+    /// <summary>Whether the frame supports a no-fit claim across carried space, not only a fit.</summary>
+    public bool HasCompleteCarriedCoverage { get; init; } = true;
 }

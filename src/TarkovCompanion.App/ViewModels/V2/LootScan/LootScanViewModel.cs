@@ -10,6 +10,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using V2RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
 using V2RecommendationReason = TarkovCompanion.Core.Abstractions.V2.RecommendationReason;
 
@@ -32,6 +33,7 @@ public sealed class LootScanViewModel : BindableViewModel
     private LootScanResult _result;
     private bool _isProgressive;
     private bool _progressStopped;
+    private CarriedGridIdentity? _shownCarriedGrid;
 
     public LootScanViewModel(
         LootScanResult result,
@@ -415,6 +417,42 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public bool HasNoCarriedGrid => CarriedGrid is null;
 
+    public string CarriedGridTitle => _shownCarriedGrid is { } identity
+        ? CarriedGridName(identity, _text, _culture)
+        : _text.CarriedSpace;
+
+    public string CarriedSpaceSummary
+    {
+        get
+        {
+            var grids = Result.CarriedGrids.Count > 0
+                ? Result.CarriedGrids
+                : Result.CarriedGrid is { } legacy
+                    ? [new CarriedGridRecognition(CarriedGridIdentity.PrimaryBackpack, legacy)]
+                    : [];
+            return string.Join(" · ", grids
+                .GroupBy(grid => grid.Identity.Kind)
+                .Select(group =>
+                {
+                    var capacity = group.Sum(grid =>
+                        (grid.Recognition.Geometry.Rows.Value ?? 0) * (grid.Recognition.Geometry.Columns.Value ?? 0));
+                    var occupied = group.Sum(grid => grid.Recognition.Cells.Sum(cell =>
+                    {
+                        var width = cell.Item.Value?.WidthCells.Value ??
+                            CellsAcross(cell.Item.Bounds?.Width, grid.Recognition.Geometry.CellWidthPixels.Value);
+                        var height = cell.Item.Value?.HeightCells.Value ??
+                            CellsAcross(cell.Item.Bounds?.Height, grid.Recognition.Geometry.CellHeightPixels.Value);
+                        return width * height;
+                    }));
+                    var free = Math.Max(0, capacity - occupied);
+                    var name = CarriedGridName(new(group.Key, 0), _text, _culture);
+                    return free == 0
+                        ? Format(_text.CarriedGridFullTemplate, ("container", name))
+                        : Format(_text.CarriedGridFreeTemplate, ("container", name), ("count", free.ToString(_culture)));
+                }));
+        }
+    }
+
     public string LootItemsLabel => Format(
         Decisions.Count == 1 ? _text.OneItemTemplate : _text.ItemsTemplate,
         ("count", Decisions.Count.ToString(_culture)));
@@ -613,7 +651,7 @@ public sealed class LootScanViewModel : BindableViewModel
             nameof(PageSummary), nameof(IsComplete), nameof(IsPartial), nameof(Issues), nameof(VisibleIssues),
             nameof(HasIssues), nameof(HasHiddenIssues), nameof(HiddenIssuesLabel), nameof(LootGrid),
             nameof(CarriedGrid), nameof(HasLootGrid), nameof(HasNoLootGrid), nameof(HasCarriedGrid),
-            nameof(HasNoCarriedGrid),
+            nameof(HasNoCarriedGrid), nameof(CarriedGridTitle), nameof(CarriedSpaceSummary),
         })
         {
             OnPropertyChanged(property);
@@ -636,12 +674,17 @@ public sealed class LootScanViewModel : BindableViewModel
             item.IsSelected = ReferenceEquals(item, decision);
         }
 
+        SelectedDecision = decision;
+        CarriedGrid = BuildCarriedGrid();
+        OnPropertyChanged(nameof(CarriedGrid));
+        OnPropertyChanged(nameof(HasCarriedGrid));
+        OnPropertyChanged(nameof(HasNoCarriedGrid));
+        OnPropertyChanged(nameof(CarriedGridTitle));
+
         foreach (var tile in (LootGrid?.Tiles ?? []).Concat(CarriedGrid?.Tiles ?? []))
         {
             tile.IsSelected = tile.Decision is not null && ReferenceEquals(tile.Decision, decision);
         }
-
-        SelectedDecision = decision;
     }
 
     private void SetFilter(LootScanVerdict? verdict)
@@ -711,11 +754,24 @@ public sealed class LootScanViewModel : BindableViewModel
 
     private LootScanGridViewModel? BuildCarriedGrid()
     {
-        var grid = Result.CarriedGrid;
+        var grids = Result.CarriedGrids.Count > 0
+            ? Result.CarriedGrids
+            : Result.CarriedGrid is { } legacy
+                ? [new CarriedGridRecognition(CarriedGridIdentity.PrimaryBackpack, legacy)]
+                : [];
+        var wanted = SelectedDecision?.Placement?.CarriedGrid ??
+            SelectedDecision?.Drops.FirstOrDefault()?.CarriedGrid ??
+            grids.FirstOrDefault(candidate => candidate.Identity == CarriedGridIdentity.PrimaryBackpack)?.Identity ??
+            grids.FirstOrDefault()?.Identity;
+        var selectedGrid = wanted is { } identity
+            ? grids.FirstOrDefault(candidate => candidate.Identity == identity)
+            : null;
+        var grid = selectedGrid?.Recognition;
+        _shownCarriedGrid = selectedGrid?.Identity;
         var dropOwners = new Dictionary<GridCellAddress, LootScanDecisionViewModel>();
         foreach (var decision in Decisions)
         {
-            foreach (var drop in decision.Drops)
+            foreach (var drop in decision.Drops.Where(drop => drop.CarriedGrid == _shownCarriedGrid))
             {
                 dropOwners.TryAdd(drop.Anchor, decision);
             }
@@ -746,7 +802,7 @@ public sealed class LootScanViewModel : BindableViewModel
         {
             foreach (var decision in Decisions)
             {
-                foreach (var drop in decision.Drops)
+                foreach (var drop in decision.Drops.Where(drop => drop.CarriedGrid == _shownCarriedGrid))
                 {
                     tiles.Add(new(drop.Anchor, drop.Item.Value?.WidthCells.Value ?? 1, drop.Item.Value?.HeightCells.Value ?? 1,
                         drop.Item.Value?.DisplayName.Value ?? _text.UnknownItem, string.Empty, LootScanTileKind.Drop, decision));
@@ -755,7 +811,8 @@ public sealed class LootScanViewModel : BindableViewModel
         }
 
         // Where each take or swap would land, drawn over what it lands on.
-        foreach (var decision in Decisions.Where(item => item.Placement is not null && (item.IsTake || item.IsSwap)))
+        foreach (var decision in Decisions.Where(item =>
+                     item.Placement?.CarriedGrid == _shownCarriedGrid && (item.IsTake || item.IsSwap)))
         {
             var placement = decision.Placement!;
             tiles.Add(new(placement.Anchor, placement.WidthCells, placement.HeightCells,
@@ -803,6 +860,23 @@ public sealed class LootScanViewModel : BindableViewModel
         V2PresentationFormatting.Message(
             template,
             values.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal));
+
+    internal static string CarriedGridName(
+        CarriedGridIdentity identity,
+        LootScanPresentationText text,
+        CultureInfo culture)
+    {
+        var name = identity.Kind switch
+        {
+            CarriedGridKind.Backpack => text.Backpack,
+            CarriedGridKind.TacticalRig => text.TacticalRig,
+            CarriedGridKind.Pockets => text.Pockets,
+            _ => text.CarriedSpace,
+        };
+        return identity.Index == 0
+            ? name
+            : Format(text.CarriedGridIndexTemplate, ("container", name), ("index", (identity.Index + 1).ToString(culture)));
+    }
 }
 
 public sealed class LootScanDecisionViewModel : BindableViewModel
@@ -1416,6 +1490,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
                 : _text.PlacementTemplate;
             return Message(
                 template,
+                ("container", LootScanViewModel.CarriedGridName(placement.CarriedGrid, _text, _culture).ToLower(_culture)),
                 ("row", (placement.Anchor.Row + 1).ToString(_culture)),
                 ("column", (placement.Anchor.Column + 1).ToString(_culture)));
         }
@@ -1436,6 +1511,7 @@ public sealed class LootScanDecisionViewModel : BindableViewModel
         .Select(drop => Message(
             _text.DropTemplate,
             ("item", ItemName(drop.Item, drop.Anchor)),
+            ("container", LootScanViewModel.CarriedGridName(drop.CarriedGrid, _text, _culture).ToLower(_culture)),
             ("row", (drop.Anchor.Row + 1).ToString(_culture)),
             ("column", (drop.Anchor.Column + 1).ToString(_culture)),
             ("cost", Roubles(drop.ReplacementValueRoubles)),
@@ -1667,10 +1743,10 @@ public sealed record LootScanPresentationText
     public string FleaNetBasis { get; init; } = "Flea net after fee";
     public string TraderBasis { get; init; } = "Best trader value";
     public string PriceSourceNeedsReview { get; init; } = "Price source needs review";
-    public string PlacementTemplate { get; init; } = "Place at row {row}, column {column}";
-    public string PlacementRotatedTemplate { get; init; } = "Place at row {row}, column {column} • rotate";
+    public string PlacementTemplate { get; init; } = "Place in {container}, row {row}, column {column}";
+    public string PlacementRotatedTemplate { get; init; } = "Place in {container}, row {row}, column {column} • rotate";
     public string SwapSummaryTemplate { get; init; } = "Replace {count} item(s) • {cost} given up";
-    public string DropTemplate { get; init; } = "Drop {item} at row {row}, column {column} ({cost}) • {evidence}";
+    public string DropTemplate { get; init; } = "Drop {item} from {container} at row {row}, column {column} ({cost}) • {evidence}";
     public string RecommendationReasonTemplate { get; init; } = "{category}: {reason} [{code}] • {evidence}";
     public string OpportunityCostTemplate { get; init; } = "Opportunity cost {value} • {evidence}";
     public string OpportunityCostLineageTemplate { get; init; } = "Opportunity cost {value} • calculation {evidence} • price {priceEvidence} • footprint {footprintEvidence}";
@@ -1712,6 +1788,13 @@ public sealed record LootScanPresentationText
     public string FreeSquaresTemplate { get; init; } = "{count} free squares";
     public string OneFreeSquare { get; init; } = "1 free square";
     public string UnknownItem { get; init; } = "Unknown item";
+    public string CarriedSpace { get; init; } = "Carried space";
+    public string Backpack { get; init; } = "Backpack";
+    public string TacticalRig { get; init; } = "Rig";
+    public string Pockets { get; init; } = "Pockets";
+    public string CarriedGridIndexTemplate { get; init; } = "{container} {index}";
+    public string CarriedGridFullTemplate { get; init; } = "{container} full";
+    public string CarriedGridFreeTemplate { get; init; } = "{container} {count} free";
     public string ReasonExplicit { get; init; } = "Your own rule";
     public string ReasonProtected { get; init; } = "Protected item";
     public string ReasonCurrentQuestFir { get; init; } = "Current quest · found in raid";

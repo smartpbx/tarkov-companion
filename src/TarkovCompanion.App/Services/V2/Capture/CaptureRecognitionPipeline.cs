@@ -106,6 +106,8 @@ public sealed class CaptureRecognitionPipeline(
 
             GridReconstructionRequest? grid = null;
             GridReconstructionRequest? carried = null;
+            IReadOnlyList<CarriedGridReconstructionRequest> carriedGrids = [];
+            var carriedCoverageComplete = false;
             if (GridSurfaceFor(request.RequestedIntent, detection.Context, request.Context.ActiveMap is not null) is { } surface)
             {
                 if (surface == InventoryGridSurface.VisibleLoot)
@@ -133,11 +135,20 @@ public sealed class CaptureRecognitionPipeline(
             // The in-raid Gear screen shows the player's backpack beside the loot. Reading it is
             // what lets the Loot Scan say where an item goes, or what to drop for it, instead of
             // "TAKE?" with the carried grid unread.
-                carried = surface == InventoryGridSurface.VisibleLoot
-                    ? await _gridBuilder
-                        .BuildCarriedAsync(request.Image, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
-                        .ConfigureAwait(false)
-                    : null;
+                if (surface == InventoryGridSurface.VisibleLoot)
+                {
+                    carriedGrids = await _gridBuilder
+                        .BuildCarriedGridsAsync(request.Image, _timeProvider.GetUtcNow(), cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                    carried = carriedGrids
+                        .FirstOrDefault(candidate => candidate.Identity == CarriedGridIdentity.PrimaryBackpack)
+                        ?.Reconstruction;
+                    // Pockets anchor the carried column and the backpack anchors the lower extent.
+                    // Without either, a known grid may still prove a fit but cannot prove no fit.
+                    carriedCoverageComplete =
+                        carriedGrids.Any(candidate => candidate.Identity.Kind == CarriedGridKind.Backpack) &&
+                        carriedGrids.Any(candidate => candidate.Identity.Kind == CarriedGridKind.Pockets);
+                }
             // Region detection and per-cell icon matching against the catalog both happen inside
             // BuildAsync; splitting them would mean Infrastructure taking a dependency on this
             // Application-layer timeline, so they are reported together here as one stage.
@@ -182,7 +193,9 @@ public sealed class CaptureRecognitionPipeline(
                 await IdentifyAsync(coordinated, detectedContext, request.RequestedIntent, cancellationToken)
                     .ConfigureAwait(false),
                 CarriedGrid: carried,
-                FleaListings: fleaListings);
+                FleaListings: fleaListings,
+                CarriedGrids: carriedGrids,
+                CarriedCoverageComplete: carriedCoverageComplete);
         }
         catch (OperationCanceledException)
         {

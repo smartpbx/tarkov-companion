@@ -78,7 +78,10 @@ public sealed class LootScanDecisionService
                 "Some visible loot could not be resolved; those cells remain review-only."));
         }
 
-        if (!CarriedIsPlannable(request.CarriedInventory))
+        var carriedCoveragePlannable = request.HasCompleteCarriedCoverage &&
+            request.CarriedGrids.Count > 0 &&
+            request.CarriedGrids.All(carried => CarriedIsPlannable(carried.Reconstruction));
+        if (!carriedCoveragePlannable)
         {
             issues.Add(new(
                 LootScanIssueKind.CarriedCoveragePartial,
@@ -95,11 +98,9 @@ public sealed class LootScanDecisionService
         var recommendationGates = preparedRecommendations.ToDictionary(
             item => item.Key,
             item => item.Value.Gate);
-        var policies = request.CarriedPolicies.ToDictionary(item => item.Anchor);
-        var capacity = TryBuildCapacity(request, policies, cancellationToken, out var built)
-            ? built
-            : null;
-        if (capacity is null && CarriedIsPlannable(request.CarriedInventory))
+        var policies = request.CarriedPolicies.ToDictionary(item => (item.CarriedGrid, item.Anchor));
+        var capacities = BuildCapacities(request, policies, cancellationToken, out var allCapacitiesAvailable);
+        if (!allCapacitiesAvailable && request.CarriedGrids.Any(carried => CarriedIsPlannable(carried.Reconstruction)))
         {
             issues.Add(new(
                 LootScanIssueKind.CapacityUnavailable,
@@ -129,7 +130,8 @@ public sealed class LootScanDecisionService
                     request,
                     cell,
                     preparedRecommendations,
-                    capacity,
+                    capacities,
+                    carriedCoveragePlannable && allCapacitiesAvailable,
                     placementBudget,
                     cancellationToken));
             }
@@ -180,6 +182,10 @@ public sealed class LootScanDecisionService
         {
             VisibleLootGrid = request.VisibleLoot.Recognition,
             CarriedGrid = request.CarriedInventory.Recognition,
+            CarriedGrids = request.CarriedGrids
+                .Where(carried => carried.Reconstruction.Recognition is not null)
+                .Select(carried => new CarriedGridRecognition(carried.Identity, carried.Reconstruction.Recognition!))
+                .ToArray(),
         };
     }
 
@@ -214,7 +220,8 @@ public sealed class LootScanDecisionService
         LootScanRequest request,
         GridCellRecognition cell,
         IReadOnlyDictionary<GridCellAddress, PreparedRecommendation> recommendations,
-        CapacityMap? capacity,
+        IReadOnlyList<CapacityMap> capacities,
+        bool carriedCoverageComplete,
         PlacementWorkBudget placementBudget,
         CancellationToken cancellationToken)
     {
@@ -364,7 +371,7 @@ public sealed class LootScanDecisionService
                 economics);
         }
 
-        if (capacity is null)
+        if (capacities.Count == 0)
         {
             return Review(
                 cell.Anchor,
@@ -377,9 +384,18 @@ public sealed class LootScanDecisionService
 
         try
         {
-            if (capacity.TryFindFree(width, height, placementBudget, out var freePlacement))
+            var free = capacities
+                .Select(capacity => (Capacity: capacity, Placement: capacity.FindFree(width, height, placementBudget)))
+                .Where(candidate => candidate.Placement is not null)
+                .OrderBy(candidate => candidate.Placement!.RotateFromObserved)
+                .ThenBy(candidate => ContainerPreference(candidate.Capacity.Identity))
+                .ThenBy(candidate => candidate.Capacity.Identity.Index)
+                .ThenBy(candidate => candidate.Placement!.Anchor.Row)
+                .ThenBy(candidate => candidate.Placement!.Anchor.Column)
+                .FirstOrDefault();
+            if (free.Placement is not null)
             {
-                capacity.CommitPlacement(freePlacement!);
+                free.Capacity.CommitPlacement(free.Placement);
                 return new(
                     cell.Anchor,
                     cell.Item,
@@ -387,11 +403,22 @@ public sealed class LootScanDecisionService
                     [new("capacity.visible-fit", "The item fits in verified visible carried space.")],
                     recommendation: recommendation,
                     economics: economics,
-                    placement: freePlacement);
+                    placement: free.Placement);
             }
 
-            var swapSearch = capacity.FindBestSwap(width, height, placementBudget);
-            return EvaluateSwap(cell, recommendation, economicDominant, economics, capacity, swapSearch);
+            if (!carriedCoverageComplete)
+            {
+                return Review(
+                    cell.Anchor,
+                    cell.Item,
+                    "carried.capacity-incomplete",
+                    "Some carried grids are unread, so no fit or swap can be claimed.",
+                    recommendation,
+                    economics);
+            }
+
+            var swapSearch = FindBestSwap(capacities, width, height, placementBudget);
+            return EvaluateSwap(cell, recommendation, economicDominant, economics, swapSearch);
         }
         catch (PlacementBudgetExceededException)
         {
@@ -410,8 +437,7 @@ public sealed class LootScanDecisionService
         RecommendationResult recommendation,
         bool economicDominant,
         LootScanEconomicProjection economics,
-        CapacityMap capacity,
-        SwapSearchResult swapSearch)
+        MultiGridSwapSearchResult swapSearch)
     {
         var swap = swapSearch.Best;
         if (swap is null)
@@ -461,7 +487,7 @@ public sealed class LootScanDecisionService
                 economics: economics);
         }
 
-        capacity.CommitSwap(swap);
+        swapSearch.Capacity!.CommitSwap(swap);
         return new(
             cell.Anchor,
             cell.Item,
@@ -475,6 +501,39 @@ public sealed class LootScanDecisionService
             drops: swap.Drops,
             replacementCostRoubles: swap.ReplacementCostRoubles);
     }
+
+    private static MultiGridSwapSearchResult FindBestSwap(
+        IReadOnlyList<CapacityMap> capacities,
+        int width,
+        int height,
+        PlacementWorkBudget budget)
+    {
+        CapacityMap? bestCapacity = null;
+        SwapOption? best = null;
+        var hasUnresolved = false;
+        foreach (var capacity in capacities)
+        {
+            var result = capacity.FindBestSwap(width, height, budget);
+            hasUnresolved |= result.HasUnresolvedPolicyOption;
+            if (result.Best is not { } candidate || best is not null && !CapacityMap.IsBetter(candidate, best))
+            {
+                continue;
+            }
+
+            bestCapacity = capacity;
+            best = candidate;
+        }
+
+        return new(bestCapacity, best, hasUnresolved);
+    }
+
+    private static int ContainerPreference(CarriedGridIdentity identity) => identity.Kind switch
+    {
+        CarriedGridKind.Backpack => 0,
+        CarriedGridKind.TacticalRig => 1,
+        CarriedGridKind.Pockets => 2,
+        _ => int.MaxValue,
+    };
 
     private IReadOnlyDictionary<GridCellAddress, PreparedRecommendation> PrepareRecommendations(
         LootScanRequest request,
@@ -1145,14 +1204,38 @@ public sealed class LootScanDecisionService
             recommendation,
             economics);
 
+    private IReadOnlyList<CapacityMap> BuildCapacities(
+        LootScanRequest request,
+        IReadOnlyDictionary<(CarriedGridIdentity Grid, GridCellAddress Anchor), LootScanCarriedPolicy> policies,
+        CancellationToken cancellationToken,
+        out bool allAvailable)
+    {
+        var capacities = new List<CapacityMap>(request.CarriedGrids.Count);
+        allAvailable = request.CarriedGrids.Count > 0;
+        foreach (var carried in request.CarriedGrids)
+        {
+            if (TryBuildCapacity(request, carried, policies, cancellationToken, out var capacity))
+            {
+                capacities.Add(capacity!);
+            }
+            else
+            {
+                allAvailable = false;
+            }
+        }
+
+        return capacities;
+    }
+
     private bool TryBuildCapacity(
         LootScanRequest request,
-        IReadOnlyDictionary<GridCellAddress, LootScanCarriedPolicy> policies,
+        CarriedGridReconstructionResult carried,
+        IReadOnlyDictionary<(CarriedGridIdentity Grid, GridCellAddress Anchor), LootScanCarriedPolicy> policies,
         CancellationToken cancellationToken,
         out CapacityMap? capacity)
     {
         capacity = null;
-        var result = request.CarriedInventory;
+        var result = carried.Reconstruction;
         if (!CarriedIsPlannable(result) || result.Recognition is not { } recognition ||
             recognition.Geometry.Rows.Value is not { } rows || recognition.Geometry.Columns.Value is not { } columns ||
             !IsReliable(recognition.Geometry.Rows, request.EvaluatedUtc, _policy.MaximumInventoryAge, requireComplete: true) ||
@@ -1179,7 +1262,7 @@ public sealed class LootScanDecisionService
                 continue;
             }
 
-            policies.TryGetValue(cell.Anchor, out var policy);
+            policies.TryGetValue((carried.Identity, cell.Anchor), out var policy);
             if (policy is not null && !policy.Binding.Matches(
                     request.CaptureSessionId,
                     request.ArtifactId,
@@ -1218,7 +1301,7 @@ public sealed class LootScanDecisionService
                 policy?.ReplacementValueRoubles.Provenance));
         }
 
-        capacity = CapacityMap.Create(rows, columns, items);
+        capacity = CapacityMap.Create(carried.Identity, rows, columns, items);
         return capacity is not null;
     }
 
@@ -1855,6 +1938,11 @@ public sealed class LootScanDecisionService
         SwapOption? Best,
         bool HasUnresolvedPolicyOption);
 
+    private sealed record MultiGridSwapSearchResult(
+        CapacityMap? Capacity,
+        SwapOption? Best,
+        bool HasUnresolvedPolicyOption);
+
     private sealed class PlacementWorkBudget(int maximumCellVisits, CancellationToken cancellationToken)
     {
         private int _remainingCellVisits = maximumCellVisits;
@@ -1904,8 +1992,14 @@ public sealed class LootScanDecisionService
         private readonly int?[,] _occupied;
         private readonly IReadOnlyList<CapacityItem> _items;
 
-        private CapacityMap(int rows, int columns, int?[,] occupied, IReadOnlyList<CapacityItem> items)
+        private CapacityMap(
+            CarriedGridIdentity identity,
+            int rows,
+            int columns,
+            int?[,] occupied,
+            IReadOnlyList<CapacityItem> items)
         {
+            Identity = identity;
             Rows = rows;
             Columns = columns;
             _occupied = occupied;
@@ -1916,7 +2010,13 @@ public sealed class LootScanDecisionService
 
         public int Columns { get; }
 
-        public static CapacityMap? Create(int rows, int columns, IReadOnlyList<CapacityItem> items)
+        public CarriedGridIdentity Identity { get; }
+
+        public static CapacityMap? Create(
+            CarriedGridIdentity identity,
+            int rows,
+            int columns,
+            IReadOnlyList<CapacityItem> items)
         {
             if (rows is < 1 or > GridGeometry.MaxRows || columns is < 1 or > GridGeometry.MaxColumns)
             {
@@ -1946,14 +2046,13 @@ public sealed class LootScanDecisionService
                 }
             }
 
-            return new(rows, columns, occupied, items);
+            return new(identity, rows, columns, occupied, items);
         }
 
-        public bool TryFindFree(
+        public LootScanPlacement? FindFree(
             int width,
             int height,
-            PlacementWorkBudget budget,
-            out LootScanPlacement? placement)
+            PlacementWorkBudget budget)
         {
             foreach (var orientation in Orientations(width, height))
             {
@@ -1963,19 +2062,18 @@ public sealed class LootScanDecisionService
                     {
                         if (IsFree(row, column, orientation.Width, orientation.Height, budget))
                         {
-                            placement = new(
+                            return new(
                                 new(row, column),
                                 orientation.Width,
                                 orientation.Height,
-                                orientation.Rotate);
-                            return true;
+                                orientation.Rotate,
+                                Identity);
                         }
                     }
                 }
             }
 
-            placement = null;
-            return false;
+            return null;
         }
 
         public void CommitPlacement(LootScanPlacement placement)
@@ -2046,7 +2144,8 @@ public sealed class LootScanDecisionService
                                 carried.Anchor,
                                 carried.Evidence,
                                 value.Value,
-                                carried.ReplacementValueProvenance));
+                                carried.ReplacementValueProvenance,
+                                Identity));
                         }
 
                         if (!retained && unresolved)
@@ -2057,7 +2156,7 @@ public sealed class LootScanDecisionService
                         if (supported)
                         {
                             var option = new SwapOption(
-                                new(new(row, column), orientation.Width, orientation.Height, orientation.Rotate),
+                                new(new(row, column), orientation.Width, orientation.Height, orientation.Rotate, Identity),
                                 blockers.Order().ToArray(),
                                 drops,
                                 cost);
@@ -2145,7 +2244,7 @@ public sealed class LootScanDecisionService
             return true;
         }
 
-        private static bool IsBetter(SwapOption candidate, SwapOption current)
+        public static bool IsBetter(SwapOption candidate, SwapOption current)
         {
             if (candidate.ReplacementCostRoubles != current.ReplacementCostRoubles)
             {
@@ -2160,6 +2259,18 @@ public sealed class LootScanDecisionService
             if (candidate.Placement.RotateFromObserved != current.Placement.RotateFromObserved)
             {
                 return !candidate.Placement.RotateFromObserved;
+            }
+
+            var candidatePreference = ContainerPreference(candidate.Placement.CarriedGrid);
+            var currentPreference = ContainerPreference(current.Placement.CarriedGrid);
+            if (candidatePreference != currentPreference)
+            {
+                return candidatePreference < currentPreference;
+            }
+
+            if (candidate.Placement.CarriedGrid.Index != current.Placement.CarriedGrid.Index)
+            {
+                return candidate.Placement.CarriedGrid.Index < current.Placement.CarriedGrid.Index;
             }
 
             return candidate.Placement.Anchor.Row != current.Placement.Anchor.Row

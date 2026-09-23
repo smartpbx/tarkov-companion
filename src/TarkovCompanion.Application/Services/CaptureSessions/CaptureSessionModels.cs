@@ -349,10 +349,23 @@ public sealed record CaptureAnalysis(
     GridReconstructionRequest? CarriedGrid = null,
     // The visible rows of a flea screen, where the frame was one. V1 parsed these and reduced
     // them to a count; V2 never parsed them at all.
-    IReadOnlyList<CaptureFleaListing>? FleaListings = null)
+    IReadOnlyList<CaptureFleaListing>? FleaListings = null,
+    // Every separately framed backpack, rig and pocket grid. CarriedGrid remains the primary
+    // backpack for older consumers; Loot Scan uses this list so repeated anchors stay distinct.
+    IReadOnlyList<CarriedGridReconstructionRequest>? CarriedGrids = null,
+    // False when the frame exposes some carried grids but cannot support a complete no-fit claim.
+    bool? CarriedCoverageComplete = null)
 {
     /// <summary>The flea rows this frame showed, top to bottom; empty when it was not a flea screen.</summary>
     public IReadOnlyList<CaptureFleaListing> FleaListings { get; } = FleaListings ?? [];
+
+    public IReadOnlyList<CarriedGridReconstructionRequest> CarriedGrids { get; } =
+        CarriedGrids ?? (CarriedGrid is null
+            ? []
+            : [new(CarriedGridIdentity.PrimaryBackpack, CarriedGrid)]);
+
+    public bool HasCompleteCarriedCoverage { get; } =
+        CarriedCoverageComplete ?? CarriedGrid is not null;
 
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))

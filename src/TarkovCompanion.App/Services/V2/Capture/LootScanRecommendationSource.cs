@@ -127,7 +127,8 @@ public sealed class LootScanRecommendationSource(
         string contentSha256,
         DateTimeOffset evaluatedUtc,
         ProfileRecord? profile,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CarriedGridIdentity? carriedGrid = null)
     {
         ArgumentNullException.ThrowIfNull(carried);
         var cells = carried.Recognition?.Cells ?? [];
@@ -160,7 +161,8 @@ public sealed class LootScanRecommendationSource(
                         "carried.replacement-value",
                         worth,
                         (net.Value ?? 0) >= (trader.Value ?? 0) && net.Value is not null ? net.Provenance : trader.Provenance)
-                    : Unread<long?>("carried.replacement-value", "replacement-value.unsettled", read.Unknown)));
+                    : Unread<long?>("carried.replacement-value", "replacement-value.unsettled", read.Unknown),
+                carriedGrid));
         }
 
         return policies;

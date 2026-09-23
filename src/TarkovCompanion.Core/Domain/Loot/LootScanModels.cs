@@ -2,6 +2,7 @@ using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Recommendations;
+using TarkovCompanion.Core.Domain.Recognition.Grid;
 using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 
 namespace TarkovCompanion.Core.Domain.Loot;
@@ -198,12 +199,14 @@ public sealed record LootScanCarriedPolicy
         LootScanEvidenceBinding binding,
         EvidencedValue<bool?> protectedItem,
         EvidencedValue<bool?> pinned,
-        EvidencedValue<long?> replacementValueRoubles)
+        EvidencedValue<long?> replacementValueRoubles,
+        CarriedGridIdentity? carriedGrid = null)
     {
         Binding = binding ?? throw new ArgumentNullException(nameof(binding));
         ProtectedItem = protectedItem ?? throw new ArgumentNullException(nameof(protectedItem));
         Pinned = pinned ?? throw new ArgumentNullException(nameof(pinned));
         ReplacementValueRoubles = replacementValueRoubles ?? throw new ArgumentNullException(nameof(replacementValueRoubles));
+        CarriedGrid = carriedGrid ?? CarriedGridIdentity.PrimaryBackpack;
         ValidateMoney(replacementValueRoubles, nameof(replacementValueRoubles));
     }
 
@@ -216,6 +219,8 @@ public sealed record LootScanCarriedPolicy
     public EvidencedValue<bool?> Pinned { get; }
 
     public EvidencedValue<long?> ReplacementValueRoubles { get; }
+
+    public CarriedGridIdentity CarriedGrid { get; }
 
     private static void ValidateMoney(EvidencedValue<long?> field, string parameterName)
     {
@@ -232,7 +237,12 @@ public sealed record LootScanCarriedPolicy
 
 public sealed record LootScanPlacement
 {
-    public LootScanPlacement(GridCellAddress anchor, int widthCells, int heightCells, bool rotateFromObserved)
+    public LootScanPlacement(
+        GridCellAddress anchor,
+        int widthCells,
+        int heightCells,
+        bool rotateFromObserved,
+        CarriedGridIdentity? carriedGrid = null)
     {
         if (widthCells is < 1 or > GridGeometry.MaxColumns)
         {
@@ -254,6 +264,7 @@ public sealed record LootScanPlacement
         WidthCells = widthCells;
         HeightCells = heightCells;
         RotateFromObserved = rotateFromObserved;
+        CarriedGrid = carriedGrid ?? CarriedGridIdentity.PrimaryBackpack;
     }
 
     public GridCellAddress Anchor { get; }
@@ -263,6 +274,8 @@ public sealed record LootScanPlacement
     public int HeightCells { get; }
 
     public bool RotateFromObserved { get; }
+
+    public CarriedGridIdentity CarriedGrid { get; }
 }
 
 public sealed record LootScanDropItem
@@ -271,13 +284,15 @@ public sealed record LootScanDropItem
         GridCellAddress anchor,
         EvidencedValue<RecognizedItem> item,
         long replacementValueRoubles,
-        EvidenceProvenance valueProvenance)
+        EvidenceProvenance valueProvenance,
+        CarriedGridIdentity? carriedGrid = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(replacementValueRoubles);
         Anchor = anchor;
         Item = item ?? throw new ArgumentNullException(nameof(item));
         ReplacementValueRoubles = replacementValueRoubles;
         ValueProvenance = valueProvenance ?? throw new ArgumentNullException(nameof(valueProvenance));
+        CarriedGrid = carriedGrid ?? CarriedGridIdentity.PrimaryBackpack;
     }
 
     public GridCellAddress Anchor { get; }
@@ -287,6 +302,8 @@ public sealed record LootScanDropItem
     public long ReplacementValueRoubles { get; }
 
     public EvidenceProvenance ValueProvenance { get; }
+
+    public CarriedGridIdentity CarriedGrid { get; }
 }
 
 public sealed record LootScanReason
@@ -407,7 +424,7 @@ public sealed record LootScanDecision
                 throw new ArgumentException("Drops cannot contain null.", nameof(drops));
         }
 
-        if (dropCopy.Select(drop => drop.Anchor).Distinct().Count() != dropCopy.Length)
+        if (dropCopy.Select(drop => (drop.CarriedGrid, drop.Anchor)).Distinct().Count() != dropCopy.Length)
         {
             throw new ArgumentException("A carried item can be displaced at most once.", nameof(drops));
         }

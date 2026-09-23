@@ -31,7 +31,7 @@ was shown as unpinned and weighed on price.
 | Raid phase | The raid clock the way the rest of the app counts it, in thirds. The player can pick it instead. | Not in a raid, or the map's length for this side is unknown. |
 | Event state (Safe, Allergic, Untested) | `LootScanEventStateSource`: the running events in `IEventCatalog` and the results the Events page wrote into the active profile. An Allergic result in any running event wins. | No running event lists the item: a settled "outside every event". The event folder cannot be read: not claimed. |
 | Risk | The player's setting in the workspace, "Normal" until changed, kept for the session. | Never. |
-| Carried grid | The backpack on the in-raid Gear screen (`GearScreenLayoutReader`), on `CaptureAnalysis.CarriedGrid` to `LootScanFrame.CarriedGrid`. | No backpack in view, or its frame hidden (a tooltip): a wanted item reads "TAKE?" with what is missing. |
+| Carried grids | Every visible backpack, tactical-rig and pocket grid on the in-raid Gear screen (`GearScreenLayoutReader`). Each framed grid stays separate through capture and planning. | A verified grid can support a fit. If backpack or pocket coverage is unread, a wanted item with no verified fit reads "TAKE?" rather than claiming no room. |
 
 ## How near a quest is
 
@@ -129,10 +129,10 @@ unread name, count, rotation or attribute. A carried item nobody could name hold
 it was seen to cover, when that region is a whole number of cells, and is never offered for
 dropping. A doubtful footprint, an overlap or doubtful geometry still stops planning.
 
-The backpack is read from the in-raid Gear screen (2026-09-22, `docs/RECOGNITION.md`). On the
-one real frame with loot open, a full Duffle, the ammo pack in the box came out SWAP: place at
-row 3, column 2, drop the Poxeram, the one bag item named. Only the backpack's largest grid is
-planned against; a "no fit" does not know about room in the rig or pockets.
+The in-raid Gear screen's backpack grids, rig pouches and pockets are read separately. Planning
+prefers an equally good backpack fit, but a free or unrotated rig
+fit beats a backpack swap or rotated fit. Placements and swap drops name their container as well
+as row and column; a no-fit verdict is withheld when carried coverage is incomplete.
 
 ## Changing the answer
 

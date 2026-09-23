@@ -82,6 +82,43 @@ public sealed record LootScanRequest
         GridReconstructionResult carriedInventory,
         IReadOnlyList<LootScanCandidateRecommendation> recommendations,
         IReadOnlyList<LootScanCarriedPolicy> carriedPolicies)
+        : this(
+            scanId,
+            captureSessionId,
+            correlationId,
+            context,
+            artifactId,
+            decodeRevision,
+            sourceContentSha256,
+            reviewedContentSha256,
+            initiatingDeviceId,
+            evaluatedUtc,
+            recommendationContext,
+            visibleLoot,
+            [new(CarriedGridIdentity.PrimaryBackpack, carriedInventory)],
+            carriedCoverageComplete: true,
+            recommendations,
+            carriedPolicies)
+    {
+    }
+
+    public LootScanRequest(
+        string scanId,
+        CaptureSessionId captureSessionId,
+        CaptureCorrelationId correlationId,
+        CaptureContextMetadata context,
+        string artifactId,
+        int decodeRevision,
+        string sourceContentSha256,
+        string reviewedContentSha256,
+        string initiatingDeviceId,
+        DateTimeOffset evaluatedUtc,
+        LootScanRecommendationContext recommendationContext,
+        GridReconstructionResult visibleLoot,
+        IReadOnlyList<CarriedGridReconstructionResult> carriedGrids,
+        bool carriedCoverageComplete,
+        IReadOnlyList<LootScanCandidateRecommendation> recommendations,
+        IReadOnlyList<LootScanCarriedPolicy> carriedPolicies)
     {
         ScanId = Required(scanId, nameof(scanId), 128);
         CaptureSessionId = captureSessionId.Value != Guid.Empty
@@ -112,19 +149,43 @@ public sealed record LootScanRequest
             : throw new ArgumentException("Loot-scan evaluation time must be UTC.", nameof(evaluatedUtc));
         RecommendationContext = recommendationContext ?? throw new ArgumentNullException(nameof(recommendationContext));
         VisibleLoot = visibleLoot ?? throw new ArgumentNullException(nameof(visibleLoot));
-        CarriedInventory = carriedInventory ?? throw new ArgumentNullException(nameof(carriedInventory));
+        ArgumentNullException.ThrowIfNull(carriedGrids);
         if (visibleLoot.Surface != InventoryGridSurface.VisibleLoot)
         {
             throw new ArgumentException("The loot result must describe the visible-loot grid.", nameof(visibleLoot));
         }
 
-        if (carriedInventory.Surface != InventoryGridSurface.CarriedInventory)
+        if (carriedGrids.Any(carried => carried is null || carried.Reconstruction.Surface != InventoryGridSurface.CarriedInventory))
         {
-            throw new ArgumentException("The carried result must describe carried inventory.", nameof(carriedInventory));
+            throw new ArgumentException("Every carried result must describe carried inventory.", nameof(carriedGrids));
         }
 
+        if (carriedGrids.Select(carried => carried.Identity).Distinct().Count() != carriedGrids.Count)
+        {
+            throw new ArgumentException("Carried grid identities must be unique.", nameof(carriedGrids));
+        }
+
+        CarriedGrids = Array.AsReadOnly(carriedGrids.ToArray());
+        HasCompleteCarriedCoverage = carriedCoverageComplete;
+        CarriedInventory = CarriedGrids
+            .FirstOrDefault(carried => carried.Identity == CarriedGridIdentity.PrimaryBackpack)
+            ?.Reconstruction
+            ?? new(
+                GridReconstructionOutcome.NoChange,
+                InventoryGridSurface.CarriedInventory,
+                recognition: null,
+                unresolvedCells: [],
+                issues: []);
+
         EnsureBounded(visibleLoot, LootScanPlannerLimits.MaximumVisibleItems, nameof(visibleLoot));
-        EnsureBounded(carriedInventory, LootScanPlannerLimits.MaximumCarriedItems, nameof(carriedInventory));
+        var carriedItemCount = CarriedGrids.Sum(carried =>
+            (carried.Reconstruction.Recognition?.Cells.Count ?? 0) + carried.Reconstruction.UnresolvedCells.Count);
+        if (carriedItemCount > LootScanPlannerLimits.MaximumCarriedItems)
+        {
+            throw new ArgumentException(
+                $"A loot scan cannot contain more than {LootScanPlannerLimits.MaximumCarriedItems} carried items.",
+                nameof(carriedGrids));
+        }
         Recommendations = CopyDistinct(
             recommendations,
             LootScanPlannerLimits.MaximumVisibleItems,
@@ -133,7 +194,7 @@ public sealed record LootScanRequest
         CarriedPolicies = CopyDistinct(
             carriedPolicies,
             LootScanPlannerLimits.MaximumCarriedItems,
-            item => item.Anchor,
+            item => (item.CarriedGrid, item.Anchor),
             nameof(carriedPolicies));
     }
 
@@ -163,6 +224,10 @@ public sealed record LootScanRequest
 
     public GridReconstructionResult CarriedInventory { get; }
 
+    public IReadOnlyList<CarriedGridReconstructionResult> CarriedGrids { get; }
+
+    public bool HasCompleteCarriedCoverage { get; }
+
     public IReadOnlyList<LootScanCandidateRecommendation> Recommendations { get; }
 
     public IReadOnlyList<LootScanCarriedPolicy> CarriedPolicies { get; }
@@ -179,12 +244,13 @@ public sealed record LootScanRequest
         }
     }
 
-    private static ReadOnlyCollection<T> CopyDistinct<T>(
+    private static ReadOnlyCollection<T> CopyDistinct<T, TKey>(
         IReadOnlyList<T> values,
         int maximum,
-        Func<T, GridCellAddress> key,
+        Func<T, TKey> key,
         string parameterName)
         where T : class
+        where TKey : notnull
     {
         ArgumentNullException.ThrowIfNull(values, parameterName);
         if (values.Count > maximum)
@@ -291,6 +357,8 @@ public sealed record LootScanResult
     public GridRecognition? VisibleLootGrid { get; init; }
 
     public GridRecognition? CarriedGrid { get; init; }
+
+    public IReadOnlyList<CarriedGridRecognition> CarriedGrids { get; init; } = [];
 
     private static ReadOnlyCollection<T> Copy<T>(IReadOnlyList<T> values, int maximum, string parameterName)
         where T : class

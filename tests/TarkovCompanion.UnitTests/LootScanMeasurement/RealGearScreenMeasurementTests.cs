@@ -17,7 +17,7 @@ namespace TarkovCompanion.UnitTests.LootScanMeasurement;
 /// </summary>
 /// <remarks>
 /// The screenshots are a player's own and carry a raid id, so they live outside every checkout
-/// (<c>TARKOV_GEAR_SCREENSHOTS</c>, by default <c>/root/orca/incoming/loot-2026-09-20</c>), and
+    /// (<c>TARKOV_REAL_SCREENSHOTS</c>, with <c>TARKOV_GEAR_SCREENSHOTS</c> kept as an alias), and
 /// so do their labels (<c>&lt;screenshot&gt;.gear-labels.json</c> beside each). Reports only,
 /// never asserts, and skips without the screenshots or the icon corpus.
 /// </remarks>
@@ -28,7 +28,9 @@ public sealed class RealGearScreenMeasurementTests(ITestOutputHelper output)
     [Fact]
     public async Task ReportsWhatTheReaderMakesOfRealGearScreens()
     {
-        var directory = Environment.GetEnvironmentVariable("TARKOV_GEAR_SCREENSHOTS") ?? "/root/orca/incoming/loot-2026-09-20";
+        var directory = Environment.GetEnvironmentVariable("TARKOV_REAL_SCREENSHOTS") ??
+            Environment.GetEnvironmentVariable("TARKOV_GEAR_SCREENSHOTS") ??
+            "/root/orca/incoming/loot-2026-09-20";
         if (!Directory.Exists(directory) || IconCorpus.TryLoad() is not { } corpus)
         {
             output.WriteLine("[gear-screens] skipped: no screenshots or no icon corpus.");
@@ -63,8 +65,27 @@ public sealed class RealGearScreenMeasurementTests(ITestOutputHelper output)
             var labels = await ReadLabelsAsync(path + ".gear-labels.json");
             var loot = await builder.BuildAsync(image, InventoryGridSurface.VisibleLoot, Now);
             await ReportGridAsync("loot", loot, labels, image, index, report, totals);
-            var carried = await builder.BuildCarriedAsync(image, Now);
-            await ReportGridAsync("backpack", carried, labels, image, index, report, totals);
+            var carried = await builder.BuildCarriedGridsAsync(image, Now);
+            report.AppendLine(CultureInfo.InvariantCulture, $"[carried] {carried.Count} grids reconstructed");
+            foreach (var carriedGrid in carried)
+            {
+                var section = carriedGrid.Identity.Kind switch
+                {
+                    CarriedGridKind.Backpack => "backpack",
+                    CarriedGridKind.TacticalRig => "rig",
+                    CarriedGridKind.Pockets => "pockets",
+                    _ => "carried",
+                };
+                await ReportGridAsync(
+                    $"{section}-{carriedGrid.Identity.Index + 1}",
+                    carriedGrid.Reconstruction,
+                    labels,
+                    image,
+                    index,
+                    report,
+                    totals,
+                    section);
+            }
         }
 
         report.AppendLine("=== totals over labelled cells");
@@ -91,11 +112,22 @@ public sealed class RealGearScreenMeasurementTests(ITestOutputHelper output)
         IconReferenceIndex.Snapshot index,
         StringBuilder report,
         Dictionary<string, int> totals)
+        => await ReportGridAsync(section, request, labels, image, index, report, totals, section);
+
+    private static async Task ReportGridAsync(
+        string section,
+        GridReconstructionRequest? request,
+        IReadOnlyList<Label> labels,
+        CapturedImage image,
+        IconReferenceIndex.Snapshot index,
+        StringBuilder report,
+        Dictionary<string, int> totals,
+        string labelSection)
     {
         if (request?.Lattice is not { } lattice)
         {
             report.AppendLine(CultureInfo.InvariantCulture, $"[{section}] no lattice");
-            foreach (var label in labels.Where(label => label.Section == section))
+            foreach (var label in labels.Where(label => label.Section == labelSection))
             {
                 Count(totals, $"{section}.missed-no-lattice");
             }
@@ -114,14 +146,14 @@ public sealed class RealGearScreenMeasurementTests(ITestOutputHelper output)
                 : cell.Item.Candidates.Count > 0
                     ? "refused (" + string.Join(", ", cell.Item.Candidates.Take(3).Select(candidate => candidate.Value.DisplayName.Value + (candidate.Value.Rotated.Value == true ? " turned" : string.Empty))) + ")"
                     : "none";
-            var label = labels.FirstOrDefault(label => label.Section == section && label.Row == cell.Anchor.Row && label.Column == cell.Anchor.Column);
+            var label = labels.FirstOrDefault(label => label.Section == labelSection && label.Row == cell.Anchor.Row && label.Column == cell.Anchor.Column);
             var score = label is null ? "unlabelled" : Score(label, width, height, cell.Item.Value?.CanonicalId.Value);
             Count(totals, $"{section}.{score}");
             var top = await TopAsync(image, bounds.X, bounds.Y, bounds.Width + 1, bounds.Height + 1, width, height, index);
             report.AppendLine(CultureInfo.InvariantCulture, $"  r{cell.Anchor.Row} c{cell.Anchor.Column} {width}x{height} {verdict} [{score}] | {top}");
         }
 
-        foreach (var label in labels.Where(label => label.Section == section &&
+        foreach (var label in labels.Where(label => label.Section == labelSection &&
                      !request.OccupiedCells.Any(cell => cell.Anchor.Row == label.Row && cell.Anchor.Column == label.Column)))
         {
             Count(totals, $"{section}.missed");

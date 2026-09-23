@@ -372,8 +372,11 @@
         <Border Grid.Column="1" Classes="v2-pane">
           <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
             <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="v2-heading-2" Text="{DynamicResource V2.String.LootScan.Backpack}"
-                         AutomationProperties.HeadingLevel="2" />
+              <StackPanel Spacing="2">
+                <TextBlock Classes="v2-heading-2" Text="{Binding CarriedGridTitle}"
+                           AutomationProperties.HeadingLevel="2" />
+                <TextBlock Classes="v2-label" Text="{Binding CarriedSpaceSummary}" />
+              </StackPanel>
               <ContentControl Grid.Column="1" Content="{Binding CarriedGrid}" VerticalAlignment="Center">
                 <ContentControl.ContentTemplate>
                   <DataTemplate x:DataType="vm:LootScanGridViewModel">

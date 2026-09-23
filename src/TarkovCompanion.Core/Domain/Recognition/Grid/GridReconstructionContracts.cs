@@ -15,6 +15,43 @@ public enum InventoryGridSurface
     NonGrid,
 }
 
+/// <summary>The carried section a separately framed Gear-screen grid belongs to.</summary>
+public enum CarriedGridKind
+{
+    Backpack = 1,
+    TacticalRig,
+    Pockets,
+}
+
+/// <summary>
+/// Stable identity for one separately framed carried grid. Several grids of the same kind are
+/// common: a rig can publish one pouch per slot and a backpack can publish more than one grid.
+/// </summary>
+public readonly record struct CarriedGridIdentity
+{
+    public CarriedGridIdentity(CarriedGridKind kind, int index)
+    {
+        Kind = Enum.IsDefined(kind) ? kind : throw new ArgumentOutOfRangeException(nameof(kind));
+        Index = index is >= 0 and < 64 ? index : throw new ArgumentOutOfRangeException(nameof(index));
+    }
+
+    public CarriedGridKind Kind { get; }
+
+    public int Index { get; }
+
+    public static CarriedGridIdentity PrimaryBackpack { get; } = new(CarriedGridKind.Backpack, 0);
+}
+
+/// <summary>One carried grid as read from pixels, before reconstruction.</summary>
+public sealed record CarriedGridReconstructionRequest(
+    CarriedGridIdentity Identity,
+    GridReconstructionRequest Reconstruction)
+{
+    public GridReconstructionRequest Reconstruction { get; } = Reconstruction is { Surface: InventoryGridSurface.CarriedInventory }
+        ? Reconstruction
+        : throw new ArgumentException("A carried-grid request must describe carried inventory.", nameof(Reconstruction));
+}
+
 /// <summary>Whether a reconstruction can replace prior state.</summary>
 public enum GridReconstructionOutcome
 {
@@ -459,4 +496,20 @@ public sealed record GridReconstructionResult
 
         return Array.AsReadOnly(copy);
     }
+}
+
+/// <summary>One separately framed carried grid after safe reconstruction.</summary>
+public sealed record CarriedGridReconstructionResult(
+    CarriedGridIdentity Identity,
+    GridReconstructionResult Reconstruction)
+{
+    public GridReconstructionResult Reconstruction { get; } = Reconstruction is { Surface: InventoryGridSurface.CarriedInventory }
+        ? Reconstruction
+        : throw new ArgumentException("A carried-grid result must describe carried inventory.", nameof(Reconstruction));
+}
+
+/// <summary>One carried grid retained with a Loot Scan result for review presentation.</summary>
+public sealed record CarriedGridRecognition(CarriedGridIdentity Identity, GridRecognition Recognition)
+{
+    public GridRecognition Recognition { get; } = Recognition ?? throw new ArgumentNullException(nameof(Recognition));
 }
