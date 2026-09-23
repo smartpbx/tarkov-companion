@@ -185,19 +185,14 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
         // Issue 602's real cause, made deterministic: the clock reads "before" until the add's
         // write reaches the disk and "two lifetimes later" from then on, which is what a write
         // slower than the ping's remaining life looks like to the store. The timer that follows is
-        // a real one (this clock does not override CreateTimer), so the drop must come from it.
+        // deliberately inert: AddAsync itself must reconcile the expiry rather than return while
+        // a background callback is still racing this assertion and the next process start.
         var before = new DateTimeOffset(2026, 9, 22, 12, 0, 0, TimeSpan.Zero);
         var clock = new WriteSlowerThanLifetimeClock(StorePath, before, before + (2 * MapMarkPolicy.PingLifetime));
-        var store = new JsonFileRaidMarkStore(StorePath, clock);
+        using var store = new JsonFileRaidMarkStore(StorePath, clock);
         await store.AddAsync(RaidMarkKind.Ping, "factory", null, 1, 1, label: null);
 
-        var dropped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        store.Changed += () => dropped.TrySetResult();
-        if (MarksOnDisk() != 0)
-        {
-            await dropped.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        }
-
+        Assert.Empty(store.Marks);
         Assert.Equal(0, MarksOnDisk());
     }
 
@@ -236,5 +231,22 @@ public sealed class JsonFileRaidMarkStoreTests : IDisposable
     private sealed class WriteSlowerThanLifetimeClock(string path, DateTimeOffset before, DateTimeOffset after) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => File.Exists(path) ? after : before;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period) => new InertTimer();
+    }
+
+    private sealed class InertTimer : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+        public void Dispose()
+        {
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
