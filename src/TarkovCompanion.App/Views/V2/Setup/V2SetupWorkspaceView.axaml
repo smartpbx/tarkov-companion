@@ -166,6 +166,32 @@
          stay together, as they do in V1. -->
     <Border Classes="v2-card v2-setup-section" IsVisible="{Binding IsProgressSelected}">
       <StackPanel Classes="v2-stack">
+        <StackPanel Classes="v2-stack" IsVisible="{Binding HasRecommendationHorizons}">
+          <TextBlock Classes="v2-heading-2" Text="{Binding RecommendationHorizons.Heading}"
+                     AutomationProperties.HeadingLevel="2" />
+          <TextBlock Classes="v2-label" Text="{Binding RecommendationHorizons.Hint}" TextWrapping="Wrap" />
+          <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.QuestLabel}" />
+          <ItemsControl ItemsSource="{Binding RecommendationHorizons.QuestChoices}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
+                <Button Classes="v2-target" Margin="0,0,8,6" Content="{Binding DisplayLabel}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="v2-body" Text="{Binding RecommendationHorizons.HideoutLabel}" />
+          <ItemsControl ItemsSource="{Binding RecommendationHorizons.HideoutChoices}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:RecommendationHorizonChoiceViewModel">
+                <Button Classes="v2-target" Margin="0,0,8,6" Content="{Binding DisplayLabel}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}" Command="{Binding ChooseCommand}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border Height="1" Background="{DynamicResource V2.Brush.Border}" Margin="0,4,0,8" />
+        </StackPanel>
         <Panel IsVisible="{Binding HasQuestSync}">
           <setup:QuestScreenshotSyncView DataContext="{Binding QuestSync}" />
         </Panel>

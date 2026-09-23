@@ -189,6 +189,17 @@ public sealed class V2SetupWorkspaceViewModel : BindableViewModel
 
     public bool HasQuestSync => QuestSync is not null;
 
+    public RecommendationHorizonSettingsViewModel? RecommendationHorizons { get; private set; }
+
+    public bool HasRecommendationHorizons => RecommendationHorizons is not null;
+
+    public void AttachRecommendationHorizons(RecommendationHorizonSettingsViewModel recommendations)
+    {
+        RecommendationHorizons = recommendations ?? throw new ArgumentNullException(nameof(recommendations));
+        OnPropertyChanged(nameof(RecommendationHorizons));
+        OnPropertyChanged(nameof(HasRecommendationHorizons));
+    }
+
     /// <summary>The relay clock warning, shared verbatim with Team &gt; Tablet.</summary>
     public CompanionPairingViewModel? Pairing { get; private set; }
 

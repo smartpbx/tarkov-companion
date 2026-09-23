@@ -201,7 +201,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #287 (event state on items): same reasoning again.
         IIntelEventStateCatalog? intelEventStates = null,
         // #667: Setup's screenshot quest onboarding, absent in lightweight shell tests.
-        QuestScreenshotSyncViewModel? questSync = null)
+        QuestScreenshotSyncViewModel? questSync = null,
+        // #274: persisted quest/hideout look-ahead controls in Setup > Progress.
+        RecommendationHorizonSettingsViewModel? recommendationHorizons = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -245,6 +247,11 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             SetupWorkspace.AttachQuestSync(questSync);
             _questSync = questSync;
             _questSync.PropertyChanged += QuestSyncPropertyChanged;
+        }
+
+        if (recommendationHorizons is not null && SetupWorkspace is not null)
+        {
+            SetupWorkspace.AttachRecommendationHorizons(recommendationHorizons);
         }
 
         if (preferences is not null && SetupWorkspace is not null)

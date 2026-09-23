@@ -49,7 +49,8 @@ public sealed record StashSortPlan(
 public sealed class StashPlanSource(
     LootScanRecommendationSource facts,
     ExplainableRecommendationEngine? engine = null,
-    StashOrganizationPlanner? planner = null)
+    StashOrganizationPlanner? planner = null,
+    RecommendationPolicyService? policies = null)
 {
     private static readonly ProducerIdentity Producer = new("Tarkov Companion stash plan", "stash-plan-source-1");
 
@@ -94,6 +95,7 @@ public sealed class StashPlanSource(
             profile.Context.Identity.Generation,
             profile.Context.Mode.ToString());
         var (rates, needs) = await _facts.ReadSharedFactsAsync(cancellationToken).ConfigureAwait(false);
+        var recommendationEngine = policies?.CreateEngine() ?? _engine;
         var inputs = new List<StashPlanningItemInput>();
         var reasons = new Dictionary<string, IReadOnlyList<RecommendationReason>>(StringComparer.Ordinal);
         var tiles = reconstruction.Containers
@@ -134,7 +136,7 @@ public sealed class StashPlanSource(
             RecommendationResult? recommendation = null;
             if (read is not null && (kind == StashSpecialistIntelligenceKind.None || IsHeldByChoice(read)))
             {
-                recommendation = _engine.Evaluate(
+                recommendation = recommendationEngine.Evaluate(
                     new ExplainableRecommendationRequest(
                         $"stash-plan-{tile.ItemKey}",
                         itemId,

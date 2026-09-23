@@ -35,6 +35,7 @@ using TarkovCompanion.Application.Services.Personalization;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Recommendations;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
@@ -415,6 +416,10 @@ public static class AppComposition
         services.AddSingleton<IWorkspacePreferenceStore>(_ =>
             new JsonFileWorkspacePreferenceStore(Path.Combine(paths.Config, "preferences.json")));
         services.AddSingleton<WorkspacePreferenceService>();
+        services.AddSingleton<IRecommendationPolicyStore>(_ =>
+            new JsonFileRecommendationPolicyStore(Path.Combine(paths.Config, "recommendations.json")));
+        services.AddSingleton<RecommendationPolicyService>();
+        services.AddSingleton<RecommendationHorizonSettingsViewModel>();
         // [V2 rough package 60 — Plan] #288: saved kits, so a loadout survives closing the page.
         services.AddSingleton<ILoadoutPresetStore>(_ =>
             new JsonFileLoadoutPresetStore(Path.Combine(paths.Config, "loadouts.json")));
@@ -911,7 +916,9 @@ public static class AppComposition
         services.AddSingleton(provider => new FleaCaptureHandoff(
             provider.GetRequiredService<IItemRepository>(),
             provider.GetRequiredService<IItemMarketFactSource>(),
-            provider.GetService<Microsoft.Extensions.Logging.ILogger<FleaCaptureHandoff>>()));
+            provider.GetService<Microsoft.Extensions.Logging.ILogger<FleaCaptureHandoff>>(),
+            engine: null,
+            policies: provider.GetRequiredService<RecommendationPolicyService>()));
         services.AddSingleton<CompositeCaptureResultHandoff>();
         services.AddSingleton<ICaptureResultHandoff>(provider =>
             provider.GetRequiredService<CompositeCaptureResultHandoff>());

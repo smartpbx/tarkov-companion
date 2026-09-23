@@ -89,6 +89,33 @@ public sealed class ExplainableRecommendationEngineTests
     }
 
     [Fact]
+    public async Task PersistedHorizonsChangeFutureNeedsForNewEngineEvaluations()
+    {
+        var store = new RecordingPolicyStore(new(
+            RecommendationHorizon.NextOnly,
+            RecommendationHorizon.NextOnly));
+        var policies = new RecommendationPolicyService(store);
+        await policies.LoadAsync(CancellationToken.None);
+        var request = Request(profile: Profile(needs:
+        [
+            Need("future", RecommendationNeedPurpose.Quest, 4, 1),
+        ]));
+
+        var near = policies.CreateEngine().Evaluate(request).Decision.Value!;
+        await policies.UpdateAsync(
+            new(RecommendationHorizon.NextFive, RecommendationHorizon.NextOnly),
+            CancellationToken.None);
+        var farther = policies.CreateEngine().Evaluate(request).Decision.Value!;
+
+        Assert.True(near.Action is V2Action.SellOnFlea or V2Action.SellToTrader);
+        Assert.Equal(V2Action.Keep, farther.Action);
+        Assert.Contains(farther.Reasons, reason => reason.Code == "need.quest-future.future");
+        Assert.Equal(5, policies.CurrentPolicy.FutureQuestSteps);
+        Assert.Equal(1, policies.CurrentPolicy.FutureHideoutSteps);
+        Assert.Equal(policies.CurrentSettings, Assert.Single(store.Saved));
+    }
+
+    [Fact]
     public void PartialPositiveHoldingsSubtractButAnUnseenItemNeverBecomesZero()
     {
         var need = Need("quest", RecommendationNeedPurpose.Quest, 0, 3);
@@ -1572,4 +1599,18 @@ public sealed class ExplainableRecommendationEngineTests
     private static ResultStatus CompleteStatus { get; } = new(
         ResultCompleteness.Complete,
         FreshnessState.Current);
+
+    private sealed class RecordingPolicyStore(RecommendationHorizonSettings loaded) : IRecommendationPolicyStore
+    {
+        public List<RecommendationHorizonSettings> Saved { get; } = [];
+
+        public Task<RecommendationHorizonSettings> GetAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(loaded);
+
+        public Task SaveAsync(RecommendationHorizonSettings settings, CancellationToken cancellationToken)
+        {
+            Saved.Add(settings);
+            return Task.CompletedTask;
+        }
+    }
 }
