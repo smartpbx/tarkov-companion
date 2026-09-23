@@ -388,6 +388,9 @@
           <Border Classes="v2-intel-section">
             <StackPanel Spacing="10">
               <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2" Text="{Binding IntelVerdictHeadline}" />
+              <TextBlock Classes="v2-label" TextWrapping="Wrap" IsVisible="{Binding HasIntelRecommendation}"
+                         Text="{Binding IntelRecommendationReason}"
+                         AutomationProperties.AutomationId="v2-intel-recommendation-reason" />
               <ItemsControl ItemsSource="{Binding IntelNeedLines}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:V2IntelNeedLineViewModel">

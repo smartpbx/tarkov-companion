@@ -2,6 +2,7 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
@@ -13,6 +14,26 @@ namespace TarkovCompanion.UnitTests.Intel;
 public sealed class ItemIntelServiceTests
 {
     private static readonly DataProvenance Provenance = new("test", DateTimeOffset.UnixEpoch);
+
+    [Fact]
+    public async Task ItemCardCarriesTheSharedEngineVerdictAndReason()
+    {
+        var item = Item("item-bandage", "Bandage", ItemCategory.Medicine);
+        var expected = new V2ItemRecommendation(
+            RecommendationAction.UseSoon,
+            "Use soon",
+            "A prior result marked this event item safe to consume.",
+            "recommendation-274.2");
+        var service = new ItemIntelService(
+            new FakeItemRepository([item]),
+            new FakeQuestProgressService(new(0, 0, 0)),
+            new FakeItemFactCatalog(),
+            recommendations: new FakeRecommendationAdvisor(expected));
+
+        var result = await service.GetAsync(item.Id, CancellationToken.None);
+
+        Assert.Same(expected, result.Recommendation);
+    }
 
     [Fact]
     public async Task UnknownItemReturnsNotFound()
@@ -335,6 +356,15 @@ public sealed class ItemIntelServiceTests
 
         public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken) =>
             Task.FromResult(price);
+    }
+
+    private sealed class FakeRecommendationAdvisor(V2ItemRecommendation recommendation) : IItemRecommendationAdvisor
+    {
+        public Task<IReadOnlyDictionary<string, V2ItemRecommendation>> GetAsync(
+            IReadOnlyCollection<string> itemIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, V2ItemRecommendation>>(
+                itemIds.ToDictionary(itemId => itemId, _ => recommendation, StringComparer.Ordinal));
     }
 
     private sealed class FakeMapData(params (string Id, string Name)[] maps) : IMapDataService

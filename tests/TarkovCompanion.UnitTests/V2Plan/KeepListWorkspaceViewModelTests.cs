@@ -1,8 +1,10 @@
 using TarkovCompanion.App.ViewModels.V2.Plan;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
@@ -14,6 +16,33 @@ namespace TarkovCompanion.UnitTests.V2Plan;
 
 public sealed class KeepListWorkspaceViewModelTests
 {
+    [Fact]
+    public async Task A_row_shows_the_shared_engine_verdict_and_short_reason()
+    {
+        var requirements = new FakeRequirementCatalog
+        {
+            QuestRequirements = [new("gunsmith-4", "obj-1", "item-spring", 2, false)],
+        };
+        var expected = new V2ItemRecommendation(
+            RecommendationAction.Keep,
+            "Keep",
+            "Keep 2 more for Gunsmith Part 4 (current).",
+            "recommendation-274.2");
+        var viewModel = new KeepListWorkspaceViewModel(
+            requirements,
+            new FakePlayerProfileService(TestProfile()),
+            new FakeItemRepository().WithName("item-spring", "Spring"),
+            new FakeItemFactCatalog(),
+            new FakeQuestReadService([Quest("gunsmith-4", "Gunsmith Part 4", RecordedTaskState.Active)], requirements),
+            new FakeRecommendationAdvisor(expected));
+
+        await viewModel.RefreshAsync();
+
+        var row = Assert.Single(Assert.Single(viewModel.Groups).Items);
+        Assert.Equal("Keep", row.RecommendationVerdict);
+        Assert.Equal(expected.Reason, row.ReasonSummary);
+    }
+
     [Fact]
     public async Task An_item_a_tracked_quest_needs_sorts_first_and_names_the_quest()
     {
@@ -513,6 +542,15 @@ public sealed class KeepListWorkspaceViewModelTests
         public void Invalidate()
         {
         }
+    }
+
+    private sealed class FakeRecommendationAdvisor(V2ItemRecommendation recommendation) : IItemRecommendationAdvisor
+    {
+        public Task<IReadOnlyDictionary<string, V2ItemRecommendation>> GetAsync(
+            IReadOnlyCollection<string> itemIds,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, V2ItemRecommendation>>(
+                itemIds.ToDictionary(itemId => itemId, _ => recommendation, StringComparer.Ordinal));
     }
 
     private sealed class FakeItemFactCatalog : IItemFactCatalog

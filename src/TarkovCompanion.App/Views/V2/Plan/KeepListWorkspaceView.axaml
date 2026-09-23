@@ -73,7 +73,13 @@
                         <Border Classes="v2-keep-row" Margin="0,0,0,6">
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                             <StackPanel Spacing="2">
-                              <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                <Border Grid.Column="1" Classes="v2-keep-chip" IsVisible="{Binding HasRecommendation}"
+                                        AutomationProperties.AutomationId="v2-keep-recommendation">
+                                  <TextBlock Classes="v2-label" Text="{Binding RecommendationVerdict}" />
+                                </Border>
+                              </Grid>
                               <TextBlock Classes="v2-label" Text="{Binding ReasonSummary}" TextWrapping="Wrap"
                                          Foreground="{DynamicResource V2.Brush.TextSecondary}" />
                               <WrapPanel Orientation="Horizontal" IsVisible="{Binding HasCounts}" Margin="0,2,0,0">

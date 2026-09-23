@@ -3,6 +3,7 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Quests;
@@ -105,6 +106,31 @@ public sealed record V2IntelKeepFacts(
     IReadOnlyList<V2IntelQuestNeedRow> Quests,
     IReadOnlyList<V2IntelHideoutNeedRow> Hideout);
 
+/// <summary>The recommendation engine's compact answer for every item-card surface.</summary>
+public sealed record V2ItemRecommendation(
+    RecommendationAction Action,
+    string Verdict,
+    string Reason,
+    string RulesetVersion);
+
+/// <summary>
+/// Resolves item-card recommendations in one batch so list surfaces and individual Intel cards
+/// use the same profile facts, policy and wording without each reproducing the rules engine.
+/// </summary>
+public interface IItemRecommendationAdvisor
+{
+    Task<IReadOnlyDictionary<string, V2ItemRecommendation>> GetAsync(
+        IReadOnlyCollection<string> itemIds,
+        CancellationToken cancellationToken);
+
+    async Task<V2ItemRecommendation?> GetAsync(string itemId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        var results = await GetAsync([itemId], cancellationToken).ConfigureAwait(false);
+        return results.GetValueOrDefault(itemId);
+    }
+}
+
 public sealed record V2ItemIntelResult(
     V2IntelKind Kind,
     string ItemId,
@@ -120,7 +146,8 @@ public sealed record V2ItemIntelResult(
     V2IntelAmmoFacts? Ammo = null,
     string Description = "",
     V2IntelPriceFacts? Prices = null,
-    V2IntelKeepFacts? Keep = null)
+    V2IntelKeepFacts? Keep = null,
+    V2ItemRecommendation? Recommendation = null)
 {
     public static V2ItemIntelResult NotFound(string itemId) =>
         new(V2IntelKind.Unknown, itemId, itemId, itemId, null, ItemCategory.Unknown, 0, 0, false);
@@ -157,7 +184,8 @@ public sealed class ItemIntelService(
     ProfileNeedAggregationService? needAggregation = null,
     IRequirementCatalog? requirements = null,
     IItemMarketFactSource? marketFacts = null,
-    IPriceHistoryService? priceHistory = null) : IItemIntelService
+    IPriceHistoryService? priceHistory = null,
+    IItemRecommendationAdvisor? recommendations = null) : IItemIntelService
 {
     public async Task<V2ItemIntelResult> GetAsync(string itemId, CancellationToken cancellationToken)
     {
@@ -173,6 +201,9 @@ public sealed class ItemIntelService(
         var value = ValueFacts(price, needs);
         var prices = await PriceFactsAsync(itemId, price, cancellationToken).ConfigureAwait(false);
         var keep = await KeepFactsAsync(itemId, cancellationToken).ConfigureAwait(false);
+        var recommendation = recommendations is null
+            ? null
+            : await recommendations.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
 
         return item.Category switch
         {
@@ -180,7 +211,7 @@ public sealed class ItemIntelService(
                 await BuildAmmoAsync(item, value, cancellationToken).ConfigureAwait(false),
             ItemCategory.Key => await BuildKeyAsync(item, value, cancellationToken).ConfigureAwait(false),
             _ => Base(V2IntelKind.Item, item, value),
-        } with { Description = item.Description, Prices = prices, Keep = keep };
+        } with { Description = item.Description, Prices = prices, Keep = keep, Recommendation = recommendation };
     }
 
     public async Task<ItemComparisonFacts> GetComparisonFactsAsync(string itemId, CancellationToken cancellationToken)

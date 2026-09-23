@@ -305,13 +305,19 @@ public sealed partial class V2ShellViewModel
     // paths).
     public int IntelKeepCount => V2IntelNeed.Remaining(_intelResult);
     public bool IntelIsNeeded => IntelKeepCount > 0 || _intelResult?.Keep?.Quests.Count > 0;
-    public string IntelVerdictHeadline => !IntelHasResult
+    public string IntelVerdictHeadline => _intelResult?.Recommendation is { } recommendation
+        ? recommendation.Verdict
+        : !IntelHasResult
         ? string.Empty
         : IntelKeepCount > 0
             ? V2ShellText.Format("V2.Shell.Intel.Verdict.Keep", CultureInfo.CurrentCulture, IntelKeepCount)
             : IntelIsNeeded
                 ? V2ShellText.Get("V2.Shell.Intel.Verdict.KeepSome")
                 : V2ShellText.Get("V2.Shell.Intel.Verdict.NoNeed");
+
+    public string IntelRecommendationReason => _intelResult?.Recommendation?.Reason ?? string.Empty;
+
+    public bool HasIntelRecommendation => IntelRecommendationReason.Length > 0;
 
     public IReadOnlyList<V2IntelNeedLineViewModel> IntelNeedLines
     {
@@ -600,7 +606,8 @@ public sealed partial class V2ShellViewModel
             nameof(ShowsIntelContextPanel),
             nameof(IntelName), nameof(IntelSubtitle), nameof(IntelItemDescription), nameof(HasIntelItemDescription),
             nameof(IntelSlotCells), nameof(IntelSlotColumns), nameof(IntelSlotsLabel),
-            nameof(IntelKeepCount), nameof(IntelIsNeeded), nameof(IntelVerdictHeadline), nameof(IntelNeedLines),
+            nameof(IntelKeepCount), nameof(IntelIsNeeded), nameof(IntelVerdictHeadline), nameof(IntelRecommendationReason),
+            nameof(HasIntelRecommendation), nameof(IntelNeedLines),
             nameof(IntelBestSaleLabel), nameof(IntelHasPrices), nameof(IntelHasNoPrices), nameof(IntelFleaPriceLabel),
             nameof(IntelPriceUpdatedLabel), nameof(IntelHasTraderPrice), nameof(IntelTraderPriceLabel),
             nameof(IntelTraderCaption), nameof(IntelHas24HourRange), nameof(Intel24HourRange), nameof(IntelPriceSources),
