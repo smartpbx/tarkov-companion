@@ -108,6 +108,13 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
                 };
                 if (requestedWindowSize is { } size)
                 {
+                    // Verification owns this window's bounds. The XAML minimum is the player's
+                    // normal desktop floor, but it also made Windows coerce the gallery's 560px
+                    // responsive-layout probe back to 1120px before MoveWindow could settle it.
+                    // Remove the constraint only for this explicit tool launch; the harness still
+                    // applies the final physical-pixel bounds after the window becomes responsive.
+                    window.MinWidth = 0;
+                    window.MinHeight = 0;
                     window.Width = size.Width;
                     window.Height = size.Height;
                 }
