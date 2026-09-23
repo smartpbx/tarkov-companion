@@ -292,6 +292,10 @@ internal static class Program
                 UiStallMeter.Enable(stallMs);
             }
 
+            // [#270] --db-thread-guard / --hold-db-write <ms>: statements on the interface thread, and a writer to wait behind.
+            DbWaitProbe.EnableGuardIfAsked(args);
+            DbWaitProbe.StartHoldIfAsked(args, services);
+
             Task? initializing = null;
             UiStallMeter.Time(() => initializing = viewModel.InitializeAsync());
             DrainUntilComplete(initializing!);
@@ -2221,6 +2225,7 @@ internal static class Program
             if (shell is not null && args.Contains("--stall-tour"))
             {
                 StallTour.Run(window, viewModel, shell, services, args);
+                DbWaitProbe.Stop();
             }
 
             if (shell is not null && IntOption(args, "--raid-soak", 0) is var soakSeconds and > 0)

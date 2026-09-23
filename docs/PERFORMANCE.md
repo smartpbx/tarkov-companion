@@ -167,6 +167,13 @@ whole through `OffInterfaceThread.Run`. Measure with the render tool's `--ui-sta
 `--ui-stalls-before-show` to leave first layout out of it): startup's longest dispatcher turn went
 from 2.3-3.1 s to 0.3-0.9 s over three runs each, headless, on a box at load 9.
 
+#270: that hop was a race. A pooled open often finished before the caller reached its `await`, and
+an await on a finished task continues inline, so the queries ran on the interface thread anyway.
+`OpenAsync` now returns `SqliteOpening`, which always resumes a non-pool caller on the pool. Find
+offenders with `--db-thread-guard` (every statement started on the interface thread, with its stack;
+Debug builds of the app, or `TARKOV_DB_THREAD_GUARD=1`, write the same to the crash log) and
+`--hold-db-write <ms>` (another connection holds the write lock that long, over and over).
+
 ## The Raid page froze with a squad sharing (#453, build 2.0.1353)
 
 Clayton's log from 2.0.1353 has 175 `ui-hang-recovered` records, all on `#/raid`, 5 to 237 s each,

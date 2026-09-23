@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Data.Sqlite;
 
 namespace TarkovCompanion.Infrastructure.Persistence;
@@ -105,11 +106,18 @@ public sealed class SqliteConnectionFactory(SqliteDatabaseOptions options)
     /// tool's main thread has none outside a dispatcher operation, and the first version of this,
     /// which asked for one, left Plan's whole read on that thread. A background service already on
     /// the pool gains nothing from another hop and does not take one.
+    ///
+    /// #270: it returns <see cref="SqliteOpening"/>, not a task, because a task could not keep that
+    /// promise. A pooled open takes microseconds, so the pool could finish it before the caller
+    /// reached its <c>await</c>; an await on a finished task does not wait, and the whole repository
+    /// call then ran on the interface thread after all. The render tool's thread guard caught the
+    /// map's quest-progress read doing exactly that, <c>BEGIN</c> included, on a loaded host. The
+    /// opening never lets a caller that is not a pool thread continue inline.
     /// </remarks>
-    public Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken) =>
+    public SqliteOpening OpenAsync(CancellationToken cancellationToken) =>
         Thread.CurrentThread.IsThreadPoolThread
-            ? OpenCoreAsync(cancellationToken)
-            : Task.Run(() => OpenCoreAsync(cancellationToken), cancellationToken);
+            ? new(OpenCoreAsync(cancellationToken), leaveCaller: false)
+            : new(Task.Run(() => OpenCoreAsync(cancellationToken), cancellationToken), leaveCaller: true);
 
     private async Task<SqliteConnection> OpenCoreAsync(CancellationToken cancellationToken)
     {
@@ -122,6 +130,7 @@ public sealed class SqliteConnectionFactory(SqliteDatabaseOptions options)
         var connection = new SqliteConnection(options.ConnectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         Track(connection);
+        SqliteInterfaceThreadGuard.Attach(connection);
 
         await using var command = connection.CreateCommand();
         command.CommandText = options.OpenPragmas;
@@ -152,5 +161,74 @@ public sealed class SqliteConnectionFactory(SqliteDatabaseOptions options)
                 Interlocked.Decrement(ref _openConnections);
             }
         };
+    }
+}
+
+/// <summary>
+/// A connection being opened, awaited like a task, whose continuation never runs on the thread that
+/// asked for it unless that thread is a pool thread.
+/// </summary>
+/// <remarks>
+/// #270. <see cref="SqliteConnectionFactory.OpenAsync"/> starts the open on the pool so that the rest
+/// of a repository call — every query, and every wait for another writer's lock — runs there too.
+/// With a plain task that held only while the open was still running when the caller awaited it:
+/// a finished task makes <c>await</c> continue inline, on the interface thread. This awaiter reports
+/// itself unfinished to such a caller and resumes it on the pool, so how quickly the open happened
+/// to finish no longer decides which thread the queries run on. <c>ConfigureAwait</c> is accepted,
+/// because every repository writes it, and changes nothing: coming back to the caller's context is
+/// exactly what this exists to prevent.
+/// </remarks>
+public readonly struct SqliteOpening
+{
+    private readonly Task<SqliteConnection> _task;
+    private readonly bool _leaveCaller;
+
+    internal SqliteOpening(Task<SqliteConnection> task, bool leaveCaller)
+    {
+        _task = task;
+        _leaveCaller = leaveCaller;
+    }
+
+    public SqliteOpening ConfigureAwait(bool continueOnCapturedContext) => this;
+
+    public Awaiter GetAwaiter() => new(_task, _leaveCaller);
+
+    public readonly struct Awaiter : ICriticalNotifyCompletion
+    {
+        private readonly Task<SqliteConnection> _task;
+        private readonly bool _leaveCaller;
+
+        internal Awaiter(Task<SqliteConnection> task, bool leaveCaller)
+        {
+            _task = task;
+            _leaveCaller = leaveCaller;
+        }
+
+        public bool IsCompleted => _task.IsCompleted && (!_leaveCaller || Thread.CurrentThread.IsThreadPoolThread);
+
+        /// <summary>The connection; blocks until it is open when called before the open finished.</summary>
+        public SqliteConnection GetResult() => _task.GetAwaiter().GetResult();
+
+        public void OnCompleted(Action continuation)
+        {
+            if (_task.IsCompleted)
+            {
+                ThreadPool.QueueUserWorkItem(static next => next(), continuation, preferLocal: false);
+                return;
+            }
+
+            _task.ConfigureAwait(false).GetAwaiter().OnCompleted(continuation);
+        }
+
+        public void UnsafeOnCompleted(Action continuation)
+        {
+            if (_task.IsCompleted)
+            {
+                ThreadPool.UnsafeQueueUserWorkItem(static next => next(), continuation, preferLocal: false);
+                return;
+            }
+
+            _task.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(continuation);
+        }
     }
 }
