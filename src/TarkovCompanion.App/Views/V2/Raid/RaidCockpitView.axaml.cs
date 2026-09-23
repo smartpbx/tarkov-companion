@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.App.Views.V2.MapRenderer;
@@ -28,17 +29,45 @@ public sealed partial class RaidCockpitView : UserControl
     /// </remarks>
     private void RendererPlanRightClicked(object? sender, MapPlanGesture gesture)
     {
-        if (DataContext is RaidCockpitViewModel cockpit)
+        if (DataContext is not RaidCockpitViewModel cockpit)
         {
-            cockpit.PlaceMarkAt(gesture.Point, RaidCockpitViewModel.MarkKindFor(gesture.IsSecondary));
+            return;
         }
+
+        // #289: Ctrl asks which lifetime, for the times a ping or a forever waypoint is wrong.
+        if (gesture.IsMenu && sender is Control host)
+        {
+            RaidMarkMenu.ForPlacement(lifetime => cockpit.PlaceMarkAt(gesture.Point, lifetime), cockpit.NewMarkScope)
+                .ShowAt(host, showAtPointer: true);
+            return;
+        }
+
+        cockpit.PlaceMarkAt(gesture.Point, RaidCockpitViewModel.MarkKindFor(gesture.IsSecondary));
     }
 
     private void RendererMarkerRightClicked(object? sender, MapSceneObjectId objectId)
     {
-        if (DataContext is RaidCockpitViewModel cockpit)
+        if (DataContext is not RaidCockpitViewModel cockpit)
         {
-            cockpit.RemoveMarkAt(objectId);
+            return;
+        }
+
+        // #289: a mark of ours opens its menu (Remove first, then scope and lifetime); anything
+        // else keeps its one-gesture meaning.
+        if (cockpit.OwnMarkRow(objectId) is { } row && sender is Control host)
+        {
+            RaidMarkMenu.ForMark(row).ShowAt(host, showAtPointer: true);
+            return;
+        }
+
+        cockpit.RemoveMarkAt(objectId);
+    }
+
+    private void MarkOptionsClicked(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is Control { DataContext: RaidMarkRowViewModel row } button)
+        {
+            RaidMarkMenu.ForMark(row).ShowAt(button);
         }
     }
 

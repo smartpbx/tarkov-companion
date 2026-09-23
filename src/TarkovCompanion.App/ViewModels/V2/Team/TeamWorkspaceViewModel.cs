@@ -710,10 +710,11 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                 Number = numbered.ToString(CultureInfo.CurrentCulture),
                 Title = string.IsNullOrWhiteSpace(waypoint.Label) ? $"Waypoint {numbered}" : waypoint.Label!,
                 Detail = JoinDetail(MapLabel(waypoint.MapId), age),
+                // #289: scope and time first, so a narrow panel trims the author rather than them.
                 MetadataLabel = JoinDetail(
+                    "Scope · squad",
+                    OwnMarkTtl(waypoint.Id, now) ?? "TTL · until removed",
                     reached ? $"By · {waypoint.By} · reached by {waypoint.Reached}" : $"By · {waypoint.By}",
-                    "TTL · until removed",
-                    "Scope · team",
                     reconnecting ? "Offline snapshot" : string.Empty),
             });
         }
@@ -737,13 +738,14 @@ public sealed partial class TeamWorkspaceViewModel : BindableViewModel
                     new RemovedMark(ping.MapId, new WorldPosition(ping.X, ping.Y, ping.Z), ping.Label, IsPing: true, "Ping"))),
                 Detail = JoinDetail(MapLabel(ping.MapId), $"{GroupSessionService.Ago(elapsed)} ago"),
                 MetadataLabel = JoinDetail(
+                    "Scope · squad",
+                    OwnMarkTtl(ping.Id, now) ?? $"TTL · {(remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring")}",
                     $"By · {ping.By}",
-                    $"TTL · {(remaining > TimeSpan.Zero ? $"{GroupSessionService.Ago(remaining)} left" : "expiring")}",
-                    "Scope · team",
                     reconnecting ? "Offline snapshot" : string.Empty),
             });
         }
 
+        marks.AddRange(PrivateMarkRows(now));
         Marks = marks;
         Waypoints = marks.Where(mark => mark.Number is not null).ToArray();
         Pings = marks.Where(mark => mark.Number is null).ToArray();

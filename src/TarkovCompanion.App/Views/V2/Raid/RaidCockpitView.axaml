@@ -1143,8 +1143,21 @@
               </StackPanel>
             </Expander.Header>
               <StackPanel Spacing="8">
+                <!-- #289: the scope a new mark gets. Squad while group sharing is on. -->
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Classes="v2-label" Text="New marks" VerticalAlignment="Center" />
+                  <ToggleButton Classes="v2-target" Content="Just me" IsChecked="{Binding NewMarksAreJustMe, Mode=OneWay}"
+                                Command="{Binding NewMarksJustMeCommand}"
+                                AutomationProperties.AutomationId="v2-raid-new-marks-just-me" />
+                  <ToggleButton Classes="v2-target" Content="Squad" IsChecked="{Binding NewMarksAreSquad, Mode=OneWay}"
+                                Command="{Binding NewMarksSquadCommand}"
+                                AutomationProperties.AutomationId="v2-raid-new-marks-squad" />
+                </StackPanel>
+                <TextBlock Classes="v2-label" IsVisible="{Binding HasMarkNote}" Text="{Binding MarkNote}"
+                           Foreground="{DynamicResource V2.Brush.Warning}"
+                           AutomationProperties.AutomationId="v2-raid-mark-note" />
                 <TextBlock Classes="v2-label" IsVisible="{Binding !HasMarks}"
-                           Text="No marks yet. Right-click the map to ping, shift+right-click for a waypoint, right-click a mark to remove it." TextWrapping="Wrap" />
+                           Text="Right-click: ping. Shift: waypoint. Ctrl: pick a lifetime. Right-click a mark for options." TextWrapping="Wrap" />
                 <ItemsControl ItemsSource="{Binding Marks}">
                   <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate><StackPanel Spacing="6" /></ItemsPanelTemplate>
@@ -1166,6 +1179,13 @@
                                        IsVisible="{Binding HasOwner}" Text="{Binding Owner}" />
                             <Button Grid.Column="4" Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
                                     AutomationProperties.AutomationId="v2-raid-mark-remove" />
+                          </Grid>
+                          <!-- #289: who sees it and how long it has left, and the menu that changes both. -->
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding CanChangeOptions}">
+                            <TextBlock Classes="v2-label" Text="{Binding OptionsLabel}" VerticalAlignment="Center"
+                                       AutomationProperties.AutomationId="v2-raid-mark-options-label" />
+                            <Button Grid.Column="1" Classes="v2-target" Content="Options" Click="MarkOptionsClicked"
+                                    AutomationProperties.AutomationId="v2-raid-mark-options" />
                           </Grid>
                           <!-- A ping is never named: see RaidMarkRowViewModel.CanRename. -->
                           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" IsVisible="{Binding CanRename}">

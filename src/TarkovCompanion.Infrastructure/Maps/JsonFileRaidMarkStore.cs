@@ -96,27 +96,79 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         Changed?.Invoke();
     }
 
-    public async Task<RaidMark> AddAsync(
+    public Task<RaidMark> AddAsync(
         RaidMarkKind kind,
         string mapId,
         string? floorId,
         double x,
         double y,
         string? label,
+        CancellationToken cancellationToken = default) =>
+        PlaceAsync(mapId, floorId, x, y, label, RaidMarkScope.Squad, RaidMarkLifetimes.DefaultFor(kind), cancellationToken);
+
+    public async Task<RaidMark> PlaceAsync(
+        string mapId,
+        string? floorId,
+        double x,
+        double y,
+        string? label,
+        RaidMarkScope scope,
+        RaidMarkLifetime lifetime,
         CancellationToken cancellationToken = default)
     {
         var now = _timeProvider.GetUtcNow();
         // A waypoint is a plan and stays until removed; a ping is "look here, now" and this is the
-        // one place that decides how long "now" lasts (issue 584).
-        var expiresUtc = kind == RaidMarkKind.Ping ? now + MapMarkPolicy.PingLifetime : (DateTimeOffset?)null;
+        // one place that decides how long "now" lasts (issue 584). Since #289 the player picks the
+        // lifetime, and the lifetime decides the kind: only the 45-second one is a ping.
         var mark = new RaidMark(
             Guid.NewGuid(),
-            kind,
-            new MapMarkState(mapId, floorId, x, y, label, expiresUtc),
-            now);
+            RaidMarkLifetimes.KindFor(lifetime),
+            new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, now)),
+            now)
+        {
+            Scope = scope,
+            Lifetime = lifetime,
+        };
         await MutateAsync(marks => marks.Add(mark), cancellationToken).ConfigureAwait(false);
         return mark;
     }
+
+    public Task SetOptionsAsync(Guid id, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default) =>
+        MutateAsync(
+            marks =>
+            {
+                var index = marks.FindIndex(mark => mark.Id == id);
+                if (index < 0)
+                {
+                    return;
+                }
+
+                var current = marks[index];
+                // An unchanged lifetime keeps its clock running; a new one counts from now,
+                // which is what "make it 5 min" means to somebody choosing it mid-raid.
+                var expiresUtc = current.Lifetime == lifetime
+                    ? current.State.ExpiresUtc
+                    : RaidMarkLifetimes.ExpiresUtc(lifetime, _timeProvider.GetUtcNow());
+                var kind = RaidMarkLifetimes.KindFor(lifetime);
+                marks[index] = current with
+                {
+                    Kind = kind,
+                    Scope = scope,
+                    Lifetime = lifetime,
+                    State = new MapMarkState(
+                        current.State.MapId,
+                        current.State.FloorId,
+                        current.State.X,
+                        current.State.Y,
+                        // A ping is never told apart by name, so one made from a waypoint drops it.
+                        kind == RaidMarkKind.Ping ? null : current.State.Label,
+                        expiresUtc),
+                };
+            },
+            cancellationToken);
+
+    public Task EndRaidAsync(CancellationToken cancellationToken = default) =>
+        MutateAsync(marks => marks.RemoveAll(mark => mark.Lifetime == RaidMarkLifetime.ThisRaid), cancellationToken);
 
     public Task MoveAsync(Guid id, double x, double y, CancellationToken cancellationToken = default) =>
         MutateAsync(
@@ -248,7 +300,15 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         }
         finally
         {
-            _gate.Release();
+            // An async void timer callback: the store can be disposed while it writes, and an
+            // exception escaping here takes the whole process down (a test host did exactly that).
+            try
+            {
+                _gate.Release();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         }
 
         if (pruned)
@@ -360,7 +420,13 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
                 row.Id,
                 row.Kind,
                 new MapMarkState(row.MapId, row.FloorId, row.X, row.Y, row.Label, row.ExpiresUtc),
-                row.CreatedUtc);
+                row.CreatedUtc)
+            {
+                // #289: absent for every row written before scope and lifetime were chosen, and
+                // those marks were all sent to the group, so Squad is what they already were.
+                Scope = row.Scope ?? RaidMarkScope.Squad,
+                Lifetime = row.Lifetime ?? RaidMarkLifetimes.DefaultFor(row.Kind),
+            };
         }
         catch (ArgumentException)
         {
@@ -377,7 +443,9 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         mark.State.Y,
         mark.State.Label,
         mark.CreatedUtc,
-        mark.State.ExpiresUtc);
+        mark.State.ExpiresUtc,
+        mark.Scope,
+        mark.Lifetime);
 
     public void Dispose()
     {
@@ -404,5 +472,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         DateTimeOffset CreatedUtc,
         // Issue 584: absent (null) for every row written before this fix, and for a waypoint
         // forever — ToMark's MapMarkState validation is what keeps a garbled value from loading.
-        DateTimeOffset? ExpiresUtc = null);
+        DateTimeOffset? ExpiresUtc = null,
+        RaidMarkScope? Scope = null,
+        RaidMarkLifetime? Lifetime = null);
 }

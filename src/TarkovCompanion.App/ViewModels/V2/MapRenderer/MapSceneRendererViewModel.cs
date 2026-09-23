@@ -3388,6 +3388,14 @@ public sealed class MapSceneRendererObjectViewModel : BindableViewModel
     public string EstimateLabel { get; }
     public bool HasEstimate => !string.IsNullOrWhiteSpace(EstimateLabel);
     public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
+
+    /// <summary>
+    /// What hovering the marker says: the name, plus for a ping or waypoint who sees it and how
+    /// long it lasts (#289). Every other kind keeps its name alone, as before.
+    /// </summary>
+    public string HoverText => SceneObject?.Kind is MapSceneObjectKind.Ping or MapSceneObjectKind.Waypoint && HasDetail
+        ? $"{Label} · {Detail}"
+        : Label;
     public bool IsSelected => _isSelected;
     public bool IsCluster { get; }
     public bool IsOffered => SceneObject?.OfferState == MapSceneOfferState.Offered;

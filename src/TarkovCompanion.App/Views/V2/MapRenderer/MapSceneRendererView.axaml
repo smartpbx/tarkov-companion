@@ -1058,7 +1058,7 @@
                                 Command="{Binding SelectCommand}"
                                 PointerEntered="MapMarkerPointerEntered"
                                 PointerExited="MapMarkerPointerExited"
-                                ToolTip.Tip="{Binding Label}"
+                                ToolTip.Tip="{Binding HoverText}"
                                 Content="{Binding}" ContentTemplate="{StaticResource V2.MapMarkKinds}">
                     <ToggleButton.RenderTransform>
                       <TransformGroup>

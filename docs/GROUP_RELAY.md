@@ -173,6 +173,9 @@ the server assigned, so two members marking at once cannot collide.
 
 The V2 desktop sends every ping and waypoint placed on its Raid map (or on a paired tablet) this
 way, keeps the returned `id`, and deletes it when the mark is removed, moved or expires (#707).
+A "Just me" mark is never sent; a mark whose lifetime is not the 45-second ping is sent as a
+waypoint and deleted when it expires locally; if the relay drops one of our waypoints that it was
+seen holding, the local copy goes too, with a "removed by squad" note (#289).
 A member in `PostRaid` or `Menu` publishes no position or trail, and is not drawn on the map.
 
 ### Reaching, removing, clearing

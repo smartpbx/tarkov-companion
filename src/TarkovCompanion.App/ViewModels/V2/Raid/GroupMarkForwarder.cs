@@ -23,6 +23,12 @@ namespace TarkovCompanion.App.ViewModels.V2.Raid;
 ///
 /// The relay has no move and no rename, so a moved waypoint is taken off and sent again. A mark
 /// removed here, or a ping that expires here, is taken off the relay too.
+///
+/// #289: a "Just me" mark is never sent. Narrowing a sent one to "Just me" takes it off the relay,
+/// and widening one to "Squad" sends it then, however old it is: that is the player asking. A new
+/// lifetime can change the kind (only the 45-second one is a ping), which the relay cannot change
+/// either, so that is a remove and resend like a move. The relay forgets nothing on a timer except
+/// pings, so a five-minute waypoint leaves it when the local store expires it, like any removal.
 /// </remarks>
 internal sealed class GroupMarkForwarder : IDisposable
 {
@@ -39,6 +45,7 @@ internal sealed class GroupMarkForwarder : IDisposable
     private readonly TimeProvider _clock;
     private readonly object _gate = new();
     private readonly HashSet<Guid> _seen = [];
+    private readonly HashSet<Guid> _private = [];
     private readonly Dictionary<Guid, Sent> _sent = [];
     private bool _disposed;
 
@@ -57,6 +64,10 @@ internal sealed class GroupMarkForwarder : IDisposable
         foreach (var mark in _marks.Marks)
         {
             _seen.Add(mark.Id);
+            if (mark.Scope == RaidMarkScope.Private)
+            {
+                _private.Add(mark.Id);
+            }
         }
 
         _marks.Changed += MarksChanged;
@@ -76,6 +87,23 @@ internal sealed class GroupMarkForwarder : IDisposable
         }
     }
 
+    /// <summary>The local mark a relay id was sent for, or null when it is not one of ours.</summary>
+    public Guid? LocalIdFor(long groupId)
+    {
+        lock (_gate)
+        {
+            foreach (var (id, sent) in _sent)
+            {
+                if (sent.GroupId == groupId)
+                {
+                    return id;
+                }
+            }
+
+            return null;
+        }
+    }
+
     private void MarksChanged()
     {
         var current = _marks.Marks;
@@ -92,9 +120,11 @@ internal sealed class GroupMarkForwarder : IDisposable
             var present = current.ToDictionary(mark => mark.Id);
             foreach (var mark in current)
             {
+                var isPrivate = mark.Scope == RaidMarkScope.Private;
+                var wasPrivate = isPrivate ? !_private.Add(mark.Id) : _private.Remove(mark.Id);
                 if (_seen.Add(mark.Id))
                 {
-                    if (now - mark.CreatedUtc <= JustPlaced)
+                    if (!isPrivate && now - mark.CreatedUtc <= JustPlaced)
                     {
                         toSend.Add(mark);
                     }
@@ -102,10 +132,33 @@ internal sealed class GroupMarkForwarder : IDisposable
                     continue;
                 }
 
-                // A waypoint dragged somewhere else: the relay cannot move one, so the old one
-                // goes and the new place is sent as a fresh mark.
-                if (_sent.TryGetValue(mark.Id, out var sent) &&
-                    (sent.X != mark.State.X || sent.Y != mark.State.Y) &&
+                if (!_sent.TryGetValue(mark.Id, out var sent))
+                {
+                    // Widened from "Just me" to "Squad": the player chose to share it now.
+                    if (!isPrivate && wasPrivate)
+                    {
+                        toSend.Add(mark);
+                    }
+
+                    continue;
+                }
+
+                if (isPrivate)
+                {
+                    // Narrowed to "Just me": it leaves the group.
+                    _sent.Remove(mark.Id);
+                    if (sent.GroupId is { } narrowedId)
+                    {
+                        toRemove.Add(narrowedId);
+                    }
+
+                    continue;
+                }
+
+                // A waypoint dragged somewhere else, or a new lifetime that made a ping a
+                // waypoint: the relay cannot change either, so the old one goes and the mark is
+                // sent again as a fresh one.
+                if ((sent.X != mark.State.X || sent.Y != mark.State.Y || sent.Kind != mark.Kind) &&
                     sent.GroupId is { } movedId)
                 {
                     _sent.Remove(mark.Id);
@@ -113,6 +166,8 @@ internal sealed class GroupMarkForwarder : IDisposable
                     toSend.Add(mark);
                 }
             }
+
+            _private.RemoveWhere(id => !present.ContainsKey(id));
 
             foreach (var (id, sent) in _sent.ToArray())
             {
@@ -130,7 +185,7 @@ internal sealed class GroupMarkForwarder : IDisposable
             {
                 // Recorded before the send, with no id yet, so a removal that lands while the
                 // send is in flight is noticed when the id comes back.
-                _sent[mark.Id] = new(null, mark.State.X, mark.State.Y);
+                _sent[mark.Id] = new(null, mark.State.X, mark.State.Y, mark.Kind);
             }
         }
 
@@ -172,7 +227,7 @@ internal sealed class GroupMarkForwarder : IDisposable
         lock (_gate)
         {
             if (_sent.TryGetValue(mark.Id, out var sent) && sent.GroupId is null &&
-                sent.X == mark.State.X && sent.Y == mark.State.Y && groupId is not null)
+                sent.X == mark.State.X && sent.Y == mark.State.Y && sent.Kind == mark.Kind && groupId is not null)
             {
                 _sent[mark.Id] = sent with { GroupId = groupId };
                 stillWanted = true;
@@ -224,5 +279,54 @@ internal sealed class GroupMarkForwarder : IDisposable
         _marks.Changed -= MarksChanged;
     }
 
-    private sealed record Sent(long? GroupId, double X, double Y);
+    /// <summary>
+    /// Compares the group's current waypoints with what was sent, and answers the local marks
+    /// whose relay copy somebody else removed.
+    /// </summary>
+    /// <remarks>
+    /// #289 conflict state. Anyone in the group can remove any mark, and until now a squadmate
+    /// removing one of this player's waypoints left it on this map only: the player went on
+    /// seeing a "Squad" mark the squad no longer had. The later action wins, so the local copy
+    /// goes too. Only a waypoint the relay was seen holding counts, so a send still in flight is
+    /// never mistaken for a removal; pings are left out because the relay expires those on its
+    /// own clock. The relay does not say who removed it, so neither does the note.
+    /// Pass only a snapshot from a live connection: an offline one is not news.
+    /// </remarks>
+    public IReadOnlyList<Guid> ObserveGroup(IReadOnlyCollection<long> waypointIds)
+    {
+        ArgumentNullException.ThrowIfNull(waypointIds);
+        var lost = new List<Guid>();
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return [];
+            }
+
+            foreach (var (id, sent) in _sent.ToArray())
+            {
+                if (sent.GroupId is not { } groupId || sent.Kind != RaidMarkKind.Waypoint)
+                {
+                    continue;
+                }
+
+                if (waypointIds.Contains(groupId))
+                {
+                    if (!sent.SeenOnRelay)
+                    {
+                        _sent[id] = sent with { SeenOnRelay = true };
+                    }
+                }
+                else if (sent.SeenOnRelay)
+                {
+                    _sent.Remove(id);
+                    lost.Add(id);
+                }
+            }
+        }
+
+        return lost;
+    }
+
+    private sealed record Sent(long? GroupId, double X, double Y, RaidMarkKind Kind, bool SeenOnRelay = false);
 }
