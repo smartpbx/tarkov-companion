@@ -1666,12 +1666,31 @@ internal static class Program
             {
                 var seeded = SeedDebriefAsync(services, RaidDemo(viewModel.Map.RenderModel).Raid);
                 DrainUntilComplete(seeded);
+                if (args.Contains("--debrief-tags-demo"))
+                {
+                    var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
+                    DrainUntilComplete(history.RecordEventAsync(
+                        seeded.Result,
+                        "tag",
+                        DateTimeOffset.UtcNow,
+                        "{\"tag\":\"Tasks\",\"present\":true}",
+                        CancellationToken.None));
+                }
+
                 var debrief = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>();
                 DrainUntilComplete(debrief.LoadAsync());
                 // The demo composition records a live raid of its own, which is the newest and so
                 // the one Debrief selects; pick the seeded one, the one with a trail to look at.
                 DrainUntilComplete(debrief.SelectRaidAsync(seeded.Result, CancellationToken.None));
                 Pump(20);
+                if (args.Contains("--debrief-tags-demo"))
+                {
+                    debrief.SelectedTagFilterOption = debrief.TagFilterOptions.First(option => option.Tag == "Tasks");
+                    debrief.SavedViewName = "Task raids";
+                    debrief.SaveViewCommand.Execute(null);
+                    Pump(20);
+                }
+
                 if (args.Contains("--watch"))
                 {
                     services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>()

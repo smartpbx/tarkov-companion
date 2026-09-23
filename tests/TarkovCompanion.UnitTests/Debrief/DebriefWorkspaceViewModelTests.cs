@@ -5,6 +5,7 @@ using TarkovCompanion.App.ViewModels.V2.Debrief;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
@@ -802,6 +803,59 @@ public sealed class DebriefWorkspaceViewModelTests
         Assert.Equal(string.Empty, woods.ManualLabel);
     }
 
+    [Fact]
+    public async Task Tags_can_be_added_removed_and_used_to_filter_raids()
+    {
+        var second = Guid.Parse("40000000-0000-0000-0000-000000000009");
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), null, null));
+        service.Seed(new RaidHistoryEntry(second, Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(20), null, null));
+        var viewModel = new DebriefWorkspaceViewModel(service, TestPaths(), new FixedClock(Started));
+
+        await viewModel.LoadAsync();
+        await viewModel.SelectRaidAsync(RaidId, CancellationToken.None);
+        viewModel.NewTag = "Tasks";
+        await viewModel.AddTagAsync();
+
+        var selectedTag = Assert.Single(viewModel.SelectedTags);
+        Assert.Equal("Tasks", selectedTag.Label);
+        viewModel.SelectedTagFilterOption = Assert.Single(viewModel.TagFilterOptions, option => option.Tag == "Tasks");
+        Assert.Equal(RaidId, Assert.Single(viewModel.Raids).RaidId);
+
+        await viewModel.RemoveTagAsync("Tasks");
+
+        Assert.Empty(viewModel.SelectedTags);
+        Assert.DoesNotContain(viewModel.TagFilterOptions, option => option.Tag == "Tasks");
+    }
+
+    [Fact]
+    public async Task Saved_view_remembers_search_and_filters_for_the_next_workspace()
+    {
+        var layout = new FakeWorkspaceLayoutStore();
+        var service = new FakeRaidHistoryService();
+        service.Seed(new RaidHistoryEntry(
+            RaidId, Guid.NewGuid(), "customs", "Pmc", Started, Started.AddMinutes(20), "Survived", "Found a GPU"));
+        service.Seed(new RaidHistoryEntry(
+            Guid.Parse("40000000-0000-0000-0000-000000000010"), Guid.NewGuid(), "woods", "Pmc", Started, Started.AddMinutes(20), "Died", "No loot"));
+        var first = new DebriefWorkspaceViewModel(service, TestPaths(), layoutStore: layout);
+        await first.LoadAsync();
+        first.SearchText = "GPU";
+        first.OutcomeFilter = DebriefOutcomeFilter.Survived;
+        first.SelectedMapFilterOption = Assert.Single(first.MapFilterOptions, option => option.MapId == "customs");
+        first.SavedViewName = "Good Customs";
+        first.SaveViewCommand.Execute(null);
+
+        var reopened = new DebriefWorkspaceViewModel(service, TestPaths(), layoutStore: layout);
+        await reopened.LoadAsync();
+        reopened.SelectedSavedView = Assert.Single(reopened.SavedViews);
+        reopened.ApplySavedViewCommand.Execute(null);
+
+        Assert.Equal("GPU", reopened.SearchText);
+        Assert.Equal(DebriefOutcomeFilter.Survived, reopened.OutcomeFilter);
+        Assert.Equal("customs", reopened.SelectedMapFilterOption.MapId);
+        Assert.Equal(RaidId, Assert.Single(reopened.Raids).RaidId);
+    }
+
     private sealed class RecordingQuestCatalog : IQuestCatalog
     {
         public string? Language { get; private set; }
@@ -865,8 +919,11 @@ public sealed class DebriefWorkspaceViewModelTests
             return Task.FromResult(raid.Id);
         }
 
-        public Task RecordEventAsync(Guid raidId, string type, DateTimeOffset timestampUtc, string payloadJson, CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+        public Task RecordEventAsync(Guid raidId, string type, DateTimeOffset timestampUtc, string payloadJson, CancellationToken cancellationToken)
+        {
+            SeedEvent(raidId, type, payloadJson);
+            return Task.CompletedTask;
+        }
 
         public Task EndAsync(Guid raidId, DateTimeOffset endUtc, string? outcome, string? notes, CancellationToken cancellationToken) =>
             Task.CompletedTask;
@@ -954,5 +1011,14 @@ public sealed class DebriefWorkspaceViewModelTests
         public Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class FakeWorkspaceLayoutStore : IWorkspaceLayoutStore
+    {
+        private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string? Get(string key) => _values.GetValueOrDefault(key);
+
+        public void Set(string key, string value) => _values[key] = value;
     }
 }

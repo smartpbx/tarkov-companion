@@ -5,6 +5,7 @@ using System.Windows.Input;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Workspaces;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
@@ -31,6 +32,10 @@ public sealed record DebriefRaidRowViewModel(
     public string OutcomeKindLabel { get; init; } = string.Empty;
 
     public bool HasOutcomeKind => OutcomeKindLabel.Length > 0;
+
+    public string TagsLabel { get; init; } = string.Empty;
+
+    public bool HasTags => TagsLabel.Length > 0;
 }
 
 /// <summary>One fact about the selected raid, with the kind of evidence behind it.</summary>
@@ -99,6 +104,12 @@ public enum DebriefSideFilter { Any, Pmc, Scav }
 /// <summary>One choice in the map filter; a null id is every map.</summary>
 public sealed record DebriefMapFilterOption(string? MapId, string Label);
 
+/// <summary>One tag filter choice; a null tag means every raid.</summary>
+public sealed record DebriefTagFilterOption(string? Tag, string Label);
+
+/// <summary>One tag on the selected raid, with its own remove action.</summary>
+public sealed record DebriefTagViewModel(string Label, ICommand RemoveCommand);
+
 /// <summary>One filter chip (outcome or side), in the Plan tab's chip shape.</summary>
 public sealed class DebriefFilterChipViewModel : BindableViewModel
 {
@@ -140,6 +151,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private readonly IQuestCatalog? _questCatalog;
     private readonly IPlayerProfileService? _profileService;
     private readonly QuestTrackingOptions? _questOptions;
+    private readonly DebriefSavedViewStore _savedViewStore;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _taskNames = new(StringComparer.Ordinal);
     private bool _taskCatalogLoaded;
@@ -159,13 +171,18 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private IReadOnlyList<DebriefRaidRecord> _allRecords = [];
     private string _searchText = string.Empty;
     private string? _mapFilter;
+    private string? _tagFilter;
     private DebriefOutcomeFilter _outcomeFilter = DebriefOutcomeFilter.Any;
     private DebriefSideFilter _sideFilter = DebriefSideFilter.Any;
     private DateTimeOffset? _dateFrom;
     private DateTimeOffset? _dateTo;
     private IReadOnlyList<DebriefMapFilterOption> _mapFilterOptions = [new(null, "All maps")];
+    private IReadOnlyList<DebriefTagFilterOption> _tagFilterOptions = [new(null, "All tags")];
     private ICommand? _clearSearch;
     private ICommand? _clearFilters;
+    private string _newTag = string.Empty;
+    private string _savedViewName = string.Empty;
+    private DebriefSavedView? _selectedSavedView;
 
     // Delete and undo (#291 package 3). A delete soft-deletes; the one-press undo below is what
     // makes it safe. See SqliteRaidHistoryService.PurgeDeletedAsync and the load above for when a
@@ -187,7 +204,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         string? Side,
         RaidFactSources Sources,
         double? LoadSeconds,
-        RaidManualMetadata? Manual);
+        RaidManualMetadata? Manual,
+        IReadOnlyList<string> Tags);
 
     public DebriefWorkspaceViewModel(
         IRaidHistoryService raidHistoryService,
@@ -196,7 +214,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         IItemRepository? items = null,
         IQuestCatalog? questCatalog = null,
         IPlayerProfileService? profileService = null,
-        QuestTrackingOptions? questOptions = null)
+        QuestTrackingOptions? questOptions = null,
+        IWorkspaceLayoutStore? layoutStore = null)
     {
         _raidHistoryService = raidHistoryService ?? throw new ArgumentNullException(nameof(raidHistoryService));
         _paths = paths ?? throw new ArgumentNullException(nameof(paths));
@@ -205,6 +224,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         _questCatalog = questCatalog;
         _profileService = profileService;
         _questOptions = questOptions;
+        _savedViewStore = new(layoutStore);
+        SavedViews = _savedViewStore.Load();
 
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
         SaveCorrectionCommand = new AsyncDelegateCommand(SaveCorrectionAsync);
@@ -219,6 +240,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         ConfirmBulkDeleteCommand = new AsyncDelegateCommand(ConfirmBulkDeleteAsync);
         UndoDeleteCommand = new AsyncDelegateCommand(UndoDeleteAsync);
         SaveManualMetadataCommand = new AsyncDelegateCommand(SaveManualMetadataAsync);
+        AddTagCommand = new AsyncDelegateCommand(AddTagAsync);
+        SaveViewCommand = new DelegateCommand(SaveView);
+        ApplySavedViewCommand = new DelegateCommand(ApplySavedView);
+        DeleteSavedViewCommand = new DelegateCommand(DeleteSavedView);
     }
 
     public IReadOnlyList<DebriefRaidRowViewModel> Raids { get; private set; } = [];
@@ -368,6 +393,24 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         }
     }
 
+    public IReadOnlyList<DebriefTagFilterOption> TagFilterOptions => _tagFilterOptions;
+
+    public DebriefTagFilterOption SelectedTagFilterOption
+    {
+        get => _tagFilterOptions.FirstOrDefault(option => string.Equals(option.Tag, _tagFilter, StringComparison.OrdinalIgnoreCase))
+            ?? _tagFilterOptions[0];
+        set
+        {
+            var tag = value?.Tag;
+            if (!string.Equals(_tagFilter, tag, StringComparison.OrdinalIgnoreCase))
+            {
+                _tagFilter = tag;
+                OnPropertyChanged();
+                ApplyFilters();
+            }
+        }
+    }
+
     /// <summary>Survived / Died / MIA / Run-through, or Any — see <see cref="DebriefOutcomeFilter"/>.</summary>
     public IReadOnlyList<DebriefFilterChipViewModel> OutcomeFilterChips => CreateOutcomeChips();
 
@@ -400,6 +443,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
     public bool HasActiveFilters =>
         _mapFilter is not null
+        || _tagFilter is not null
         || _outcomeFilter != DebriefOutcomeFilter.Any
         || _sideFilter != DebriefSideFilter.Any
         || _dateFrom is not null
@@ -407,6 +451,40 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         || HasSearchText;
 
     public ICommand ClearFiltersCommand => _clearFilters ??= new DelegateCommand(ClearFilters);
+
+    public IReadOnlyList<DebriefSavedView> SavedViews { get; private set; }
+
+    public bool HasSavedViews => SavedViews.Count > 0;
+
+    public DebriefSavedView? SelectedSavedView
+    {
+        get => _selectedSavedView;
+        set => SetProperty(ref _selectedSavedView, value);
+    }
+
+    public string SavedViewName
+    {
+        get => _savedViewName;
+        set => SetProperty(ref _savedViewName, value ?? string.Empty);
+    }
+
+    public ICommand SaveViewCommand { get; }
+
+    public ICommand ApplySavedViewCommand { get; }
+
+    public ICommand DeleteSavedViewCommand { get; }
+
+    public string NewTag
+    {
+        get => _newTag;
+        set => SetProperty(ref _newTag, value ?? string.Empty);
+    }
+
+    public IReadOnlyList<DebriefTagViewModel> SelectedTags { get; private set; } = [];
+
+    public bool HasSelectedTags => SelectedTags.Count > 0;
+
+    public ICommand AddTagCommand { get; }
 
     public string CorrectedOutcome
     {
@@ -693,6 +771,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             _allRecords = await OffInterfaceThread.Run(
                 () => BuildRecordsAsync(raids, cancellationToken), cancellationToken).ConfigureAwait(true);
             RebuildMapFilterOptions();
+            RebuildTagFilterOptions();
             ApplyFilters();
             if (_selected is null && Raids.Count > 0)
             {
@@ -730,7 +809,10 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                     : await LoadCorrectionsAsync(raid.Id, cancellationToken).ConfigureAwait(false));
             var facts = await ReadStateFactsAsync(raid.Id, cancellationToken).ConfigureAwait(false);
             var manual = await _raidHistoryService.GetManualMetadataAsync(raid.Id, cancellationToken).ConfigureAwait(false);
-            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds, manual));
+            var tags = DebriefRaidTags.Resolve(await _raidHistoryService
+                .ListEventPayloadsAsync(raid.Id, DebriefRaidTags.EventType, cancellationToken)
+                .ConfigureAwait(false));
+            records.Add(new DebriefRaidRecord(raid, facts.Side, sources, facts.LoadSeconds, manual, tags));
         }
 
         return records;
@@ -748,6 +830,24 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         _mapFilterOptions = [new(null, "All maps"), .. maps];
         OnPropertyChanged(nameof(MapFilterOptions));
         OnPropertyChanged(nameof(SelectedMapFilterOption));
+    }
+
+    private void RebuildTagFilterOptions()
+    {
+        var tags = _allRecords
+            .SelectMany(record => record.Tags)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(tag => tag, StringComparer.CurrentCultureIgnoreCase)
+            .Select(tag => new DebriefTagFilterOption(tag, tag));
+        _tagFilterOptions = [new(null, "All tags"), .. tags];
+        if (_tagFilter is not null && !_tagFilterOptions.Any(option =>
+                string.Equals(option.Tag, _tagFilter, StringComparison.OrdinalIgnoreCase)))
+        {
+            _tagFilter = null;
+        }
+
+        OnPropertyChanged(nameof(TagFilterOptions));
+        OnPropertyChanged(nameof(SelectedTagFilterOption));
     }
 
     /// <summary>
@@ -773,6 +873,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 SelectCommand = new AsyncDelegateCommand(() => SelectRaidAsync(raid.Id, CancellationToken.None)),
                 IsSelected = _selected?.Id == raid.Id,
                 OutcomeKindLabel = record.Sources.Outcome.Label(),
+                TagsLabel = string.Join(" · ", record.Tags),
             });
         }
 
@@ -797,6 +898,11 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     {
         var raid = record.Raid;
         if (_mapFilter is { } mapFilter && !string.Equals(raid.MapId, mapFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_tagFilter is { } tagFilter && !record.Tags.Contains(tagFilter, StringComparer.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -863,6 +969,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     {
         _searchText = string.Empty;
         _mapFilter = null;
+        _tagFilter = null;
         _outcomeFilter = DebriefOutcomeFilter.Any;
         _sideFilter = DebriefSideFilter.Any;
         _dateFrom = null;
@@ -871,6 +978,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SearchText));
         OnPropertyChanged(nameof(HasSearchText));
         OnPropertyChanged(nameof(SelectedMapFilterOption));
+        OnPropertyChanged(nameof(SelectedTagFilterOption));
         OnPropertyChanged(nameof(DateFrom));
         OnPropertyChanged(nameof(DateTo));
         OnPropertyChanged(nameof(HasActiveFilters));
@@ -942,6 +1050,120 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             IsSelected = option.Filter == _sideFilter,
         })];
 
+    private void SaveView()
+    {
+        var requested = new DebriefSavedView(
+            SavedViewName,
+            SearchText,
+            _mapFilter,
+            _outcomeFilter,
+            _sideFilter,
+            _dateFrom,
+            _dateTo,
+            _tagFilter);
+        if (!_savedViewStore.Save(requested))
+        {
+            Status = $"Name the view (up to {DebriefSavedViewStore.MaximumNameLength} characters); up to {DebriefSavedViewStore.MaximumViews} views are kept.";
+            return;
+        }
+
+        SavedViews = _savedViewStore.Load();
+        OnPropertyChanged(nameof(SavedViews));
+        OnPropertyChanged(nameof(HasSavedViews));
+        SelectedSavedView = SavedViews.First(view =>
+            string.Equals(view.Name, requested.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+        SavedViewName = string.Empty;
+        Status = $"Saved view: {SelectedSavedView.Name}.";
+        RaiseAll();
+    }
+
+    private void ApplySavedView()
+    {
+        if (SelectedSavedView is not { } view)
+        {
+            Status = "Choose a saved view first.";
+            return;
+        }
+
+        _searchText = view.SearchText;
+        _mapFilter = view.MapId;
+        _outcomeFilter = view.Outcome;
+        _sideFilter = view.Side;
+        _dateFrom = view.DateFrom;
+        _dateTo = view.DateTo;
+        _tagFilter = view.Tag;
+        ApplyFilters();
+        OnPropertyChanged(nameof(SearchText));
+        OnPropertyChanged(nameof(HasSearchText));
+        OnPropertyChanged(nameof(SelectedMapFilterOption));
+        OnPropertyChanged(nameof(SelectedTagFilterOption));
+        OnPropertyChanged(nameof(DateFrom));
+        OnPropertyChanged(nameof(DateTo));
+        Status = $"Applied view: {view.Name}.";
+        RaiseAll();
+    }
+
+    private void DeleteSavedView()
+    {
+        if (SelectedSavedView is not { } view || !_savedViewStore.Delete(view.Name))
+        {
+            return;
+        }
+
+        SavedViews = _savedViewStore.Load();
+        OnPropertyChanged(nameof(SavedViews));
+        OnPropertyChanged(nameof(HasSavedViews));
+        SelectedSavedView = null;
+        Status = $"Deleted saved view: {view.Name}.";
+        RaiseAll();
+    }
+
+    internal async Task AddTagAsync()
+    {
+        if (_selected is null || DebriefRaidTags.Normalize(NewTag) is not { } tag)
+        {
+            Status = $"Enter a tag up to {DebriefRaidTags.MaximumTagLength} characters.";
+            return;
+        }
+
+        var current = _allRecords.FirstOrDefault(record => record.Raid.Id == _selected.Id)?.Tags ?? [];
+        if (current.Contains(tag, StringComparer.OrdinalIgnoreCase))
+        {
+            NewTag = string.Empty;
+            return;
+        }
+
+        if (current.Count >= DebriefRaidTags.MaximumTagsPerRaid)
+        {
+            Status = $"A raid can have up to {DebriefRaidTags.MaximumTagsPerRaid} tags.";
+            return;
+        }
+
+        await ChangeTagAsync(tag, present: true).ConfigureAwait(true);
+        NewTag = string.Empty;
+    }
+
+    internal Task RemoveTagAsync(string tag) => ChangeTagAsync(tag, present: false);
+
+    private async Task ChangeTagAsync(string tag, bool present)
+    {
+        if (_selected is null)
+        {
+            return;
+        }
+
+        var raidId = _selected.Id;
+        await _raidHistoryService.RecordEventAsync(
+            raidId,
+            DebriefRaidTags.EventType,
+            _clock.GetUtcNow(),
+            DebriefRaidTags.ToPayload(tag, present),
+            CancellationToken.None).ConfigureAwait(true);
+        await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+        await SelectRaidAsync(raidId, CancellationToken.None).ConfigureAwait(true);
+        Status = present ? $"Added tag: {tag}." : $"Removed tag: {tag}.";
+    }
+
     public async Task SelectRaidAsync(Guid raidId, CancellationToken cancellationToken)
     {
         // A delete preview names one raid; selecting another while it is showing must not leave a
@@ -965,10 +1187,17 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
             _selectedSources = RaidFactRules.Classify(
                 new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
                 []);
+            SelectedTags = [];
             SetManualFields(null);
         }
         else
         {
+            var selectedRecord = _allRecords.FirstOrDefault(record => record.Raid.Id == raidId);
+            SelectedTags = selectedRecord is null
+                ? []
+                : [.. selectedRecord.Tags.Select(tag => new DebriefTagViewModel(
+                    tag,
+                    new AsyncDelegateCommand(() => RemoveTagAsync(tag))))];
             SelectedSales = await LoadSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
             SelectedQuestEvents = await LoadQuestEventsAsync(raidId, cancellationToken).ConfigureAwait(true);
             var stateFacts = await ReadStateFactsAsync(raidId, cancellationToken).ConfigureAwait(true);
@@ -1504,6 +1733,15 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SelectedScans));
         OnPropertyChanged(nameof(HasSelectedScans));
         OnPropertyChanged(nameof(SelectedScanSummary));
+        OnPropertyChanged(nameof(SelectedTags));
+        OnPropertyChanged(nameof(HasSelectedTags));
+        OnPropertyChanged(nameof(NewTag));
+        OnPropertyChanged(nameof(TagFilterOptions));
+        OnPropertyChanged(nameof(SelectedTagFilterOption));
+        OnPropertyChanged(nameof(SavedViews));
+        OnPropertyChanged(nameof(HasSavedViews));
+        OnPropertyChanged(nameof(SelectedSavedView));
+        OnPropertyChanged(nameof(SavedViewName));
         OnPropertyChanged(nameof(OutcomeFilterChips));
         OnPropertyChanged(nameof(SideFilterChips));
         OnPropertyChanged(nameof(HasActiveFilters));
