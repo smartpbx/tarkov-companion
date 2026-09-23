@@ -76,6 +76,10 @@ previous entry rather than adding a second one.
   can ask its own quest catalog which maps those quests point at and rank where the group's
   lists overlap. At most 40, each at most 64 characters. Ids are resolved against the
   receiver's own catalog, so one it does not carry is passed over rather than guessed at.
+- `objectives` — the open objectives of those quests (#780): `[{"task": "<quest id>", "id":
+  "<objective id>", "count": 2}]`, `count` optional. At most 60. Ids only, named and placed from
+  the receiver's own catalog. A relay older than this field drops it; a client older than it
+  ignores it.
 
 The reply is everyone else in the group:
 

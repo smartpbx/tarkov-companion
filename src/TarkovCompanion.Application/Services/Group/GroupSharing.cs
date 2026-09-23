@@ -24,7 +24,12 @@ public sealed record GroupSharingSettings(
     bool SharesQuests)
 {
     /// <summary>Sharing nothing, which is where every installation starts.</summary>
-    public static GroupSharingSettings Off { get; } = new(false, null, null, null, false, false);
+    /// <remarks>
+    /// [#780] Quests are on by default: once somebody joins a group, sharing what they are working
+    /// on (quest and objective ids, nothing else) is the point, and Setup &gt; Team &amp; Devices
+    /// opts out.
+    /// </remarks>
+    public static GroupSharingSettings Off { get; } = new(false, null, null, null, false, true);
 
     /// <summary>
     /// Why these are the defaults rather than what was saved, when that is the reason.
@@ -262,6 +267,15 @@ public sealed record GroupMemberView(
     public IReadOnlyList<string> QuestIds { get; init; } = [];
 
     /// <summary>
+    /// [#780] The open objectives of this member's active quests, by id, with a count where kept.
+    /// </summary>
+    /// <remarks>
+    /// Empty from a companion (or a relay) that predates it. The receiver names and places these
+    /// from its own catalog; an id its copy does not know is passed over rather than guessed at.
+    /// </remarks>
+    public IReadOnlyList<GroupObjectiveView> Objectives { get; init; } = [];
+
+    /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
     /// </summary>
     /// <remarks>
@@ -278,6 +292,9 @@ public sealed record GroupMemberView(
 /// rather than by position in the list, so a member who took three screenshots in ten seconds
 /// and then none for five minutes does not imply they walked the whole line recently.
 /// </remarks>
+/// <summary>[#780] One open objective a squadmate shared: quest id, objective id, count done.</summary>
+public sealed record GroupObjectiveView(string TaskId, string ObjectiveId, decimal? Count);
+
 public sealed record GroupTrailPointView(double X, double Z, TimeSpan Age, double? Y = null);
 
 /// <summary>What the group looks like right now, for the interface to render.</summary>
