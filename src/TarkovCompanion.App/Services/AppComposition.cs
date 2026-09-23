@@ -34,6 +34,7 @@ using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -509,6 +510,7 @@ public static class AppComposition
         // ICraftPlanningCatalog/IBarterCatalog/IRequirementCatalog/ITraderCatalog/IItemRepository/
         // IItemMarketFactSource, all already registered elsewhere in this method.
         services.AddSingleton<IIntelTradeCatalogService, IntelTradeCatalogService>();
+        services.AddSingleton<IAcquisitionChainPlanningService, AcquisitionChainPlanningService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
