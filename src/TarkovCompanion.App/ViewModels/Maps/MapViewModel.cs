@@ -440,6 +440,8 @@ public sealed record GroupMemberPanelViewModel(
     string Where,
     string Position,
     string Extra,
+    string RaidStatus,
+    string PositionSummary,
     bool IsElsewhere,
     bool IsStale)
 {
@@ -5027,6 +5029,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     $"{position.X:F0}, {position.Z:F0}{(floor is { Length: > 0 } ? $" · {floor}" : string.Empty)} · {DescribeAge(age)}")
                 : "No position shared",
             string.Join(" · ", member.Loadout.Concat(member.Quests)),
+            DescribeRaidStatus(member, isHere, locations),
+            DescribePositionSummary(member.Position is not null, age, floor),
             elsewhere,
             // Either their position is too old to trust, or they have stopped publishing at
             // all. The second is the one nothing could see before: a crashed companion froze
@@ -5034,6 +5038,31 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // forgot them.
             age is null || age > PlayerMarkerFreshFor || member.HasGoneQuiet);
     }
+
+    /// <summary>The short state beside a squadmate's name in the narrow Raid card.</summary>
+    private static string DescribeRaidStatus(
+        GroupMemberView member,
+        bool isHere,
+        IReadOnlyList<MapLocation> locations)
+    {
+        var state = DescribeState(member.RaidState);
+        var status = member.Side is { Length: > 0 } side ? $"{state} · {side}" : state;
+        if (isHere || member.MapId is not { Length: > 0 } mapId)
+        {
+            return status;
+        }
+
+        var name = locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+        return $"{name} · {status}";
+    }
+
+    private static string DescribePositionSummary(bool hasPosition, TimeSpan? age, string? floor) =>
+        !hasPosition
+            ? "No position shared"
+            : floor is not { Length: > 0 }
+                ? DescribeCompactAge(age)
+                : $"{DescribeCompactAge(age)} · {(floor == "floor unknown" ? "floor ?" : floor)}";
 
     /// <summary>The map they are on and what they are doing, in that order.</summary>
     /// <remarks>
@@ -5070,6 +5099,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         : value < TimeSpan.FromMinutes(1)
             ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
             : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
+
+    private static string DescribeCompactAge(TimeSpan? age) => age is not { } value
+        ? "age unknown"
+        : value < TimeSpan.FromMinutes(1)
+            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)} s ago")
+            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes} min ago");
 
     /// <summary>
     /// Whether something the group shared belongs on the map being looked at.

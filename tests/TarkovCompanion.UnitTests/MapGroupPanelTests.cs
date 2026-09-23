@@ -32,6 +32,7 @@ public sealed class MapGroupPanelTests
 
         Assert.Equal("Nate", row.Name);
         Assert.Equal("Ground Zero · In raid · PMC", row.Where);
+        Assert.Equal("In raid · PMC", row.RaidStatus);
         Assert.False(row.IsElsewhere);
     }
 
@@ -45,6 +46,7 @@ public sealed class MapGroupPanelTests
 
         Assert.True(row.IsElsewhere);
         Assert.Equal("Customs · In raid", row.Where);
+        Assert.Equal("Customs · In raid", row.RaidStatus);
     }
 
     /// <summary>A map the catalog has never heard of is still named, with what it has.</summary>
@@ -75,6 +77,25 @@ public sealed class MapGroupPanelTests
             Locations);
         Assert.Equal("112, -44 · 8m ago", old.Position);
         Assert.True(old.IsStale);
+    }
+
+    [Fact]
+    public void RaidCardSummaryKeepsAgeAndFloorOnOneCompactLineWithoutCoordinates()
+    {
+        var unknown = MapViewModel.Describe(
+            Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromSeconds(12)),
+            isHere: true,
+            Locations,
+            floorName: "floor unknown");
+        var known = MapViewModel.Describe(
+            Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromMinutes(2)),
+            isHere: true,
+            Locations,
+            floorName: "2nd Floor");
+
+        Assert.Equal("12 s ago · floor ?", unknown.PositionSummary);
+        Assert.Equal("2 min ago · 2nd Floor", known.PositionSummary);
+        Assert.DoesNotContain("112", unknown.PositionSummary, StringComparison.Ordinal);
     }
 
     /// <summary>

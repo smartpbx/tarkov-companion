@@ -698,17 +698,22 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="mapvm:GroupMemberPanelViewModel">
                       <Border Classes="v2-raid-row">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <!-- Two deliberate lines. The former Auto status column took the row's
+                             width and made coordinates, floor and age wrap one word per line. -->
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
                           <!-- The swatch is what joins this row to the dot and the trail on the map. -->
-                          <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                          <Ellipse Grid.RowSpan="2" Width="10" Height="10" VerticalAlignment="Center"
                                    Fill="{Binding SwatchColor}" />
-                          <StackPanel Grid.Column="1" Spacing="1">
-                            <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding Position}" TextWrapping="Wrap" />
-                            <TextBlock Classes="v2-label" Text="{Binding Extra}" TextWrapping="Wrap"
-                                       IsVisible="{Binding HasExtra}" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                          <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Classes="v2-body" Text="{Binding Name}" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Classes="v2-label" MaxWidth="130"
+                                       Text="{Binding RaidStatus}" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                          </Grid>
+                          <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label"
+                                     Text="{Binding PositionSummary}" TextWrapping="NoWrap"
+                                     TextTrimming="CharacterEllipsis" />
                         </Grid>
                       </Border>
                     </DataTemplate>
