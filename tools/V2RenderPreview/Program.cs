@@ -1754,7 +1754,9 @@ internal static class Program
                 }
                 else
                 {
-                    shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(lootResult));
+                    shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
+                        lootResult,
+                        openWiki: _ => Task.CompletedTask));
                 }
                 Pump(20);
             }
@@ -1793,7 +1795,8 @@ internal static class Program
                 DrainUntilComplete(scan);
                 shell.ShowLootScanResult(new TarkovCompanion.App.ViewModels.V2.LootScan.LootScanViewModel(
                     scan.Result.Result,
-                    controls: scan.Result.Controls));
+                    controls: scan.Result.Controls,
+                    openWiki: _ => Task.CompletedTask));
                 Pump(20);
             }
 

@@ -134,6 +134,8 @@
     "V2.String.LootScan.Backpack": "[Ýöûr båçkpåçk ······]",
     "V2.String.LootScan.NoBackpack": "[Båçkpåçk ñöt vïsïblë ïñ thïs sçrëëñshöt ················]",
     "V2.String.LootScan.WhatToTake": "[Whåt shöûld Ï tåkë? ········]",
+    "V2.String.LootScan.Wiki": "[Wïkï ··]",
+    "V2.String.LootScan.OpenWiki": "[Öpëñ ïtëm wïkï ······]",
     "V2.String.Live.Polite": "[Båçkgröûñd ûpdåtës årë åññöûñçëd hërë. ················]",
     "V2.String.Live.Assertive": "[Rëfûsëd ör fåïlëd åçtïöñs årë åññöûñçëd hërë. ··················]",
     "V2.String.Template.StatusName": "[{availability}, {completeness}, {freshness}: {detail} ······················]",
