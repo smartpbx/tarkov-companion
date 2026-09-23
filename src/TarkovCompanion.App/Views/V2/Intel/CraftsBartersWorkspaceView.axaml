@@ -91,6 +91,9 @@
                       <TextBlock Classes="v2-label" IsVisible="{Binding HasRecordedLevel}" Text="{Binding RecordedLevelLabel}" />
                       <TextBlock Classes="v2-label" IsVisible="{Binding IsUnknownReadiness}" Text="{Binding ReadinessLabel}" />
                     </StackPanel>
+                    <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource V2.Brush.Action}"
+                               IsVisible="{Binding $parent[UserControl].((vm:CraftsBartersWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                   </StackPanel>
                   <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" VerticalAlignment="Center"
                              Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"

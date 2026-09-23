@@ -96,6 +96,8 @@ public sealed record PlanRequirementRowViewModel(
     public string ProgressLabel => Have is { } have
         ? string.Create(CultureInfo.CurrentCulture, $"{Math.Min(have, Need):N0} / {Need:N0}")
         : string.Create(CultureInfo.CurrentCulture, $"? / {Need:N0}");
+
+    public string LearnReason => $"{HandlingLabel}: needed by this map's quests";
 }
 
 /// <summary>
