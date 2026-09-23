@@ -3,6 +3,7 @@ using System.Globalization;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Core.Abstractions;
@@ -18,7 +19,16 @@ public sealed record KeepListRowViewModel(
     bool IsHighValue,
     IReadOnlyList<string> Reasons)
 {
-    public string ReasonSummary => string.Join(", ", Reasons);
+    public string ReasonSummary => RecommendationReason.Length > 0
+        ? RecommendationReason
+        : string.Join(", ", Reasons);
+
+    /// <summary>The #274 engine's compact action and first ordered reason.</summary>
+    public string RecommendationVerdict { get; init; } = string.Empty;
+
+    public string RecommendationReason { get; init; } = string.Empty;
+
+    public bool HasRecommendation => RecommendationVerdict.Length > 0;
 
     /// <summary>What the quests still open ask for in all, and how much of it must be found in raid; empty if no quest asks.</summary>
     public string QuestCountLabel { get; init; } = string.Empty;
@@ -68,6 +78,7 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
     private const int MaximumQuestReasons = 3;
 
     private readonly KeepListService _service;
+    private readonly IItemRecommendationAdvisor? _recommendations;
     private IReadOnlyList<KeepListGroupViewModel> _groups = [];
     private IReadOnlyList<object> _rows = [];
     private string _status = "Loading the keep list…";
@@ -77,9 +88,11 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         IPlayerProfileService profileService,
         IItemRepository itemRepository,
         IItemFactCatalog factCatalog,
-        IQuestReadService questReadService)
+        IQuestReadService questReadService,
+        IItemRecommendationAdvisor? recommendations = null)
     {
         _service = new KeepListService(requirements, profileService, itemRepository, factCatalog, questReadService);
+        _recommendations = recommendations;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
     }
 
@@ -137,7 +150,12 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
                 async () =>
                 {
                     var built = await _service.BuildAsync(cancellationToken).ConfigureAwait(false);
-                    return (built, built.HasData ? Present(built) : []);
+                    var advice = built.HasData && _recommendations is not null
+                        ? await _recommendations.GetAsync(
+                            built.Entries.Select(entry => entry.ItemId).ToArray(),
+                            cancellationToken).ConfigureAwait(false)
+                        : new Dictionary<string, V2ItemRecommendation>(StringComparer.Ordinal);
+                    return (built, built.HasData ? Present(built, advice) : []);
                 },
                 cancellationToken).ConfigureAwait(true);
             LoadFault.Clear();
@@ -165,7 +183,9 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         }
     }
 
-    private static IReadOnlyList<KeepListGroupViewModel> Present(KeepPlan plan) =>
+    private static IReadOnlyList<KeepListGroupViewModel> Present(
+        KeepPlan plan,
+        IReadOnlyDictionary<string, V2ItemRecommendation> recommendations) =>
     [
         .. plan.Entries
             .GroupBy(entry => entry.Group)
@@ -173,12 +193,12 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
             .Select(group => new KeepListGroupViewModel(
                 GroupLabels[group.Key],
                 group
-                    .Select(ToRow)
+                    .Select(entry => ToRow(entry, recommendations.GetValueOrDefault(entry.ItemId)))
                     .OrderBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase)
                     .ToArray())),
     ];
 
-    private static KeepListRowViewModel ToRow(KeepEntry entry)
+    private static KeepListRowViewModel ToRow(KeepEntry entry, V2ItemRecommendation? recommendation)
     {
         var reasons = new List<string>();
         // The planner puts the quests the player is on first. The MS2000 Marker is asked for by 37
@@ -204,6 +224,8 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
 
         return new KeepListRowViewModel(entry.ItemId, entry.Name, entry.Item.Tier, entry.IsHighValue, reasons)
         {
+            RecommendationVerdict = recommendation?.Verdict ?? string.Empty,
+            RecommendationReason = recommendation?.Reason ?? string.Empty,
             QuestCountLabel = QuestCount(entry),
             HideoutCountLabel = HideoutCount(entry),
             HeldLabel = entry.Held is { } held ? $"Held {Count(held)}" : "Held unknown",

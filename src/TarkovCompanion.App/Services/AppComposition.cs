@@ -484,6 +484,8 @@ public static class AppComposition
         services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
         services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
+        // #274: one engine-backed answer shared by Intel item cards and the Plan > Keep list.
+        services.AddSingleton<IItemRecommendationAdvisor, ItemRecommendationAdvisor>();
         // Package 5 (Intel workspace + wiki deep links): the fact catalog and quest progress
         // service already exist; this is the first caller to read them together for a single
         // item id instead of a whole legacy page.
