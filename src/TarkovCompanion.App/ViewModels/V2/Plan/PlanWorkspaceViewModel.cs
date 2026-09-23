@@ -833,6 +833,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                     _mapPreview.ViewChangeRequested -= MapPreviewViewChangeRequested;
                 }
 
+                var dropped = _mapPreview;
+
                 _mapPreview = value;
                 if (value is not null)
                 {
@@ -841,6 +843,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasMapPreview));
+                // [#775] After the view has moved off it: its leases keep the cockpit's pictures alive.
+                dropped?.ReleasePictures();
             }
         }
     }
@@ -1938,7 +1942,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                 : null;
         }
 
-        var signature = $"{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', scene.Objects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
+        // [#775] The picture's hash too: the cockpit replaces its picture while tiles fill in, and a
+        // preview that is not re-presented keeps drawing the one it replaced.
+        var signature = $"{_raidCockpit.BackgroundSha}|{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', scene.Objects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
         if (MapPreview is not null && signature == _mapPreviewSignature)
         {
             return;

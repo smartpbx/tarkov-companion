@@ -3009,7 +3009,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _lifetime.Dispose();
         _ownedHttpClient?.Dispose();
 
-        _backgroundImage?.Dispose();
+        // [#775] Not at once: a view may still draw it in the render pass under way.
+        if (_backgroundImage is { } background)
+        {
+            ReleaseLater([background]);
+        }
+
         _backgroundImage = null;
         _tiles = [];
         _decodedTiles.Clear();
