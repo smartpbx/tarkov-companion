@@ -413,8 +413,10 @@ tooltip over the carried backpack; C, a scav's own inventory with no loot open.
   three frames (14, 12, 13), none spurious, in 11 to 27 ms. Sections come from the layout:
   loot right of the carried column, pockets on the slot column, the rig above them, the
   backpack in the first group below when it starts where its header puts it (44 pixels below
-  the pockets on A and B), otherwise "other" (C's pouch). A tooltip over a frame hides that
-  grid (B's backpack), and the scan then says the carried grid is unread.
+  the pockets on A and B), otherwise "other" (C's pouch). On eleven later real frames, a
+  pitch-aligned right-edge recovery plus a scoped inner-lattice fallback finds all nine visible
+  backpacks, including the tooltip, packed and low-panel cases; all rig and pocket pouch counts
+  and dimensions match their hand-read labels.
 - **Loot.** A: the 3x3 box, one 1x1 footprint, named right (7.62x39 SP ammo pack, 0.905). B and
   C: no loot lattice, where the old path read carried grids as loot.
 - **Backpack.** A: 4x3 at the exact phase, 7 footprints, all 7 the right shape. Named 1 (Poxeram,

@@ -77,6 +77,24 @@ public sealed class ContainerGridDetector
             ?? DetectAtPitch(luminance, image, null, ref check, cancellationToken);
     }
 
+    /// <summary>Finds a regular grid at a pitch already measured from the containing screen.</summary>
+    /// <remarks>
+    /// A cropped Gear-screen section keeps the source frame's UI scale. Deriving pitch from the
+    /// crop height would shrink 63-pixel cells and let item art compete in the open-pitch search.
+    /// </remarks>
+    internal ContainerGridSpec? DetectKnownPitch(
+        CapturedImage image,
+        double pitch,
+        CancellationToken cancellationToken = default)
+    {
+        CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(pitch);
+        cancellationToken.ThrowIfCancellationRequested();
+        var check = new PixelCancellationCheck(cancellationToken);
+        var luminance = ReadLuminance(image, ref check);
+        return DetectAtPitch(luminance, image, pitch, ref check, cancellationToken);
+    }
+
     private static ContainerGridSpec? DetectAtPitch(
         byte[] luminance,
         CapturedImage image,
