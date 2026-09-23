@@ -22,23 +22,11 @@ public sealed class ExtractConditionsTests
     public void WhoMayTakeIt(string faction, string expected) =>
         Assert.Equal(expected, Describe("{\"faction\":\"" + faction + "\"}"));
 
-    /// <summary>
-    /// A switch is the difference between an exit and a trip.
-    /// </summary>
     [Fact]
-    public void AnExitBehindASwitchSaysSo() =>
+    public void UnreviewedCatalogSwitchLinksAreIgnored() =>
         Assert.Equal(
-            "Scav only · Needs a switch",
-            Describe("""{"faction":"scav","switches":["ae4bdfc1fc5b30100701158b56ae4d20840e0550"]}"""));
-
-    [Fact]
-    public void TwoSwitchesAreCounted() =>
-        Assert.Equal("Needs 2 switches", Describe("""{"switches":["a","b"]}"""));
-
-    /// <summary>The payload carries both forms and they say the same thing.</summary>
-    [Fact]
-    public void TheSingularSwitchFieldCountsToo() =>
-        Assert.Equal("Needs a switch", Describe("""{"switch":"ae4bdfc1"}"""));
+            "Scav only",
+            Describe("""{"faction":"scav","switch":"bad","switches":["also-bad"]}"""));
 
     /// <summary>
     /// Money is a decision about whether it is worth it; a key is a decision about whether

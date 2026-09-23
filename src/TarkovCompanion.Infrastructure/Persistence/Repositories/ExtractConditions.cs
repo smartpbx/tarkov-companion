@@ -13,9 +13,9 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 /// been in the synced payload the whole time.
 ///
 /// Three things are in there and each one changes whether an exit is worth running to. Who
-/// may take it, which we already said. Whether a switch has to be thrown first, which is the
-/// difference between an exit and a trip. And what it costs, because a vehicle extract wants
-/// money and a secret exit wants a key you either have or do not.
+/// may take it, which we already said. What it costs, because a vehicle extract wants money
+/// and a secret exit wants a key you either have or do not. Reviewed switch requirements are
+/// supplied separately because the catalog's extract-to-switch links are not trustworthy.
 ///
 /// Nothing here guesses. An exit with no conditions gets no sentence rather than a reassuring
 /// one, because "no conditions" and "we did not look" read identically and only one is true.
@@ -54,11 +54,6 @@ public static class ExtractConditions
                 parts.Add(described);
             }
         }
-        else if (DescribeSwitches(extract) is { } switches)
-        {
-            parts.Add(switches);
-        }
-
         if (requirements is null && DescribeCost(extract, itemName) is { } cost)
         {
             parts.Add(cost);
@@ -88,27 +83,6 @@ public static class ExtractConditions
         {
             yield return itemId;
         }
-    }
-
-    /// <summary>
-    /// Whether a switch has to be thrown before this exit works.
-    /// </summary>
-    /// <remarks>
-    /// The payload carries both a single <c>switch</c> and a <c>switches</c> list, and where
-    /// both are present they say the same thing. The list is preferred because it is the one
-    /// that can hold more than one.
-    /// </remarks>
-    private static string? DescribeSwitches(JsonElement extract)
-    {
-        var count = extract.TryGetProperty("switches", out var switches) && switches.ValueKind == JsonValueKind.Array
-            ? switches.GetArrayLength()
-            : ReadText(extract, "switch") is { Length: > 0 } ? 1 : 0;
-        return count switch
-        {
-            0 => null,
-            1 => "Needs a switch",
-            _ => string.Create(CultureInfo.CurrentCulture, $"Needs {count} switches"),
-        };
     }
 
     /// <summary>
