@@ -471,10 +471,10 @@ public sealed record LootSpawnSourceBundle
         Diagnostics = BoundedCopy(diagnostics, MaximumDiagnostics, nameof(diagnostics));
 
         if (Snapshots.Select(value => value.SnapshotId).Distinct(StringComparer.Ordinal).Count() != Snapshots.Count ||
-            Snapshots.Select(value => value.MapId).Distinct(StringComparer.Ordinal).Count() != Snapshots.Count ||
-            Coverage.Select(value => value.MapId).Distinct(StringComparer.Ordinal).Count() != Coverage.Count ||
+            Snapshots.Select(value => value.MapId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != Snapshots.Count ||
+            Coverage.Select(value => value.MapId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != Coverage.Count ||
             Snapshots.Any(value => !string.Equals(value.DatasetVersion, identity.DatasetVersion, StringComparison.Ordinal)) ||
-            !Snapshots.Select(value => value.MapId).ToHashSet(StringComparer.Ordinal)
+            !Snapshots.Select(value => value.MapId).ToHashSet(StringComparer.OrdinalIgnoreCase)
                 .SetEquals(Coverage.Select(value => value.MapId)))
         {
             throw new ArgumentException("Bundle snapshots, coverage, and source identity do not reconcile.");
@@ -482,7 +482,7 @@ public sealed record LootSpawnSourceBundle
 
         foreach (var snapshot in Snapshots)
         {
-            var measured = Coverage.Single(value => string.Equals(value.MapId, snapshot.MapId, StringComparison.Ordinal));
+            var measured = Coverage.Single(value => string.Equals(value.MapId, snapshot.MapId, StringComparison.OrdinalIgnoreCase));
             if (snapshot.GeneratedUtc != identity.ImportedUtc ||
                 snapshot.Coverage.Published != measured.PublishedRecordCount ||
                 snapshot.Coverage.Positioned != measured.PositionedRecordCount ||
