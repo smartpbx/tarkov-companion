@@ -29,9 +29,11 @@ public sealed class RaidReplayViewModel : BindableViewModel
     private readonly MapViewModel _map;
     private readonly DispatcherTimer _timer;
     private IReadOnlyList<ScreenshotPosition> _positions = [];
+    private IReadOnlyList<WorldPosition> _plannedRoute = [];
     private int _step;
     private bool _isPlaying;
     private string _title = string.Empty;
+    private string _comparison = string.Empty;
 
     public RaidReplayViewModel(MapViewModel map)
     {
@@ -66,7 +68,7 @@ public sealed class RaidReplayViewModel : BindableViewModel
             }
 
             OnPropertyChanged(nameof(Position));
-            _map.ShowReplay(_positions, clamped);
+            _map.ShowReplay(_positions, clamped, _plannedRoute);
         }
     }
 
@@ -79,6 +81,14 @@ public sealed class RaidReplayViewModel : BindableViewModel
         : string.Create(
             CultureInfo.CurrentCulture,
             $"{_step + 1} of {_positions.Count} · {LocalTime.Time(_positions[_step].Timestamp)}");
+
+    public string Comparison
+    {
+        get => _comparison;
+        private set => SetProperty(ref _comparison, value);
+    }
+
+    public bool HasComparison => Comparison.Length > 0;
 
     public bool IsPlaying
     {
@@ -101,13 +111,20 @@ public sealed class RaidReplayViewModel : BindableViewModel
     public ICommand CloseCommand { get; }
 
     /// <summary>Opens a raid, or closes the bar when it has no screenshots to show.</summary>
-    public void Open(string title, IReadOnlyList<ScreenshotPosition> positions)
+    public void Open(
+        string title,
+        IReadOnlyList<ScreenshotPosition> positions,
+        IReadOnlyList<WorldPosition>? plannedRoute = null,
+        string? comparison = null)
     {
         ArgumentNullException.ThrowIfNull(positions);
         Stop();
         _positions = positions;
+        _plannedRoute = plannedRoute ?? [];
         _step = 0;
         Title = title;
+        Comparison = comparison ?? string.Empty;
+        OnPropertyChanged(nameof(HasComparison));
         OnPropertyChanged(nameof(IsOpen));
         OnPropertyChanged(nameof(LastStep));
         OnPropertyChanged(nameof(Step));
@@ -118,15 +135,18 @@ public sealed class RaidReplayViewModel : BindableViewModel
             return;
         }
 
-        _map.ShowReplay(positions, 0);
+        _map.ShowReplay(positions, 0, _plannedRoute);
     }
 
     public void Close()
     {
         Stop();
         _positions = [];
+        _plannedRoute = [];
         _step = 0;
         Title = string.Empty;
+        Comparison = string.Empty;
+        OnPropertyChanged(nameof(HasComparison));
         OnPropertyChanged(nameof(IsOpen));
         OnPropertyChanged(nameof(LastStep));
         OnPropertyChanged(nameof(Step));

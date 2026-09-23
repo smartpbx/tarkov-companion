@@ -468,6 +468,11 @@
                   <TextBlock Classes="v2-heading-3" Text="Screenshots" AutomationProperties.HeadingLevel="3" />
                 </StackPanel>
                 <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedPathLabel}" TextWrapping="Wrap" />
+                <StackPanel Spacing="2" IsVisible="{Binding HasSelectedRouteComparison}">
+                  <TextBlock Classes="v2-label" Text="Planned vs actual" />
+                  <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedRouteComparisonLabel}"
+                             TextWrapping="Wrap" />
+                </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding HasDistance}">
                   <TextBlock Classes="v2-debrief-muted" Text="{Binding SelectedDistanceLabel}" TextWrapping="Wrap" />
                   <Border Classes="v2-debrief-kind">

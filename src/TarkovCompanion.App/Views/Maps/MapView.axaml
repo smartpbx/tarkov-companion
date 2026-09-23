@@ -620,6 +620,17 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- The plan selected before a replayed raid. Solid and pale so it remains distinct
+               from the dotted screenshot evidence drawn over it. -->
+          <Polyline
+              Points="{Binding PlannedReplayRoute}"
+              IsVisible="{Binding HasPlannedReplayRoute}"
+              IsHitTestVisible="False"
+              Stroke="#D9F1C75B"
+              StrokeThickness="{Binding PlayerTrailThickness}"
+              StrokeLineCap="Round"
+              StrokeJoin="Round" />
+
           <!-- Where the player has been this raid, in the order they were there. Broken
                rather than solid, because the points are screenshots minutes apart and a solid
                line between two of them would claim a route that was never observed. -->

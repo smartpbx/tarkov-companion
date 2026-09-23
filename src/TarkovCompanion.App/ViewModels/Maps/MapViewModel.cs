@@ -1408,6 +1408,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private PixelSize _backgroundPixelSize;
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
+    private IReadOnlyList<WorldPosition> _plannedReplayPositions = [];
     private MapFeatureFaction _side = MapFeatureFaction.Unknown;
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
@@ -1435,6 +1436,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
     private IReadOnlyList<GroupPingView> _pings = [];
     private AvaloniaList<Point> _playerTrail = [];
+    private AvaloniaList<Point> _plannedReplayRoute = [];
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
     private bool _prefersDrawing;
@@ -1665,6 +1667,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     internal IReadOnlyList<ScreenshotPosition> PlayerTrailPositions => _playerTrailPositions;
 
+    internal IReadOnlyList<WorldPosition> PlannedReplayPositions => _plannedReplayPositions;
+
     internal IReadOnlyList<GroupMemberView> GroupMembers => _groupMembers;
 
     internal IReadOnlyList<RaidTrail> VisitedRaids => _visited;
@@ -1708,6 +1712,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>A trail needs two points before it is a trail.</summary>
     public bool HasPlayerTrail => PlayerTrail.Count > 1;
+
+    /// <summary>The route selected before this replayed raid, drawn solid under observed dots.</summary>
+    public AvaloniaList<Point> PlannedReplayRoute
+    {
+        get => _plannedReplayRoute;
+        private set
+        {
+            Set(ref _plannedReplayRoute, value);
+            OnPropertyChanged(nameof(HasPlannedReplayRoute));
+        }
+    }
+
+    public bool HasPlannedReplayRoute => PlannedReplayRoute.Count > 1;
 
     /// <summary>
     /// The trail's stroke in canvas units, so it is two and a half pixels at any zoom.
@@ -5795,7 +5812,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// same claim about the same evidence: these places, in this order, each from a screenshot
     /// the player took. Drawing it any other way would invent a distinction that is not there.
     /// </remarks>
-    public void ShowReplay(IReadOnlyList<ScreenshotPosition> trail, int step)
+    public void ShowReplay(
+        IReadOnlyList<ScreenshotPosition> trail,
+        int step,
+        IReadOnlyList<WorldPosition>? plannedRoute = null)
     {
         ArgumentNullException.ThrowIfNull(trail);
         if (trail.Count == 0)
@@ -5806,6 +5826,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         var index = Math.Clamp(step, 0, trail.Count - 1);
         IsReplaying = true;
+        _plannedReplayPositions = plannedRoute ?? [];
         _playerPosition = trail[index];
         _playerTrailPositions = trail.Take(index + 1).ToArray();
         UpdatePlayerMarker();
@@ -5824,6 +5845,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IsReplaying = false;
         _playerPosition = null;
         _playerTrailPositions = [];
+        _plannedReplayPositions = [];
         UpdatePlayerMarker();
         UpdateArea();
     }
@@ -5917,6 +5939,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             PlayerMarkers = [];
             PlayerTrail = [];
+            PlannedReplayRoute = [];
             return;
         }
 
@@ -5934,6 +5957,21 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         PlayerTrail = trail;
+
+        var planned = new AvaloniaList<Point>();
+        foreach (var plannedPosition in _plannedReplayPositions)
+        {
+            if (_renderModel.TryMapPosition(plannedPosition, out var routePoint))
+            {
+                var projected = mapper(routePoint);
+                if (double.IsFinite(projected.X) && double.IsFinite(projected.Y))
+                {
+                    planned.Add(projected);
+                }
+            }
+        }
+
+        PlannedReplayRoute = planned;
 
         var canvasPoint = mapper(mapPoint);
         if (!double.IsFinite(canvasPoint.X) || !double.IsFinite(canvasPoint.Y))

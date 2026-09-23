@@ -1,7 +1,9 @@
 using System.Globalization;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Application.Services.Strategy.Prior;
 using TarkovCompanion.Core.Domain.Maps;
@@ -210,6 +212,44 @@ public sealed partial class RaidCockpitViewModel
         _chosenRouteExtract = extract;
         RaiseRouteChanged();
         _rebuildRequest.Request();
+        RecordPlannedRouteAsync(extract).Observe("raid", "save planned route");
+    }
+
+    private async Task RecordPlannedRouteAsync(string extract)
+    {
+        if (_raidHistory is null || _stateStore.Current.Raid.RaidId is not { } raidId ||
+            _map.RenderModel is not { Variant.Transform: { IsValid: true } transform } model ||
+            _extractRoutes.FirstOrDefault(route => string.Equals(route.Extract, extract, StringComparison.OrdinalIgnoreCase))
+                is not { } selected)
+        {
+            return;
+        }
+
+        var height = _map.PlayerPosition?.Position.Y ?? 0;
+        var points = new List<WorldPosition>(selected.Plan.LowerContact.Points.Count);
+        foreach (var point in selected.Plan.LowerContact.Points)
+        {
+            if (!transform.TryUnproject(new(point.X, point.Y), height, out var world))
+            {
+                return;
+            }
+
+            points.Add(world);
+        }
+
+        if (points.Count < 2)
+        {
+            return;
+        }
+
+        var plannedUtc = _timeProvider.GetUtcNow().ToUniversalTime();
+        var route = new RaidPlannedRoute(model.Location.Id, selected.Extract, plannedUtc, points);
+        await _raidHistory.RecordEventAsync(
+            raidId,
+            RaidPlannedRoute.EventType,
+            plannedUtc,
+            route.ToPayload(),
+            CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>The extract rows with their routes' estimates, planned ones first and cheapest first.</summary>

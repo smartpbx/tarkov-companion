@@ -93,6 +93,24 @@ public sealed class RaidCockpitLiveLayersTests
     }
 
     [Fact]
+    public void A_replayed_plan_is_a_distinct_personal_route_beside_the_observed_trail()
+    {
+        var built = RaidCockpitViewModel.BuildLiveLayers(
+            Inputs(
+                trail: [Position(10, 10, 0, 30), Position(30, 40, 0, 10)],
+                planned: [new(12, 0, -10), new(32, 0, -40)]),
+            Model(),
+            NowUtc);
+
+        var routes = built.Objects.Where(item => item.Kind == MapSceneObjectKind.Route).ToArray();
+        Assert.Equal(2, routes.Length);
+        var plan = Assert.Single(routes, item => item.Truth == MapSceneTruthKind.PersonalPlan);
+        Assert.Equal("Your planned route", plan.Label);
+        Assert.Equal("#FFF1C75B", built.Styles[plan.Id].Color);
+        Assert.Contains(routes, item => item.Truth == MapSceneTruthKind.LocalLastKnown);
+    }
+
+    [Fact]
     public void A_step_this_transform_cannot_place_on_the_plan_is_dropped_rather_than_taking_the_trail_with_it()
     {
         // The renderer refuses to draw a line that leaves the plan at all, so one stray position
@@ -269,15 +287,17 @@ public sealed class RaidCockpitLiveLayersTests
         bool showsGroupNames = false,
         IReadOnlyList<RaidTrail>? visited = null,
         bool showsVisited = false,
-        Func<string, string>? colorFor = null) => new(
-            player,
-            trail ?? [],
-            squad ?? [],
-            isOnThisMap ?? (_ => true),
-            colorFor ?? (_ => "#FF00FF00"),
-            showsGroupNames,
-            visited ?? [],
-            showsVisited);
+        Func<string, string>? colorFor = null,
+        IReadOnlyList<WorldPosition>? planned = null) => new(
+                player,
+                trail ?? [],
+                squad ?? [],
+                isOnThisMap ?? (_ => true),
+                colorFor ?? (_ => "#FF00FF00"),
+                showsGroupNames,
+                visited ?? [],
+                showsVisited)
+            { PlannedRoute = planned ?? [] };
 
     /// <summary>A screenshot whose world position lands exactly on the plan point asked for.</summary>
     private static ScreenshotPosition Position(double planX, double planY, double heading, int secondsAgo) =>

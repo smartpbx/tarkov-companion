@@ -1664,7 +1664,8 @@ internal static class Program
             // shown map; --watch then presses "Watch on map" and the render lands on the Raid map.
             if (shell is not null && args.Contains("--debrief-demo"))
             {
-                var seeded = SeedDebriefAsync(services, RaidDemo(viewModel.Map.RenderModel).Raid);
+                var shownRaid = RaidDemo(viewModel.Map.RenderModel).Raid;
+                var seeded = SeedDebriefAsync(services, shownRaid);
                 DrainUntilComplete(seeded);
                 if (args.Contains("--debrief-tags-demo"))
                 {
@@ -1694,6 +1695,28 @@ internal static class Program
                         CancellationToken.None));
                 }
 
+                if (args.Contains("--debrief-route-demo"))
+                {
+                    var history = services.GetRequiredService<TarkovCompanion.Infrastructure.Persistence.Repositories.SqliteRaidHistoryService>();
+                    var plannedUtc = DateTimeOffset.UtcNow.AddHours(-2).AddMinutes(1);
+                    var points = shownRaid.PositionTrail
+                        .Select(step => new TarkovCompanion.Core.Domain.Maps.WorldPosition(
+                            step.Position.X + 35,
+                            step.Position.Y,
+                            step.Position.Z))
+                        .ToArray();
+                    DrainUntilComplete(history.RecordEventAsync(
+                        seeded.Result,
+                        TarkovCompanion.Application.Services.Raids.RaidPlannedRoute.EventType,
+                        plannedUtc,
+                        new TarkovCompanion.Application.Services.Raids.RaidPlannedRoute(
+                            shownRaid.MapId ?? "customs",
+                            "Crossroads",
+                            plannedUtc,
+                            points).ToPayload(),
+                        CancellationToken.None));
+                }
+
                 var debrief = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.Debrief.DebriefWorkspaceViewModel>();
                 DrainUntilComplete(debrief.LoadAsync());
                 // The demo composition records a live raid of its own, which is the newest and so
@@ -1714,6 +1737,11 @@ internal static class Program
                         .WatchOnMapCommand.Execute(null);
                     // The shell picks the raid's map, opens the replay and navigates: three async steps.
                     Pump(120);
+                    if (args.Contains("--watch-end"))
+                    {
+                        viewModel.Raid.Replay.Step = viewModel.Raid.Replay.LastStep;
+                        Pump(30);
+                    }
                 }
 
                 // #291 package 2: put the raid list on a search or a filter before the frame, the

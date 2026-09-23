@@ -1018,7 +1018,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
                 await legacy.Map.FollowRaidAsync(mapId).ConfigureAwait(true);
             }
 
-            legacy.Raid.Replay.Open(request.Title, request.Positions);
+            legacy.Raid.Replay.Open(request.Title, request.Positions, request.PlannedRoute, request.Comparison);
             GoTo(V2Routes.Raid, V2ShellFocusTargets.Destination(V2Routes.Raid));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

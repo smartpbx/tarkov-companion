@@ -82,7 +82,12 @@ public sealed record DebriefScanRowViewModel(
 /// Carries the raid's own map because a replay is only positions: V1 drew them on whatever map was
 /// showing, so the shell chooses the map first.
 /// </remarks>
-public sealed record DebriefReplayRequest(string? MapId, string Title, IReadOnlyList<ScreenshotPosition> Positions);
+public sealed record DebriefReplayRequest(
+    string? MapId,
+    string Title,
+    IReadOnlyList<ScreenshotPosition> Positions,
+    IReadOnlyList<WorldPosition> PlannedRoute,
+    string Comparison);
 
 /// <summary>One flea offer that sold during a raid, counted per item rather than per offer.</summary>
 public sealed record DebriefSaleRowViewModel(string ItemLabel, string CountLabel, string TimeLabel);
@@ -169,6 +174,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
     private bool _taskCatalogLoaded;
     private RaidHistoryEntry? _selected;
     private IReadOnlyList<ScreenshotPosition> _selectedPositions = [];
+    private RaidPlannedRoute? _selectedPlannedRoute;
     private RaidFactSources _selectedSources = new(
         RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown, RaidFactKind.Unknown);
     private bool _selectedLoadRecorded;
@@ -328,6 +334,27 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         1 => "1 screenshot recorded.",
         var count => $"{count.ToString(CultureInfo.CurrentCulture)} screenshots recorded.",
     };
+
+    /// <summary>The plan/actual comparison is bounded by screenshots; it is not live tracking.</summary>
+    public string SelectedRouteComparisonLabel
+    {
+        get
+        {
+            if (_selectedPlannedRoute is null)
+            {
+                return string.Empty;
+            }
+
+            var prefix = $"Planned to {_selectedPlannedRoute.Extract}";
+            return RaidRouteDeviation.Measure(_selectedPlannedRoute.Points, _selectedPositions) is not { } deviation
+                ? prefix
+                : string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{prefix} · screenshots averaged {deviation.AverageMetres:F0} m from plan · furthest {deviation.FurthestMetres:F0} m");
+        }
+    }
+
+    public bool HasSelectedRouteComparison => _selectedPlannedRoute is not null;
 
     /// <summary>Where the map came from, beside the raid's name in the detail heading.</summary>
     public string SelectedMapKindLabel => _selectedSources.Map.Label();
@@ -750,7 +777,12 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
 
         ReplayRequested?.Invoke(
             this,
-            new(_selected.MapId, $"{SelectedMapLabel} · {SelectedStartedLabel}", _selectedPositions));
+            new(
+                _selected.MapId,
+                $"{SelectedMapLabel} · {SelectedStartedLabel}",
+                _selectedPositions,
+                _selectedPlannedRoute?.Points ?? [],
+                SelectedRouteComparisonLabel));
     }
 
     /// <summary>Says why a replay could not be opened, in the same status line every other Debrief failure uses.</summary>
@@ -1200,6 +1232,7 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 new RaidHistoryEntry(Guid.Empty, Guid.Empty, null, string.Empty, null, null, null, null),
                 []);
             SelectedTags = [];
+            _selectedPlannedRoute = null;
             SetManualFields(null);
         }
         else
@@ -1210,6 +1243,13 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
                 : [.. selectedRecord.Tags.Select(tag => new DebriefTagViewModel(
                     tag,
                     new AsyncDelegateCommand(() => RemoveTagAsync(tag))))];
+            _selectedPlannedRoute = RaidPlannedRoute.Latest(await _raidHistoryService
+                .ListEventPayloadsAsync(raidId, RaidPlannedRoute.EventType, cancellationToken)
+                .ConfigureAwait(true));
+            if (!string.Equals(_selectedPlannedRoute?.MapId, _selected.MapId, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedPlannedRoute = null;
+            }
             SelectedSales = await LoadSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
             SelectedQuestEvents = await LoadQuestEventsAsync(raidId, cancellationToken).ConfigureAwait(true);
             var stateFacts = await ReadStateFactsAsync(raidId, cancellationToken).ConfigureAwait(true);
@@ -1765,6 +1805,8 @@ public sealed class DebriefWorkspaceViewModel : BindableViewModel
         OnPropertyChanged(nameof(SelectedOutcomeLabel));
         OnPropertyChanged(nameof(SelectedNotesLabel));
         OnPropertyChanged(nameof(SelectedPathLabel));
+        OnPropertyChanged(nameof(SelectedRouteComparisonLabel));
+        OnPropertyChanged(nameof(HasSelectedRouteComparison));
         OnPropertyChanged(nameof(SelectedLoadTimeLabel));
         OnPropertyChanged(nameof(SelectedSales));
         OnPropertyChanged(nameof(HasSelectedSales));
