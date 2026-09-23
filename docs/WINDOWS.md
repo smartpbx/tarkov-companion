@@ -64,9 +64,6 @@ Two things are not true yet, and are recorded rather than implied:
   (`RELEASES.md`, "The rough channel"). The bounded authenticated transport, pinned Sigstore
   verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
   has to compose them with Velopack and component activation, and #270 supplies persisted state.
-- **Release delta packages are not produced.** Verification builds and applies a disposable delta
-  between its installed and next-version probes; the release payload still contains full packages
-  only, and the release chain signs deltas if that changes.
 
 Signed desktop builds reach a machine without the in-app updater, or without any network, through
 `scripts/release/install-offline.ps1`:
