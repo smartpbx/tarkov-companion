@@ -164,6 +164,10 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Equal("2", doorStep.MarkerGlyph);
         Assert.True(powerStep.ZOrder > selectedExtract.ZOrder);
         Assert.True(doorStep.ZOrder > selectedExtract.ZOrder);
+        Assert.True(Math.Abs(powerStep.PinOffsetX) * MapMarkerScale.AtFit >= 108);
+        Assert.True(Math.Abs(doorStep.PinOffsetX) * MapMarkerScale.AtFit >= 108);
+        Assert.Equal(0, powerStep.PinOffsetY);
+        Assert.Equal(0, doorStep.PinOffsetY);
     }
 
     [Fact]
