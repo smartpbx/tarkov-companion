@@ -705,6 +705,17 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void Loot_switch_names_its_coverage_state_beside_the_count()
+    {
+        var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+
+        var layer = renderer.Layers.Single(item => item.Layer.Id == HighValueLootLayerService.LayerId);
+
+        Assert.Contains("Partial", layer.Label, StringComparison.Ordinal);
+        Assert.Contains("incomplete", layer.Label, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void High_value_preset_keeps_orientation_camera_and_selected_spawn()
     {
         var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
@@ -936,6 +947,27 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void Compact_loot_choices_request_source_filters_for_threshold_and_slot_value()
+    {
+        var requested = new List<HighValueLootLayerFilterState>();
+        var loot = new HighValueLootLayerViewModel(
+            MapOnlyLootResult("customs", "transform-1"),
+            HighValueLootLayerFilterState.Default,
+            null,
+            null,
+            true,
+            Presentation,
+            requested.Add,
+            _ => { });
+
+        loot.ValueThresholdChoices.Single(choice => choice.Id == "threshold-250000").SelectCommand.Execute(null);
+        loot.CompactValueBasisChoices.Single(choice => choice.Id == "compact-basis-ValuePerSquare").SelectCommand.Execute(null);
+
+        Assert.Equal(250_000, requested[0].Filter.EffectiveMinimumValueRoubles);
+        Assert.Equal(LootSpawnValueBasis.ValuePerSquare, requested[1].Filter.ValueBasis);
+    }
+
+    [Fact]
     public void High_value_filter_cap_keeps_the_active_choice_visible_and_discloses_multi_category_state()
     {
         var result = UnavailableLootResult();
@@ -1075,7 +1107,8 @@ public sealed class MapSceneRendererViewModelTests
         // "unavailable" with nothing the player can act on.
         Assert.Contains("No loot spawn data yet", loot.StateMessage, StringComparison.Ordinal);
         Assert.Contains("offline", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(renderer.Layers, layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
+        var layer = Assert.Single(renderer.Layers, layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
+        Assert.Contains("No loot data for Renderer Gallery", layer.Label, StringComparison.Ordinal);
     }
 
     private static HighValueLootLayerResult UnavailableLootResult() => new(

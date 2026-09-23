@@ -270,11 +270,9 @@ public sealed class SelfTestReaderTests : IDisposable
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "already-there.png"), "x");
         var watch = new SelfTestScreenshotWatch(new ScreenshotFilenameParser());
-        // Named for this minute, not for the evening the test was written. The name used to be
-        // the constant "2026-09-18[20-58]...", and the parser believes a file's write time only
-        // when it is within an hour of the clock in its name. So this passed for the two hours
-        // around 20:58 UTC on that one day and has failed at every moment since, on every
-        // branch, in the job main requires. A test about "now" has to be written in terms of now.
+        // Named for this minute, not for the evening the test was written. That keeps the
+        // end-to-end duration meaningful while the immutable game filename remains the capture
+        // clock; filesystem write time is mutable sync metadata and is not an ordering cursor.
         var name = ScreenshotNamedFor(DateTimeOffset.UtcNow);
 
         var watching = watch.WatchAsync(folder, TimeSpan.FromSeconds(10), TimeSpan.Zero, CancellationToken.None);
@@ -287,7 +285,7 @@ public sealed class SelfTestReaderTests : IDisposable
         Assert.Equal(140.2, reading.X ?? 0, 1);
         Assert.Equal(-77.9, reading.Z ?? 0, 1);
         Assert.NotNull(reading.EndToEnd);
-        Assert.Equal("the file's own write time", reading.Clock);
+        Assert.Equal("the clock in the name", reading.Clock);
     }
 
     /// <summary>

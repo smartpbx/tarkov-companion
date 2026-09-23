@@ -440,7 +440,6 @@ public sealed class RaidObservationService : IAsyncDisposable
     {
         // The game writes the player's own position and heading into the screenshot filename.
         // That file is created by the game at the player's request; nothing is captured here.
-        var offset = LocalTime.Zone.GetUtcOffset(_timeProvider.GetUtcNow());
         var currentRoot = screenshotRoot;
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -504,6 +503,10 @@ public sealed class RaidObservationService : IAsyncDisposable
                     }
 
                     // So: place the player, then read the picture.
+                    // Asked per sighting rather than once when the watcher starts: a companion
+                    // left open across a daylight-saving transition must parse the next local
+                    // filename with the new offset.
+                    var offset = LocalTime.Zone.GetUtcOffset(_timeProvider.GetUtcNow());
                     if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                     {
                         _logger.LogInformation(

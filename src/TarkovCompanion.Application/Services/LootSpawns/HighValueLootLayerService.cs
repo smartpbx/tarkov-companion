@@ -742,6 +742,7 @@ public sealed class HighValueLootLayerService
         }
 
         var needs = orderedNeeds.Take(HighValueLootEntry.MaximumProjectedProfileNeeds).ToArray();
+        var minimumValue = request.Filter.EffectiveMinimumValueRoubles;
 
         foreach (var candidate in candidates)
         {
@@ -750,7 +751,7 @@ public sealed class HighValueLootLayerService
             if (value is { } amount)
             {
                 values.Add(amount);
-                if (amount >= request.Filter.Thresholds.Minimum)
+                if (amount >= minimumValue)
                 {
                     highValueCandidateCount++;
                 }
@@ -773,10 +774,10 @@ public sealed class HighValueLootLayerService
                                    values.Count == candidates.Count;
         var include = request.Filter.ValueBasis == LootSpawnValueBasis.ProfileUtility
             ? profileRelevant
-            : values.Any(value => value >= request.Filter.Thresholds.Minimum) || profileRelevant;
+            : values.Any(value => value >= minimumValue) || profileRelevant;
         var maximum = values.Count == 0 ? (long?)null : values.Max();
-        var tier = maximum is { } ceiling && ceiling >= request.Filter.Thresholds.Minimum
-            ? request.Filter.Thresholds.Classify(ceiling)
+        var tier = maximum is { } ceiling && ceiling >= minimumValue
+            ? AtLeastQualifying(request.Filter.Thresholds.Classify(ceiling))
             : profileRelevant
                 ? LootSpawnValueTier.ProfileRelevant
                 : maximum is null
@@ -824,6 +825,9 @@ public sealed class HighValueLootLayerService
             respawnBehavior,
             summary);
     }
+
+    private static LootSpawnValueTier AtLeastQualifying(LootSpawnValueTier tier) =>
+        tier == LootSpawnValueTier.BelowThreshold ? LootSpawnValueTier.Qualifying : tier;
 
     private static long? ValueFor(
         LootSpawnCandidate candidate,

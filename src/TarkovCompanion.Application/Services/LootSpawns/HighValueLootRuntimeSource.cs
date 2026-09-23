@@ -64,9 +64,12 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     /// thread every two seconds, and handed the map a new result, so it rebuilt every loot marker
     /// too. What moves with the clock is only freshness, which is measured in hours and days.
     /// Two are kept: the Raid map asks for the player's filter and, for the traffic prior, the
-    /// default one, and one slot would have thrown each away for the other.
+    /// default one, and one slot would have thrown each away for the other. [#716] This must also
+    /// outlast a raid: item facts arrive in batches, so reevaluating their age every minute made
+    /// hundreds of markers disappear together when a batch crossed the price-age boundary.
+    /// A publication, map, transform, bounds, floor, or filter change still invalidates at once.
     /// </summary>
-    public static readonly TimeSpan ReuseFor = TimeSpan.FromSeconds(60);
+    public static readonly TimeSpan ReuseFor = TimeSpan.FromHours(1);
 
     public HighValueLootRuntimeSource(
         ILootSpawnSourcePublicationStore publicationStore,
@@ -169,12 +172,14 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         CancellationToken cancellationToken)
     {
         var snapshot = head?.Snapshots.SingleOrDefault(candidate =>
-            string.Equals(candidate.MapId, request.MapId, StringComparison.Ordinal));
-        var rebound = snapshot is not null &&
-                      !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal);
-        if (rebound)
+            string.Equals(candidate.MapId, request.MapId, StringComparison.OrdinalIgnoreCase));
+        var mapIdentityChanged = snapshot is not null &&
+                                 !string.Equals(snapshot.MapId, request.MapId, StringComparison.Ordinal);
+        var transformChanged = snapshot is not null &&
+                               !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal);
+        if (mapIdentityChanged || transformChanged)
         {
-            snapshot = Rebind(snapshot!, request.TransformVersion);
+            snapshot = Rebind(snapshot!, request.MapId, request.TransformVersion);
         }
 
         var result = _layerService.Build(new(
@@ -186,7 +191,7 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
             snapshot,
             request.FloorIds,
             request.OverviewFloorIds), cancellationToken);
-        return rebound ? MarkMaybeStale(result) : result;
+        return transformChanged ? MarkMaybeStale(result) : result;
     }
 
     /// <summary>
@@ -196,11 +201,12 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
     /// snapshot left "High-value loot only" with an empty map and no hint why. Positions outside
     /// the current plan are still dropped by the layer's own bounds check.
     /// </summary>
-    private LootSpawnSnapshot Rebind(LootSpawnSnapshot snapshot, string transformVersion)
+    private LootSpawnSnapshot Rebind(LootSpawnSnapshot snapshot, string mapId, string transformVersion)
     {
         var cached = Volatile.Read(ref _rebound);
         if (cached is not null &&
             ReferenceEquals(cached.Source, snapshot) &&
+            string.Equals(cached.Snapshot.MapId, mapId, StringComparison.Ordinal) &&
             string.Equals(cached.Snapshot.TransformVersion, transformVersion, StringComparison.Ordinal))
         {
             return cached.Snapshot;
@@ -208,7 +214,7 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
 
         var records = snapshot.Records.Select(record => new LootSpawnRecord(
                 record.SpawnId,
-                record.MapId,
+                mapId,
                 record.Label,
                 record.Location,
                 record.PoolKind,
@@ -224,7 +230,7 @@ public sealed class HighValueLootRuntimeSource : IHighValueLootRuntimeSource
         var copy = new LootSpawnSnapshot(
             snapshot.SnapshotId,
             snapshot.DatasetVersion,
-            snapshot.MapId,
+            mapId,
             transformVersion,
             snapshot.GeneratedUtc,
             snapshot.Status,

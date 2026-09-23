@@ -594,7 +594,8 @@ public sealed record HighValueLootFilter
         bool includeProfileRelevant = true,
         string? floorId = null,
         IReadOnlyList<string>? itemIds = null,
-        IReadOnlyList<string>? categories = null)
+        IReadOnlyList<string>? categories = null,
+        long? minimumValueRoubles = null)
     {
         ValueBasis = LootSpawnProfileNeed.Defined(valueBasis, nameof(valueBasis));
         Thresholds = thresholds ?? throw new ArgumentNullException(nameof(thresholds));
@@ -613,6 +614,11 @@ public sealed record HighValueLootFilter
             throw new ArgumentOutOfRangeException(nameof(minimumConfidence));
         }
 
+        if (minimumValueRoubles < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minimumValueRoubles));
+        }
+
         MaximumPriceAge = maximumPriceAge;
         MaximumSourceAge = maximumSourceAge;
         MinimumConfidence = minimumConfidence;
@@ -622,6 +628,7 @@ public sealed record HighValueLootFilter
             : LootSpawnProfileNeed.Required(floorId, nameof(floorId), 96);
         ItemIds = CopyFilter(itemIds, nameof(itemIds));
         Categories = CopyFilter(categories, nameof(categories));
+        MinimumValueRoubles = minimumValueRoubles;
     }
 
     public LootSpawnValueBasis ValueBasis { get; }
@@ -641,6 +648,11 @@ public sealed record HighValueLootFilter
     public IReadOnlyList<string> ItemIds { get; }
 
     public IReadOnlyList<string> Categories { get; }
+
+    /// <summary>The player's map threshold, or null to use the governed tier minimum.</summary>
+    public long? MinimumValueRoubles { get; }
+
+    public long EffectiveMinimumValueRoubles => MinimumValueRoubles ?? Thresholds.Minimum;
 
     /// <remarks>
     /// [Issue 563] Measured against a real json.tarkov.dev publication, the old default (30-minute

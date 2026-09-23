@@ -437,6 +437,37 @@
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
+                  <ContentControl Content="{Binding HighValueLoot}" IsVisible="{Binding HasHighValueLoot}">
+                    <ContentControl.ContentTemplate>
+                      <DataTemplate x:DataType="mapVm:HighValueLootLayerViewModel">
+                        <StackPanel Spacing="6">
+                          <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
+                          <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                              Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          <ItemsControl ItemsSource="{Binding CompactValueBasisChoices}">
+                            <ItemsControl.ItemsPanel>
+                              <ItemsPanelTemplate><UniformGrid Columns="2" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                                <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                              Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                      </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                  </ContentControl>
                   <!-- [Issue 286] #591: the phase scrubber and the heat ramp for the "Modelled
                        traffic" switch above, back on the page's own view model (DataContext is
                        Renderer from here up, for the layer list) by name rather than by walking
@@ -667,17 +698,22 @@
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="mapvm:GroupMemberPanelViewModel">
                       <Border Classes="v2-raid-row">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                        <!-- Two deliberate lines. The former Auto status column took the row's
+                             width and made coordinates, floor and age wrap one word per line. -->
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="2">
                           <!-- The swatch is what joins this row to the dot and the trail on the map. -->
-                          <Ellipse Width="10" Height="10" VerticalAlignment="Center"
+                          <Ellipse Grid.RowSpan="2" Width="10" Height="10" VerticalAlignment="Center"
                                    Fill="{Binding SwatchColor}" />
-                          <StackPanel Grid.Column="1" Spacing="1">
-                            <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Classes="v2-label" Text="{Binding Position}" TextWrapping="Wrap" />
-                            <TextBlock Classes="v2-label" Text="{Binding Extra}" TextWrapping="Wrap"
-                                       IsVisible="{Binding HasExtra}" />
-                          </StackPanel>
-                          <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Where}" VerticalAlignment="Center" />
+                          <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <TextBlock Classes="v2-body" Text="{Binding Name}" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Classes="v2-label" MaxWidth="130"
+                                       Text="{Binding RaidStatus}" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis" />
+                          </Grid>
+                          <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-label"
+                                     Text="{Binding PositionSummary}" TextWrapping="NoWrap"
+                                     TextTrimming="CharacterEllipsis" />
                         </Grid>
                       </Border>
                     </DataTemplate>
@@ -1398,6 +1434,19 @@
                                AutomationProperties.AutomationId="v2-raid-loot-coverage" TextWrapping="Wrap" />
                     <TextBlock Classes="v2-label" Text="{Binding FreshnessMessage}" IsVisible="{Binding HasFreshnessMessage}"
                                TextWrapping="Wrap" />
+                    <TextBlock Classes="v2-label" Text="{Binding ValueThresholdLabel}" />
+                    <ItemsControl ItemsSource="{Binding ValueThresholdChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="mapVm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-target" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock Classes="v2-label" Text="{Binding ValueBasisLabel}" />
                     <ItemsControl ItemsSource="{Binding ValueBasisChoices}">
                       <ItemsControl.ItemsPanel>

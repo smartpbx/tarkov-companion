@@ -329,6 +329,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     private readonly EarlyRaidSpawnPolicy _earlyRaidSpawns;
     private readonly IWorkspaceLayoutStore? _layout;
     private readonly FollowZoomSetting _followZoom;
+    private readonly LootValueFilterSetting _lootValueFilter;
     private double _contextPanelWidth = DefaultContextPanelWidth;
     private bool _contextPanelHidden;
     // [Issue 573] Hidden / Dim (default) / Normal, remembered the same way the panel's own width is.
@@ -449,6 +450,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         _profiles = profiles;
         _layout = layout;
         _followZoom = new(layout);
+        _lootValueFilter = new(layout);
+        _lootFilter = _lootValueFilter.Apply(_lootFilter);
         Cards = new(layout);
         RestoreContextPanel();
         _assetCache = assetCache ?? throw new ArgumentNullException(nameof(assetCache));
@@ -3101,6 +3104,7 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             return;
         }
 
+        _lootValueFilter.Set(request.State.Filter);
         _lootFilter = request.State;
         var result = _lootSource.Build(new HighValueLootRuntimeLayerRequest(
             model.Location.Id,
