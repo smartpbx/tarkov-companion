@@ -14,6 +14,40 @@ namespace TarkovCompanion.App.ViewModels.V2.Plan;
 public sealed record HideoutUpgradeStepRowViewModel(string Order, string Title, string State, string AlsoNeeds, bool IsReady)
 {
     public bool HasAlsoNeeds => AlsoNeeds.Length > 0;
+
+    public string GateLabel => HasAlsoNeeds ? $"Gate · {AlsoNeeds}" : string.Empty;
+
+    public string MissingItems { get; init; } = string.Empty;
+
+    public bool HasMissingItems => MissingItems.Length > 0;
+
+    public TimeSpan? ConstructionTime { get; init; }
+
+    public string DurationLabel => ConstructionTime is { } duration
+        ? $"Build time · {FormatDuration(duration)}"
+        : "Build time unavailable";
+
+    public string LearnReason => HasAlsoNeeds ? $"Gate: {AlsoNeeds}" : $"Items: {State}";
+
+    internal static string FormatDuration(TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero)
+        {
+            return "instant";
+        }
+
+        if (duration.Days > 0)
+        {
+            return duration.Hours > 0 ? $"{duration.Days}d {duration.Hours}h" : $"{duration.Days}d";
+        }
+
+        if (duration.Hours > 0)
+        {
+            return duration.Minutes > 0 ? $"{duration.Hours}h {duration.Minutes}m" : $"{duration.Hours}h";
+        }
+
+        return duration.Minutes > 0 ? $"{duration.Minutes}m" : $"{Math.Max(1, duration.Seconds)}s";
+    }
 }
 
 /// <summary>One line of the merged shopping list.</summary>
@@ -114,10 +148,13 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         {
             SetProperty(ref _next, value);
             OnPropertyChanged(nameof(HasNextUpgrades));
+            OnPropertyChanged(nameof(NextSummary));
         }
     }
 
     public bool HasNextUpgrades => _next.Count > 0;
+
+    public string NextSummary => DurationSummary(_next);
 
     public IReadOnlyList<HideoutUpgradeStepRowViewModel> PathSteps
     {
@@ -139,12 +176,9 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         ? "Path"
         : $"Path to level {_targetLevel}";
 
-    public string PathSummary => _path.Count switch
-    {
-        0 => "Already built.",
-        1 => "1 upgrade, in this order",
-        _ => $"{_path.Count} upgrades, in this order",
-    };
+    public string PathSummary => _path.Count == 0
+        ? "Already built."
+        : DurationSummary(_path) + " · in this order";
 
     public bool CanRaiseTarget => _target is not null && _target.Levels.Any(level => level > _targetLevel);
 
@@ -270,12 +304,16 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                         _ => [.. upcoming.Take(scope.Count)],
                     };
                     var lines = HideoutUpgradePlanner.ShoppingList(covered, owned);
+                    var itemNames = new Dictionary<string, string>(StringComparer.Ordinal);
+                    var nextRows = await DescribeAsync(
+                        upcoming.Take(scope.Count <= 0 ? 5 : scope.Count), itemNames, cancellationToken).ConfigureAwait(false);
+                    var pathRows = await DescribeAsync(path, itemNames, cancellationToken).ConfigureAwait(false);
                     var rows = new List<(HideoutShoppingRowViewModel Row, long Cost, int Remaining)>(lines.Count);
                     long total = 0;
                     var unpriced = 0;
                     foreach (var line in lines)
                     {
-                        var item = await _items.GetAsync(line.ItemId, cancellationToken).ConfigureAwait(false);
+                        var itemName = await ItemNameAsync(line.ItemId, itemNames, cancellationToken).ConfigureAwait(false);
                         var price = await _items.GetPriceAsync(line.ItemId, cancellationToken).ConfigureAwait(false);
                         // Roubles are their own price; the other currencies have none on the flea.
                         var isRoubles = string.Equals(line.ItemId, RoublesItemId, StringComparison.Ordinal);
@@ -284,7 +322,7 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                         total += cost;
                         unpriced += each is null ? 1 : 0;
                         rows.Add((new(
-                            item?.Name ?? line.ItemId,
+                            itemName,
                             line.Have is { } have ? $"{Count(have)} / {Count(line.Need)}" : $"? / {Count(line.Need)}",
                             isRoubles ? "Cash" : each is { } priced ? $"{Roubles(priced)} each" : "No flea price",
                             each is null ? string.Empty : Roubles(cost)), cost, line.Remaining));
@@ -296,8 +334,8 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
                         : (anyUnknown ? "Up to " : "About ") + Roubles(total) + " to buy" +
                           (unpriced > 0 ? $" · {unpriced} without a price" : string.Empty);
                     return (
-                        Next: Describe(upcoming.Take(scope.Count <= 0 ? 5 : scope.Count)),
-                        Path: Describe(path),
+                        Next: nextRows,
+                        Path: pathRows,
                         Shopping: (IReadOnlyList<HideoutShoppingRowViewModel>)[.. rows
                             .OrderByDescending(row => row.Cost)
                             .ThenBy(row => row.Row.ItemName, StringComparer.CurrentCultureIgnoreCase)
@@ -327,21 +365,93 @@ public sealed class HideoutUpgradePlanViewModel : BindableViewModel
         }
     }
 
-    private static IReadOnlyList<HideoutUpgradeStepRowViewModel> Describe(IEnumerable<HideoutUpgradeStep> steps) =>
-    [
-        .. steps.Select((step, index) => new HideoutUpgradeStepRowViewModel(
-            (index + 1).ToString(CultureInfo.CurrentCulture),
-            $"{step.Name} · level {step.Level}",
-            (step.MissingItemCount, step.UnknownItemCount) switch
+    private async Task<IReadOnlyList<HideoutUpgradeStepRowViewModel>> DescribeAsync(
+        IEnumerable<HideoutUpgradeStep> steps,
+        Dictionary<string, string> itemNames,
+        CancellationToken cancellationToken)
+    {
+        var rows = new List<HideoutUpgradeStepRowViewModel>();
+        var available = new Dictionary<string, int?>(StringComparer.Ordinal);
+        foreach (var step in steps)
+        {
+            var missing = new List<string>();
+            var missingCount = 0;
+            var unknownCount = 0;
+            foreach (var need in step.Needs)
             {
-                (0, 0) => step.Needs.Count == 0 ? "No items" : "Have it all",
-                (var missing, 0) => $"{missing} short",
-                (0, var unknown) => $"{unknown} to check",
-                var (missing, unknown) => $"{missing} short · {unknown} to check",
-            },
-            string.Join(" · ", step.AlsoNeeds),
-            step.MissingItemCount == 0 && step.UnknownItemCount == 0)),
-    ];
+                var name = await ItemNameAsync(need.ItemId, itemNames, cancellationToken).ConfigureAwait(false);
+                if (!available.TryGetValue(need.ItemId, out var held))
+                {
+                    held = need.Owned;
+                }
+
+                if (held is { } owned)
+                {
+                    var remaining = Math.Max(0, need.Required - owned);
+                    available[need.ItemId] = Math.Max(0, owned - need.Required);
+                    if (remaining > 0)
+                    {
+                        missingCount++;
+                        missing.Add($"{name} ×{Count(remaining)}");
+                    }
+                }
+                else
+                {
+                    unknownCount++;
+                    available[need.ItemId] = null;
+                    missing.Add($"{name} ×{Count(need.Required)} to check");
+                }
+            }
+
+            rows.Add(new(
+                (rows.Count + 1).ToString(CultureInfo.CurrentCulture),
+                $"{step.Name} · level {step.Level}",
+                (missingCount, unknownCount) switch
+                {
+                    (0, 0) => step.Needs.Count == 0 ? "No items" : "Have it all",
+                    (var shortCount, 0) => $"{shortCount} short",
+                    (0, var unknown) => $"{unknown} to check",
+                    var (shortCount, unknown) => $"{shortCount} short · {unknown} to check",
+                },
+                string.Join(" · ", step.AlsoNeeds),
+                missingCount == 0 && unknownCount == 0)
+            {
+                ConstructionTime = step.ConstructionTime,
+                MissingItems = missing.Count == 0 ? string.Empty : "Missing · " + string.Join(", ", missing),
+            });
+        }
+
+        return rows;
+    }
+
+    private async Task<string> ItemNameAsync(
+        string itemId,
+        Dictionary<string, string> itemNames,
+        CancellationToken cancellationToken)
+    {
+        if (itemNames.TryGetValue(itemId, out var name))
+        {
+            return name;
+        }
+
+        var item = await _items.GetAsync(itemId, cancellationToken).ConfigureAwait(false);
+        name = item?.Name ?? itemId;
+        itemNames[itemId] = name;
+        return name;
+    }
+
+    private static string DurationSummary(IReadOnlyList<HideoutUpgradeStepRowViewModel> rows)
+    {
+        var count = rows.Count == 1 ? "1 upgrade" : $"{rows.Count} upgrades";
+        var known = TimeSpan.FromTicks(rows.Sum(row => row.ConstructionTime?.Ticks ?? 0));
+        var unknown = rows.Count(row => row.ConstructionTime is null);
+        return unknown switch
+        {
+            0 => $"{count} · {HideoutUpgradeStepRowViewModel.FormatDuration(known)} total",
+            _ when known == TimeSpan.Zero => $"{count} · {unknown} build {(unknown == 1 ? "time" : "times")} unavailable",
+            _ => $"{count} · {HideoutUpgradeStepRowViewModel.FormatDuration(known)} known · {unknown} unavailable",
+        };
+    }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
 

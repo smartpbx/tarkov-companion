@@ -67,9 +67,13 @@ public static class ObjectiveRoutePlanner
             var keepsNearestNeighbourLeg = seedIndex == 0
                 ? index == 0
                 : index > 0 && order[index - 1].ObjectiveId == nearest[seedIndex - 1].ObjectiveId;
+            // A 2-opt reversal changes the neighbours of stops that keep their step number, so
+            // "moved" is claimed only for a stop whose number really changed.
             var reason = keepsNearestNeighbourLeg
                 ? $"Nearest unvisited objective from {previous}"
-                : $"2-opt moved it from step {seedIndex + 1} to shorten the whole route";
+                : seedIndex != index
+                    ? $"2-opt moved it from step {seedIndex + 1} to shorten the whole route"
+                    : $"Still step {index + 1}; 2-opt reordered the stops before it";
             steps.Add(new(index + 1, stop.ObjectiveId, stop.Label, stop.At, leg, reason)
             {
                 FloorIds = stop.FloorIds,

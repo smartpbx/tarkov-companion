@@ -1,0 +1,35 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Intel.AcquisitionChainView"
+             x:DataType="vm:AcquisitionChainViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel">
+  <StackPanel Spacing="8">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <TextBlock Grid.Column="0" Classes="v2-heading-3" AutomationProperties.HeadingLevel="2"
+                 Text="{Binding Heading}" />
+      <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" Text="{Binding TotalLabel}"
+                 IsVisible="{Binding HasRoute}" />
+    </Grid>
+    <TextBlock Classes="v2-label" Text="{Binding LoadingLabel}" IsVisible="{Binding IsLoading}" />
+    <TextBlock Classes="v2-label" Text="{Binding EmptyLabel}" IsVisible="{Binding ShowsEmpty}" />
+    <ItemsControl ItemsSource="{Binding Steps}" AutomationProperties.AutomationId="v2-intel-cheapest-chain">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:AcquisitionChainStepViewModel">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="0,3">
+            <Border Grid.Column="0" Width="{Binding Indent}" />
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="v2-body" Text="{Binding Label}" TextWrapping="Wrap" />
+              <TextBlock Classes="v2-label" Text="{Binding SourceLabel}" TextWrapping="Wrap" />
+              <TextBlock Classes="v2-label v2-intel-fair" Text="{Binding OverheadLabel}"
+                         TextWrapping="Wrap" IsVisible="{Binding HasOverhead}" />
+            </StackPanel>
+            <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding CostLabel}" VerticalAlignment="Top" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock Classes="v2-label v2-intel-fair" Text="{Binding LimitsLabel}" TextWrapping="Wrap"
+               IsVisible="{Binding HasLimits}" />
+    <TextBlock Classes="v2-label" Text="{Binding UpdatedLabel}" IsVisible="{Binding HasUpdated}" />
+  </StackPanel>
+</UserControl>

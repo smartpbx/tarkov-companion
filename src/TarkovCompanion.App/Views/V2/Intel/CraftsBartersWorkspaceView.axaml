@@ -2,7 +2,8 @@
              x:DataType="vm:CraftsBartersWorkspaceViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Intel"
+             xmlns:intel="using:TarkovCompanion.App.Views.V2.Intel">
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Views/V2/Intel/IntelStyles.axaml" />
   </UserControl.Styles>
@@ -13,7 +14,7 @@
        duration underneath. A ListBox rather than a plain ItemsControl — Avalonia virtualises a
        ListBox's items by default, which a list that can hold all 789 barters and 214 crafts at
        once needs and the smaller reference lists beside it have never needed. -->
-  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10" Margin="16,4,16,16">
+  <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10" Margin="16,4,16,16">
     <Border Grid.Row="0" Classes="v2-intel-search">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
         <Path Grid.Column="0" Classes="v2-icon v2-icon-muted" VerticalAlignment="Center"
@@ -52,7 +53,20 @@
                  Margin="10,0,0,0" IsVisible="{Binding HasReadyNowUnknownCount}" />
     </StackPanel>
 
-    <Border Grid.Row="2" Classes="v2-intel-pane" AutomationProperties.AutomationId="v2-intel-trade-list">
+    <Border Grid.Row="2" Classes="v2-intel-pane" Padding="14" MaxHeight="350"
+            IsVisible="{Binding Chain.HasSelection}"
+            AutomationProperties.AutomationId="v2-intel-trade-chain">
+      <Grid RowDefinitions="Auto,*" RowSpacing="6">
+        <Button Grid.Row="0" Classes="v2-target v2-intel-plain" HorizontalAlignment="Right"
+                Content="{Binding CloseChainLabel}" Command="{Binding CloseChainCommand}"
+                AutomationProperties.AutomationId="v2-intel-chain-close" />
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+          <intel:AcquisitionChainView DataContext="{Binding Chain}" />
+        </ScrollViewer>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="3" Classes="v2-intel-pane" AutomationProperties.AutomationId="v2-intel-trade-list">
       <Grid>
         <TextBlock Classes="v2-body" Foreground="{DynamicResource V2.Brush.TextSecondary}"
                    HorizontalAlignment="Center" VerticalAlignment="Center" Margin="24"
@@ -91,11 +105,19 @@
                       <TextBlock Classes="v2-label" IsVisible="{Binding HasRecordedLevel}" Text="{Binding RecordedLevelLabel}" />
                       <TextBlock Classes="v2-label" IsVisible="{Binding IsUnknownReadiness}" Text="{Binding ReadinessLabel}" />
                     </StackPanel>
+                    <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                               Foreground="{DynamicResource V2.Brush.Action}"
+                               IsVisible="{Binding $parent[UserControl].((vm:CraftsBartersWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                   </StackPanel>
-                  <TextBlock Grid.Column="1" Classes="v2-intel-trade-profit" VerticalAlignment="Center"
-                             Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"
-                             Classes.v2-intel-poor="{Binding ProfitIsNegative}"
-                             Text="{Binding ProfitLabel}" />
+                  <StackPanel Grid.Column="1" Spacing="5" VerticalAlignment="Center">
+                    <TextBlock Classes="v2-intel-trade-profit" HorizontalAlignment="Right"
+                               Classes.v2-intel-unavailable="{Binding ProfitIsUnknown}"
+                               Classes.v2-intel-poor="{Binding ProfitIsNegative}"
+                               Text="{Binding ProfitLabel}" />
+                    <Button Classes="v2-target v2-intel-chip v2-intel-chip-small"
+                            Content="{Binding ChainLabel}" Command="{Binding OpenChainCommand}"
+                            AutomationProperties.Name="Show cheapest acquisition chain" />
+                  </StackPanel>
                 </Grid>
               </Border>
             </DataTemplate>

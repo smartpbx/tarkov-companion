@@ -857,6 +857,37 @@ public sealed class V2DesignSystemContractTests
     }
 
     [Fact]
+    public void EveryV2ViewTakesFontSizesAndLineHeightsFromResourcesOrBindings()
+    {
+        string[] typeProperties = ["FontSize", "LineHeight"];
+        var literal = new List<string>();
+
+        foreach (var (path, root) in V2Views())
+        {
+            foreach (var element in root.DescendantsAndSelf())
+            {
+                foreach (var attribute in element.Attributes()
+                             .Where(attribute => typeProperties.Contains(attribute.Name.LocalName)))
+                {
+                    if (double.TryParse(attribute.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                    {
+                        literal.Add($"{path}: {element.Name.LocalName}.{attribute.Name.LocalName}={attribute.Value}");
+                    }
+                }
+
+                if (element.Name == AvaloniaXmlns + "Setter" &&
+                    Attr(element, "Property") is { } property && typeProperties.Contains(property) &&
+                    double.TryParse(Attr(element, "Value"), NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                {
+                    literal.Add($"{path}: {Attr(element.Parent!, "Selector")} {property}={Attr(element, "Value")}");
+                }
+            }
+        }
+
+        Assert.Empty(literal);
+    }
+
+    [Fact]
     public void MessageTemplatesAreLocalizedResourcesWhosePlaceholdersMatchTheManifest()
     {
         using var manifest = ReadJson(ManifestPath);

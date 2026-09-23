@@ -35,6 +35,15 @@ public sealed class AmmoWorkspaceViewModelTests
     }
 
     [Fact]
+    public void An_ammo_rows_learn_line_is_the_intelligence_engines_explanation()
+    {
+        var round = Round("round", "Round", damage: 55, penetration: 35);
+        var row = new AmmoRoundRowViewModel(round, false, null!);
+
+        Assert.Equal(round.LearnModeExplanation, row.LearnReason);
+    }
+
+    [Fact]
     public void AnyArmorAndBestFirstLeaveTheServicesOrderAlone()
     {
         var rounds = Rounds().Reverse().ToArray();

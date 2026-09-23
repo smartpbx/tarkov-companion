@@ -34,6 +34,7 @@ using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -86,6 +87,7 @@ using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Infrastructure.Wiki;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
+using TarkovCompanion.Platform.Windows.Notifications;
 using TarkovCompanion.Platform.Windows.Security;
 using TarkovCompanion.Platform.Windows.Storage;
 using TarkovCompanion.Platform.Windows.Watching;
@@ -508,6 +510,7 @@ public static class AppComposition
         // ICraftPlanningCatalog/IBarterCatalog/IRequirementCatalog/ITraderCatalog/IItemRepository/
         // IItemMarketFactSource, all already registered elsewhere in this method.
         services.AddSingleton<IIntelTradeCatalogService, IntelTradeCatalogService>();
+        services.AddSingleton<IAcquisitionChainPlanningService, AcquisitionChainPlanningService>();
         services.AddSingleton<IWikiLinkOpener, SystemBrowserWikiLinkOpener>();
         // One instance behind both interfaces, so a definition written through the authoring
         // side drops the cache the reading side is serving from.
@@ -767,6 +770,7 @@ public static class AppComposition
         services.AddSingleton<TeamWorkspaceViewModel>();
 
         // V2 rough — package 10 (Plan workspace + Hideout section). Refs #288 #307.
+        services.AddSingleton<LearnModeSetting>();
         services.AddSingleton<PlanWorkspaceViewModel>();
         services.AddSingleton<HideoutWorkspaceViewModel>();
         // V2 rough package 25 (#402): the Keep list, a Plan section beside Hideout.
@@ -994,6 +998,7 @@ public static class AppComposition
         // for the life of the process and is resolved by the shell that shows Setup.
         services.AddSingleton<TrayPresenceHost>();
         services.AddSingleton<PopupNotificationHost>();
+        services.AddSingleton<INativeNotificationChannel, WindowsToastNotificationChannel>();
         services.AddSingleton<INotificationSettingsStore>(_ =>
             new JsonFileNotificationSettingsStore(Path.Combine(paths.Config, "notifications.json")));
         services.AddSingleton(provider => new NotificationBridge(
@@ -1003,7 +1008,8 @@ public static class AppComposition
             [provider.GetRequiredService<TrayPresenceHost>()],
             provider.GetRequiredService<PopupNotificationHost>,
             () => provider.GetRequiredService<MainWindowViewModel>().Settings,
-            provider.GetRequiredService<TimeProvider>()));
+            provider.GetRequiredService<TimeProvider>(),
+            nativePopupChannel: provider.GetRequiredService<INativeNotificationChannel>()));
         services.AddSingleton(provider => new SetupNotificationsViewModel(
             provider.GetRequiredService<NotificationBridge>(),
             () => provider.GetRequiredService<TrayPresenceHost>().IsAvailable));

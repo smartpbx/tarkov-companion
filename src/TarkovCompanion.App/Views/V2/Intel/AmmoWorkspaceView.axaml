@@ -131,6 +131,7 @@
                               AutomationProperties.AutomationId="{Binding AutomationId}"
                               AutomationProperties.Name="{Binding Name}"
                               Command="{Binding SelectCommand}">
+                        <StackPanel Spacing="2">
                         <Grid ColumnDefinitions="*,64,64,84,64,72,Auto" ColumnSpacing="10">
                           <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
                             <TextBlock Classes="v2-body" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
@@ -160,6 +161,10 @@
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
                         </Grid>
+                        <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource V2.Brush.Action}"
+                                   IsVisible="{Binding $parent[UserControl].((vm:AmmoWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
+                        </StackPanel>
                       </Button>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>

@@ -22,6 +22,7 @@ using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Intel;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.Personalization;
+using TarkovCompanion.Application.Services.Planning;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Application.Services.Wiki;
@@ -199,6 +200,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         IIntelLandingService? intelLanding = null,
         // #287 (Crafts & barters tab): same reasoning again.
         IIntelTradeCatalogService? intelTrade = null,
+        // #307: one recursive acquisition planner shared by item detail and Crafts & barters.
+        IAcquisitionChainPlanningService? acquisitionChains = null,
         // #287 (event state on items): same reasoning again.
         IIntelEventStateCatalog? intelEventStates = null,
         // #667: Setup's screenshot quest onboarding, absent in lightweight shell tests.
@@ -206,7 +209,8 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         // #274: persisted quest/hideout look-ahead controls in Setup > Progress.
         RecommendationHorizonSettingsViewModel? recommendationHorizons = null,
         // #314: the after-update banner and its player-facing change list.
-        ReleaseExperienceViewModel? releaseExperience = null)
+        ReleaseExperienceViewModel? releaseExperience = null,
+        LearnModeSetting? learnMode = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
@@ -231,7 +235,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             options.DeveloperMode,
             intelLanding,
             intelTrade,
-            intelEventStates)
+            acquisitionChains,
+            intelEventStates,
+            learnMode)
     {
         _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
         ReleaseExperience = releaseExperience;
@@ -328,7 +334,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         bool developerMode = false,
         IIntelLandingService? intelLanding = null,
         IIntelTradeCatalogService? intelTrade = null,
-        IIntelEventStateCatalog? intelEventStates = null)
+        IAcquisitionChainPlanningService? acquisitionChains = null,
+        IIntelEventStateCatalog? intelEventStates = null,
+        LearnModeSetting? learnMode = null)
         : this(
             RequirePreview(mode),
             requestedAddress: null,
@@ -350,7 +358,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             developerMode,
             intelLanding,
             intelTrade,
-            intelEventStates)
+            acquisitionChains,
+            intelEventStates,
+            learnMode)
     {
     }
 
@@ -375,7 +385,9 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         bool developerMode = false,
         IIntelLandingService? intelLanding = null,
         IIntelTradeCatalogService? intelTrade = null,
-        IIntelEventStateCatalog? intelEventStates = null)
+        IAcquisitionChainPlanningService? acquisitionChains = null,
+        IIntelEventStateCatalog? intelEventStates = null,
+        LearnModeSetting? learnMode = null)
     {
         _lifetimeToken = _lifetime.Token;
         _developerMode = developerMode;
@@ -428,14 +440,16 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         if (legacy is not null)
         {
             legacy.Items.ResultLimit = IntelResultLimit;
-            AmmoWorkspace = new(legacy.Ammo, id => OpenSuggestedItem(id, "v2-ammo-open-intel"));
-            KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"));
+            AmmoWorkspace = new(legacy.Ammo, id => OpenSuggestedItem(id, "v2-ammo-open-intel"), learnMode);
+            KeysWorkspace = new(legacy.Keys, id => OpenSuggestedItem(id, "v2-keys-open-intel"), learnMode);
             FleaWorkspace = new(legacy.Flea, id => OpenSuggestedItem(id, "v2-flea-open-intel"));
         }
 
         // #287: Crafts & barters has no V1 page to adapt, so it is built from the trade catalog
         // service directly rather than gated behind a legacy graph.
-        CraftsBartersWorkspace = new(_intelTrade, id => OpenSuggestedItem(id, "v2-crafts-open-intel"));
+        var chainPlanner = acquisitionChains ?? NullAcquisitionChainPlanningService.Instance;
+        IntelAcquisitionChain = new(chainPlanner);
+        CraftsBartersWorkspace = new(_intelTrade, chainPlanner, id => OpenSuggestedItem(id, "v2-crafts-open-intel"), learnMode);
         // V2 rough package 17 (home): the Setup overview summarises Plan, Debrief, privacy and the map.
         SetupWorkspace?.Overview.Attach(_plan, _debrief, legacy?.Settings, RaidCockpitWorkspace);
         if (legacy is not null)
@@ -571,6 +585,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
     public KeysWorkspaceViewModel? KeysWorkspace { get; }
     public FleaWorkspaceViewModel? FleaWorkspace { get; }
     public CraftsBartersWorkspaceViewModel? CraftsBartersWorkspace { get; }
+    public AcquisitionChainViewModel IntelAcquisitionChain { get; }
     // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
     public object? RaidCockpit { get; }
     public LootScanViewModel? LootScanResult => Volatile.Read(ref _lootScanResult);
@@ -2321,6 +2336,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
             _loadedIntelItemId = null;
             _intelResult = null;
             _intelLoading = false;
+            IntelAcquisitionChain.Clear();
             return;
         }
 
@@ -2362,6 +2378,7 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
 
         _intelResult = result;
         _intelLoading = false;
+        IntelAcquisitionChain.ShowAsync(itemId).Observe("intel", "plan the cheapest acquisition chain");
         RaiseIntelChanged();
     }
 

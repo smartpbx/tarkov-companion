@@ -54,6 +54,16 @@ This document records the third-party components resolved for the `net10.0` sour
 - Authoritative source: [commit `35dfe7b12da0e64384bfaec7ebc0883196a89f9f`](https://github.com/CommunityToolkit/dotnet/tree/35dfe7b12da0e64384bfaec7ebc0883196a89f9f), recorded by the locked package.
 - Ships: yes. See `LICENSES/CommunityToolkit-MIT.md`, copied from the locked package.
 
+<!-- notice:windows-community-toolkit -->
+### Windows Community Toolkit Notifications
+
+- Component/version: `Microsoft.Toolkit.Uwp.Notifications` 7.1.3.
+- Copyright/notice: Copyright © .NET Foundation and Contributors. All rights reserved.
+- License: MIT.
+- Purpose: constructs and delivers native Windows notifications outside a raid.
+- Authoritative source: [commit `72205c9add7c3fc1ed63bb77e6fc101e39f1ac33`](https://github.com/CommunityToolkit/WindowsCommunityToolkit/tree/72205c9add7c3fc1ed63bb77e6fc101e39f1ac33), recorded by the locked package.
+- Ships: yes. See `LICENSES/Windows-Community-Toolkit-MIT.md`, copied from the locked package.
+
 <!-- notice:velopack -->
 ### Velopack
 
@@ -67,10 +77,10 @@ This document records the third-party components resolved for the `net10.0` sour
 <!-- notice:microsoft-dotnet -->
 ### Microsoft managed libraries
 
-- Component/version: `Microsoft.Data.Sqlite` and `Microsoft.Data.Sqlite.Core` 10.0.12; `Microsoft.Extensions.Configuration`, `.Configuration.Abstractions`, `.Configuration.Binder`, `.Configuration.FileExtensions`, `.Configuration.Json`, `.DependencyInjection`, `.DependencyInjection.Abstractions`, `.Diagnostics`, `.Diagnostics.Abstractions`, `.FileProviders.Abstractions`, `.FileProviders.Physical`, `.FileSystemGlobbing`, `.Http`, `.Logging`, `.Logging.Abstractions`, `.Options`, `.Options.ConfigurationExtensions`, and `.Primitives`, all 10.0.12.
+- Component/version: `Microsoft.Data.Sqlite`, `Microsoft.Data.Sqlite.Core`, `Microsoft.Win32.SystemEvents`, and `System.Drawing.Common` 10.0.12; `Microsoft.Extensions.Configuration`, `.Configuration.Abstractions`, `.Configuration.Binder`, `.Configuration.FileExtensions`, `.Configuration.Json`, `.DependencyInjection`, `.DependencyInjection.Abstractions`, `.Diagnostics`, `.Diagnostics.Abstractions`, `.FileProviders.Abstractions`, `.FileProviders.Physical`, `.FileSystemGlobbing`, `.Http`, `.Logging`, `.Logging.Abstractions`, `.Options`, `.Options.ConfigurationExtensions`, and `.Primitives`, all 10.0.12.
 - Copyright/notice: © Microsoft Corporation. All rights reserved.
 - License: MIT.
-- Purpose: managed SQLite access plus configuration, dependency injection, diagnostics, HTTP, logging, options, and file-provider infrastructure.
+- Purpose: managed SQLite access; the current supported graphics dependency override required by the Windows notification toolkit; plus configuration, dependency injection, diagnostics, HTTP, logging, options, and file-provider infrastructure.
 - Authoritative source: [dotnet/dotnet commit `95017c711e6afc1085133d440e42b4bd78155701`](https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701), recorded by each locked 10.0.12 package.
 - Ships: yes. See `LICENSES/Dotnet-Runtime-MIT.txt`.
 

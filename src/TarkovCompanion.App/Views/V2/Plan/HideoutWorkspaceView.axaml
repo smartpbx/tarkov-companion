@@ -100,6 +100,9 @@
                     <StackPanel Spacing="2">
                       <TextBlock Classes="v2-body" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                       <TextBlock Classes="v2-label" Text="{Binding CurrentLevelLabel}" />
+                      <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                 Foreground="{DynamicResource V2.Brush.Action}"
+                                 IsVisible="{Binding $parent[UserControl].((vm:HideoutWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                     </StackPanel>
                     <Border Grid.Column="1" Classes="v2-hideout-chip" Classes.v2-hideout-ready="{Binding IsReady}"
                             VerticalAlignment="Center">
@@ -177,6 +180,9 @@
                         <TextBlock Classes="v2-label" Text="{Binding CheapestRoute}" TextWrapping="Wrap"
                                    IsVisible="{Binding HasCheapestRoute}"
                                    Foreground="{DynamicResource V2.Brush.Success}" />
+                        <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource V2.Brush.Action}"
+                                   IsVisible="{Binding $parent[UserControl].((vm:HideoutWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                       </StackPanel>
                       <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding ProgressLabel}" VerticalAlignment="Center" />
                       <Viewbox Grid.Column="2" Width="20" Height="20" IsVisible="{Binding IsSatisfied}">
@@ -222,8 +228,14 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                        <TextBlock Classes="v2-label" Text="{Binding DurationLabel}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding MissingItems}" IsVisible="{Binding HasMissingItems}"
                                    TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding GateLabel}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource V2.Brush.Action}"
+                                   IsVisible="{Binding $parent[UserControl].((vm:HideoutWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
                     </Grid>
@@ -241,6 +253,7 @@
                   AutomationProperties.AutomationId="v2-hideout-next">
             <StackPanel Spacing="8">
               <TextBlock Classes="v2-heading-3" Text="Next upgrades" AutomationProperties.HeadingLevel="2" />
+              <TextBlock Classes="v2-label" Text="{Binding NextSummary}" />
               <ItemsControl ItemsSource="{Binding NextUpgrades}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:HideoutUpgradeStepRowViewModel">
@@ -248,8 +261,14 @@
                       <TextBlock Classes="v2-label" Text="{Binding Order}" VerticalAlignment="Top" />
                       <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Classes="v2-body" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AlsoNeeds}" IsVisible="{Binding HasAlsoNeeds}"
+                        <TextBlock Classes="v2-label" Text="{Binding DurationLabel}" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding MissingItems}" IsVisible="{Binding HasMissingItems}"
                                    TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label v2-warning-text" Text="{Binding GateLabel}" IsVisible="{Binding HasAlsoNeeds}"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource V2.Brush.Action}"
+                                   IsVisible="{Binding $parent[UserControl].((vm:HideoutWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                       </StackPanel>
                       <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding State}" VerticalAlignment="Top" />
                     </Grid>

@@ -303,6 +303,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // Loaded before subscribing, so the first paint happens once rather than twice.
             applier.Apply(preferences.LoadAsync(CancellationToken.None).GetAwaiter().GetResult());
             preferences.Changed += (_, current) => applier.Apply(current);
+            applier.FollowSystemChanges(() => preferences.Current);
         }
         catch (Exception exception) when (exception is IOException
                                           or UnauthorizedAccessException
@@ -405,6 +406,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         }
 
         _mainViewModel?.Map.Dispose();
+        _appearance?.Dispose();
         _notifications?.Dispose();
         _tray?.Dispose();
         // Observed, not waited for. Startup's continuations are posted to a dispatcher that has

@@ -44,6 +44,11 @@ public sealed record KeepListRowViewModel(
     public bool HasHideoutCount => HideoutCountLabel.Length > 0;
 
     public bool HasCounts => HasQuestCount || HasHideoutCount;
+
+    /// <summary>The requirement engine's concrete needs behind the compact recommendation.</summary>
+    public string LearnReason => Reasons.Count == 0
+        ? ReasonSummary
+        : $"Keep: {string.Join("; ", Reasons.Take(2))}";
 }
 
 public sealed record KeepListGroupViewModel(string Label, IReadOnlyList<KeepListRowViewModel> Items)
@@ -89,12 +94,16 @@ public sealed class KeepListWorkspaceViewModel : BindableViewModel
         IItemRepository itemRepository,
         IItemFactCatalog factCatalog,
         IQuestReadService questReadService,
-        IItemRecommendationAdvisor? recommendations = null)
+        IItemRecommendationAdvisor? recommendations = null,
+        LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         _service = new KeepListService(requirements, profileService, itemRepository, factCatalog, questReadService);
         _recommendations = recommendations;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
     }
+
+    public LearnModeSetting LearnMode { get; }
 
     public AsyncDelegateCommand RefreshCommand { get; }
 

@@ -143,9 +143,10 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
 
     public bool CanShowOnMap => Objective.MapIds.Count == 1;
 
-    public string StateLabel => PlanQuestRules.StateLabel(_owner.StateFor(Task).State);
+    // A row built without its page (Learn Mode tests, previews) has no planner state to read.
+    public string StateLabel => _owner is null ? string.Empty : PlanQuestRules.StateLabel(_owner.StateFor(Task).State);
 
-    public string StateDetail => PlanQuestRules.StateDetail(_owner.StateFor(Task));
+    public string StateDetail => _owner is null ? string.Empty : PlanQuestRules.StateDetail(_owner.StateFor(Task));
 
     public bool HasStateDetail => StateDetail.Length > 0;
 
@@ -181,6 +182,13 @@ public sealed class PlanObjectiveRowViewModel : BindableViewModel
             ? string.Empty
             : string.Create(CultureInfo.CurrentCulture, $"{step.LegDistanceMetres:N0} m");
     }
+
+    /// <summary>The engine's compact reason, shown only while the shared Learn Mode switch is on.</summary>
+    public string LearnReason => StatusLabel.Length > 0
+        ? StatusLabel
+        : HasHandlingLabel
+            ? $"{HandlingLabel}: needed for {TaskName}"
+            : $"Quest: advances {TaskName}";
 
     /// <summary>The row's compact secondary facts, without constructing a hidden control for each possible fact.</summary>
     public string MetadataLabel => string.Join(" · ", new[]
@@ -700,8 +708,10 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         TimeProvider? clock = null,
         // #285: which foods and medicines the Events page records an allergy to.
         AllergyWarningService? allergies = null,
-        EventRuleService? eventRuleService = null)
+        EventRuleService? eventRuleService = null,
+        LearnModeSetting? learnMode = null)
     {
+        LearnMode = learnMode ?? new();
         _allergies = allergies;
         _eventRuleService = eventRuleService;
         _paths = paths;
@@ -752,6 +762,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
             }
         };
     }
+
+    public LearnModeSetting LearnMode { get; }
 
     /// <summary>Raised after this workspace has moved the shared map to the requested one.</summary>
     public event EventHandler<EventArgs>? ShowOnMapRequested;
@@ -926,6 +938,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
                     _mapPreview.ViewChangeRequested -= MapPreviewViewChangeRequested;
                 }
 
+                var dropped = _mapPreview;
+
                 _mapPreview = value;
                 if (value is not null)
                 {
@@ -934,6 +948,8 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
 
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasMapPreview));
+                // [#775] After the view has moved off it: its leases keep the cockpit's pictures alive.
+                dropped?.ReleasePictures();
             }
         }
     }
@@ -2075,7 +2091,9 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         var previewObjects = routeScene is null
             ? scene.Objects
             : [.. scene.Objects, .. routeScene.Objects.Where(item => item.Kind == MapSceneObjectKind.Route)];
-        var signature = $"{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', previewObjects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
+        // [#775] The picture's hash too: the cockpit replaces its picture while tiles fill in, and a
+        // preview that is not re-presented keeps drawing the one it replaced.
+        var signature = $"{_raidCockpit.BackgroundSha}|{_map.RenderModel?.Location.Id}|{_map.RenderModel?.Variant.Key}|{_map.RenderModel?.SelectedFloor?.Id}|{string.Join(',', previewObjects.Select(item => $"{item.Id.Value}@{item.Geometry.Kind}:{string.Join(';', item.Geometry.Points.Select(point => FormattableString.Invariant($"{point.X:R},{point.Y:R}")))}"))}";
         if (MapPreview is not null && signature == _mapPreviewSignature)
         {
             return;
@@ -2141,9 +2159,11 @@ public sealed class PlanWorkspaceViewModel : BindableViewModel
         }
 
         var objects = scene.Objects.ToDictionary(item => item.Id);
-        var labels = group.Objectives.ToDictionary(row => row.Objective.ObjectiveId, row => row.Description, StringComparer.Ordinal);
+        var labels = group.Objectives
+            .DistinctBy(row => row.Objective.ObjectiveId, StringComparer.Ordinal)
+            .ToDictionary(row => row.Objective.ObjectiveId, row => row.Description, StringComparer.Ordinal);
         var stops = new List<ObjectiveRouteStop>();
-        foreach (var entry in scene.Entries.Where(entry => entry.IsPlaced))
+        foreach (var entry in scene.Entries.Where(entry => entry.IsPlaced).DistinctBy(entry => entry.ObjectiveId, StringComparer.Ordinal))
         {
             var points = entry.ObjectIds
                 .Where(objects.ContainsKey)

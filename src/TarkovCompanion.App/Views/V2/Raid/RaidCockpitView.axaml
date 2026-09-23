@@ -202,7 +202,6 @@
     </Style>
     <Style Selector="Button.v2-raid-follow-step">
       <Setter Property="MinWidth" Value="32" />
-      <Setter Property="Width" Value="32" />
       <Setter Property="Padding" Value="4" />
       <Setter Property="FontWeight" Value="SemiBold" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
@@ -317,13 +316,16 @@
         <!-- One row, left to right: the raid clock, how the plan is presented and which floor is
              read, then what the map follows, how it is drawn, and what is on it.
              Everything that used to float over the plan's corners is here, so the plan is clear. -->
-        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
-          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <!-- Keep the strip's established single row, but cap the two verbose status cells so the
+             starred presentation column cannot collapse at 200% text scale. Their full text wraps
+             inside the cell; the clock's secondary provenance remains available as help text. -->
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto"
+              ColumnSpacing="{DynamicResource V2.Space.Sm.Gap}">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                      AutomationProperties.HelpText="{Binding TimeLeftDetail}">
             <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
             <TextBlock Classes="v2-body" FontWeight="SemiBold" VerticalAlignment="Center"
                        AutomationProperties.AutomationId="v2-raid-phase" Text="{Binding RaidPhaseLabel}" />
-            <TextBlock Classes="v2-label" VerticalAlignment="Center"
-                       Text="{Binding TimeLeftDetail}" IsVisible="{Binding HasRaidPhaseDetail}" />
             <!-- [#707] Out of the raid with a squadmate still inside: whose map this is, or one
                  press to go to it. -->
             <TextBlock Classes="v2-label" VerticalAlignment="Center"
@@ -356,7 +358,8 @@
                the tooltip and the accessible help text now, and are already on the Raid plan card.
                The phase switch and the heat legend are a press away in the Layers menu, under
                "Modelled traffic" — the strip is one row and has no room for both. -->
-          <Border Grid.Column="2" Classes="v2-raid-chip" VerticalAlignment="Center" IsVisible="{Binding ShowsTrafficBanner}"
+          <Border Grid.Column="2" Classes="v2-raid-chip" VerticalAlignment="Center" MaxWidth="210"
+                  IsVisible="{Binding ShowsTrafficBanner}"
                   BorderBrush="{DynamicResource V2.Brush.Warning}"
                   ToolTip.Tip="{Binding TrafficBannerTooltip}"
                   AutomationProperties.AutomationId="v2-raid-traffic-chip"
@@ -364,7 +367,7 @@
                   AutomationProperties.Name="{Binding TrafficBannerTitle}"
                   AutomationProperties.HelpText="{Binding TrafficBannerTooltip}">
             <TextBlock FontWeight="SemiBold" Foreground="{DynamicResource V2.Brush.Warning}"
-                       Text="{Binding TrafficBannerTitle}" />
+                       Text="{Binding TrafficBannerTitle}" TextWrapping="Wrap" />
           </Border>
           <!-- #675 made Follow adjustable, but three full strip controls took enough width from
                the presentation WrapPanel to add a second strip row at 1920x1080. Keep the common
@@ -403,16 +406,17 @@
           </StackPanel>
           <!-- Scoped under the renderer so nothing binds through a null Renderer before the first
                scene exists (the page gallery fails on any binding fault). -->
-          <Button Grid.Column="5" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center"
+          <Button Grid.Column="5" Classes="v2-target v2-raid-layers-button" VerticalAlignment="Center" MaxWidth="160"
                   DataContext="{Binding Renderer}" x:DataType="mapVm:MapSceneRendererViewModel"
                   AutomationProperties.AutomationId="v2-raid-layers"
                   AutomationProperties.Name="{Binding LayersMenuLabel}"
                   ToolTip.Tip="Choose what is drawn on the map">
-            <StackPanel Orientation="Horizontal" Spacing="8">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6">
               <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.List}" />
-              <TextBlock VerticalAlignment="Center" Text="{Binding LayersMenuLabel}" />
-              <Path Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
-            </StackPanel>
+              <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding LayersMenuLabel}"
+                         TextWrapping="Wrap" />
+              <Path Grid.Column="2" Classes="v2-icon" Data="{DynamicResource V2.Icon.ChevronUp}" />
+            </Grid>
             <Button.Flyout>
               <Flyout Placement="TopEdgeAlignedRight">
                 <ScrollViewer MaxHeight="520" HorizontalScrollBarVisibility="Disabled">
@@ -649,15 +653,15 @@
                     IsExpanded="{Binding Cards.Summary.IsExpanded, Mode=TwoWay}">
             <Expander.Header>
               <StackPanel Spacing="1">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                  <TextBlock Classes="v2-heading-3" Text="{Binding MapTitle}" />
-                  <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <WrapPanel ItemSpacing="8" LineSpacing="2">
+                  <TextBlock Classes="v2-heading-3" Text="{Binding MapTitle}" TextWrapping="NoWrap" />
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                     <Viewbox Width="18" Height="18">
                       <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Clock}" />
                     </Viewbox>
                     <TextBlock Classes="v2-label" Text="{Binding RaidPhaseLabel}" />
                   </StackPanel>
-                </Grid>
+                </WrapPanel>
                 <TextBlock Classes="v2-label" Text="{Binding MapSummary}" TextTrimming="CharacterEllipsis"
                            IsVisible="{Binding MapSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               </StackPanel>

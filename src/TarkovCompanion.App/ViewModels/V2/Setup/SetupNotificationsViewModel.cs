@@ -36,7 +36,7 @@ public sealed class SetupNotificationRowViewModel : BindableViewModel
     /// Whether this one is allowed to interrupt a raid, said on the row rather than in a footnote.
     /// </summary>
     /// <remarks>
-    /// The rule is the least obvious thing on this page and the most important: four of the five
+    /// The rule is the least obvious thing on this page and the most important: five of the six
     /// wait, and somebody who does not know that would read a silent evening as a broken switch.
     /// </remarks>
     public bool FiresDuringRaid => NotificationSamples.FiresDuringRaid(Kind);
@@ -65,10 +65,10 @@ public sealed class SetupNotificationRowViewModel : BindableViewModel
 }
 
 /// <summary>
-/// Setup › Notifications: the five, each with a switch and a way to see what it looks like.
+/// Setup › Notifications: the six, each with a switch and a way to see what it looks like.
 /// </summary>
 /// <remarks>
-/// [V2 rough package 43] Four of these can only be seen by waiting for something to go wrong, so
+/// [V2 rough package 43] Several of these can only be seen by waiting for something to go wrong, so
 /// every row carries a "Test this" button that sends the real notification through the real
 /// channels. That is also the only way to find out whether the pop-up is on without playing.
 /// </remarks>
@@ -128,7 +128,7 @@ public sealed class SetupNotificationsViewModel : BindableViewModel
     public string PopupTitle => "Show a pop-up as well";
 
     public string PopupDescription =>
-        "Off by default. The tray icon and its count never cover the game.";
+        "Off by default. Windows notifications wait until the raid is over.";
 
     public ICommand TogglePopupCommand { get; }
 

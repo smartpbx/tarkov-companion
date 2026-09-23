@@ -146,17 +146,21 @@
       <Grid>
         <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="12" Margin="16,8,16,16">
-            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="4">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4">
               <TextBlock Classes="v2-heading-2" Text="Next raid" AutomationProperties.HeadingLevel="2"
                          VerticalAlignment="Center" />
+              <ToggleButton Grid.Column="1" Classes="v2-target v2-intel-chip v2-intel-chip-small"
+                            Content="Learn" IsChecked="{Binding LearnMode.IsEnabled}"
+                            AutomationProperties.AutomationId="v2-plan-learn-mode"
+                            AutomationProperties.Name="Learn Mode" />
               <!-- [V2 rough package 61 — plan export] #288/#315: the plan as text, on the
                    clipboard and in a file. Beside Refresh because both act on the whole board. -->
-              <Button Grid.Column="1" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
+              <Button Grid.Column="2" Classes="v2-target v2-plan-link" VerticalAlignment="Center"
                       Padding="8,2" Content="Export"
                       AutomationProperties.AutomationId="v2-plan-export"
                       AutomationProperties.Name="Export this plan as text"
                       ToolTip.Tip="Copy the plan and save it" Command="{Binding ExportCommand}" />
-              <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
+              <Button Grid.Column="3" Classes="v2-target v2-icon-btn v2-plan-link" VerticalAlignment="Center"
                       AutomationProperties.AutomationId="v2-plan-refresh" AutomationProperties.Name="Refresh"
                       ToolTip.Tip="Refresh" Command="{Binding RefreshCommand}">
                 <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Refresh}" />
@@ -431,6 +435,9 @@
                               <Run Text=" · " />
                               <Run Text="{Binding RouteReason}" />
                             </TextBlock>
+                            <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource V2.Brush.Action}"
+                                       IsVisible="{Binding $parent[UserControl].((vm:PlanWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                           </StackPanel>
                         </Border>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,2,0,0">
@@ -489,6 +496,9 @@
                         <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
                           <TextBlock Classes="v2-body" Text="{Binding ItemName}" TextWrapping="Wrap" />
                           <TextBlock Classes="v2-label" Text="{Binding HandlingLabel}" />
+                          <TextBlock Classes="v2-label" Text="{Binding LearnReason}" TextWrapping="Wrap"
+                                     Foreground="{DynamicResource V2.Brush.Action}"
+                                     IsVisible="{Binding $parent[UserControl].((vm:PlanWorkspaceViewModel)DataContext).LearnMode.IsEnabled}" />
                           <!-- #285: the Events page records an allergy to this food or medicine. -->
                           <TextBlock Classes="v2-label v2-warning-text" Text="{Binding AllergyWarning}" FontWeight="SemiBold"
                                      IsVisible="{Binding HasAllergyWarning}"

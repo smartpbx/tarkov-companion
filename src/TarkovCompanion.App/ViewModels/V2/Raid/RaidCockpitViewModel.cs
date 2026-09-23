@@ -1242,6 +1242,29 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     internal IDisposable? TryReadPicture(Bitmap picture) => _pictures.TryRead(picture);
 
     /// <summary>
+    /// [#775] The lease a renderer holds on a picture it shows, so replacing the picture defers its
+    /// disposal until every renderer has moved off it. Null for a picture already retired.
+    /// </summary>
+    private IDisposable? LeasePicture(IImage picture) =>
+        picture is Bitmap bitmap ? _pictures.TryRead(bitmap) : NotOwned.Instance;
+
+    /// <summary>A lease on a picture this cockpit did not make and so never frees.</summary>
+    private sealed class NotOwned : IDisposable
+    {
+        public static readonly NotOwned Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
+
+    /// <summary>
+    /// The content hash of the picture the cockpit is drawing now; a preview whose signature leaves
+    /// it out keeps a picture the cockpit has replaced (#775).
+    /// </summary>
+    internal string? BackgroundSha => _backgroundSha;
+
+    /// <summary>
     /// Frees a retired picture once nobody is reading it: after the current render pass while the
     /// cockpit is alive (mirroring MapViewModel.ReleaseLater), at once when it is not.
     /// </summary>
@@ -2640,7 +2663,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
                 floorNameResolver: FloorName,
                 styleResolver: StyleFor,
                 floorElevationResolver: FloorElevation,
-                ranksLootByValue: true);
+                ranksLootByValue: true,
+                pictureLease: LeasePicture);
             renderer.ViewChangeRequested += ViewChangeRequested;
             renderer.CameraMovedByPlayer += CameraMovedByPlayer;
             renderer.CameraZoomedByPlayer += CameraZoomedByPlayer;
@@ -2766,7 +2790,8 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
             nextChangeId: Guid.NewGuid,
             reviewedAssetResolver: ResolveBackgroundImage,
             showsDetailsPanel: false,
-            fillsViewport: false);
+            fillsViewport: false,
+            pictureLease: LeasePicture);
     }
 
     /// <summary>Internal for direct coverage (see the unit tests).</summary>

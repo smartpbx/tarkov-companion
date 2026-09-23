@@ -136,6 +136,11 @@ internal static class Program
                 MonitorService: monitorDemo,
                 WindowPlacementController: placementDemo));
 
+            if (args.Contains("--learn-mode"))
+            {
+                services.GetRequiredService<LearnModeSetting>().IsEnabled = true;
+            }
+
             if (args.Contains("--clock-skew-demo"))
             {
                 services.GetRequiredService<RelayClockOffsetTracker>().ObserveOffsetSeconds(-14_400);
@@ -301,6 +306,14 @@ internal static class Program
             if (StringOption(args, "--intel-held") is { } heldItemId)
             {
                 DrainUntilComplete(SeedHeldItemAsync(services, heldItemId));
+            }
+
+            // #307: unlock real catalog recipes for a chain render. Item names, prices, inputs,
+            // outputs and durations still come from --seed-database; only the throwaway active
+            // profile's station/trader levels are raised so the planner may actually choose them.
+            if (args.Contains("--chain-ready-profile"))
+            {
+                DrainUntilComplete(SeedChainReadyProfileAsync(services));
             }
 
             UiStallMeter.Report("startup");
@@ -877,6 +890,18 @@ internal static class Program
                     trade.ReadyNowOnly = true;
                 }
 
+                if (StringOption(args, "--intel-chain-item") is { } chainItem)
+                {
+                    DrainUntilComplete(trade.ShowChainAsync(chainItem));
+                }
+
+                Pump(20);
+            }
+
+
+            if (shell?.IntelAcquisitionChain.HasSelection == true)
+            {
+                DrainUntilComplete(shell.IntelAcquisitionChain.LoadTask);
                 Pump(20);
             }
 
@@ -2214,6 +2239,27 @@ internal static class Program
         };
         await profiles.SaveAsync(profile with { OwnedItemCounts = holdings }, CancellationToken.None);
         Console.WriteLine($"Recorded 2 held for {itemId} in the preview profile.");
+    }
+
+    private static async Task SeedChainReadyProfileAsync(IServiceProvider services)
+    {
+        var requirementCatalog = services.GetRequiredService<IRequirementCatalog>();
+        var traderCatalog = services.GetRequiredService<ITraderCatalog>();
+        var barterCatalog = services.GetRequiredService<IBarterCatalog>();
+        var stations = await requirementCatalog.GetStationsAsync(CancellationToken.None);
+        var traderNames = await traderCatalog.GetNamesAsync(CancellationToken.None);
+        var barters = await barterCatalog.GetAsync(CancellationToken.None);
+        var profiles = services.GetRequiredService<IPlayerProfileService>();
+        var profile = await profiles.GetActiveAsync(CancellationToken.None);
+        await profiles.SaveAsync(profile with
+        {
+            HideoutStationLevels = stations.ToDictionary(station => station.StationId, _ => 99, StringComparer.Ordinal),
+            TraderLevels = traderNames.Keys.ToDictionary(traderId => traderId, _ => 4, StringComparer.Ordinal),
+            CompletedTaskIds = new HashSet<string>(
+                profile.CompletedTaskIds.Concat(barters.Select(barter => barter.TaskUnlock).OfType<string>()),
+                StringComparer.Ordinal),
+        }, CancellationToken.None);
+        Console.WriteLine($"Chain profile: {stations.Count} stations ready, {traderNames.Count} traders LL4.");
     }
 
     /// <summary>Three raids through the real history store; the newest of them is the one with a trail, and its id is returned.</summary>

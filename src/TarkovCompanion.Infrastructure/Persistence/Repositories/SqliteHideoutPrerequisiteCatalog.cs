@@ -6,8 +6,8 @@ using TarkovCompanion.Core.Domain.Planning;
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 /// <summary>
-/// Reads the station, trader and skill rows of <c>hideout_requirements</c>. The sync has always
-/// written them; until #307 nothing read them. About 140 rows, read on demand and not cached.
+/// Reads the station, trader and skill rows of <c>hideout_requirements</c>, plus the construction
+/// time retained in every level's source payload. Read on demand and not cached.
 /// </summary>
 public sealed class SqliteHideoutPrerequisiteCatalog(SqliteConnectionFactory connectionFactory) : IHideoutPrerequisiteCatalog
 {
@@ -32,43 +32,66 @@ public sealed class SqliteHideoutPrerequisiteCatalog(SqliteConnectionFactory con
             """;
         var stations = new List<HideoutStationPrerequisite>();
         var others = new List<HideoutOtherPrerequisite>();
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
-            var stationId = reader.GetString(0);
-            var level = reader.GetInt32(1);
-            JsonElement metadata;
-            try
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                using var document = JsonDocument.Parse(reader.GetString(3));
-                metadata = document.RootElement.Clone();
-            }
-            catch (JsonException)
-            {
-                continue;
-            }
+                var stationId = reader.GetString(0);
+                var level = reader.GetInt32(1);
+                JsonElement metadata;
+                try
+                {
+                    using var document = JsonDocument.Parse(reader.GetString(3));
+                    metadata = document.RootElement.Clone();
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
 
-            if (metadata.ValueKind != JsonValueKind.Object)
-            {
-                continue;
-            }
+                if (metadata.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
 
-            switch (reader.GetString(2))
-            {
-                case "station" when Text(metadata, "station") is { } required && Number(metadata, "level") is { } requiredLevel:
-                    stations.Add(new(stationId, level, required, requiredLevel));
-                    break;
-                case "skill" when Text(metadata, "skill") is { } skill && Number(metadata, "level") is { } skillLevel:
-                    others.Add(new(stationId, level, string.Create(CultureInfo.InvariantCulture, $"{skill} level {skillLevel}")));
-                    break;
-                case "trader" when (Number(metadata, "value") ?? Number(metadata, "level")) is { } loyalty:
-                    var trader = reader.IsDBNull(4) ? "Trader" : reader.GetString(4);
-                    others.Add(new(stationId, level, string.Create(CultureInfo.InvariantCulture, $"{trader} loyalty {loyalty}")));
-                    break;
+                switch (reader.GetString(2))
+                {
+                    case "station" when Text(metadata, "station") is { } required && Number(metadata, "level") is { } requiredLevel:
+                        stations.Add(new(stationId, level, required, requiredLevel));
+                        break;
+                    case "skill" when Text(metadata, "skill") is { } skill && Number(metadata, "level") is { } skillLevel:
+                        others.Add(new(stationId, level, string.Create(CultureInfo.InvariantCulture, $"{skill} level {skillLevel}")));
+                        break;
+                    case "trader" when (Number(metadata, "value") ?? Number(metadata, "level")) is { } loyalty:
+                        var trader = reader.IsDBNull(4) ? "Trader" : reader.GetString(4);
+                        others.Add(new(stationId, level, string.Create(CultureInfo.InvariantCulture, $"{trader} loyalty {loyalty}")));
+                        break;
+                }
             }
         }
 
-        return new(stations, others);
+        command.CommandText = "SELECT station_id, level, source_json FROM hideout_levels ORDER BY station_id, level;";
+        var constructionTimes = new List<HideoutConstructionTime>();
+        await using (var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(reader.GetString(2));
+                    if (Number(document.RootElement, "constructionTime") is { } seconds && seconds >= 0)
+                    {
+                        constructionTimes.Add(new(reader.GetString(0), reader.GetInt32(1), TimeSpan.FromSeconds(seconds)));
+                    }
+                }
+                catch (JsonException)
+                {
+                    // External catalog JSON is untrusted. One malformed level must not hide valid gates.
+                }
+            }
+        }
+
+        return new(stations, others) { ConstructionTimes = constructionTimes };
     }
 
     private static string? Text(JsonElement metadata, string name) =>
