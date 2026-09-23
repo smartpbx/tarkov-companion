@@ -487,28 +487,6 @@
           </StackPanel>
         </Border>
 
-        <!-- #314: shown only after an installed version changes, and hidden by the view model for
-             both loading and active raids. The link opens a bounded list compiled into this build. -->
-        <Border Classes="v2-surface-banner" IsVisible="{Binding ReleaseExperience.IsBannerVisible}"
-                AutomationProperties.AccessibilityView="Control"
-                AutomationProperties.AutomationId="v2-whats-new-banner"
-                AutomationProperties.Name="Update installed">
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-            <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center"
-                       Text="{Binding ReleaseExperience.BannerText}" />
-            <Button Grid.Column="1" Classes="v2-target v2-banner-action"
-                    AutomationProperties.AutomationId="v2-whats-new-open"
-                    Content="{Binding ReleaseExperience.OpenLabel}"
-                    Command="{Binding ReleaseExperience.OpenCommand}" />
-            <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-topbar-plain"
-                    AutomationProperties.AutomationId="v2-whats-new-dismiss"
-                    AutomationProperties.Name="Dismiss What's new"
-                    ToolTip.Tip="Dismiss"
-                    Command="{Binding ReleaseExperience.DismissCommand}">
-              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
-            </Button>
-          </Grid>
-        </Border>
 
         <!-- V2 rough package 20: a global problem (a failed endpoint refresh, an unavailable
              surface) reads as ONE single-line banner here and nowhere else. No dashed outline, no
@@ -585,6 +563,33 @@
           </Grid>
         </Border>
       </StackPanel>
+
+      <!-- #314: shown only after an installed version changes, and hidden by the view model for
+           both loading and active raids. It floats over the top-right of the page rather than
+           taking a row: as a row it pushed the Raid map below its measured minimum height on
+           Windows verification (2026-09-23), and a player would lose the same map height. -->
+      <Border Grid.Row="3" Classes="v2-surface-banner" IsVisible="{Binding ReleaseExperience.IsBannerVisible}"
+              HorizontalAlignment="Right" VerticalAlignment="Top" ZIndex="10"
+              Margin="0,8,16,0" MaxWidth="560" CornerRadius="6"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.AutomationId="v2-whats-new-banner"
+                AutomationProperties.Name="Update installed">
+        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+            <TextBlock Grid.Column="0" Classes="v2-body" VerticalAlignment="Center"
+                       Text="{Binding ReleaseExperience.BannerText}" />
+            <Button Grid.Column="1" Classes="v2-target v2-banner-action"
+                    AutomationProperties.AutomationId="v2-whats-new-open"
+                    Content="{Binding ReleaseExperience.OpenLabel}"
+                    Command="{Binding ReleaseExperience.OpenCommand}" />
+            <Button Grid.Column="2" Classes="v2-target v2-icon-btn v2-topbar-plain"
+                    AutomationProperties.AutomationId="v2-whats-new-dismiss"
+                    AutomationProperties.Name="Dismiss What's new"
+                    ToolTip.Tip="Dismiss"
+                    Command="{Binding ReleaseExperience.DismissCommand}">
+              <Path Classes="v2-icon v2-icon-muted" Data="{DynamicResource V2.Icon.Close}" />
+            </Button>
+        </Grid>
+      </Border>
 
       <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
         <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
