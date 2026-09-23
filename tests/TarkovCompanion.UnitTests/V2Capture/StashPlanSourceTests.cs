@@ -153,12 +153,48 @@ public sealed class StashPlanSourceTests
         Assert.Equal(StashPlanGroup.Sell, Assert.Single(sorted.Plan.Items).Group);
     }
 
+    [Fact]
+    public async Task MatchingUnresolvedOccurrencesAreGroupedToMoveTogether()
+    {
+        var sorted = await SortAsync([
+            Tile(0, 0, "not-in-the-catalog", 1, 1),
+            Tile(3, 4, "not-in-the-catalog", 1, 1),
+        ]);
+
+        Assert.All(sorted.Plan.Items, item => Assert.Equal(StashPlanGroup.Organize, item.Group));
+        Assert.All(sorted.Plan.Items, item => Assert.Contains(StashManualOperation.Consolidate, item.Operations));
+        Assert.Equal(
+            "Move 2 matching stacks together.",
+            StashSortWording.Why(sorted.Plan.Items[0], null));
+    }
+
+    [Fact]
+    public async Task SnapshotPinKeepsOneOccurrenceAndIgnoreDropsAnotherFromThePlan()
+    {
+        var pinned = Tile(0, 0, "gpu", 2, 1);
+        var ignored = Tile(3, 4, "keycard", 1, 1);
+        var state = new StashReviewCommandState(
+            new HashSet<string>(StringComparer.Ordinal) { pinned.ItemKey },
+            new HashSet<string>(StringComparer.Ordinal) { ignored.ItemKey },
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<Guid>(),
+            []);
+
+        var sorted = await SortAsync([pinned, ignored], reviewState: state);
+
+        var item = Assert.Single(sorted.Plan.Items);
+        Assert.Equal(pinned.ItemKey, item.ItemKey);
+        Assert.Equal(StashPlanGroup.Keep, item.Group);
+        Assert.Equal("Pinned for this snapshot.", StashSortWording.Why(item, null));
+    }
+
     private static async Task<StashSortPlan> SortAsync(
         StashReconstructedTile[] tiles,
         QuestItemRequirement[]? quests = null,
         QuestSummaryReadModel[]? board = null,
         Func<ProfileProgress, ProfileProgress>? progress = null,
-        Func<string, StashSpecialistIntelligenceKind>? specialist = null)
+        Func<string, StashSpecialistIntelligenceKind>? specialist = null,
+        StashReviewCommandState? reviewState = null)
     {
         var catalog = new LootScanFactFixtures.Catalog();
         var source = new StashPlanSource(new LootScanRecommendationSource(
@@ -182,6 +218,7 @@ public sealed class StashPlanSourceTests
             "snapshot-283",
             profile,
             specialist ?? (_ => StashSpecialistIntelligenceKind.None),
+            reviewState ?? StashReviewCommandState.Empty,
             Now,
             CancellationToken.None);
     }

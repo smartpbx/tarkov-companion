@@ -1798,6 +1798,12 @@ internal static class Program
                     stashWorkspace.ShowListCommand.Execute(null);
                 }
 
+                if (args.Contains("--stash-command-demo") && stashWorkspace.Items.FirstOrDefault() is { } selectedItem)
+                {
+                    stashWorkspace.SelectedItem = selectedItem;
+                    DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)stashWorkspace.PinSelectedCommand).ExecuteAsync());
+                }
+
                 Pump(20);
             }
 

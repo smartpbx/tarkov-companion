@@ -288,6 +288,73 @@ public sealed class StashScanWorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task PinIgnoreRescanAndUndoAreReachableFromASelectedItem()
+    {
+        var store = new FakeSnapshotStore();
+        store.Seed(Record());
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()));
+        await viewModel.LoadAsync();
+        viewModel.SelectedItem = Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer");
+
+        await ((AsyncDelegateCommand)viewModel.PinSelectedCommand).ExecuteAsync();
+        Assert.Equal("Pin", viewModel.PendingCorrections[^1].Action);
+        Assert.True(viewModel.CanUndoReview);
+
+        await ((AsyncDelegateCommand)viewModel.IgnoreSelectedCommand).ExecuteAsync();
+        Assert.Equal("Ignore", viewModel.PendingCorrections[^1].Action);
+        Assert.True(Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer").IsIgnored);
+        Assert.Equal("2", Assert.Single(viewModel.PlanTiles, tile => tile.IsReview).CountLabel);
+
+        await ((AsyncDelegateCommand)viewModel.UndoReviewCommand).ExecuteAsync();
+        Assert.False(Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer").IsIgnored);
+
+        viewModel.SelectedItem = Assert.Single(viewModel.Items, item => item.DisplayName == "Gas analyzer");
+        ScanIntent? requested = null;
+        viewModel.ScanRequested += (_, intent) => requested = intent;
+        await ((AsyncDelegateCommand)viewModel.RescanSelectedRegionCommand).ExecuteAsync();
+
+        Assert.Equal(ScanIntent.Stash, requested);
+        Assert.Equal("Rescan", viewModel.PendingCorrections[^1].Action);
+        await ((AsyncDelegateCommand)viewModel.UndoReviewCommand).ExecuteAsync();
+        var projected = StashReviewCommandProjection.Project(
+            await reviewCommands.ListAsync("stash-snapshot-1", CancellationToken.None));
+        Assert.Empty(projected.RescanContainerPaths);
+    }
+
+    [Fact]
+    public async Task MergePreviousCombinesComplementarySnapshotsAndUndoRestoresTheSelectedOne()
+    {
+        var previousId = Guid.Parse("30000000-0000-0000-0000-000000000003");
+        var store = new FakeSnapshotStore();
+        store.Seed(
+            Record(),
+            Record(previousId, "stash-snapshot-previous", rowOffset: 5, isCurrent: false));
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            Workflow(store, reviewCommands),
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()));
+        await viewModel.LoadAsync();
+
+        Assert.True(viewModel.CanMergePreviousSnapshot);
+        Assert.Equal(3, Assert.Single(viewModel.Regions).Tiles.Count);
+        await ((AsyncDelegateCommand)viewModel.MergePreviousSnapshotCommand).ExecuteAsync();
+
+        Assert.Equal(6, Assert.Single(viewModel.Regions).Tiles.Count);
+        Assert.Equal("MergeEntries", viewModel.PendingCorrections[^1].Action);
+        await ((AsyncDelegateCommand)viewModel.UndoReviewCommand).ExecuteAsync();
+        Assert.Equal(3, Assert.Single(viewModel.Regions).Tiles.Count);
+    }
+
+    [Fact]
     public async Task Export_buttons_write_the_latest_stash_as_csv_and_json_with_local_times()
     {
         var root = Path.Combine(Path.GetTempPath(), $"stash-export-{Guid.NewGuid():N}");
@@ -451,7 +518,11 @@ public sealed class StashScanWorkspaceViewModelTests
 
     private static InventoryProfileScope Scope() => new(ProfileId, "wipe-fixture", "Regular");
 
-    private static StashSnapshotRecord Record()
+    private static StashSnapshotRecord Record(
+        Guid? snapshotId = null,
+        string recognitionSnapshotId = "stash-snapshot-1",
+        int rowOffset = 0,
+        bool isCurrent = true)
     {
         var provenance = V2ContractTestData.ScreenshotProvenance();
         var region = new StashCaptureRegion(
@@ -459,13 +530,13 @@ public sealed class StashScanWorkspaceViewModelTests
             "artifact-1",
             0,
             "stash",
-            V2ContractTestData.Complete<GridCellAddress?>("origin", new GridCellAddress(0, 0)),
+            V2ContractTestData.Complete<GridCellAddress?>("origin", new GridCellAddress(rowOffset, 0)),
             V2ContractTestData.Grid(
                 V2ContractTestData.Cell(0, 0, Item("ammo-9x19", "9x19mm PST gzh", 2)),
                 V2ContractTestData.Cell(0, 1, Item("key-101", "ULTRA medical storage key", 1)),
                 V2ContractTestData.Cell(0, 2, Item("item-gas-analyzer", "Gas analyzer", 1))));
         var stash = new StashRecognition(
-            "stash-snapshot-1",
+            recognitionSnapshotId,
             [region],
             [new StashContainerCoverage(
                 "stash",
@@ -477,11 +548,11 @@ public sealed class StashScanWorkspaceViewModelTests
             V2ContractTestData.Header(RecognizedContext.Stash),
             V2ContractTestData.Complete("stash", stash, provenance));
         return new StashSnapshotRecord(
-            SnapshotId,
+            snapshotId ?? SnapshotId,
             Scope(),
             "data-snapshot-1",
             V2ContractTestData.ObservedUtc.AddMinutes(1),
-            isCurrent: true,
+            isCurrent,
             recognition);
     }
 
@@ -528,42 +599,50 @@ public sealed class StashScanWorkspaceViewModelTests
 
     private sealed class FakeSnapshotStore : IStashSnapshotStore
     {
-        private StashSnapshotRecord? _record;
+        private readonly Dictionary<Guid, StashSnapshotRecord> _records = [];
 
-        public void Seed(StashSnapshotRecord record) => _record = record;
+        public void Seed(params StashSnapshotRecord[] records)
+        {
+            foreach (var record in records)
+            {
+                _records[record.SnapshotId] = record;
+            }
+        }
 
         public Task SaveAsync(StashSnapshotRecord snapshot, CancellationToken cancellationToken)
         {
-            _record = snapshot;
+            _records[snapshot.SnapshotId] = snapshot;
             return Task.CompletedTask;
         }
 
         public Task<StashSnapshotRecord?> ReadCurrentAsync(InventoryProfileScope scope, CancellationToken cancellationToken) =>
-            Task.FromResult(_record is { IsCurrent: true } record && record.ProfileScope == scope ? record : null);
+            Task.FromResult(_records.Values.FirstOrDefault(record => record.IsCurrent && record.ProfileScope == scope));
 
         public Task<StashSnapshotRecord?> ReadAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken) =>
-            Task.FromResult(_record is { } record && record.SnapshotId == snapshotId && record.ProfileScope == scope ? record : null);
+            Task.FromResult(_records.GetValueOrDefault(snapshotId) is { } record && record.ProfileScope == scope ? record : null);
 
         public Task<IReadOnlyList<StashSnapshotSummary>> ListAsync(InventoryProfileScope scope, int maximumCount, CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<StashSnapshotSummary>>(_record is { } record && record.ProfileScope == scope
-                ? [new StashSnapshotSummary(
+            Task.FromResult<IReadOnlyList<StashSnapshotSummary>>(_records.Values
+                .Where(record => record.ProfileScope == scope)
+                .OrderByDescending(record => record.RecordedUtc)
+                .Take(maximumCount)
+                .Select(record => new StashSnapshotSummary(
                     record.SnapshotId,
                     record.Recognition.Result.Value!.SnapshotId,
                     record.DataSnapshotId,
                     record.RecordedUtc,
                     record.IsCurrent,
                     record.Recognition.Result.Status,
-                    record.Recognition.Result.Provenance.Coverage ?? new EvidenceCoverage(description: "fixture"))]
-                : []);
+                    record.Recognition.Result.Provenance.Coverage ?? new EvidenceCoverage(description: "fixture")))
+                .ToArray());
 
         public Task<StashSnapshotDeleteResult> DeleteAsync(InventoryProfileScope scope, Guid snapshotId, CancellationToken cancellationToken)
         {
-            if (_record?.SnapshotId != snapshotId)
+            if (!_records.Remove(snapshotId))
             {
                 return Task.FromResult(new StashSnapshotDeleteResult(false, null));
             }
 
-            _record = null;
             return Task.FromResult(new StashSnapshotDeleteResult(true, null));
         }
 
