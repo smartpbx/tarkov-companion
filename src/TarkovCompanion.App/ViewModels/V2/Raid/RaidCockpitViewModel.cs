@@ -151,7 +151,10 @@ public sealed class RaidMarkRowViewModel : BindableViewModel
     /// <summary>"Squad · 4m 12s left": the line under the name.</summary>
     public string OptionsLabel => IsGroupMark
         ? string.Empty
-        : string.Join(" · ", new[] { RaidMarkLifetimes.ScopeName(Scope), TimeLeft }.Where(part => part.Length > 0));
+        : string.Join(
+            " · ",
+            new[] { RaidMarkLifetimes.ScopeName(Scope), TimeLeft, _mark?.Route is { } route ? $"route stop {route.Step}" : string.Empty }
+                .Where(part => part.Length > 0));
 
     public bool IsPrivate => Scope == RaidMarkScope.Private;
 
@@ -2594,7 +2597,10 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
         var (groupMarksLayer, groupMarkObjects) = BuildGroupMarksLayer(model, nowUtc);
         // [V2 rough package 22] You, your trail, the squad and where you have been before.
         var live = BuildLiveLayers(model, nowUtc);
-        _objectStyles = live.Styles;
+        // #290: a tablet's short route, one dashed line through its stops.
+        var markRoutes = BuildMarkRoutes(_marks.Marks, model.Location.Id, nowUtc);
+        markObjects = [.. markObjects, .. markRoutes.Objects];
+        _objectStyles = markRoutes.Objects.Count == 0 ? live.Styles : WithRouteStyles(live.Styles, markRoutes.Objects);
         UiActivity.Step("raid:live");
         _questScene = UserQuestMarkerScene.Apply(
             BuildQuestScene(_map.QuestSceneProjection, model, nowUtc, _questLetters),

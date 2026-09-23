@@ -114,7 +114,8 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         string? label,
         RaidMarkScope scope,
         RaidMarkLifetime lifetime,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        RaidMarkRoute? route = null)
     {
         var now = _timeProvider.GetUtcNow();
         // A waypoint is a plan and stays until removed; a ping is "look here, now" and this is the
@@ -128,6 +129,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         {
             Scope = scope,
             Lifetime = lifetime,
+            Route = route,
         };
         await MutateAsync(marks => marks.Add(mark), cancellationToken).ConfigureAwait(false);
         return mark;
@@ -426,6 +428,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
                 // those marks were all sent to the group, so Squad is what they already were.
                 Scope = row.Scope ?? RaidMarkScope.Squad,
                 Lifetime = row.Lifetime ?? RaidMarkLifetimes.DefaultFor(row.Kind),
+                Route = row.RouteId is { } routeId && row.RouteStep is { } step ? new RaidMarkRoute(routeId, step) : null,
             };
         }
         catch (ArgumentException)
@@ -445,7 +448,9 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         mark.CreatedUtc,
         mark.State.ExpiresUtc,
         mark.Scope,
-        mark.Lifetime);
+        mark.Lifetime,
+        mark.Route?.RouteId,
+        mark.Route?.Step);
 
     public void Dispose()
     {
@@ -474,5 +479,7 @@ public sealed class JsonFileRaidMarkStore : IRaidMarkStore, IDisposable
         // forever — ToMark's MapMarkState validation is what keeps a garbled value from loading.
         DateTimeOffset? ExpiresUtc = null,
         RaidMarkScope? Scope = null,
-        RaidMarkLifetime? Lifetime = null);
+        RaidMarkLifetime? Lifetime = null,
+        Guid? RouteId = null,
+        int? RouteStep = null);
 }

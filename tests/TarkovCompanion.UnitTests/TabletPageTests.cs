@@ -51,7 +51,7 @@ public sealed class TabletPageTests
             "addMark(target.hit.points[0], target.hit.points[1], \"Waypoint\", target.hit.label)",
             Tablet.Page,
             StringComparison.Ordinal);
-        Assert.Contains("function addMark(x, y, kind, spawnName)", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("function addMark(x, y, kind, spawnName, extra = {}, revision = null)", Tablet.Page, StringComparison.Ordinal);
     }
 
     [Fact]

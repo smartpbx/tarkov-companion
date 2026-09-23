@@ -78,6 +78,9 @@
   .markRow button { flex: none; min-height: 44px; }
   .markRow.moving { border-color: var(--cyan); }
   .markRow.queued { border-color: rgba(199, 166, 107, .6); }
+  .markOptions { display: flex; gap: 6px; flex: 1 0 100%; flex-wrap: wrap; }
+  .markOptions select { flex: 1 1 120px; }
+  .routeBar { align-items: center; border: 1px solid var(--cyan); border-radius: 8px; padding: 6px 8px; }
   .queuedLabel { color: var(--ochre); }
   .markList { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
   .live-dot {
@@ -305,6 +308,26 @@
       <!-- [V2 rough package 46] No kind picker and nothing to arm: the gesture says which mark it
            means, the way right-click and shift+right-click do on the desktop. -->
       <p class="quiet" id="markHelp">Tap the map to ping. Hold to drop a waypoint. Edit or move marks below.</p>
+      <!-- #289: who sees a new mark and how long it lasts. #290: a short route, tapped stop by stop. -->
+      <div class="modes" id="markScope" role="group" aria-label="Who sees new marks">
+        <button type="button" data-scope="Private" aria-pressed="false">Just me</button>
+        <button type="button" data-scope="Squad" aria-pressed="true">Squad</button>
+      </div>
+      <div class="form">
+        <select id="markLifetime" class="grow" aria-label="How long new marks last">
+          <option value="">Tap ping, hold waypoint</option>
+          <option value="FiveMinutes">5 min</option>
+          <option value="FifteenMinutes">15 min</option>
+          <option value="ThisRaid">This raid</option>
+        </select>
+        <button type="button" id="routeStart">Draw route</button>
+      </div>
+      <div class="form routeBar" id="routeBar" hidden>
+        <span class="meta grow" id="routeNote" aria-live="polite">Tap each stop, then Done.</span>
+        <button type="button" id="routeUndo">Undo</button>
+        <button type="button" class="primary" id="routeDone">Done</button>
+        <button type="button" id="routeCancel">Cancel</button>
+      </div>
       <div class="form">
         <input id="markLabel" class="grow" placeholder="Label (optional)" autocomplete="off" maxlength="80">
       </div>
@@ -1300,8 +1323,80 @@
       }
     }
 
+    drawRouteDraft(project, scale);
+
     // [V2 rough package 46] Last, so it is over everything: what the finger just did.
     drawFlashes();
+  }
+
+  // #290: a short route, drawn stop by stop before it is sent. Taps add stops instead of pings
+  // while it is open; Done sends every stop as a waypoint carrying the route's id and its step,
+  // in order, so the desktop draws one dashed line and the group gets a waypoint chain.
+  const ROUTE_MAX_STOPS = 12;
+  let routeDraft = null;
+
+  function renderRouteBar() {
+    const open = routeDraft !== null;
+    $("routeBar").hidden = !open;
+    $("routeStart").hidden = open;
+    if (!open) return;
+    const count = routeDraft.length;
+    $("routeNote").textContent = count === 0
+      ? "Tap each stop, then Done."
+      : `${count} stop${count === 1 ? "" : "s"}${count >= ROUTE_MAX_STOPS ? " · that is the most" : ""}`;
+    $("routeDone").disabled = count < 2;
+    $("routeUndo").disabled = count === 0;
+  }
+
+  function addRouteStop(target) {
+    if (routeDraft === null) return false;
+    if (routeDraft.length < ROUTE_MAX_STOPS) {
+      routeDraft.push({ x: target.x, y: target.y });
+      flash(target.px, target.py, COLOURS.Waypoint);
+    }
+    renderRouteBar();
+    drawMap();
+    return true;
+  }
+
+  function drawRouteDraft(project, scale) {
+    if (!routeDraft || routeDraft.length === 0) return;
+    context.save();
+    context.setLineDash([6 * scale, 5 * scale]);
+    context.strokeStyle = COLOURS.Waypoint;
+    context.lineWidth = 2.5 * scale;
+    context.beginPath();
+    routeDraft.forEach((stop, index) => {
+      const [px, py] = project.toScreen(stop.x, stop.y);
+      if (index === 0) context.moveTo(px, py); else context.lineTo(px, py);
+    });
+    context.stroke();
+    context.setLineDash([]);
+    routeDraft.forEach((stop, index) => {
+      const [px, py] = project.toScreen(stop.x, stop.y);
+      drawPin(px, py, COLOURS.Waypoint, "round", String(index + 1), scale, false, false, false);
+    });
+    context.restore();
+  }
+
+  async function finishRoute() {
+    if (!routeDraft || routeDraft.length < 2 || !live?.authorityEpoch) return;
+    const stops = routeDraft;
+    routeDraft = null;
+    renderRouteBar();
+    const routeId = crypto.randomUUID();
+    const base = live.marksRevision;
+    // One after another, each at the next revision: the desktop applies a command only at
+    // exactly the revision after its own, and the relay keeps the order they were sent in.
+    for (let index = 0; index < stops.length; index++) {
+      await addMark(stops[index].x, stops[index].y, "Waypoint", null, {
+        lifetime: $("markLifetime").value || "UntilRemoved",
+        routeId,
+        routeStep: index + 1,
+      }, base + index + 1);
+    }
+    $("modeNote").textContent = `Route sent · ${stops.length} stops.`;
+    drawMap();
   }
 
   // In Control the desktop's own layer state is the truth; in Independent this tablet keeps its
@@ -2519,7 +2614,8 @@
       name.textContent = mark.state.label || mark.kind;
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `${mark.kind} · ${mark.state.mapId}`;
+      meta.textContent = `${mark.kind} · ${markOptionsLabel(mark)}`;
+      meta.dataset.markOptions = "";
       info.append(name, meta);
       const actions = document.createElement("div");
       actions.className = "markActions";
@@ -2549,7 +2645,31 @@
         if (event.key === "Enter") saveLabel();
       });
       editor.append(label, save);
-      row.append(info, actions, editor);
+      const options = document.createElement("div");
+      options.className = "markOptions";
+      const scopeToggle = document.createElement("button");
+      scopeToggle.type = "button";
+      scopeToggle.className = "markScopeToggle";
+      scopeToggle.textContent = mark.scope === "Private" ? "Share with squad" : "Keep to me";
+      scopeToggle.setAttribute("aria-label", `Who sees ${mark.state.label || mark.kind}`);
+      scopeToggle.addEventListener("click", () =>
+        editMark(mark, null, { scope: mark.scope === "Private" ? "Squad" : "Private" }));
+      const lifetime = document.createElement("select");
+      lifetime.className = "markLifetimeEdit";
+      lifetime.setAttribute("aria-label", `How long ${mark.state.label || mark.kind} lasts`);
+      // A waypoint cannot become a ping: a ping's 45 seconds run from when it was made.
+      const current = mark.lifetime || (mark.kind === "Ping" ? "Ping" : "UntilRemoved");
+      for (const value of Object.keys(LIFETIME_NAMES)) {
+        if (value === "Ping" && current !== "Ping") continue;
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = LIFETIME_NAMES[value];
+        option.selected = value === current;
+        lifetime.appendChild(option);
+      }
+      lifetime.addEventListener("change", () => editMark(mark, null, { lifetime: lifetime.value }));
+      options.append(scopeToggle, lifetime);
+      row.append(info, actions, editor, options);
       list.appendChild(row);
     }
 
@@ -2895,26 +3015,76 @@
     $("modeNote").textContent = `Arming ${intent} capture on the desktop…`;
   }
 
-  function addMark(x, y, kind, spawnName) {
-    if (!live?.authorityEpoch || !live.surface) return;
-    const markKind = kind ?? "Ping";
+  // #289: "Squad" goes out as PairedDevice, the scope every tablet mark has always had and the
+  // desktop has always forwarded to the group; the protocol's Team scope needs a capability no
+  // paired tablet is granted. "Just me" is Private, which the desktop never forwards.
+  const MARK_SCOPE_KEY = "tarkov-companion-tablet-mark-scope";
+  let markScope = "Squad";
+  try { if (localStorage.getItem(MARK_SCOPE_KEY) === "Private") markScope = "Private"; } catch { /* private window */ }
+  const wireScope = (scope) => (scope === "Private" ? "Private" : "PairedDevice");
+  const scopeName = (wire) => (wire === "Private" ? "Just me" : "Squad");
+  const LIFETIME_NAMES = {
+    Ping: "Ping 45 s",
+    UntilRemoved: "Until removed",
+    FiveMinutes: "5 min",
+    FifteenMinutes: "15 min",
+    ThisRaid: "This raid",
+  };
+
+  function setMarkScope(scope) {
+    markScope = scope === "Private" ? "Private" : "Squad";
+    try { localStorage.setItem(MARK_SCOPE_KEY, markScope); } catch { /* private window */ }
+    for (const button of $("markScope").querySelectorAll("button")) {
+      button.setAttribute("aria-pressed", String(button.dataset.scope === markScope));
+    }
+  }
+
+  // The lifetime decides the kind, as on the desktop: only the 45-second one is a ping.
+  function lifetimeFields(lifetime, gestureKind) {
+    const chosen = lifetime || (gestureKind === "Ping" ? "Ping" : "UntilRemoved");
+    const minutes = chosen === "FiveMinutes" ? 5 : chosen === "FifteenMinutes" ? 15 : 0;
+    return {
+      kind: chosen === "Ping" ? "Ping" : "Waypoint",
+      lifetime: chosen,
+      expiresUtc: minutes > 0 ? new Date(Date.now() + minutes * 60_000).toISOString() : null,
+    };
+  }
+
+  // What a row says about a mark: who sees it and how long it lasts.
+  function markOptionsLabel(mark) {
+    const lifetime = mark.lifetime || (mark.kind === "Ping" ? "Ping" : mark.state?.expiresUtc ? null : "UntilRemoved");
+    let time = lifetime === "ThisRaid" ? "this raid" : lifetime === "UntilRemoved" ? "until removed" : "";
+    if (!time && mark.state?.expiresUtc) {
+      const at = new Date(mark.state.expiresUtc);
+      time = `until ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    }
+    const route = mark.routeId ? `route stop ${mark.routeStep}` : "";
+    return [scopeName(mark.scope), time, route].filter((part) => part).join(" · ");
+  }
+
+  function addMark(x, y, kind, spawnName, extra = {}, revision = null) {
+    if (!live?.authorityEpoch || !live.surface) return Promise.resolve();
+    const fields = lifetimeFields(extra.lifetime ?? $("markLifetime").value, kind ?? "Ping");
+    const markKind = fields.kind;
     // What was typed wins; otherwise a waypoint dropped on a spawn keeps that spawn's name.
     const label = ($("markLabel").value.trim() || spawnName || "").slice(0, 80) || null;
-    sendCommand({
+    return sendCommand({
       type: "upsertMark",
-      ...commandHeader(live.marksRevision + 1),
+      ...commandHeader(revision ?? live.marksRevision + 1),
       markId: { value: crypto.randomUUID() },
       expectedMarkRevision: 0,
       mark: {
         kind: markKind,
-        scope: "PairedDevice",
+        scope: wireScope(markScope),
+        lifetime: fields.lifetime,
+        ...(extra.routeId ? { routeId: extra.routeId, routeStep: extra.routeStep } : {}),
         state: {
           mapId: live.surface.mapId,
           floorId: live.surface.view.floorId,
           x,
           y,
-          label,
-          expiresUtc: null,
+          label: extra.routeId ? null : label,
+          expiresUtc: fields.expiresUtc,
         },
         // Plan units, the desktop's own: the same rectangle its artwork covers and its own
         // marks are stored in. The tap pad this replaced sent 0-1 of a blank square, which put
@@ -2927,20 +3097,31 @@
     });
   }
 
-  function editMark(mark, change) {
+  function editMark(mark, change, options = null) {
     if (!live?.authorityEpoch || !mark?.markId) return;
     const state = {
       ...mark.state,
       ...(change || {}),
     };
+    // #289: a new scope or lifetime rides the same upsert; a new lifetime counts from now.
+    let kind = mark.kind;
+    let lifetime = mark.lifetime ?? null;
+    if (options?.lifetime && options.lifetime !== lifetime) {
+      const fields = lifetimeFields(options.lifetime, mark.kind);
+      kind = fields.kind;
+      lifetime = fields.lifetime;
+      state.expiresUtc = fields.expiresUtc;
+    }
     sendCommand({
       type: "upsertMark",
       ...commandHeader(live.marksRevision + 1),
       markId: mark.markId,
       expectedMarkRevision: mark.revision,
       mark: {
-        kind: mark.kind,
-        scope: mark.scope,
+        kind,
+        scope: options?.scope ? wireScope(options.scope) : mark.scope,
+        ...(lifetime ? { lifetime } : {}),
+        ...(mark.routeId ? { routeId: mark.routeId, routeStep: mark.routeStep } : {}),
         state,
         coordinateSpace: mark.coordinateSpace,
         projectionVersion: mark.projectionVersion,
@@ -3330,6 +3511,7 @@
   function handleTap(at) {
     const target = at ? pressTarget(at) : null;
     if (!target) return;
+    if (addRouteStop(target)) return;
     if (moveArmedMark(target)) {
       flash(target.px, target.py, COLOURS.Waypoint);
       return;
@@ -3395,6 +3577,7 @@
   function handleLongPress(at) {
     const target = pressTarget(at);
     if (!target) return;
+    if (addRouteStop(target)) return;
     const mark = target.hit ? markFor(target.hit) : null;
     if (mark) {
       removeMark(mark);
@@ -3598,6 +3781,26 @@
   $("panelToggle").addEventListener("click", () =>
     setPanelHidden(!document.body.classList.contains("panel-hidden")));
   try { if (localStorage.getItem(PANEL_KEY) === "1") setPanelHidden(true); } catch { /* private window */ }
+  for (const button of $("markScope").querySelectorAll("button")) {
+    button.addEventListener("click", () => setMarkScope(button.dataset.scope));
+  }
+  setMarkScope(markScope);
+  $("routeStart").addEventListener("click", () => {
+    routeDraft = [];
+    renderRouteBar();
+    $("modeNote").textContent = "Drawing a route.";
+  });
+  $("routeUndo").addEventListener("click", () => {
+    if (routeDraft && routeDraft.length > 0) routeDraft.pop();
+    renderRouteBar();
+    drawMap();
+  });
+  $("routeCancel").addEventListener("click", () => {
+    routeDraft = null;
+    renderRouteBar();
+    drawMap();
+  });
+  $("routeDone").addEventListener("click", () => { void finishRoute(); });
 
   // ---------------------------------------------------------------------------------------
   // UI wiring.
@@ -3697,9 +3900,16 @@
     desktopWorkspace: live?.workspace?.workspace ?? null,
     pendingCommands: pending.count,
     movingMarkId,
+    routeDraft: routeDraft ? routeDraft.length : null,
     marks: (live?.marks ?? []).map((mark) => ({
       id: mark.markId?.value ?? null,
       revision: mark.revision,
+      kind: mark.kind,
+      scope: mark.scope,
+      lifetime: mark.lifetime ?? null,
+      expiresUtc: mark.state?.expiresUtc ?? null,
+      routeId: mark.routeId ?? null,
+      routeStep: mark.routeStep ?? null,
       label: mark.state?.label ?? null,
       x: mark.state?.x ?? null,
       y: mark.state?.y ?? null,

@@ -948,9 +948,10 @@ internal sealed class LinkMarkStore : IRaidMarkStore
         return Task.CompletedTask;
     }
 
-    public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default)
+    public Task<RaidMark> PlaceAsync(string mapId, string? floorId, double x, double y, string? label, RaidMarkScope scope, RaidMarkLifetime lifetime, CancellationToken cancellationToken = default, RaidMarkRoute? route = null)
     {
-        var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, DateTimeOffset.UtcNow)), DateTimeOffset.UtcNow) { Scope = scope, Lifetime = lifetime };
+        AddCount++;
+        var mark = new RaidMark(Guid.NewGuid(), RaidMarkLifetimes.KindFor(lifetime), new MapMarkState(mapId, floorId, x, y, label, RaidMarkLifetimes.ExpiresUtc(lifetime, DateTimeOffset.UtcNow)), DateTimeOffset.UtcNow) { Scope = scope, Lifetime = lifetime, Route = route };
         _marks.Add(mark);
         Changed?.Invoke();
         return Task.FromResult(mark);
