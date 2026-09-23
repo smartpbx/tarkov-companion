@@ -317,12 +317,12 @@ public sealed class CanonicalStateMachineTests
     }
 
     [Fact]
-    public void CaptureIntentsReuseTheCoreCaptureIntentStateAndNeverArmFleaRecognition()
+    public void CaptureIntentsReuseTheCompleteCoreCaptureIntentSet()
     {
         Assert.Equal(
-            Enum.GetValues<ScanIntent>().Where(intent => intent != ScanIntent.Flea).ToArray(),
+            Enum.GetValues<ScanIntent>(),
             PairedScanIntents.Allowed.ToArray());
-        Assert.Throws<ArgumentOutOfRangeException>(() => new RequestCaptureIntentCommand(
+        var flea = new RequestCaptureIntentCommand(
             Command(98),
             new AggregateRevision(1),
             Now,
@@ -331,7 +331,8 @@ public sealed class CanonicalStateMachineTests
             "flea",
             CaptureSession(98),
             ScanIntent.Flea,
-            new CompanionCaptureContext(null, null, null, null, [], [], [])));
+            new CompanionCaptureContext(null, null, null, null, [], [], []));
+        Assert.Equal(ScanIntent.Flea, flea.Intent);
 
         var armed = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext());
         var intent = armed.State.CaptureIntent.ActiveIntent!;

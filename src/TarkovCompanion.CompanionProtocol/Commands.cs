@@ -391,7 +391,7 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    /// <summary>The frozen #264 scan intent to arm; flea recognition is not a paired capture intent.</summary>
+    /// <summary>The frozen #264 scan intent to arm.</summary>
     public ScanIntent Intent { get; }
 
     public CompanionCaptureContext Context { get; }

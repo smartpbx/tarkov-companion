@@ -546,6 +546,12 @@ control back. The desktop's own navigation travels as `UpdateDesktopWorkspaceCom
 what a following tablet mirrors. A workspace update names the device whose command caused it, so a
 tablet drops the echo of its own change rather than following it.
 
+While it holds Control, the tablet also offers Loot, Stash, and Flea capture arming. Each is a
+`RequestCaptureIntentCommand` over the same sealed, capability-checked frame path; an Applied
+command reaches the desktop's ordinary capture-arm event with its session and context intact.
+This does not capture pixels or generate game input. The tablet page is embedded in the group
+server binary, so deploying this interface requires redeploying the relay.
+
 ## Which version everything speaks
 
 Every room reply and `/health` carry `protocol`, a whole number.

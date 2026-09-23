@@ -66,6 +66,9 @@
   .workspacePicker { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
   .workspacePicker button { min-height: 44px; padding: 6px 8px; flex: 1 1 auto; }
   .workspacePicker button[aria-pressed="true"] { background: var(--cyan); color: var(--cyan-ink); border-color: var(--cyan); }
+  .capturePicker { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+  .capturePicker span { color: var(--quiet); font-size: 13px; }
+  .capturePicker button { min-height: 44px; padding: 6px 10px; }
   .empty { color: var(--quiet); font-size: 13px; }
   .markRow { display: flex; align-items: center; gap: 10px; }
   .markRow > div:first-child { flex: 1; min-width: 0; }
@@ -229,6 +232,14 @@
         <button type="button" data-workspace="Plan" aria-pressed="false">Plan</button>
         <button type="button" data-workspace="Team" aria-pressed="false">Team</button>
         <button type="button" data-workspace="Debrief" aria-pressed="false">Debrief</button>
+      </div>
+      <!-- #271: these ask the paired desktop to wait for the player's next screenshot. They do
+           not capture pixels, press a key, or read the game, and exist only while Control is held. -->
+      <div class="capturePicker" id="capturePicker" role="group" aria-label="Arm desktop capture" hidden>
+        <span>Arm capture</span>
+        <button type="button" data-intent="Loot">Loot</button>
+        <button type="button" data-intent="Stash">Stash</button>
+        <button type="button" data-intent="Flea">Flea</button>
       </div>
       <p class="quiet" id="modeNote">Following the desktop's map.</p>
     </div>
@@ -1811,6 +1822,7 @@
       marksRevision: 0,
       workspaceRevision: 0,
       modesRevision: 0,
+      captureRevision: 0,
       workspace: null,
       credential: null,
       senderSequence: 0,
@@ -2080,6 +2092,7 @@
       marksRevision: 0,
       workspaceRevision: 0,
       modesRevision: 0,
+      captureRevision: 0,
       workspace: null,
       credential: stored.credential,
       // Above anything the page that stored this may have sent; see SEQUENCE_BLOCK.
@@ -2311,6 +2324,7 @@
       live.workspaceRevision = state.workspace.cursor.revision.value;
       live.workspace = state.workspace.projection;
       live.modesRevision = state.deviceModes.cursor.revision.value;
+      live.captureRevision = state.captureIntent.cursor.revision.value;
       applyDeviceModes(state.deviceModes);
       renderMarks();
       return;
@@ -2341,6 +2355,8 @@
     } else if (update.type === "deviceMode") {
       live.modesRevision = update.state.cursor.revision.value;
       applyDeviceModes(update.state);
+    } else if (update.type === "captureIntent") {
+      live.captureRevision = update.state.cursor.revision.value;
     }
   }
 
@@ -2391,6 +2407,7 @@
     if (mode === "Control") renderMapSwitcher();
     $("workspacePicker").hidden = mode !== "Control";
     if (mode === "Control") renderWorkspacePicker();
+    $("capturePicker").hidden = mode !== "Control";
     // #290: the way back from Independent without giving up Independent — this page's own view,
     // shown on the desktop once, is only ever meaningful in the one mode where the two have
     // deliberately drifted apart.
@@ -2493,7 +2510,7 @@
     const entry = streamed ? { type: "controlWorkspace", label: "Moving the map" } : pending.settle(commandId);
     if (!entry) return; // Another tab's command, or one this page already gave up on.
     const result = CommandAcknowledgement.describeAcknowledgement(acknowledgement, entry.type);
-    lastAcknowledgement = { commandId, disposition: result.disposition };
+    lastAcknowledgement = { commandId, disposition: result.disposition, label: entry.label };
     if (result.canonicalState) applyServerMessage({ type: "canonicalSnapshot", state: result.canonicalState });
     if (result.applied) return;
     // [#604] A move that lost a revision race mid-drag has already been caught up by the state
@@ -2592,6 +2609,29 @@
       offlineQueuePreview: null,
     };
   };
+
+  function requestCapture(intent) {
+    if (mode !== "Control" || !["Loot", "Stash", "Flea"].includes(intent) || !live) return;
+    const correlationId = crypto.randomUUID();
+    sendCommand({
+      type: "requestCaptureIntent",
+      ...commandHeader(live.captureRevision + 1),
+      intentId: { value: crypto.randomUUID() },
+      correlationId,
+      captureSessionId: { value: crypto.randomUUID() },
+      intent,
+      context: {
+        mapId: live.workspace?.mapId ?? live.surface?.mapId ?? null,
+        floorId: live.workspace?.floorId ?? live.surface?.view?.floorId ?? null,
+        profileId: null,
+        previousResultId: null,
+        objectiveIds: [],
+        planIds: [],
+        markIds: [],
+      },
+    });
+    $("modeNote").textContent = `Arming ${intent} capture on the desktop…`;
+  }
 
   function addMark(x, y, kind, spawnName) {
     if (!live?.authorityEpoch || !live.surface) return;
@@ -3232,6 +3272,9 @@
   $("mapSwitch").addEventListener("change", (event) => switchMap(event.target.value));
   for (const button of document.querySelectorAll("#workspacePicker button")) {
     button.addEventListener("click", () => switchWorkspace(button.dataset.workspace));
+  }
+  for (const button of document.querySelectorAll("#capturePicker button")) {
+    button.addEventListener("click", () => requestCapture(button.dataset.intent));
   }
   $("showOnDesktop").addEventListener("click", showCurrentViewOnDesktop);
 

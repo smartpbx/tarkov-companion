@@ -3,16 +3,16 @@ using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.CompanionProtocol;
 
-/// <summary>The paired capture intents: the frozen #264 <see cref="ScanIntent"/> set without flea recognition.</summary>
+/// <summary>The paired capture intents: the frozen #264 <see cref="ScanIntent"/> set.</summary>
 public static class PairedScanIntents
 {
     public static IReadOnlyList<ScanIntent> Allowed { get; } =
-        Enum.GetValues<ScanIntent>().Where(intent => intent != ScanIntent.Flea).ToArray();
+        Enum.GetValues<ScanIntent>();
 
     internal static ScanIntent Require(ScanIntent intent, string parameterName) =>
-        Enum.IsDefined(intent) && intent != ScanIntent.Flea
+        Enum.IsDefined(intent)
             ? intent
-            : throw new ArgumentOutOfRangeException(parameterName, intent, "Flea recognition is not a paired-device capture intent.");
+            : throw new ArgumentOutOfRangeException(parameterName, intent, "The paired-device capture intent is not defined.");
 }
 
 public enum ContextualCaptureStatus

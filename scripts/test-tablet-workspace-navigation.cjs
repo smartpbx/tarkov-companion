@@ -71,10 +71,12 @@ async function main() {
     let current = await until(page, (value) => value.hasSurface && value.hasLive, 15000);
     check("the tablet has the desktop map", current.hasSurface, JSON.stringify(current));
     check("Follow hides the workspace picker", await page.locator("#workspacePicker").isHidden());
+    check("Follow hides capture arming", await page.locator("#capturePicker").isHidden());
 
     await page.click('#deviceModes button[data-mode="Control"]');
     await page.locator("#modeNote").filter({ hasText: "You are driving" }).waitFor({ timeout: 20000 });
     check("Control shows the workspace picker", await page.locator("#workspacePicker").isVisible());
+    check("Control shows capture arming", await page.locator("#capturePicker").isVisible());
     const labels = await page.locator("#workspacePicker button").allTextContents();
     check(
       "the picker offers the five desktop workspaces",
@@ -92,6 +94,19 @@ async function main() {
       current.lastAcknowledgement?.disposition === "Applied", JSON.stringify(current));
     check("the Plan choice is selected", await page.locator('#workspacePicker button[data-workspace="Plan"]')
       .getAttribute("aria-pressed") === "true");
+
+    const captureLabels = await page.locator("#capturePicker button").allTextContents();
+    check(
+      "capture arming offers Loot, Stash, and Flea",
+      JSON.stringify(captureLabels) === JSON.stringify(["Loot", "Stash", "Flea"]),
+      JSON.stringify(captureLabels));
+    await page.click('#capturePicker button[data-intent="Flea"]');
+    current = await until(
+      page,
+      (value) => value.pendingCommands === 0 && value.lastAcknowledgement?.disposition === "Applied" &&
+        value.lastAcknowledgement?.label === "Arming Flea capture",
+      15000);
+    check("the Flea arm request was applied", current.lastAcknowledgement?.disposition === "Applied", JSON.stringify(current));
 
     if (failures > 0) {
       console.error(`\n${failures} check(s) failed.`);
