@@ -432,6 +432,7 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
                 _mapPreview.ViewChangeRequested -= MapPreviewViewChangeRequested;
             }
 
+            var dropped = _mapPreview;
             _mapPreview = value;
             if (value is not null)
             {
@@ -440,6 +441,8 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
 
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasMapPreview));
+            // [#775] After the view has moved off it: its leases keep the cockpit's pictures alive.
+            dropped?.ReleasePictures();
         }
     }
 
@@ -474,6 +477,8 @@ public sealed class TeamWorkspaceViewModel : BindableViewModel
             "|",
             raidMap.Scene.LocationId,
             raidMap.Scene.Revision.ToString(CultureInfo.InvariantCulture),
+            // [#775] A replaced cockpit picture re-presents the preview rather than being kept.
+            _raidCockpit.BackgroundSha,
             string.Join(",", group.Waypoints.Select(waypoint => $"{waypoint.Id}:{waypoint.MapId}:{waypoint.X}:{waypoint.Z}:{waypoint.Label}:{waypoint.Reached}")),
             string.Join(",", group.Pings.Select(ping => $"{ping.Id}:{ping.MapId}:{ping.X}:{ping.Z}")));
         if (MapPreview is not null && signature == _mapPreviewSignature)

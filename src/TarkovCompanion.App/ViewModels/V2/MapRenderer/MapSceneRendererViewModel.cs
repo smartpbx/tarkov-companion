@@ -87,6 +87,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private readonly MapSceneRendererPresentation _presentation;
     private readonly Func<Guid> _nextChangeId;
     private readonly Func<MapSceneAsset, IImage?>? _reviewedAssetResolver;
+    private readonly RendererPictureHold? _pictureHold;
     private readonly Func<string, string>? _floorNameResolver;
     private readonly Func<MapSceneObject, MapSceneObjectStyle?>? _styleResolver;
     private readonly Func<string, double?>? _floorElevationResolver;
@@ -162,9 +163,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         // [#573] Draw potential loot spawns by value (MapLootRanking) under the place names, the
         // rest counted on badges. The Raid cockpit's choice; the renderer gallery keeps the
         // generic grid clusters and their list drill-down.
-        bool ranksLootByValue = false)
+        bool ranksLootByValue = false,
+        // [#775] A lease on each picture the resolver hands out, so its owner cannot free a
+        // picture still on this renderer (RendererPictureHold). Null: the host owns nothing it frees.
+        Func<IImage, IDisposable?>? pictureLease = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
+        _pictureHold = pictureLease is null ? null : new(pictureLease);
         _ranksLootByValue = ranksLootByValue;
         _lootValues = MapLootRanking.ValuesOf(highValueLoot);
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
@@ -1785,6 +1790,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         if (_scene.View.Mode != MapSceneMode.FloorStack2D)
         {
             FloorLayers = [];
+            KeepHeldPictures();
             StackStatus = string.Empty;
             return;
         }
@@ -1801,7 +1807,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             var floorId = ordered[index];
             if (!artwork.TryGetValue(floorId, out var asset) ||
-                _reviewedAssetResolver?.Invoke(asset) is not { } image)
+                HoldPicture(_reviewedAssetResolver?.Invoke(asset)) is not { } image)
             {
                 continue;
             }
@@ -1821,6 +1827,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         FloorLayers = layers;
+        KeepHeldPictures();
         var floorCount = _scene.FloorIds.Count;
         StackStatus = layers.Count switch
         {
@@ -2353,9 +2360,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         if (force || !string.Equals(key, _resolvedAssetKey, StringComparison.Ordinal))
         {
             _resolvedAssetKey = key;
-            BackgroundImage = asset is null || _reviewedAssetResolver is null
+            var resolved = asset is null || _reviewedAssetResolver is null
                 ? null
                 : _reviewedAssetResolver(asset);
+            BackgroundImage = HoldPicture(resolved);
+            if (resolved is not null && BackgroundImage is null)
+            {
+                // Already retired by its owner: ask again on the next present.
+                _resolvedAssetKey = null;
+            }
+
+            KeepHeldPictures();
         }
 
         // What says how wide this map really is: its own plan rectangle where the host gave one,
@@ -2369,6 +2384,35 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         {
             RaiseProjectionChanged();
         }
+    }
+
+    private IImage? HoldPicture(IImage? image) => _pictureHold is null ? image : _pictureHold.Hold(image);
+
+    private void KeepHeldPictures() =>
+        _pictureHold?.Keep([BackgroundImage, .. FloorLayers.Select(layer => layer.Image)]);
+
+    /// <summary>How many pictures this renderer holds a lease on.</summary>
+    internal int HeldPictureCount => _pictureHold?.Count ?? 0;
+
+    /// <summary>
+    /// [#775] Lets go of every picture, for a host that stops showing this renderer: a lease that
+    /// is never ended keeps its picture alive for good.
+    /// </summary>
+    public void ReleasePictures()
+    {
+        if (_pictureHold is null || _pictureHold.Count == 0)
+        {
+            return;
+        }
+
+        BackgroundImage = null;
+        FloorLayers = [];
+        _resolvedAssetKey = null;
+        OnPropertyChanged(nameof(BackgroundImage));
+        OnPropertyChanged(nameof(HasBackgroundImage));
+        OnPropertyChanged(nameof(ShowsFlatBackground));
+        OnPropertyChanged(nameof(FloorLayers));
+        _pictureHold.ReleaseAll();
     }
 
     private void UpdateBackgroundStatus(MapSceneAsset? asset) => BackgroundStatus = !_projection.IsUsable
