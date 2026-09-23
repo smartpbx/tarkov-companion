@@ -1385,6 +1385,14 @@ internal static class Program
                 Pump(20);
             }
 
+            if (shell is not null && args.Contains("--capture-batch-demo"))
+            {
+                shell.CaptureCommand.Execute(null);
+                shell.ShowManualImageBatchPreview(
+                    ["loot-west-wing.png", "stash-scroll-02.png", "flea-listing-euros.png"]);
+                Pump(20);
+            }
+
             // [f920 capture] --capture-image <file> [--capture-intent loot|stash|auto]: a picture
             // handed to the shell the way the file picker hands one over, through the composed
             // bridge, intake and pipeline. The panel is left open on whatever came of it.

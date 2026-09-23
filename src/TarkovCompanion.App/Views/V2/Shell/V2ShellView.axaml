@@ -894,6 +894,21 @@
                 <TextBlock Classes="v2-body" IsVisible="{Binding HasCaptureManualStatus}"
                            AutomationProperties.AutomationId="v2-shell-capture-manual-status"
                            Text="{Binding CaptureManualStatus}" TextWrapping="Wrap" />
+                <ItemsControl ItemsSource="{Binding CaptureBatchItems}" IsVisible="{Binding HasCaptureBatchItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2ManualImageBatchItemViewModel">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16" Margin="0,3"
+                            AutomationProperties.AutomationId="{Binding AutomationId}">
+                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Status}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button Classes="v2-target" HorizontalAlignment="Left"
+                        IsVisible="{Binding HasActiveManualImageBatch}"
+                        AutomationProperties.AutomationId="v2-shell-capture-batch-cancel"
+                        Content="{Binding CaptureBatchCancelLabel}" Command="{Binding CancelManualImageBatchCommand}" />
               </StackPanel>
             </Border>
             <Border Classes="v2-card" IsVisible="{Binding HasCaptureAttention}"
