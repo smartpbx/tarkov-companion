@@ -51,6 +51,9 @@ public sealed class CompositeCaptureResultHandoff(
             ScanIntent.Loot when !isLootGrid => _intel.AcceptItemAsync(request, cancellationToken),
             ScanIntent.Loot => _lootScan.AcceptAsync(request, cancellationToken),
             ScanIntent.Stash => _stashScan.AcceptAsync(request, cancellationToken),
+            // #283: an open case under an Ammo or Keys case scan is one of its screenshots; the
+            // stash handoff ignores it when no case scan is collecting, and Intel still names it.
+            ScanIntent.Ammo or ScanIntent.Keys => CaseThenIntelAsync(request, cancellationToken),
             // [f920 capture] #284: legible flea rows go to Intel > Flea. A flea capture with no
             // rows still names its item where it can, as it did before.
             ScanIntent.Flea when flea is not null && request.Analysis.FleaListings.Count > 0 =>
@@ -59,5 +62,11 @@ public sealed class CompositeCaptureResultHandoff(
                 _intel.AcceptAsync(request, cancellationToken),
             _ => ValueTask.FromResult(CaptureHandoffResult.Accepted),
         };
+    }
+
+    private async ValueTask<CaptureHandoffResult> CaseThenIntelAsync(CaptureHandoffRequest request, CancellationToken cancellationToken)
+    {
+        await _stashScan.AcceptAsync(request, cancellationToken).ConfigureAwait(false);
+        return await _intel.AcceptAsync(request, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -46,6 +46,11 @@ public sealed record AmmoCaliberRowViewModel(AmmoCaliberViewModel Caliber, bool 
 
     public string Summary => Caliber.Summary;
 
+    /// <summary>"240 owned" across the caliber; empty until a scan has counted any of it.</summary>
+    public string Owned { get; init; } = string.Empty;
+
+    public bool HasOwned => Owned.Length > 0;
+
     public string AutomationId => $"v2-ammo-caliber-{Caliber.Caliber}";
 }
 
@@ -69,6 +74,11 @@ public sealed record AmmoRoundRowViewModel(AmmoRoundViewModel Round, bool IsSele
     public IReadOnlyList<AmmoArmorRatingViewModel> ArmorClasses => Round.ArmorClasses;
 
     public string LearnReason => Round.LearnModeExplanation;
+
+    /// <summary>"60 owned" for this round, loose and in packs; empty until a scan has counted it.</summary>
+    public string Owned { get; init; } = string.Empty;
+
+    public bool HasOwned => Owned.Length > 0;
 
     public string AutomationId => $"v2-ammo-round-{Round.ItemId}";
 }
@@ -193,7 +203,10 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
                 .. _page.Calibers.Select(caliber => new AmmoCaliberRowViewModel(
                     caliber,
                     ReferenceEquals(caliber, selected),
-                    new DelegateCommand(() => _page.SelectedCaliber = caliber))),
+                    new DelegateCommand(() => _page.SelectedCaliber = caliber))
+                {
+                    Owned = OwnedAmmo.Short(_page.Owned.RoundsOf(_page.RoundIdsOf(caliber.Caliber))),
+                }),
             ];
         }
     }
@@ -210,7 +223,10 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
                 .. Arrange(_page.Rounds, ArmorClass, Sort).Select(round => new AmmoRoundRowViewModel(
                     round,
                     ReferenceEquals(round, selected),
-                    new DelegateCommand(() => _page.SelectedRound = round))),
+                    new DelegateCommand(() => _page.SelectedRound = round))
+                {
+                    Owned = OwnedAmmo.Short(_page.Owned.RoundsOf(round.ItemId)),
+                }),
             ];
         }
     }
@@ -256,6 +272,16 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
     public string SelectedAdvice => _page.Advice;
 
     public string SelectedExplanation => _page.Explanation;
+
+    /// <summary>How many of the chosen round the player owns, or how to find out.</summary>
+    public string SelectedOwned => _page.SelectedRound is { } round && _page.TracksOwnership
+        ? OwnedAmmo.Long(_page.Owned.RoundsOf(round.ItemId))
+        : string.Empty;
+
+    public bool HasSelectedOwned => SelectedOwned.Length > 0;
+
+    /// <summary>Re-reads what the player owns; the shell calls it each time the page is shown.</summary>
+    public Task LoadOwnedAsync() => _page.RefreshOwnedAsync(CancellationToken.None);
 
     public IReadOnlyList<AmmoArmorRatingViewModel> SelectedArmorClasses => _page.SelectedRound?.ArmorClasses ?? [];
 
@@ -369,6 +395,7 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
                 {
                     nameof(HasSelectedRound), nameof(ShowsNoSelectedRound), nameof(SelectedName), nameof(SelectedRank),
                     nameof(SelectedTier), nameof(SelectedTraits), nameof(SelectedProvenance), nameof(SelectedArmorClasses),
+                    nameof(SelectedOwned), nameof(HasSelectedOwned),
                 })
                 {
                     OnPropertyChanged(name);
@@ -387,6 +414,12 @@ public sealed class AmmoWorkspaceViewModel : BindableViewModel
             case nameof(AmmoPageViewModel.Detail):
                 OnPropertyChanged(nameof(Detail));
                 EnsureRound();
+                break;
+            case nameof(AmmoPageViewModel.Owned):
+                OnPropertyChanged(nameof(Calibers));
+                RaiseRounds();
+                OnPropertyChanged(nameof(SelectedOwned));
+                OnPropertyChanged(nameof(HasSelectedOwned));
                 break;
             case nameof(AmmoPageViewModel.SearchQuery):
                 OnPropertyChanged(nameof(SearchQuery));

@@ -88,6 +88,19 @@ internal static class Program
             File.Copy(seedLootCache, Path.Combine(lootCacheDirectory, "publication.cache"));
         }
 
+        // [#283] --seed-icon-cache <dir> copies an icon evidence cache (the local icon corpus's
+        // icon-evidence-cache) into the throwaway data root, so a real screenshot handed to
+        // --capture-image is named the way it would be on a machine whose cache has filled.
+        if (StringOption(args, "--seed-icon-cache") is { } seedIconCache)
+        {
+            var iconDirectory = Path.Combine(AppDataPaths.Resolve(dataRoot, demoMode: demoMode).Cache, "IconEvidence");
+            Directory.CreateDirectory(iconDirectory);
+            foreach (var file in Directory.EnumerateFiles(seedIconCache))
+            {
+                File.Copy(file, Path.Combine(iconDirectory, Path.GetFileName(file)));
+            }
+        }
+
         MapSwitchProbe.LinkMapCache(dataRoot, StringOption(args, "--map-cache"), demoMode);
         MapSwitchProbe.SeedLastMap(dataRoot, demoMode, StringOption(args, "--last-map"));
         try
@@ -1510,6 +1523,68 @@ internal static class Program
                 Pump(20);
             }
 
+            // [#283] --seed-owned id=n,id=n records owned counts as a stash or case scan would, and
+            // --stash-subscan ammo|keys starts a guided case scan from the Stash page's chips, so
+            // a following --capture-image with the same --capture-intent lands in it.
+            if (StringOption(args, "--seed-owned") is { } ownedText)
+            {
+                var players = services.GetRequiredService<TarkovCompanion.Core.Abstractions.IPlayerProfileService>();
+                var profile = players.GetActiveAsync(default).GetAwaiter().GetResult();
+                var owned = new Dictionary<string, int>(profile.OwnedItemCounts, StringComparer.Ordinal);
+                foreach (var pair in ownedText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var (id, count) = pair.Split('=', 2) is [var key, var value] ? (key, int.Parse(value, System.Globalization.CultureInfo.InvariantCulture)) : (pair, 1);
+                    owned[id] = count;
+                }
+
+                players.SaveAsync(profile with { OwnedItemCounts = owned }, default).GetAwaiter().GetResult();
+                DrainUntilComplete(viewModel.Ammo.RefreshOwnedAsync(CancellationToken.None));
+                DrainUntilComplete(viewModel.Keys.RefreshOwnedAsync(CancellationToken.None));
+                Pump(20);
+            }
+
+            // [#283] --ammo-caliber <text> filters the Ammo page's calibers and opens the first.
+            if (StringOption(args, "--ammo-caliber") is { } caliberText)
+            {
+                DrainUntilComplete(viewModel.Ammo.LoadAsync(CancellationToken.None));
+                viewModel.Ammo.SearchQuery = caliberText;
+                viewModel.Ammo.SelectedCaliber = viewModel.Ammo.Calibers.FirstOrDefault();
+                for (var turn = 0; turn < 200 && viewModel.Ammo.Rounds.Count == 0; turn++)
+                {
+                    Pump(1);
+                    Thread.Sleep(10);
+                }
+
+                // --ammo-round <name> then opens the round whose name ends with it, once the
+                // caliber has finished ranking (which clears the choice).
+                Pump(20);
+                if (StringOption(args, "--ammo-round") is { } roundText &&
+                    viewModel.Ammo.Rounds.FirstOrDefault(round => round.Name.EndsWith(roundText, StringComparison.OrdinalIgnoreCase)) is { } round)
+                {
+                    viewModel.Ammo.SelectedRound = round;
+                }
+
+                Pump(20);
+            }
+
+            // [#283] --keys-filter owned presses the Keys page's "You own" chip.
+            if (shell?.KeysWorkspace is { } keysWorkspace && StringOption(args, "--keys-filter") is { } keysFilter)
+            {
+                var filter = Enum.Parse<TarkovCompanion.App.ViewModels.V2.Intel.KeyVerdictFilter>(keysFilter, ignoreCase: true);
+                keysWorkspace.VerdictFilters.Single(chip => chip.Filter == filter).SelectCommand.Execute(null);
+                Pump(20);
+            }
+
+            if (shell is not null && StringOption(args, "--stash-subscan") is { } subScanText)
+            {
+                var intent = Enum.Parse<ScanIntent>(subScanText, ignoreCase: true);
+                var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                DrainUntilComplete(stashWorkspace.LoadAsync());
+                stashWorkspace.ScanTargets.Single(target => target.Intent == intent).SelectCommand.Execute(null);
+                DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)stashWorkspace.StartSelectedScanCommand).ExecuteAsync());
+                Pump(20);
+            }
+
             // [f920 capture] --capture-image <file> [--capture-intent loot|stash|auto]: a picture
             // handed to the shell the way the file picker hands one over, through the composed
             // bridge, intake and pipeline. The panel is left open on whatever came of it.
@@ -1549,6 +1624,14 @@ internal static class Program
                     }
 
                     DrainUntilComplete(services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>().LoadAsync());
+                }
+
+                // [#283] --stash-subscan-finish finishes the case scan the capture joined.
+                if (args.Contains("--stash-subscan-finish"))
+                {
+                    var stashWorkspace = services.GetRequiredService<TarkovCompanion.App.ViewModels.V2.StashScan.StashScanWorkspaceViewModel>();
+                    DrainUntilComplete(((TarkovCompanion.App.ViewModels.AsyncDelegateCommand)stashWorkspace.FinishScanCommand).ExecuteAsync());
+                    Console.WriteLine($"Case scan: {stashWorkspace.Status}");
                 }
 
                 Pump(40);

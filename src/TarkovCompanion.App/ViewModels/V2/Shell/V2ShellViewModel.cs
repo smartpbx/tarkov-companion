@@ -1975,6 +1975,15 @@ public sealed partial class V2ShellViewModel : BindableViewModel, IAsyncDisposab
         {
             Load("team", _team.LoadAsync);
         }
+        // #283: a case scan finished on the Stash page changes what these say the player owns.
+        else if (route == V2Routes.Ammo && AmmoWorkspace is not null)
+        {
+            Load("ammo-owned", AmmoWorkspace.LoadOwnedAsync);
+        }
+        else if (route == V2Routes.Keys && KeysWorkspace is not null)
+        {
+            Load("keys-owned", KeysWorkspace.LoadOwnedAsync);
+        }
         else if (route == V2Routes.Setup)
         {
             _homeOverviewLoaded = false;

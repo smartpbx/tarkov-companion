@@ -124,6 +124,40 @@ public sealed class StashScanCaptureHandoffTests
         Assert.Single(store.Saved!.Recognition.Result.Value!.CapturedRegions);
     }
 
+    /// <summary>
+    /// #283: an Ammo sub-scan takes the open case (a Container grid) and never the stash panel
+    /// behind it, which a stray Stash capture would otherwise slip in as one of its cases.
+    /// </summary>
+    [Fact]
+    public async Task AnAmmoScanTakesTheCaseWindowAndNotTheStashPanel()
+    {
+        var store = new MemorySnapshotStore();
+        using var runtime = await ReadyProfileContextAsync();
+        var guided = GuidedScan(store);
+        await guided.StartAsync(new(Id(402), "generation-a", "Pvp"), "data-1", CancellationToken.None, StashScanKind.Ammo);
+        var handoff = new StashScanCaptureHandoff(
+            runtime,
+            new InventoryGridReconstructor(),
+            new StashScanWorkflow(new StashScanAssembler(), store, new StashSnapshotComparer()),
+            guidedScan: guided);
+
+        await using (var stashFrame = new Harness(handoff, RecognizedContext.Stash, ScanIntent.Stash, RealStashGrid()))
+        {
+            await stashFrame.CaptureAsync();
+        }
+
+        Assert.Equal(0, guided.Current.Screenshots);
+        Assert.Null(store.Saved);
+
+        await using (var caseFrame = new Harness(handoff, RecognizedContext.Ammo, ScanIntent.Ammo, RealStashGrid(InventoryGridSurface.Container)))
+        {
+            await caseFrame.CaptureAsync();
+        }
+
+        Assert.Equal(1, guided.Current.Screenshots);
+        Assert.Null(store.Saved);
+    }
+
     [Fact]
     public async Task TheStashIntentIsHeldArmedOnlyWhileAScanIsActivelyBeingTaken()
     {
@@ -216,7 +250,7 @@ public sealed class StashScanCaptureHandoffTests
         }
     }
 
-    private static GridReconstructionRequest RealStashGrid()
+    private static GridReconstructionRequest RealStashGrid(InventoryGridSurface surface = InventoryGridSurface.Stash)
     {
         var provenance = new EvidenceProvenance(
             EvidenceSourceClass.GameWrittenScreenshot,
@@ -240,7 +274,7 @@ public sealed class StashScanCaptureHandoffTests
             provenance,
             bounds);
         var observation = new GridCellObservation("cell-000-000", new GridCellAddress(0, 0), item);
-        return new GridReconstructionRequest(InventoryGridSurface.Stash, lattice, [observation]);
+        return new GridReconstructionRequest(surface, lattice, [observation]);
     }
 
     private static async Task<ProfileRuntimeContextService> ReadyProfileContextAsync()

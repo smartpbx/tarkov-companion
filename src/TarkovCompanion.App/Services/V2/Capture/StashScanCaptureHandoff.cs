@@ -55,9 +55,13 @@ public sealed class StashScanCaptureHandoff(
         // A screenshot armed as Stash carries a Stash-surface grid whatever the screen detector
         // then called it. While a guided scan is collecting, that is enough: a stash row read as
         // "flea" by the anchor detector must not drop out of the scroll-through.
+        // An Ammo or Keys sub-scan (#283) takes the open case window, read as a Container grid,
+        // and nothing else: a stash panel read while it collects is not one of its cases.
+        var subScan = guidedScan is { Current: { IsCollecting: true, Kind: not StashScanKind.Full } };
+        var guidedSurface = subScan ? InventoryGridSurface.Container : InventoryGridSurface.Stash;
         var isGuidedFrame = guidedScan is { Current.IsCollecting: true } &&
-                            request.Analysis.Grid is { Surface: InventoryGridSurface.Stash };
-        if (request.EffectiveIntent != ScanIntent.Stash && !isGuidedFrame)
+                            request.Analysis.Grid?.Surface == guidedSurface;
+        if (subScan ? !isGuidedFrame : request.EffectiveIntent != ScanIntent.Stash && !isGuidedFrame)
         {
             return CaptureHandoffResult.Accepted;
         }
@@ -90,7 +94,7 @@ public sealed class StashScanCaptureHandoff(
             profile.Context.Mode.ToString());
         var assembledUtc = _timeProvider.GetUtcNow();
         var contentHash = request.Analysis.ResultId;
-        var reconstructionRequest = request.Analysis.Grid is { Surface: InventoryGridSurface.Stash } stashRequest
+        var reconstructionRequest = request.Analysis.Grid is { Surface: InventoryGridSurface.Stash or InventoryGridSurface.Container } stashRequest
             ? stashRequest
             : new(InventoryGridSurface.Stash, lattice: null, occupiedCells: []);
         var reconstruction = _gridReconstructor.Reconstruct(reconstructionRequest, cancellationToken);

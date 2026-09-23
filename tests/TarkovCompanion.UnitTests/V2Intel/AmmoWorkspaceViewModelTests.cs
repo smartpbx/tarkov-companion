@@ -141,9 +141,55 @@ public sealed class AmmoWorkspaceViewModelTests
         Assert.Equal(page.SelectedRound!.ItemId, opened);
     }
 
+    /// <summary>
+    /// #283: what a case scan counted reaches the Ammo page, loose rounds plus sealed packs, and a
+    /// round nobody counted says so rather than "none".
+    /// </summary>
+    [Fact]
+    public async Task OwnedRoundsFromAScanShowOnTheCaliberTheRoundAndTheContextPanel()
+    {
+        var profile = new OwnedCountsProfile(new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["round-60"] = 35,
+            ["pack-60"] = 2,
+            ["round-20"] = 0,
+        });
+        var (page, workspace) = await LoadedAsync(profiles: profile, packs: [new("pack-60", "round-60", 30, Provenance)]);
+        await WaitUntilAsync(() => workspace.HasRounds);
+
+        Assert.Equal("95 owned", Assert.Single(workspace.Calibers).Owned);
+        var rows = workspace.Rounds.ToDictionary(row => row.Round.ItemId);
+        Assert.Equal("95 owned", rows["round-60"].Owned);
+        Assert.Equal("None owned", rows["round-20"].Owned);
+        Assert.False(rows["round-35"].HasOwned);
+
+        page.SelectedRound = rows["round-60"].Round;
+        Assert.Equal("You own 95 rounds.", workspace.SelectedOwned);
+        page.SelectedRound = rows["round-35"].Round;
+        Assert.Equal("Owned: not scanned. Stash › Ammo cases.", workspace.SelectedOwned);
+
+        // A scan lands while the page is open; showing the page again re-reads it.
+        profile.Owned = new Dictionary<string, int>(StringComparer.Ordinal) { ["round-35"] = 120 };
+        await workspace.LoadOwnedAsync();
+        Assert.Equal("You own 120 rounds.", workspace.SelectedOwned);
+        Assert.Equal("120 owned", Assert.Single(workspace.Calibers).Owned);
+    }
+
+    [Fact]
+    public void Without_a_profile_the_page_says_nothing_about_ownership()
+    {
+        var owned = new OwnedAmmo(new Dictionary<string, int>(StringComparer.Ordinal), []);
+
+        Assert.Null(owned.RoundsOf("round"));
+        Assert.Null(owned.RoundsOf(["a", "b"]));
+        Assert.Equal(string.Empty, OwnedAmmo.Short(null));
+    }
+
     private static async Task<(AmmoPageViewModel Page, AmmoWorkspaceViewModel Workspace)> LoadedAsync(
         Action<string>? openItem = null,
-        int[]? penetrations = null)
+        int[]? penetrations = null,
+        TarkovCompanion.Core.Abstractions.IPlayerProfileService? profiles = null,
+        AmmoPackContents[]? packs = null)
     {
         penetrations ??= Penetrations;
         var stats = penetrations
@@ -151,8 +197,9 @@ public sealed class AmmoWorkspaceViewModelTests
                 $"round-{penetration}", "Caliber556x45NATO", 50, penetration, 40, 0.1, 1, null, null, null, false, false, Provenance))
             .ToArray();
         var page = new AmmoPageViewModel(
-            new FakeFactCatalog { Ammo = stats },
-            new FakeItemRepository(penetrations.Select(penetration => Item($"round-{penetration}", $"Round {penetration}")).ToArray()));
+            new FakeFactCatalog { Ammo = stats, Packs = packs ?? [] },
+            new FakeItemRepository(penetrations.Select(penetration => Item($"round-{penetration}", $"Round {penetration}")).ToArray()),
+            profiles);
         var workspace = new AmmoWorkspaceViewModel(page, openItem);
 
         await page.LoadAsync();

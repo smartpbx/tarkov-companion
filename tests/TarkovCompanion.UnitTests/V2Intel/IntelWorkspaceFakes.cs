@@ -46,10 +46,12 @@ internal sealed class FakeFactCatalog : IItemFactCatalog
 
     public IReadOnlyList<KeyFacts> Keys { get; init; } = [];
 
+    public IReadOnlyList<AmmoPackContents> Packs { get; init; } = [];
+
     public Task<IReadOnlyList<AmmoStats>> GetAmmoAsync(CancellationToken cancellationToken) => Task.FromResult(Ammo);
 
     public Task<IReadOnlyList<AmmoPackContents>> GetAmmoPacksAsync(CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<AmmoPackContents>>([]);
+        Task.FromResult(Packs);
 
     public Task<IReadOnlyList<LoadoutItemFacts>> GetLoadoutFactsAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<LoadoutItemFacts>>([]);
@@ -79,4 +81,39 @@ internal sealed class FakeItemRepository(params ItemDefinition[] items) : IItemR
 
     public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken) =>
         Task.FromResult(Price);
+}
+
+/// <summary>A profile whose owned counts a test sets, as a stash or case scan would.</summary>
+internal sealed class OwnedCountsProfile(IReadOnlyDictionary<string, int> owned) : IPlayerProfileService
+{
+    public IReadOnlyDictionary<string, int> Owned { get; set; } = owned;
+
+    public Task<TarkovCompanion.Core.Domain.Profile.PlayerProfile> GetActiveAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new TarkovCompanion.Core.Domain.Profile.PlayerProfile(
+            Guid.Empty,
+            "Tester",
+            GameMode.Regular,
+            Level: 10,
+            TarkovCompanion.Core.Domain.Profile.Faction.Usec,
+            Edition: null,
+            TraderLevels: new Dictionary<string, int>(StringComparer.Ordinal),
+            CompletedTaskIds: new HashSet<string>(StringComparer.Ordinal),
+            ObjectiveProgress: new Dictionary<string, int>(StringComparer.Ordinal),
+            HideoutStationLevels: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+            WishlistItemIds: new HashSet<string>(StringComparer.Ordinal),
+            OwnedItemCounts: Owned,
+            EventItemStates: new Dictionary<string, TarkovCompanion.Core.Domain.Events.EventItemState>(StringComparer.Ordinal),
+            ItemOverrides: new Dictionary<string, string>(StringComparer.Ordinal),
+            UpdatedUtc: DateTimeOffset.UnixEpoch));
+
+    public Task SaveAsync(TarkovCompanion.Core.Domain.Profile.PlayerProfile profile, CancellationToken cancellationToken)
+    {
+        Owned = profile.OwnedItemCounts;
+        return Task.CompletedTask;
+    }
+
+    public Task<string> ExportJsonAsync(CancellationToken cancellationToken) => Task.FromResult(string.Empty);
+
+    public Task<TarkovCompanion.Core.Domain.Profile.PlayerProfile> ImportJsonAsync(string json, CancellationToken cancellationToken) =>
+        GetActiveAsync(cancellationToken);
 }

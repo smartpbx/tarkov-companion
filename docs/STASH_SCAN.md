@@ -116,8 +116,8 @@ than claims that the current synthetic fixtures meet them.
 `Views/V2/StashScan` is the first caller of this backend outside its own tests. It registers
 `StashScanWorkflow` and its dependencies in `AppComposition.cs`, lists and browses persisted
 snapshots, and shows an ammo and key summary by joining recognized items against
-`IItemFactCatalog`. Starting a scan runs the guided full-stash capture; specialist Ammo and Keys
-sub-scans are not offered until their handoff exists.
+`IItemFactCatalog`. Starting a scan runs the guided full-stash capture, or an Ammo or Keys case
+sub-scan (below).
 
 `StashScanCaptureHandoff` (#273) bridges an accepted Stash-intent capture into this backend. While
 a guided scan is collecting (below) the capture joins that scan; otherwise it
@@ -127,8 +127,7 @@ session rooted at the `stash` container path, confirmed to start at cell zero wi
 total-cell count. Moving through container tabs, opening nested containers to capture them, and
 supplying a real total-cell hint across an ordered multi-capture session are capture-lifecycle UI
 this pass does not add; `StashScanAssembler` already stitches multiple frames when a future package
-supplies them with origin hints, so nothing here needs to change to support that. Ammo and Keys
-intents still have no handoff and are acknowledged without producing advice. General items are
+supplies them with origin hints, so nothing here needs to change to support that. General items are
 sorted into Keep, Sell and Review by `StashPlanSource` (see "The sort plan's caller" above);
 #308 ammo/key intelligence is still not wired, so ammo and keys stay under Review.
 
@@ -136,8 +135,7 @@ sorted into Keep, Sell and Review by `StashPlanSource` (see "The sort plan's cal
 
 A stash is taller than a screen: 34 rows is three 1080p screens. `GuidedStashScanService` holds the
 screenshots of one scroll-through until the player presses Finish, and says after each one what to
-do next. Choosing **Full stash** and **Start scan** in the workspace starts it; Ammo and Keys still
-go through the shared capture dialog as one screenshot.
+do next. Choosing **Full stash** and **Start scan** in the workspace starts it.
 
 - **Arming.** An armed intent lives fifteen seconds and is spent by one capture, so
   `GuidedStashScanArming` re-arms Stash whenever the capture service is idle, but only while the
@@ -166,6 +164,19 @@ go through the shared capture dialog as one screenshot.
   for an item a quest or hideout level needs that it did not see and that had no count at all, so
   the planning pages read "0" instead of "?"; a count already recorded for an unseen item is
   untouched (it may be in a case), and anything short of exact leaves "?" alone.
+
+## Ammo and Keys case sub-scans (#283)
+
+**Ammo cases** and **Key cases** start the same guided scan with a `StashScanKind`: one screenshot
+per open case, armed as the Ammo or Keys intent, whose screen is read as the Container surface.
+`CaseWindowLocator` finds the open case by its one-pixel gold frame, so the stash and gear behind it
+are never read. Each screenshot is its own container (`ammo-case-1`, ...), the snapshot is saved
+beside the current stash snapshot rather than replacing it, and only rounds and ammo packs (or keys)
+are written to the owned counts, and only upward: one case is not the whole stash. Intel › Ammo and
+Keys and the Loadout ammo line read those counts ("220 owned"; a round never counted says "not
+scanned"). `RealStashNamingMeasurementTests` scores placed and named per real frame; on the two
+real frames with a 14x14 case open, placed went from 121/140 to 140/140 and named from 71 to 85,
+none wrong. No real screenshot of an ammo case or key tool exists yet.
 
 ### What was measured, and on what
 

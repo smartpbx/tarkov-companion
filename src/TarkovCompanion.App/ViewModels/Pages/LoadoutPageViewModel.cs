@@ -239,7 +239,9 @@ public sealed class LoadoutPageViewModel : PageViewModel
         ILoadoutPresetStore? presets = null,
         TimeProvider? clock = null,
         AllergyWarningService? allergies = null,
-        IItemAcquisitionService? acquisitions = null)
+        IItemAcquisitionService? acquisitions = null,
+        // #283: how many of the assigned round the player owns, from stash and Ammo case scans.
+        IPlayerProfileService? profiles = null)
         : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
@@ -248,6 +250,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         _presets = presets;
         _allergies = allergies;
         _acquisitions = acquisitions;
+        _profiles = profiles;
         _clock = clock ?? TimeProvider.System;
         SearchCommand = new AsyncDelegateCommand(SearchAsync);
         EvaluateCommand = new AsyncDelegateCommand(EvaluateAsync);
@@ -591,7 +594,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             Warnings = evaluation.Warnings.Select(message => Finding(evaluation, message)).ToArray();
             CostSummary = DescribeCost(evaluation);
             WeightSummary = DescribeWeight(evaluation);
-            AmmoTierSummary = DescribeAmmoTier(evaluation);
+            AmmoTierSummary = DescribeAmmoTier(evaluation) + await DescribeOwnedRoundsAsync(cancellationToken).ConfigureAwait(true);
             _evaluatedCost = evaluation.ApproximateCostRoubles;
             _evaluatedWeight = evaluation.ApproximateWeightKg;
             _evaluatedAmmoTier = evaluation.AmmoTier;
@@ -1397,6 +1400,26 @@ public sealed class LoadoutPageViewModel : PageViewModel
         return evaluation.KnownWeightKg is { } known
             ? $"At least {Kilograms(known)} · {coverage.Known} of {coverage.Total} weighed"
             : $"No total · {coverage.Known} of {coverage.Total} weighed";
+    }
+
+    private readonly IPlayerProfileService? _profiles;
+
+    /// <summary>" · 180 owned" for the assigned round (a pack counts as its round), or nothing.</summary>
+    private async Task<string> DescribeOwnedRoundsAsync(CancellationToken cancellationToken)
+    {
+        if (_profiles is null || FirstId(LoadoutSlot.Ammunition) is not { } assigned)
+        {
+            return string.Empty;
+        }
+
+        var packs = await _catalog.GetAmmoPacksAsync(cancellationToken).ConfigureAwait(true);
+        var round = packs.FirstOrDefault(pack => string.Equals(pack.PackItemId, assigned, StringComparison.Ordinal))?.AmmoItemId ?? assigned;
+        var profile = await _profiles.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+        return new OwnedAmmo(profile.OwnedItemCounts, packs).RoundsOf(round) switch
+        {
+            null => " · owned not scanned",
+            var count => " · " + OwnedAmmo.Short(count).ToLower(CultureInfo.CurrentCulture),
+        };
     }
 
     private static string DescribeAmmoTier(LoadoutEvaluation evaluation) =>

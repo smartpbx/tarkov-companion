@@ -110,6 +110,42 @@ public sealed class StashScanWorkspaceViewModelTests
         Assert.Equal(string.Empty, viewModel.SelectedItemDisplayName);
     }
 
+    /// <summary>#283: the Ammo and Keys chips start guided case sub-scans, not a one-off capture.</summary>
+    [Theory]
+    [InlineData(ScanIntent.Ammo, StashScanKind.Ammo, "ammo case")]
+    [InlineData(ScanIntent.Keys, StashScanKind.Keys, "key tool")]
+    public async Task The_ammo_and_key_chips_start_a_guided_case_scan(ScanIntent intent, StashScanKind kind, string asksFor)
+    {
+        var store = new FakeSnapshotStore();
+        var reviewCommands = new InMemoryStashReviewCommandSink();
+        var workflow = Workflow(store, reviewCommands);
+        var guided = new GuidedStashScanService(
+            new StashScanAssembler(),
+            new StashLayoutAligner(),
+            new StashReconstructionProjector(),
+            workflow,
+            new StashOwnedCountsApplier(new StubProfileService(RuntimeSnapshot().Profile!)),
+            new MemoryPendingStore());
+        var viewModel = new StashScanWorkspaceViewModel(
+            store,
+            workflow,
+            reviewCommands,
+            new FakeItemFactCatalog([], []),
+            new FakeRuntimeStateStore(RuntimeSnapshot()),
+            guidedScan: guided);
+        var requested = new List<ScanIntent>();
+        viewModel.ScanRequested += (_, requestedIntent) => requested.Add(requestedIntent);
+        await viewModel.LoadAsync();
+
+        viewModel.ScanTargets.Single(target => target.Intent == intent).SelectCommand.Execute(null);
+        await ((AsyncDelegateCommand)viewModel.StartSelectedScanCommand).ExecuteAsync();
+
+        Assert.Empty(requested);
+        Assert.True(viewModel.IsScanInProgress);
+        Assert.Equal(kind, guided.Current.Kind);
+        Assert.Contains(asksFor, viewModel.GuidedNextStep, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_full_stash_scan_is_guided_shown_while_it_collects_and_saved_on_finish()
     {
@@ -219,8 +255,9 @@ public sealed class StashScanWorkspaceViewModelTests
     public async Task A_loaded_snapshot_is_sorted_and_the_plan_tiles_count_it()
     {
         // #283: the planner had no caller, so this row was Review and three tiles read a dash.
+        // The profile context's scope (Pvp) is the one the capture handoff saves under.
         var store = new FakeSnapshotStore();
-        store.Seed(Record());
+        store.Seed(Record(scope: new(ProfileId, "wipe-fixture", "Pvp")));
         var provenance = new DataProvenance("fixture", DateTimeOffset.UnixEpoch);
         var catalog = new FakeItemFactCatalog(
             [new AmmoStats("ammo-9x19", "9x19mm", 10, 20, null, null, 1, null, null, null, false, false, provenance)],
@@ -522,7 +559,8 @@ public sealed class StashScanWorkspaceViewModelTests
         Guid? snapshotId = null,
         string recognitionSnapshotId = "stash-snapshot-1",
         int rowOffset = 0,
-        bool isCurrent = true)
+        bool isCurrent = true,
+        InventoryProfileScope? scope = null)
     {
         var provenance = V2ContractTestData.ScreenshotProvenance();
         var region = new StashCaptureRegion(
@@ -549,7 +587,7 @@ public sealed class StashScanWorkspaceViewModelTests
             V2ContractTestData.Complete("stash", stash, provenance));
         return new StashSnapshotRecord(
             snapshotId ?? SnapshotId,
-            Scope(),
+            scope ?? Scope(),
             "data-snapshot-1",
             V2ContractTestData.ObservedUtc.AddMinutes(1),
             isCurrent,
