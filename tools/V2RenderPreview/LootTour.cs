@@ -105,7 +105,7 @@ internal static class LootTour
         return process.TotalProcessorTime;
     }
 
-    private static void SetLoot(RaidCockpitViewModel raid, bool on)
+    internal static void SetLoot(RaidCockpitViewModel raid, bool on)
     {
         Console.WriteLine("[loot] layers: " + string.Join(", ", raid.Renderer?.Layers.Select(layer => $"{layer.Layer.Id.Value}={layer.Count}{(layer.IsVisible ? "*" : string.Empty)}") ?? []) +
             $" | loot panel unavailable {raid.Renderer?.HighValueLoot?.IsUnavailable}: {raid.Renderer?.HighValueLoot?.StateMessage}");
@@ -117,7 +117,7 @@ internal static class LootTour
         }
     }
 
-    private static bool? LootOn(RaidCockpitViewModel raid) =>
+    internal static bool? LootOn(RaidCockpitViewModel raid) =>
         raid.Renderer?.Layers.FirstOrDefault(layer => layer.Layer.Id == HighValueLootLayerService.LayerId)?.IsVisible;
 
     private static void ReportLootFloors(IServiceProvider services, RaidCockpitViewModel raid, string map)
@@ -280,7 +280,7 @@ internal static class LootTour
         Record(string.Create(Invariant, $"{map}: idle {seconds} s ({tick} squad ticks, {shots} screenshots)"), probe);
     }
 
-    private static void Select(RaidCockpitViewModel raid, string map)
+    internal static void Select(RaidCockpitViewModel raid, string map)
     {
         if (raid.MapPicker.FirstOrDefault(item => string.Equals(item.MapId, map, StringComparison.OrdinalIgnoreCase)) is { } item)
         {
@@ -292,7 +292,7 @@ internal static class LootTour
         }
     }
 
-    private static void WaitForMap(MainWindowViewModel viewModel, RaidCockpitViewModel raid, string map)
+    internal static void WaitForMap(MainWindowViewModel viewModel, RaidCockpitViewModel raid, string map)
     {
         var clock = Stopwatch.StartNew();
         while (clock.Elapsed < TimeSpan.FromSeconds(60))
@@ -329,7 +329,7 @@ internal static class LootTour
         UiStallMeter.Time(() => AvaloniaHeadlessPlatform.ForceRenderTimerTick());
     }
 
-    private static void Pump()
+    internal static void Pump()
     {
         var clock = Stopwatch.StartNew();
         var quiet = 0;
@@ -345,7 +345,7 @@ internal static class LootTour
         }
     }
 
-    private static void Drain(Task task)
+    internal static void Drain(Task task)
     {
         while (!task.IsCompleted)
         {

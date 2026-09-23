@@ -2215,6 +2215,12 @@ internal static class Program
                     StringOption(args, "--loot-basis"));
             }
 
+            // [#318] --loot-coverage-table <file.md>: every map's loot coverage, for docs/MAPS.md.
+            if (shell is not null && StringOption(args, "--loot-coverage-table") is { } lootCoverageTable)
+            {
+                LootCoverageTable.Write(services, viewModel, shell, lootCoverageTable);
+            }
+
             if (shell is not null && IntOption(args, "--memory-tour", 0) is var memorySwitches and > 0)
             {
                 StallTour.RunMemory(viewModel, shell, memorySwitches);
