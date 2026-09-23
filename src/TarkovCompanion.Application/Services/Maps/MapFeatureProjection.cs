@@ -49,7 +49,10 @@ public static class MapFeatureProjection
             // Loot never becomes a marker. Eight hundred of them would bury the exits, and
             // falling through to the extract layer -- which is what the layer mapping below
             // does with anything it does not recognise -- would draw a duffle bag as a way out.
-            if (feature.Kind == MapFeatureKind.Loot || !transform.TryProject(feature.Position, out var point))
+            // Switches become their own quiet scene layer once the V2 host asks for them. Until
+            // then they must not fall through the layer switch below and masquerade as extracts.
+            if (feature.Kind is MapFeatureKind.Loot or MapFeatureKind.Switch ||
+                !transform.TryProject(feature.Position, out var point))
             {
                 continue;
             }

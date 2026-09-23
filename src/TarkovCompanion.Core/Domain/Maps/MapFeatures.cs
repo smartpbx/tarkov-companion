@@ -14,6 +14,7 @@ public enum MapFeatureKind
     Transit,
     Spawn,
     Lock,
+    Switch,
 
     /// <summary>A container or a loose pile the game spawns loot in.</summary>
     /// <remarks>
@@ -62,6 +63,15 @@ public sealed record MapFeature(
     string? Faction = null,
     string? Detail = null)
 {
+    /// <summary>The primary catalog identity, when that payload publishes one.</summary>
+    public string? CatalogId { get; init; }
+
+    /// <summary>The switch graph node represented by this feature.</summary>
+    public MapSwitch? Switch { get; init; }
+
+    /// <summary>What this extract needs, resolved against the map's switch graph.</summary>
+    public MapExtractRequirements? ExtractRequirements { get; init; }
+
     /// <summary>Where a supplemental fact came from, or null for a primary-catalog feature.</summary>
     /// <remarks>
     /// Primary-feature provenance remains on the synced map payload. Reviewed supplements carry

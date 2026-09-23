@@ -173,9 +173,11 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
             }
 
             var itemName = (string id) => itemNames.GetValueOrDefault(id);
+            var switches = MapExtractRequirementReader.ReadSwitches(root);
             var features = new List<MapFeature>();
-            AddExtracts(root, "extracts", MapFeatureKind.Extract, features, itemName);
-            AddExtracts(root, "transits", MapFeatureKind.Transit, features, itemName);
+            AddExtracts(root, "extracts", MapFeatureKind.Extract, features, switches, itemName);
+            AddExtracts(root, "transits", MapFeatureKind.Transit, features, switches, itemName);
+            AddSwitches(switches, features);
             AddSpawns(root, features);
             AddLocks(root, features);
             AddLoot(root, features, containerNames, itemName);
@@ -298,6 +300,7 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         string property,
         MapFeatureKind kind,
         List<MapFeature> features,
+        IReadOnlyDictionary<string, MapSwitch> switches,
         Func<string, string?> itemName)
     {
         if (!root.TryGetProperty(property, out var array) || array.ValueKind != JsonValueKind.Array)
@@ -314,6 +317,7 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
 
             var name = ReadText(entry, "name") ?? ReadText(entry, "description") ?? "Unnamed";
             var faction = ReadText(entry, "faction");
+            var requirements = MapExtractRequirementReader.Read(entry, switches, itemName);
             features.Add(new(
                 kind,
                 name,
@@ -321,7 +325,25 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
                 faction,
                 kind == MapFeatureKind.Transit
                     ? "Transit to another map"
-                    : ExtractConditions.Describe(entry, itemName)));
+                    : ExtractConditions.Describe(entry, itemName, requirements))
+            {
+                CatalogId = ReadText(entry, "id"),
+                ExtractRequirements = requirements.HasAny ? requirements : null,
+            });
+        }
+    }
+
+    private static void AddSwitches(
+        IReadOnlyDictionary<string, MapSwitch> switches,
+        List<MapFeature> features)
+    {
+        foreach (var item in switches.Values)
+        {
+            features.Add(new(MapFeatureKind.Switch, item.Name, item.Position, Detail: "Map switch")
+            {
+                CatalogId = item.Id,
+                Switch = item,
+            });
         }
     }
 
