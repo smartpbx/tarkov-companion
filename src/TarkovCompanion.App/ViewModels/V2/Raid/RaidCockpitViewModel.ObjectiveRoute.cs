@@ -15,7 +15,17 @@ public sealed partial class RaidCockpitViewModel
     /// <summary>The player's last screenshot, else the spawn selected on the Raid map.</summary>
     internal ObjectiveRouteOrigin? ObjectiveRouteOrigin()
     {
-        if (_map.RenderModel is not { } model || RouteStart(model) is not { } start)
+        if (_map.RenderModel is not { } model)
+        {
+            return null;
+        }
+
+        // RouteStart remembers the spawn it used so the extract routes notice a new one; Plan asking
+        // for the origin must not make a spawn change look already handled.
+        var rememberedSpawn = _routeStartSpawnId;
+        var routeStart = RouteStart(model);
+        _routeStartSpawnId = rememberedSpawn;
+        if (routeStart is not { } start)
         {
             return null;
         }
@@ -26,7 +36,12 @@ public sealed partial class RaidCockpitViewModel
             return null;
         }
 
-        return new(new(start.At.X, start.At.Y), start.Label, unitsPerMetre);
+        // The extract routes label reads "From the selected spawn"; the objective route puts its
+        // origin after "from", so it keeps only the noun.
+        var label = _map.PlayerPosition is not null && start.Label.Contains("screenshot", StringComparison.Ordinal)
+            ? "your last screenshot"
+            : "the selected spawn";
+        return new(new(start.At.X, start.At.Y), label, unitsPerMetre);
     }
 
     /// <summary>Hands Plan's chosen-map visit order to the Raid map as numbered waypoints.</summary>
