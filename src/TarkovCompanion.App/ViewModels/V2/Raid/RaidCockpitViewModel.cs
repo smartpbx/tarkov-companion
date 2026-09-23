@@ -971,12 +971,12 @@ public sealed partial class RaidCockpitViewModel : BindableViewModel, IDisposabl
     /// <summary>The current map's name for the context panel header, e.g. "CUSTOMS".</summary>
     public string MapTitle => (SelectedMap?.Name ?? Renderer?.LocationLabel ?? string.Empty).ToUpper(CultureInfo.CurrentCulture);
 
-    /// <summary>"12 extracts · 5 spawn areas" for the context panel header.</summary>
+    /// <summary>"12 ways out (transits included; co-op hidden) · 5 spawn areas" for the context panel header.</summary>
     public string MapSummary => string.Join(
         " · ",
         new[]
         {
-            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} {(MapExtracts.Count == 1 ? "extract" : "extracts")}",
+            MapExtracts.Count == 0 ? null : $"{MapExtracts.Count} ways out (transits included; co-op hidden)",
             SpawnAreas.Count == 0 ? null : $"{SpawnAreas.Count} {(SpawnAreas.Count == 1 ? "spawn area" : "spawn areas")}",
         }.Where(part => part is not null));
 

@@ -19,6 +19,7 @@ public static class TrafficPriorSources
     {
         ArgumentNullException.ThrowIfNull(elements);
         var sources = new List<TrafficPriorSource>();
+        var namedWaysOut = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var element in elements)
         {
             var side = element.Faction == MapFeatureFaction.Scav ? 0.5 : 1;
@@ -31,6 +32,14 @@ public static class TrafficPriorSources
                     sources.Add(new(TrafficPriorSourceKind.PlayerSpawn, element.Position, side, "Player spawn"));
                     break;
                 case MapOverlayKind.Extracts:
+                    // The Raid card offers one row per name, includes transits, and hides co-op
+                    // exits by default. Count and model that same set so duplicate catalog rows
+                    // cannot make the traffic coverage chip disagree with the card.
+                    if (CoOpExtracts.IsCoOp(element.Label) || !namedWaysOut.Add(element.Label))
+                    {
+                        break;
+                    }
+
                     // A transit ("Factory →") is a way out that fewer raids take than an extract.
                     var transit = element.Label.EndsWith('→');
                     sources.Add(new(TrafficPriorSourceKind.Extract, element.Position, transit ? 0.5 : side, element.Label));

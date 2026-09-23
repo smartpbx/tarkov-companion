@@ -170,6 +170,23 @@ public sealed class KeepListPlannerTests
     }
 
     [Fact]
+    public async Task Quest_total_keeps_completed_and_recorded_needs_in_its_overall_count()
+    {
+        var inputs = Inputs(
+            Profile(progress: new Dictionary<string, int> { ["o-open"] = 1 }, completed: ["t-done"]),
+            quests:
+            [
+                new("t-done", "o-done", "item-a", 2, false),
+                new("t-open", "o-open", "item-a", 4, false),
+            ]);
+
+        var entry = Assert.Single((await KeepListPlanner.PlanAsync(inputs, Resolve(), CancellationToken.None)).Entries);
+
+        Assert.Equal(3, entry.QuestRemaining);
+        Assert.Equal(6, entry.QuestTotal);
+    }
+
+    [Fact]
     public async Task The_hideout_total_counts_every_level_and_the_remaining_only_those_above_the_built_one()
     {
         var levels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { ["workbench"] = 1 };
